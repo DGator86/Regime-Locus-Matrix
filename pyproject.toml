@@ -1,0 +1,47 @@
+[project]
+name = "regime-locus-matrix"
+version = "0.1.0"
+description = "RLM - Regime Locus Matrix trading framework"
+authors = [{name = "Darrin Vogeli"}]
+requires-python = ">=3.10"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "pydantic",
+    "pyyaml",
+    "python-dotenv",
+    "statsmodels",
+    "numba",
+    "yfinance",
+    "pandas-datareader",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "tabulate",
+    "jinja2"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "ruff",
+    "mypy"
+]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
