@@ -31,6 +31,16 @@ dev = [
     "ruff",
     "mypy"
 ]
+# Optional later upgrades (kept out of core install).
+options_data = [
+    "polygon-api-client",
+    "yahooquery"
+]
+scaling = [
+    "polars",
+    "dask",
+    "pyarrow"
+]
 
 [tool.black]
 line-length = 100
