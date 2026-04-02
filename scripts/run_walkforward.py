@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import argparse
+
 import pandas as pd
 
 from rlm.backtest.walkforward import run_walkforward, WalkForwardConfig
+from rlm.forecasting.hmm import HMMConfig
 from rlm.types.forecast import ForecastConfig
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--use-hmm", action="store_true")
+    parser.add_argument("--hmm-states", type=int, default=6)
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+
     bars = pd.read_csv("data/raw/sample_bars.csv", parse_dates=["timestamp"])
     bars = bars.sort_values("timestamp").set_index("timestamp")
 
@@ -29,6 +41,8 @@ def main() -> None:
             underlying_symbol="SPY",
             quantity_per_trade=1,
         ),
+        use_hmm=args.use_hmm,
+        hmm_config=HMMConfig(n_states=args.hmm_states) if args.use_hmm else None,
     )
 
     equity_df.to_csv("data/processed/walkforward_equity.csv")

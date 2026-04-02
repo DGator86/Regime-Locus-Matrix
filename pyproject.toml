@@ -1,6 +1,6 @@
 [project]
 name = "regime-locus-matrix"
-version = "0.1.0"
+version = "0.1.1"
 description = "RLM - Regime Locus Matrix trading framework"
 authors = [{name = "Darrin Vogeli"}]
 requires-python = ">=3.10"
@@ -20,7 +20,8 @@ dependencies = [
     "seaborn",
     "plotly",
     "tabulate",
-    "jinja2"
+    "jinja2",
+    "hmmlearn>=0.3.0"
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,10 @@ scaling = [
     "polars",
     "dask",
     "pyarrow"
+]
+
+hmm = [
+    "hmmlearn>=0.3.0"
 ]
 
 [tool.black]
