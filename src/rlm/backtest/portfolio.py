@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.backtest.fills import FillConfig, entry_fill_price, signed_cashflow_for_fill
+from rlm.backtest.lifecycle import LifecycleConfig
 from rlm.backtest.revalue import (
     aggregate_repriced_exit_value,
     aggregate_repriced_mark_value,
@@ -32,6 +33,7 @@ class OpenPosition:
     target_profit_pct: float
     max_risk_pct: float
     metadata: dict = field(default_factory=dict)
+    entry_bar_index: int | None = None
     current_mark_value_cache: float | None = None
     current_exit_value_cache: float | None = None
 
@@ -54,10 +56,16 @@ class OpenPosition:
 
 
 class Portfolio:
-    def __init__(self, initial_capital: float = 100_000.0, contract_multiplier: int = 100) -> None:
+    def __init__(
+        self,
+        initial_capital: float = 100_000.0,
+        contract_multiplier: int = 100,
+        lifecycle_config: LifecycleConfig | None = None,
+    ) -> None:
         self.initial_capital = float(initial_capital)
         self.cash = float(initial_capital)
         self.contract_multiplier = contract_multiplier
+        self.lifecycle_config = lifecycle_config or LifecycleConfig()
         self.open_positions: dict[str, OpenPosition] = {}
         self.closed_trades: list[TradeRecord] = []
         self.equity_history: list[dict] = []
@@ -107,6 +115,7 @@ class Portfolio:
         decision: TradeDecision,
         quantity: int = 1,
         fill_config: FillConfig | None = None,
+        bar_index: int | None = None,
     ) -> str | None:
         if decision.action != "enter":
             return None
@@ -116,12 +125,15 @@ class Portfolio:
             return None
 
         entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=fill_config)
+        leg_count = max(len(matched), 1)
+        entry_commission = self.lifecycle_config.commission_per_contract * leg_count * quantity
         total_entry_cost = entry_cost * quantity
 
-        if not self.can_open(total_entry_cost, quantity=1):
+        if not self.can_open(total_entry_cost + entry_commission, quantity=1):
             return None
 
         self.cash -= max(total_entry_cost, 0.0)
+        self.cash -= entry_commission
 
         expiry = matched[0]["expiry"] if matched else None
         position_id = str(uuid.uuid4())
@@ -134,12 +146,13 @@ class Portfolio:
             underlying_symbol=underlying_symbol,
             entry_underlying_price=float(underlying_price),
             expiry=expiry,
-            entry_cost=float(entry_cost),
+            entry_cost=float(entry_cost + (entry_commission / quantity)),
             quantity=int(quantity),
             matched_legs=matched,
             target_profit_pct=float(decision.target_profit_pct or 0.5),
             max_risk_pct=float(decision.max_risk_pct or 0.02),
             metadata=dict(decision.metadata),
+            entry_bar_index=bar_index,
         )
 
         # initialize mark and exit caches using entry snapshot
@@ -181,7 +194,9 @@ class Portfolio:
         if pos is None:
             return None
 
-        exit_value = pos.exit_value()
+        leg_count = max(len(pos.matched_legs), 1)
+        exit_commission = self.lifecycle_config.commission_per_contract * leg_count * pos.quantity
+        exit_value = pos.exit_value() - (exit_commission / pos.quantity)
         total_exit_value = exit_value * pos.quantity
         self.cash += max(total_exit_value, 0.0)
 
