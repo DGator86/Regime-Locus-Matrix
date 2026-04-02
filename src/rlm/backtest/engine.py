@@ -4,6 +4,7 @@ import pandas as pd
 
 from rlm.backtest.fills import FillConfig
 from rlm.backtest.lifecycle import (
+    ExpiryLiquidationPolicy,
     LifecycleConfig,
     is_at_or_past_expiry,
     should_close_for_max_holding,
@@ -114,6 +115,9 @@ class BacktestEngine:
 
     def _process_exits(self, ts: pd.Timestamp, row: pd.Series, bar_index: int) -> None:
         to_close: list[tuple[str, str]] = []
+        to_settle: list[str] = []
+
+        policy = self.lifecycle_config.expiry_liquidation_policy
 
         for position_id, pos in self.portfolio.open_positions.items():
             if should_close_for_max_holding(
@@ -124,20 +128,30 @@ class BacktestEngine:
                 to_close.append((position_id, "max_holding"))
                 continue
 
-            if should_force_close_before_expiry(
+            at_expiry = is_at_or_past_expiry(
                 timestamp=pd.Timestamp(ts),
                 expiry=pos.expiry,
-                config=self.lifecycle_config,
-            ):
-                to_close.append((position_id, "forced_pre_expiry"))
-                continue
+            )
 
-            if self.lifecycle_config.close_at_expiry_if_open and is_at_or_past_expiry(
-                timestamp=pd.Timestamp(ts),
-                expiry=pos.expiry,
-            ):
-                to_close.append((position_id, "expiry_close"))
-                continue
+            if policy == ExpiryLiquidationPolicy.SETTLE_AT_EXPIRY:
+                # Under SETTLE_AT_EXPIRY: let the position reach expiry and
+                # settle it using intrinsic value.  Do not force-close early.
+                if at_expiry:
+                    to_settle.append(position_id)
+                    continue
+            else:
+                # Default LIQUIDATE_BEFORE_EXPIRY behaviour.
+                if should_force_close_before_expiry(
+                    timestamp=pd.Timestamp(ts),
+                    expiry=pos.expiry,
+                    config=self.lifecycle_config,
+                ):
+                    to_close.append((position_id, "forced_pre_expiry"))
+                    continue
+
+                if self.lifecycle_config.close_at_expiry_if_open and at_expiry:
+                    to_close.append((position_id, "expiry_close"))
+                    continue
 
             pnl_pct = pos.pnl_pct()
 
@@ -166,4 +180,11 @@ class BacktestEngine:
                 timestamp_exit=pd.Timestamp(ts),
                 underlying_price=float(row["close"]),
                 exit_reason=reason,
+            )
+
+        for position_id in to_settle:
+            self.portfolio.expiry_settle_position(
+                position_id=position_id,
+                timestamp_exit=pd.Timestamp(ts),
+                underlying_price=float(row["close"]),
             )
