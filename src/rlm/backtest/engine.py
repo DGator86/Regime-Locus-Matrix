@@ -3,6 +3,12 @@ from __future__ import annotations
 import pandas as pd
 
 from rlm.backtest.fills import FillConfig
+from rlm.backtest.lifecycle import (
+    LifecycleConfig,
+    is_at_or_past_expiry,
+    should_close_for_max_holding,
+    should_force_close_before_expiry,
+)
 from rlm.backtest.portfolio import Portfolio
 from rlm.roee.chain_match import match_legs_to_chain
 from rlm.roee.exits import should_exit_for_profit, should_exit_for_regime_flip, should_exit_for_zone_breach
@@ -21,10 +27,13 @@ class BacktestEngine:
         underlying_symbol: str = "SPY",
         quantity_per_trade: int = 1,
         fill_config: FillConfig | None = None,
+        lifecycle_config: LifecycleConfig | None = None,
     ) -> None:
+        self.lifecycle_config = lifecycle_config or LifecycleConfig()
         self.portfolio = Portfolio(
             initial_capital=initial_capital,
             contract_multiplier=contract_multiplier,
+            lifecycle_config=self.lifecycle_config,
         )
         self.strike_increment = strike_increment
         self.underlying_symbol = underlying_symbol
@@ -39,7 +48,8 @@ class BacktestEngine:
         chain = normalize_option_chain(option_chain_df)
         features = classify_state_matrix(feature_df.copy())
 
-        for ts, row in features.iterrows():
+        for bar_index, (ts, row) in enumerate(features.iterrows()):
+            traded_this_bar = False
             row_chain = chain[
                 (chain["timestamp"] == pd.Timestamp(ts)) &
                 (chain["underlying"] == self.underlying_symbol)
@@ -51,7 +61,7 @@ class BacktestEngine:
                     fill_config=self.fill_config,
                 )
 
-            self._process_exits(ts, row)
+            self._process_exits(ts, row, bar_index)
 
             if row_chain.empty:
                 self.portfolio.mark_equity(ts)
@@ -74,7 +84,7 @@ class BacktestEngine:
                 strike_increment=self.strike_increment,
             )
 
-            if decision.action == "enter":
+            if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
                 dte_min = int(decision.candidate.target_dte_min) if decision.candidate else 20
                 dte_max = int(decision.candidate.target_dte_max) if decision.candidate else 45
                 chain_slice = select_nearest_expiry_slice(row_chain, dte_min=dte_min, dte_max=dte_max)
@@ -82,14 +92,16 @@ class BacktestEngine:
                 if not chain_slice.empty:
                     matched_decision = match_legs_to_chain(decision=decision, chain_slice=chain_slice)
                     if matched_decision.action == "enter":
-                        self.portfolio.open_from_decision(
+                        opened_id = self.portfolio.open_from_decision(
                             timestamp=pd.Timestamp(ts),
                             underlying_symbol=self.underlying_symbol,
                             underlying_price=float(row["close"]),
                             decision=matched_decision,
                             quantity=self.quantity_per_trade,
                             fill_config=self.fill_config,
+                            bar_index=bar_index,
                         )
+                        traded_this_bar = opened_id is not None
 
             self.portfolio.mark_equity(ts)
 
@@ -100,10 +112,33 @@ class BacktestEngine:
         summary = summarize_backtest(equity_frame, trades_frame)
         return equity_frame, trades_frame, summary
 
-    def _process_exits(self, ts: pd.Timestamp, row: pd.Series) -> None:
+    def _process_exits(self, ts: pd.Timestamp, row: pd.Series, bar_index: int) -> None:
         to_close: list[tuple[str, str]] = []
 
         for position_id, pos in self.portfolio.open_positions.items():
+            if should_close_for_max_holding(
+                entry_bar_index=pos.entry_bar_index,
+                current_bar_index=bar_index,
+                config=self.lifecycle_config,
+            ):
+                to_close.append((position_id, "max_holding"))
+                continue
+
+            if should_force_close_before_expiry(
+                timestamp=pd.Timestamp(ts),
+                expiry=pos.expiry,
+                config=self.lifecycle_config,
+            ):
+                to_close.append((position_id, "forced_pre_expiry"))
+                continue
+
+            if self.lifecycle_config.close_at_expiry_if_open and is_at_or_past_expiry(
+                timestamp=pd.Timestamp(ts),
+                expiry=pos.expiry,
+            ):
+                to_close.append((position_id, "expiry_close"))
+                continue
+
             pnl_pct = pos.pnl_pct()
 
             if should_exit_for_profit(pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct):
