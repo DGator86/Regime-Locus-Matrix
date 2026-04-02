@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pandas as pd
 
+from rlm.backtest.fills import FillConfig
 from rlm.backtest.portfolio import Portfolio
-from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
 from rlm.roee.chain_match import match_legs_to_chain
 from rlm.roee.exits import should_exit_for_profit, should_exit_for_regime_flip, should_exit_for_zone_breach
 from rlm.roee.policy import select_trade
 from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
 
 
 class BacktestEngine:
@@ -19,6 +20,7 @@ class BacktestEngine:
         strike_increment: float = 1.0,
         underlying_symbol: str = "SPY",
         quantity_per_trade: int = 1,
+        fill_config: FillConfig | None = None,
     ) -> None:
         self.portfolio = Portfolio(
             initial_capital=initial_capital,
@@ -27,6 +29,7 @@ class BacktestEngine:
         self.strike_increment = strike_increment
         self.underlying_symbol = underlying_symbol
         self.quantity_per_trade = quantity_per_trade
+        self.fill_config = fill_config or FillConfig(contract_multiplier=contract_multiplier)
 
     def run(
         self,
@@ -38,9 +41,15 @@ class BacktestEngine:
 
         for ts, row in features.iterrows():
             row_chain = chain[
-                (chain["timestamp"] == pd.Timestamp(ts))
-                & (chain["underlying"] == self.underlying_symbol)
+                (chain["timestamp"] == pd.Timestamp(ts)) &
+                (chain["underlying"] == self.underlying_symbol)
             ].copy()
+
+            if not row_chain.empty:
+                self.portfolio.revalue_open_positions(
+                    chain_snapshot=row_chain,
+                    fill_config=self.fill_config,
+                )
 
             self._process_exits(ts, row)
 
@@ -60,12 +69,8 @@ class BacktestEngine:
                 liquidity_regime=str(row["liquidity_regime"]),
                 dealer_flow_regime=str(row["dealer_flow_regime"]),
                 regime_key=str(row["regime_key"]),
-                bid_ask_spread_pct=float(row["bid_ask_spread"] / row["close"])
-                if "bid_ask_spread" in row and pd.notna(row["bid_ask_spread"])
-                else None,
-                has_major_event=bool(row["has_major_event"])
-                if "has_major_event" in row and pd.notna(row["has_major_event"])
-                else False,
+                bid_ask_spread_pct=float(row["bid_ask_spread"] / row["close"]) if "bid_ask_spread" in row and pd.notna(row["bid_ask_spread"]) else None,
+                has_major_event=bool(row["has_major_event"]) if "has_major_event" in row and pd.notna(row["has_major_event"]) else False,
                 strike_increment=self.strike_increment,
             )
 
@@ -83,6 +88,7 @@ class BacktestEngine:
                             underlying_price=float(row["close"]),
                             decision=matched_decision,
                             quantity=self.quantity_per_trade,
+                            fill_config=self.fill_config,
                         )
 
             self.portfolio.mark_equity(ts)
@@ -91,7 +97,6 @@ class BacktestEngine:
         trades_frame = self.portfolio.closed_trades_frame()
 
         from rlm.backtest.metrics import summarize_backtest
-
         summary = summarize_backtest(equity_frame, trades_frame)
         return equity_frame, trades_frame, summary
 
