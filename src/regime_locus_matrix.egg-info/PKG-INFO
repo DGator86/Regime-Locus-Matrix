@@ -1,0 +1,37 @@
+Metadata-Version: 2.4
+Name: regime-locus-matrix
+Version: 0.1.1
+Summary: RLM - Regime Locus Matrix trading framework
+Author: Darrin Vogeli
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: pydantic
+Requires-Dist: pyyaml
+Requires-Dist: python-dotenv
+Requires-Dist: statsmodels
+Requires-Dist: numba
+Requires-Dist: yfinance
+Requires-Dist: pandas-datareader
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: plotly
+Requires-Dist: tabulate
+Requires-Dist: jinja2
+Requires-Dist: hmmlearn>=0.3.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Provides-Extra: options-data
+Requires-Dist: polygon-api-client; extra == "options-data"
+Requires-Dist: yahooquery; extra == "options-data"
+Provides-Extra: scaling
+Requires-Dist: polars; extra == "scaling"
+Requires-Dist: dask; extra == "scaling"
+Requires-Dist: pyarrow; extra == "scaling"
+Provides-Extra: hmm
+Requires-Dist: hmmlearn>=0.3.0; extra == "hmm"
