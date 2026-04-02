@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 
 from rlm.backtest.engine import BacktestEngine
 from rlm.factors.pipeline import FactorPipeline
-from rlm.forecasting.pipeline import ForecastPipeline
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
 
 
@@ -27,6 +30,9 @@ def run_walkforward(
     option_chain: pd.DataFrame,
     forecast_config: ForecastConfig | None = None,
     wf_config: WalkForwardConfig | None = None,
+    use_hmm: bool = False,
+    hmm_config: HMMConfig | None = None,
+    hmm_model_dir: Path = Path("models"),
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg = wf_config or WalkForwardConfig()
     fc = forecast_config or ForecastConfig()
@@ -47,19 +53,31 @@ def run_walkforward(
         is_bars = bars.iloc[is_start:is_end].copy()
         oos_bars = bars.iloc[is_end:oos_end].copy()
 
-        # For now we only "fit" by computing rolling features from concatenated IS+OOS,
-        # while evaluation uses only OOS rows.
-        # Later this is where you'd freeze tuned params from IS.
         joined = pd.concat([is_bars, oos_bars], axis=0)
 
         feature_df = FactorPipeline().run(joined)
-        feature_df = ForecastPipeline(
-            config=fc,
-            move_window=cfg.is_window,
-            vol_window=cfg.is_window,
-        ).run(feature_df)
+
+        if use_hmm:
+            forecast_pipeline = HybridForecastPipeline(
+                config=fc,
+                move_window=cfg.is_window,
+                vol_window=cfg.is_window,
+                hmm_config=hmm_config or HMMConfig(),
+            )
+            train_mask = feature_df.index.isin(is_bars.index)
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
+
+            hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
+            forecast_pipeline.hmm.save(hmm_path)
+        else:
+            feature_df = ForecastPipeline(
+                config=fc,
+                move_window=cfg.is_window,
+                vol_window=cfg.is_window,
+            ).run(feature_df)
 
         oos_features = feature_df.loc[oos_bars.index].copy()
+        oos_features = classify_state_matrix(oos_features)
         oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
 
         engine = BacktestEngine(
