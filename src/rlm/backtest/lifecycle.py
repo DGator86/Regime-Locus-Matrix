@@ -1,17 +1,53 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 
 import pandas as pd
+
+from rlm.backtest.commission import CommissionConfig, CommissionModel
+
+
+class ExpiryLiquidationPolicy(str, Enum):
+    """Controls what happens to positions as they approach expiration.
+
+    LIQUIDATE_BEFORE_EXPIRY:
+        Force-close all positions when DTE reaches ``force_close_dte``.
+        No position survives to expiry.
+    SETTLE_AT_EXPIRY:
+        Allow positions to run to expiry and settle them at intrinsic value.
+        Positions are *not* force-closed before expiry by DTE.
+    """
+
+    LIQUIDATE_BEFORE_EXPIRY = "liquidate_before_expiry"
+    SETTLE_AT_EXPIRY = "settle_at_expiry"
 
 
 @dataclass(frozen=True)
 class LifecycleConfig:
     force_close_dte: int = 1
     close_at_expiry_if_open: bool = True
+    expiry_liquidation_policy: ExpiryLiquidationPolicy = ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
     max_holding_bars: int | None = None
     one_trade_per_bar: bool = True
+    # Legacy scalar — kept for backward compatibility.  Prefer commission_config.
     commission_per_contract: float = 0.65
+    commission_config: CommissionConfig = field(default_factory=CommissionConfig)
+
+    def __post_init__(self) -> None:
+        # Sync the legacy scalar with commission_config when it is still at the
+        # default.  If the caller explicitly supplied commission_config, that
+        # wins.  If only the legacy scalar differs from the default, build a
+        # matching CommissionConfig so both sources agree.
+        if (
+            self.commission_config == CommissionConfig()
+            and self.commission_per_contract != 0.65
+        ):
+            object.__setattr__(
+                self,
+                "commission_config",
+                CommissionConfig.from_legacy_rate(self.commission_per_contract),
+            )
 
 
 def days_to_expiry(*, timestamp: pd.Timestamp, expiry: str | pd.Timestamp | None) -> int | None:

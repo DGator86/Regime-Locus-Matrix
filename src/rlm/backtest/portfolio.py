@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from rlm.backtest.commission import calculate_commission
+from rlm.backtest.expiry import settle_legs_at_expiry
 from rlm.backtest.fills import FillConfig, entry_fill_price, signed_cashflow_for_fill
-from rlm.backtest.lifecycle import LifecycleConfig
+from rlm.backtest.lifecycle import ExpiryLiquidationPolicy, LifecycleConfig
 from rlm.backtest.revalue import (
     aggregate_repriced_exit_value,
     aggregate_repriced_mark_value,
@@ -126,7 +128,11 @@ class Portfolio:
 
         entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=fill_config)
         leg_count = max(len(matched), 1)
-        entry_commission = self.lifecycle_config.commission_per_contract * leg_count * quantity
+        entry_commission = calculate_commission(
+            config=self.lifecycle_config.commission_config,
+            leg_count=leg_count,
+            quantity=quantity,
+        )
         total_entry_cost = entry_cost * quantity
 
         if not self.can_open(total_entry_cost + entry_commission, quantity=1):
@@ -195,7 +201,11 @@ class Portfolio:
             return None
 
         leg_count = max(len(pos.matched_legs), 1)
-        exit_commission = self.lifecycle_config.commission_per_contract * leg_count * pos.quantity
+        exit_commission = calculate_commission(
+            config=self.lifecycle_config.commission_config,
+            leg_count=leg_count,
+            quantity=pos.quantity,
+        )
         exit_value = pos.exit_value() - (exit_commission / pos.quantity)
         total_exit_value = exit_value * pos.quantity
         self.cash += max(total_exit_value, 0.0)
@@ -219,6 +229,71 @@ class Portfolio:
             quantity=pos.quantity,
             exit_reason=exit_reason,
             metadata=dict(pos.metadata),
+        )
+
+        self.closed_trades.append(trade)
+        del self.open_positions[position_id]
+        return trade
+
+    def expiry_settle_position(
+        self,
+        *,
+        position_id: str,
+        timestamp_exit: pd.Timestamp,
+        underlying_price: float,
+    ) -> TradeRecord | None:
+        """Settle a position at expiry using intrinsic value.
+
+        Unlike :meth:`close_position` (which uses the cached mark/exit
+        values from market-data repricing), this method computes payoff
+        directly from the legs' intrinsic values at the settlement price.
+        No closing commissions are charged — expiry settlement is assumed
+        to be commission-free (assignment fees can be extended here if
+        needed in the future).
+
+        The portfolio cash is credited or debited by the net settlement
+        amount.  For short ITM legs the assignment is simulated and the
+        cash impact is correctly negative.
+        """
+        pos = self.open_positions.get(position_id)
+        if pos is None:
+            return None
+
+        settlement = settle_legs_at_expiry(
+            legs=pos.matched_legs,
+            underlying_price=float(underlying_price),
+            contract_multiplier=self.contract_multiplier,
+        )
+
+        # Cash impact per-unit * quantity
+        total_cash_impact = settlement.cash_impact * pos.quantity
+        self.cash += total_cash_impact
+
+        # Normalize exit_value to per-unit for the trade record
+        exit_value_per_unit = settlement.intrinsic_value * self.contract_multiplier
+        pnl = (exit_value_per_unit - pos.entry_cost) * pos.quantity
+        pnl_pct = pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
+
+        metadata = dict(pos.metadata)
+        metadata["settlement_notes"] = settlement.notes
+        metadata["assignment_occurred"] = settlement.assignment_occurred
+
+        trade = TradeRecord(
+            position_id=pos.position_id,
+            timestamp_entry=str(pos.timestamp_entry),
+            timestamp_exit=str(pd.Timestamp(timestamp_exit)),
+            strategy_name=pos.strategy_name,
+            regime_key=pos.regime_key,
+            underlying_symbol=pos.underlying_symbol,
+            entry_underlying_price=pos.entry_underlying_price,
+            exit_underlying_price=float(underlying_price),
+            entry_cost=pos.entry_cost * pos.quantity,
+            exit_value=exit_value_per_unit * pos.quantity,
+            pnl=float(pnl),
+            pnl_pct=float(pnl_pct) if pd.notna(pnl_pct) else np.nan,
+            quantity=pos.quantity,
+            exit_reason="expiry_settlement",
+            metadata=metadata,
         )
 
         self.closed_trades.append(trade)
