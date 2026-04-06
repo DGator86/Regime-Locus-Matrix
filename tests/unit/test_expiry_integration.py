@@ -217,8 +217,8 @@ class TestEngineExpiryLiquidationPolicy:
         chain = _make_chain_df(timestamps, expiry=expiry, strike=100.0)
 
         monkeypatch.setattr(
-            "rlm.backtest.engine.select_trade",
-            lambda **_: _single_leg_decision(expiry=expiry, side="long", strike=100.0),
+            "rlm.backtest.engine.decide_trade_for_bar",
+            lambda row, **_: _single_leg_decision(expiry=expiry, side="long", strike=100.0),
         )
         monkeypatch.setattr(
             "rlm.backtest.engine.match_legs_to_chain",
@@ -251,8 +251,8 @@ class TestEngineExpiryLiquidationPolicy:
         chain = _make_chain_df(timestamps, expiry=expiry)
 
         monkeypatch.setattr(
-            "rlm.backtest.engine.select_trade",
-            lambda **_: _single_leg_decision(expiry=expiry),
+            "rlm.backtest.engine.decide_trade_for_bar",
+            lambda row, **_: _single_leg_decision(expiry=expiry),
         )
         monkeypatch.setattr(
             "rlm.backtest.engine.match_legs_to_chain",

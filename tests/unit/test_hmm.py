@@ -35,6 +35,10 @@ def test_rlm_hmm_fit_and_predict_shape() -> None:
     assert states.shape == (250,)
     assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-6)
 
+    filt = model.predict_proba_filtered(df)
+    assert filt.shape == probs.shape
+    assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
+
 
 def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
     df = _synthetic_scores(220)

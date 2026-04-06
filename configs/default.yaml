@@ -1,0 +1,32 @@
+# Example defaults for backtest / walk-forward (reference only; wire in your own runner if needed).
+backtest:
+  initial_capital: 100000
+  contract_multiplier: 100
+  strike_increment: 1.0
+  underlying_symbol: SPY
+  quantity_per_trade: 1
+
+lifecycle:
+  force_close_dte: 1
+  close_at_expiry_if_open: true
+  expiry_liquidation_policy: liquidate_before_expiry  # or settle_at_expiry
+  max_holding_bars: null
+  one_trade_per_bar: true
+
+walkforward:
+  is_window: 100
+  oos_window: 50
+  step_size: 50
+
+# Used by ForecastPipeline / HybridForecastPipeline (optimize via scripts/optimize_forecast_params.py).
+forecast:
+  drift_gamma_alpha: 0.65
+  sigma_floor: 1.0e-4
+  direction_neutral_threshold: 0.3
+  move_window: 100
+  vol_window: 100
+
+roee_hmm:
+  hmm_confidence_threshold: 0.6
+  sizing_multiplier: 1.0
+  transition_penalty: 0.5

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from hmmlearn import hmm
 from pydantic import BaseModel, Field
+from scipy.special import logsumexp, softmax
 
 
 class HMMConfig(BaseModel):
@@ -38,12 +39,13 @@ class RLMHMM:
         if missing:
             raise ValueError(f"Missing required columns for HMM observations: {missing}")
 
+        block = df[list(required)].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
         scores = np.column_stack(
             [
-                df["S_D"].values,
-                df["S_V"].values,
-                df["S_L"].values,
-                df["S_G"].values,
+                block["S_D"].values,
+                block["S_V"].values,
+                block["S_L"].values,
+                block["S_G"].values,
             ]
         )
         return np.clip(np.nan_to_num(scores, nan=0.0, posinf=3.0, neginf=-3.0), -3.0, 3.0)
@@ -92,11 +94,38 @@ class RLMHMM:
         obs = self.prepare_observations(df)
         return self.model.predict_proba(obs)
 
+    def predict_proba_filtered(self, df: pd.DataFrame) -> np.ndarray:
+        """Forward (filtering) state probabilities P(z_t | x_{1:t}) only — no future observations.
+
+        Use this for walk-forward / live paths. :meth:`predict_proba` uses forward-backward
+        smoothing and conditions each row on the **entire** sequence (lookahead within ``df``).
+        """
+        if self.model is None:
+            raise RuntimeError("HMM model is not fitted")
+        obs = self.prepare_observations(df)
+        model = self.model
+        log_frame = model._compute_log_likelihood(obs)
+        n_samples, n_components = log_frame.shape
+        log_start = np.log(model.startprob_ + 1e-300)
+        log_trans = np.log(model.transmat_ + 1e-300)
+        log_alpha = np.zeros((n_samples, n_components))
+        log_alpha[0] = log_start + log_frame[0]
+        for t in range(1, n_samples):
+            log_alpha[t] = logsumexp(log_trans + log_alpha[t - 1][:, np.newaxis], axis=0) + log_frame[t]
+        out = np.zeros((n_samples, n_components))
+        for t in range(n_samples):
+            out[t] = softmax(log_alpha[t])
+        return out
+
     def most_likely_state(self, df: pd.DataFrame) -> np.ndarray:
         if self.model is None:
             raise RuntimeError("HMM model is not fitted")
         obs = self.prepare_observations(df)
         return self.model.predict(obs)
+
+    def most_likely_state_filtered(self, df: pd.DataFrame) -> np.ndarray:
+        probs = self.predict_proba_filtered(df)
+        return np.argmax(probs, axis=1).astype(int)
 
     def save(self, path: Path | None = None) -> None:
         path = path or self.config.model_path or Path("models/rlm_hmm.pkl")

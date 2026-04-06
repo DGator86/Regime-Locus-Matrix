@@ -11,11 +11,15 @@ from rlm.backtest.lifecycle import (
     should_force_close_before_expiry,
 )
 from rlm.backtest.portfolio import Portfolio
-from rlm.roee.chain_match import match_legs_to_chain
-from rlm.roee.exits import should_exit_for_profit, should_exit_for_regime_flip, should_exit_for_zone_breach
-from rlm.roee.policy import select_trade
-from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
+from rlm.roee.chain_match import match_legs_to_chain
+from rlm.roee.decision import select_trade_for_row
+from rlm.roee.exits import should_exit_for_profit, should_exit_for_regime_flip, should_exit_for_zone_breach
+from rlm.roee.pipeline import ROEEConfig
+from rlm.scoring.state_matrix import classify_state_matrix
+
+# Alias for tests and external monkeypatching (backtests call this once per bar).
+decide_trade_for_bar = select_trade_for_row
 
 
 class BacktestEngine:
@@ -29,8 +33,10 @@ class BacktestEngine:
         quantity_per_trade: int = 1,
         fill_config: FillConfig | None = None,
         lifecycle_config: LifecycleConfig | None = None,
+        roee_config: ROEEConfig | None = None,
     ) -> None:
         self.lifecycle_config = lifecycle_config or LifecycleConfig()
+        self.roee_config = roee_config
         self.portfolio = Portfolio(
             initial_capital=initial_capital,
             contract_multiplier=contract_multiplier,
@@ -49,12 +55,14 @@ class BacktestEngine:
         chain = normalize_option_chain(option_chain_df)
         features = classify_state_matrix(feature_df.copy())
 
+        ch = chain.loc[chain["underlying"] == self.underlying_symbol].copy()
+        chain_by_ts: dict[pd.Timestamp, pd.DataFrame] = {}
+        for tkey, grp in ch.groupby("timestamp", sort=False):
+            chain_by_ts[pd.Timestamp(tkey)] = grp.copy()
+
         for bar_index, (ts, row) in enumerate(features.iterrows()):
             traded_this_bar = False
-            row_chain = chain[
-                (chain["timestamp"] == pd.Timestamp(ts)) &
-                (chain["underlying"] == self.underlying_symbol)
-            ].copy()
+            row_chain = chain_by_ts.get(pd.Timestamp(ts), pd.DataFrame()).copy()
 
             if not row_chain.empty:
                 self.portfolio.revalue_open_positions(
@@ -68,21 +76,13 @@ class BacktestEngine:
                 self.portfolio.mark_equity(ts)
                 continue
 
-            decision = select_trade(
-                current_price=float(row["close"]),
-                sigma=float(row["sigma"]),
-                s_d=float(row["S_D"]),
-                s_v=float(row["S_V"]),
-                s_l=float(row["S_L"]),
-                s_g=float(row["S_G"]),
-                direction_regime=str(row["direction_regime"]),
-                volatility_regime=str(row["volatility_regime"]),
-                liquidity_regime=str(row["liquidity_regime"]),
-                dealer_flow_regime=str(row["dealer_flow_regime"]),
-                regime_key=str(row["regime_key"]),
-                bid_ask_spread_pct=float(row["bid_ask_spread"] / row["close"]) if "bid_ask_spread" in row and pd.notna(row["bid_ask_spread"]) else None,
-                has_major_event=bool(row["has_major_event"]) if "has_major_event" in row and pd.notna(row["has_major_event"]) else False,
+            rc = self.roee_config
+            decision = decide_trade_for_bar(
+                row,
                 strike_increment=self.strike_increment,
+                hmm_confidence_threshold=rc.hmm_confidence_threshold if rc is not None else None,
+                hmm_sizing_multiplier=rc.sizing_multiplier if rc is not None else 1.0,
+                hmm_transition_penalty=rc.transition_penalty if rc is not None else 0.5,
             )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
@@ -153,13 +153,15 @@ class BacktestEngine:
                     to_close.append((position_id, "expiry_close"))
                     continue
 
+            pricing_ok = bool(pos.metadata.get("reprice_ok", True))
+
             pnl_pct = pos.pnl_pct()
 
-            if should_exit_for_profit(pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct):
+            if pricing_ok and should_exit_for_profit(pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct):
                 to_close.append((position_id, "profit_target"))
                 continue
 
-            if should_exit_for_zone_breach(
+            if pricing_ok and should_exit_for_zone_breach(
                 realized_price=float(row["close"]),
                 lower_1s=float(row["lower_1s"]),
                 upper_1s=float(row["upper_1s"]),
@@ -167,7 +169,7 @@ class BacktestEngine:
                 to_close.append((position_id, "zone_breach"))
                 continue
 
-            if should_exit_for_regime_flip(
+            if pricing_ok and should_exit_for_regime_flip(
                 entry_regime_key=pos.regime_key,
                 current_regime_key=str(row["regime_key"]),
             ):

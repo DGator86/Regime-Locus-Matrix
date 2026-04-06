@@ -8,13 +8,12 @@ import pandas as pd
 
 from rlm.backtest.commission import calculate_commission
 from rlm.backtest.expiry import settle_legs_at_expiry
-from rlm.backtest.fills import FillConfig, entry_fill_price, signed_cashflow_for_fill
+from rlm.backtest.fills import FillConfig, entry_fill_price, exit_fill_price, signed_cashflow_for_fill
 from rlm.backtest.lifecycle import ExpiryLiquidationPolicy, LifecycleConfig
 from rlm.backtest.revalue import (
     aggregate_repriced_exit_value,
     aggregate_repriced_mark_value,
-    has_full_reprice,
-    reprice_matched_legs,
+    reprice_matched_legs_detailed,
 )
 from rlm.types.options import TradeDecision
 from rlm.types.results import TradeRecord
@@ -81,8 +80,20 @@ class Portfolio:
     def equity(self) -> float:
         return self.cash + self.total_mark_value()
 
-    def can_open(self, entry_cost: float, quantity: int = 1) -> bool:
-        required = max(entry_cost, 0.0) * quantity
+    def can_open(
+        self,
+        net_premium_debit_per_unit: float,
+        entry_commission: float,
+        quantity: int,
+        capital_reserve: float,
+    ) -> bool:
+        """Cash needed to open: commission + max(0, net premium outflow) + BP reserve for credit risk.
+
+        ``net_premium_debit_per_unit`` is the signed net from :meth:`_compute_entry_cost` (positive = pay debit).
+        """
+        total_premium_flow = float(net_premium_debit_per_unit) * int(quantity)
+        premium_cash_need = max(0.0, total_premium_flow)
+        required = float(entry_commission) + premium_cash_need + float(capital_reserve)
         return self.cash >= required
 
     def _compute_entry_cost(
@@ -107,6 +118,42 @@ class Portfolio:
                 contract_multiplier=self.contract_multiplier,
             )
         return float(total)
+
+    @staticmethod
+    def _capital_reserve_for_structure(
+        matched_legs: list[dict],
+        contract_multiplier: int,
+        quantity: int,
+    ) -> float:
+        """Conservative buying-power reserve for defined-risk multi-leg structures (strike span × multiplier)."""
+        if len(matched_legs) < 2:
+            return 0.0
+        strikes = [float(leg["strike"]) for leg in matched_legs]
+        width = max(strikes) - min(strikes)
+        if width <= 0.0:
+            return 0.0
+        return float(width) * float(contract_multiplier) * float(quantity)
+
+    def _initial_marks_from_matched_legs(
+        self,
+        *,
+        matched_legs: list[dict],
+        fill_config: FillConfig,
+    ) -> tuple[float, float]:
+        """Mid mark and executable exit value (per unit, × multiplier) right after entry fills."""
+        mark_total = 0.0
+        exit_total = 0.0
+        for leg in matched_legs:
+            side = str(leg["side"])
+            bid = float(leg["bid"])
+            ask = float(leg["ask"])
+            mid = float(leg.get("mid", (bid + ask) / 2.0))
+            signed_mid = mid if side == "long" else -mid
+            mark_total += signed_mid * self.contract_multiplier
+            exe = exit_fill_price(side=side, bid=bid, ask=ask, config=fill_config)
+            signed_ex = exe if side == "long" else -exe
+            exit_total += signed_ex * self.contract_multiplier
+        return float(mark_total), float(exit_total)
 
     def open_from_decision(
         self,
@@ -134,15 +181,21 @@ class Portfolio:
             quantity=quantity,
         )
         total_entry_cost = entry_cost * quantity
+        cfg = fill_config or FillConfig(contract_multiplier=self.contract_multiplier)
+        reserve = self._capital_reserve_for_structure(matched, self.contract_multiplier, quantity)
 
-        if not self.can_open(total_entry_cost + entry_commission, quantity=1):
+        if not self.can_open(entry_cost, entry_commission, quantity, reserve):
             return None
 
-        self.cash -= max(total_entry_cost, 0.0)
+        self.cash -= total_entry_cost
         self.cash -= entry_commission
 
         expiry = matched[0]["expiry"] if matched else None
         position_id = str(uuid.uuid4())
+        init_mark, init_exit = self._initial_marks_from_matched_legs(matched_legs=matched, fill_config=cfg)
+        meta = dict(decision.metadata)
+        meta["reprice_ok"] = True
+        meta["last_reprice"] = {"full": True, "missing_leg_count": 0, "stale": False}
 
         pos = OpenPosition(
             position_id=position_id,
@@ -157,13 +210,12 @@ class Portfolio:
             matched_legs=matched,
             target_profit_pct=float(decision.target_profit_pct or 0.5),
             max_risk_pct=float(decision.max_risk_pct or 0.02),
-            metadata=dict(decision.metadata),
+            metadata=meta,
             entry_bar_index=bar_index,
         )
 
-        # initialize mark and exit caches using entry snapshot
-        pos.current_mark_value_cache = 0.0
-        pos.current_exit_value_cache = 0.0
+        pos.current_mark_value_cache = init_mark
+        pos.current_exit_value_cache = init_exit
 
         self.open_positions[position_id] = pos
         return position_id
@@ -175,18 +227,35 @@ class Portfolio:
         fill_config: FillConfig | None = None,
     ) -> None:
         for pos in self.open_positions.values():
-            repriced = reprice_matched_legs(
+            result = reprice_matched_legs_detailed(
                 matched_legs=pos.matched_legs,
                 chain_snapshot=chain_snapshot,
                 contract_multiplier=self.contract_multiplier,
                 fill_config=fill_config,
             )
-            if not repriced:
-                continue
-
-            if has_full_reprice(pos.matched_legs, repriced):
-                pos.current_mark_value_cache = aggregate_repriced_mark_value(repriced)
-                pos.current_exit_value_cache = aggregate_repriced_exit_value(repriced)
+            if result.is_full:
+                pos.current_mark_value_cache = aggregate_repriced_mark_value(result.legs)
+                pos.current_exit_value_cache = aggregate_repriced_exit_value(result.legs)
+                pos.metadata["reprice_ok"] = True
+                pos.metadata["last_reprice"] = {
+                    "full": True,
+                    "missing_leg_count": 0,
+                    "stale": False,
+                }
+            elif result.legs:
+                pos.metadata["reprice_ok"] = False
+                pos.metadata["last_reprice"] = {
+                    "full": False,
+                    "missing_leg_count": result.missing_leg_count,
+                    "stale": True,
+                }
+            else:
+                pos.metadata["reprice_ok"] = pos.metadata.get("reprice_ok", True)
+                pos.metadata["last_reprice"] = {
+                    "full": False,
+                    "missing_leg_count": result.missing_leg_count,
+                    "stale": True,
+                }
 
     def close_position(
         self,
@@ -208,7 +277,7 @@ class Portfolio:
         )
         exit_value = pos.exit_value() - (exit_commission / pos.quantity)
         total_exit_value = exit_value * pos.quantity
-        self.cash += max(total_exit_value, 0.0)
+        self.cash += total_exit_value
 
         pnl = (exit_value - pos.entry_cost) * pos.quantity
         pnl_pct = pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan

@@ -42,9 +42,23 @@ scaling = [
     "dask",
     "pyarrow"
 ]
-
-hmm = [
-    "hmmlearn>=0.3.0"
+# HMM: hmmlearn is included in core dependencies above.
+# IBKR TWS API — equity history in ``rlm.data.ibkr_stocks``; option **combo orders** in ``rlm.execution``.
+ibkr = [
+    "ibapi"
+]
+# Parquet data lake + optional higher-level IB helpers (see scripts/fetch_ibkr_stock_parquet.py).
+datalake = [
+    "pyarrow",
+]
+# Massive Flat Files (S3 gzip CSV) → Parquet; see scripts/ingest_massive_flatfiles_options.py
+flatfiles = [
+    "boto3",
+    "pyarrow",
+]
+# Alternate IB stack (standalone example only): scripts/examples/ib_insync_fetch_stock_example.py
+ib-insync = [
+    "ib_insync",
 ]
 
 [tool.black]

@@ -109,7 +109,7 @@ def select_trade(
         metadata={
             "confidence": confidence,
             "require_defined_risk": require_defined_risk,
-            "current_price": current_price,
-            "sigma": sigma,
+            "current_price": float(current_price),
+            "sigma": float(sigma),
         },
     )

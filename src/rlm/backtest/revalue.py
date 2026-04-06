@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
 from rlm.backtest.fills import FillConfig, exit_fill_price
@@ -22,15 +21,36 @@ class RepricedLeg:
     symbol: str | None = None
 
 
+@dataclass(frozen=True)
+class RepriceResult:
+    """Outcome of repricing all legs against one chain snapshot."""
+
+    legs: list[RepricedLeg]
+    expected_leg_count: int
+
+    @property
+    def missing_leg_count(self) -> int:
+        return int(self.expected_leg_count - len(self.legs))
+
+    @property
+    def is_full(self) -> bool:
+        return len(self.legs) == self.expected_leg_count
+
+
+def _expiry_date_key(expiry_val: object) -> str:
+    return str(pd.Timestamp(expiry_val).date())
+
+
 def _match_leg_snapshot(
     *,
     leg: dict,
     chain_snapshot: pd.DataFrame,
 ) -> pd.Series | None:
+    leg_exp = _expiry_date_key(leg["expiry"])
     subset = chain_snapshot[
         (chain_snapshot["option_type"] == leg["option_type"])
         & (chain_snapshot["strike"] == float(leg["strike"]))
-        & (pd.to_datetime(chain_snapshot["expiry"]).dt.date.astype(str) == str(leg["expiry"]))
+        & (pd.to_datetime(chain_snapshot["expiry"]).dt.date.astype(str) == leg_exp)
     ].copy()
 
     if subset.empty:
@@ -40,13 +60,13 @@ def _match_leg_snapshot(
     return subset.iloc[0]
 
 
-def reprice_matched_legs(
+def reprice_matched_legs_detailed(
     *,
     matched_legs: list[dict],
     chain_snapshot: pd.DataFrame,
     contract_multiplier: int = 100,
     fill_config: FillConfig | None = None,
-) -> list[RepricedLeg]:
+) -> RepriceResult:
     """
     Reprices each previously matched leg using current chain snapshot.
     mark_value: mid-based signed valuation
@@ -87,7 +107,22 @@ def reprice_matched_legs(
             )
         )
 
-    return repriced
+    return RepriceResult(legs=repriced, expected_leg_count=len(matched_legs))
+
+
+def reprice_matched_legs(
+    *,
+    matched_legs: list[dict],
+    chain_snapshot: pd.DataFrame,
+    contract_multiplier: int = 100,
+    fill_config: FillConfig | None = None,
+) -> list[RepricedLeg]:
+    return reprice_matched_legs_detailed(
+        matched_legs=matched_legs,
+        chain_snapshot=chain_snapshot,
+        contract_multiplier=contract_multiplier,
+        fill_config=fill_config,
+    ).legs
 
 
 def aggregate_repriced_mark_value(repriced_legs: list[RepricedLeg]) -> float:

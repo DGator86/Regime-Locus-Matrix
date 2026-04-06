@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pandas as pd
 
 from rlm.standardization.transforms import log_tanh_ratio, log_tanh_signed, sigma_floor
 
@@ -49,3 +50,11 @@ def test_sigma_floor_applies_minimum() -> None:
     assert sigma_floor(0.0, 0.01) == 0.01
     assert sigma_floor(np.nan, 0.01) == 0.01
     assert sigma_floor(0.02, 0.01) == 0.02
+
+
+def test_log_tanh_handles_pandas_na() -> None:
+    """Nullable factor columns (e.g. IB-only bars) must not crash standardization."""
+    assert math.isnan(log_tanh_ratio(pd.NA, 1.0, k=1.0))
+    assert math.isnan(log_tanh_ratio(1.0, pd.NA, k=1.0))
+    assert math.isnan(log_tanh_signed(pd.NA, 1.0, k=1.0))
+    assert sigma_floor(pd.NA, 0.01) == 0.01

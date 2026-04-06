@@ -54,10 +54,10 @@ class HybridForecastPipeline:
             else:
                 self.hmm.fit(df, verbose=False)
 
-            probs = self.hmm.predict_proba(df)
+            probs = self.hmm.predict_proba_filtered(df)
             df["hmm_probs"] = probs.tolist()
-            df["hmm_state"] = self.hmm.most_likely_state(df)
+            df["hmm_state"] = self.hmm.most_likely_state_filtered(df)
             if self.hmm.state_labels:
-                df["hmm_state_label"] = [self.hmm.state_labels[s] for s in df["hmm_state"]]
+                df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
 
         return df

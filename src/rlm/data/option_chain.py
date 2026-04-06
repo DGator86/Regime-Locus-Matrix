@@ -58,6 +58,10 @@ def normalize_option_chain(df: pd.DataFrame) -> pd.DataFrame:
         "theta",
         "vega",
         "iv",
+        "iv_greeks",
+        "rho",
+        "charm",
+        "vanna",
         "open_interest",
         "volume",
     ]

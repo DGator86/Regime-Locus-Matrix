@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from rlm.types.options import OptionLeg, TradeCandidate
 
 
@@ -24,7 +26,11 @@ def target_strike_from_sigma(
     increment: float = 1.0,
 ) -> float:
     strike = current_price + sigma_to_price_offset(current_price, sigma, sigma_multiple)
-    return round_to_increment(strike, increment)
+    strike = round_to_increment(strike, increment)
+    floor = max(float(increment), 1e-6)
+    if not math.isfinite(strike) or strike < floor:
+        strike = max(floor, round_to_increment(float(current_price), increment) or floor)
+    return strike
 
 
 def build_legs_from_candidate(
@@ -130,7 +136,7 @@ def build_legs_from_candidate(
         "call_vertical_or_broken_wing_butterfly",
         "put_vertical_or_broken_wing_butterfly",
     }:
-        # simplified placeholder until expiry-aware chain matching is implemented
+        # Same-expiry two-leg vertical placeholder (not a true diagonal / BWB until multi-expiry matching exists).
         sign_long = candidate.long_sigma or 0.5
         sign_short = candidate.short_sigma or 1.5
         opt_type = "call" if "call" in name else "put"

@@ -91,7 +91,9 @@ def compute_composite_scores(
     score_df["S_L"] = standardized_factors[category_to_names[FactorCategory.LIQUIDITY]].mean(
         axis=1, skipna=True
     )
-    score_df["S_G"] = standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]].mean(
-        axis=1, skipna=True
+    score_df["S_G"] = (
+        standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]]
+        .mean(axis=1, skipna=True)
+        .fillna(0.0)
     )
     return score_df

@@ -9,6 +9,7 @@ from rlm.backtest.engine import BacktestEngine
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.roee.pipeline import ROEEConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
 
@@ -38,6 +39,15 @@ def run_walkforward(
     fc = forecast_config or ForecastConfig()
 
     bars = bars.sort_index().copy()
+    # Local import avoids circular import: rlm.datasets.backtest_data → walkforward.
+    from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+
+    bars = prepare_bars_for_factors(
+        bars,
+        option_chain,
+        underlying=cfg.underlying_symbol,
+        attach_vix=True,
+    )
     all_equity = []
     all_trades = []
     window_summaries = []
@@ -85,6 +95,7 @@ def run_walkforward(
             strike_increment=cfg.strike_increment,
             underlying_symbol=cfg.underlying_symbol,
             quantity_per_trade=cfg.quantity_per_trade,
+            roee_config=ROEEConfig() if use_hmm else None,
         )
 
         equity_frame, trades_frame, summary = engine.run(oos_features, oos_chain)

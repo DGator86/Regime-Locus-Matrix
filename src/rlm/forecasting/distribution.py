@@ -58,6 +58,7 @@ def compute_mu(
     """
     cfg = config or ForecastConfig()
 
+    s_g = s_g.fillna(0.0)
     mu = s_d * b_m * (1.0 + cfg.drift_gamma_alpha * s_g)
     mu = mu.where(s_d.abs() >= cfg.direction_neutral_threshold, 0.0)
     return mu
@@ -78,6 +79,7 @@ def compute_sigma(
     """
     cfg = config or ForecastConfig()
 
+    s_g = s_g.fillna(0.0)
     raw_sigma = (
         b_sigma
         * (0.5 + 0.5 * s_v)
