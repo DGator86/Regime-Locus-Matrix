@@ -59,6 +59,13 @@ def parse_args() -> argparse.Namespace:
         help="Option chain CSV for enrichment (default: data/raw/option_chain_{SYMBOL}.csv if present)",
     )
     parser.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX.")
+    parser.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    parser.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
     return parser.parse_args()
 
 
@@ -139,7 +146,11 @@ def main() -> None:
     policy_df = apply_roee_policy(
         state_df,
         strike_increment=5.0,
-        config=ROEEConfig(use_dynamic_sizing=args.dynamic_sizing),
+        config=ROEEConfig(
+            use_dynamic_sizing=args.dynamic_sizing,
+            min_regime_train_samples=args.min_regime_train_samples,
+            purge_bars=args.purge_bars,
+        ),
     )
 
     cols = [
@@ -159,6 +170,10 @@ def main() -> None:
         "forecast_return_median",
         "forecast_return_upper",
         "realized_vol",
+        "regime_train_sample_count",
+        "regime_train_sample_requirement",
+        "regime_train_sample_gap",
+        "regime_safety_ok",
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",
