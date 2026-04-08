@@ -28,6 +28,7 @@ RLM remains a deterministic and explicit options-native engine. Optional regime 
 - Transaction costs now support an extra friction model on top of fill slippage and commissions via `LifecycleConfig.transaction_cost_config`.
 - Walk-forward validation now supports purging and regime-aware training-window expansion via `--purge-bars` and `--regime-aware`.
 - **Backtests** (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): when you pass `--use-hmm` or `--use-markov`, the engine uses `ROEEConfig` so the same confidence-aware gating and sizing path is applied row-by-row. Without a regime model, decisions use `select_trade` only.
+- `scripts/calibrate_regime_models.py` runs a weekly champion/challenger tournament across HMM and Markov overlays, promotes the higher-Sharpe winner to `data/processed/live_regime_model.json`, and `scripts/analyze_universe_live.py` / `scripts/run_universe_options_pipeline.py` automatically load that promoted config unless `--ignore-live-model` is passed.
 
 Example usage:
 
@@ -110,6 +111,7 @@ All CLIs resolve paths from the **repository root** and use **`--symbol`** (defa
 | 5m backtest (e.g. 3 months) | `python scripts/run_backtest_5m.py --demo --months 3 --symbol SPY --no-vix` (synthetic 5m RTH bars + chain); with TWS: `--fetch-ibkr --months 3`. Writes `data/processed/backtest_equity_{SYM}_5m.csv` |
 | Walk-forward | `python scripts/run_walkforward.py` (writes `walkforward_*_{UNDERLYING}.csv`; `--underlying` defaults to `--symbol`) |
 | Tune forecast params | `python scripts/optimize_forecast_params.py --symbol SPY --trials 80 --objective composite` → prints top runs and writes `data/processed/forecast_param_search.json` |
+| Weekly regime tournament | `python scripts/calibrate_regime_models.py --symbol SPY --trials 24 --no-vix` or `scripts/weekly_regime_model_tournament.sh --symbol SPY --trials 24 --no-vix` → writes `regime_model_calibration.json` and promotes `live_regime_model.json` |
 
 ## Massive API
 

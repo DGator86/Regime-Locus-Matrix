@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from rlm.roee.decision import _finite_float, compute_hmm_modulators
+from rlm.roee.decision import _finite_float, compute_regime_modulators
 from rlm.roee.policy import select_trade
 from rlm.roee.regime_safety import attach_regime_safety_columns, build_regime_safety_rationale
 
@@ -26,10 +26,10 @@ class ROEEConfig:
     purge_bars: int = 0
 
 
-def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool]:
-    return compute_hmm_modulators(
+def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
+    return compute_regime_modulators(
         row,
-        hmm_confidence_threshold=config.hmm_confidence_threshold,
+        confidence_threshold=config.hmm_confidence_threshold,
         sizing_multiplier=config.sizing_multiplier,
         transition_penalty=config.transition_penalty,
     )
@@ -78,6 +78,10 @@ def apply_roee_policy(
     hmm_confidences = []
     hmm_size_multipliers = []
     hmm_trade_flags = []
+    regime_models = []
+    regime_confidences = []
+    regime_size_multipliers = []
+    regime_trade_flags = []
 
     for _, row in out.iterrows():
         mod = _hmm_modulators_for_config(row, cfg)
@@ -101,6 +105,10 @@ def apply_roee_policy(
             hmm_confidences.append(mod["confidence"])
             hmm_size_multipliers.append(mod["size_mult"])
             hmm_trade_flags.append(False)
+            regime_models.append(str(mod["model"]))
+            regime_confidences.append(mod["confidence"])
+            regime_size_multipliers.append(mod["size_mult"])
+            regime_trade_flags.append(False)
             continue
         if not bool(mod["trade"]):
             actions.append("hold")
@@ -113,6 +121,10 @@ def apply_roee_policy(
             hmm_confidences.append(mod["confidence"])
             hmm_size_multipliers.append(mod["size_mult"])
             hmm_trade_flags.append(False)
+            regime_models.append(str(mod["model"]))
+            regime_confidences.append(mod["confidence"])
+            regime_size_multipliers.append(mod["size_mult"])
+            regime_trade_flags.append(False)
             continue
 
         decision = select_trade(
@@ -177,6 +189,10 @@ def apply_roee_policy(
         hmm_confidences.append(mod["confidence"])
         hmm_size_multipliers.append(mod["size_mult"])
         hmm_trade_flags.append(decision.action == "enter")
+        regime_models.append(str(mod["model"]))
+        regime_confidences.append(mod["confidence"])
+        regime_size_multipliers.append(mod["size_mult"])
+        regime_trade_flags.append(decision.action == "enter")
 
     out["roee_action"] = actions
     out["roee_strategy"] = strategy_names
@@ -185,6 +201,10 @@ def apply_roee_policy(
     out["roee_target_profit_pct"] = target_profit_pcts
     out["roee_max_risk_pct"] = max_risk_pcts
     out["roee_leg_count"] = leg_counts
+    out["regime_model"] = regime_models
+    out["regime_confidence"] = regime_confidences
+    out["regime_size_mult"] = regime_size_multipliers
+    out["regime_trade_allowed"] = regime_trade_flags
     out["hmm_confidence"] = hmm_confidences
     out["hmm_size_mult"] = hmm_size_multipliers
     out["hmm_trade_allowed"] = hmm_trade_flags

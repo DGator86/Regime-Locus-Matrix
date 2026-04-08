@@ -47,6 +47,7 @@ from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors.pipeline import FactorPipeline
+from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_model
 from rlm.forecasting.pipeline import ForecastPipeline
 from rlm.roee.chain_match import (
     estimate_entry_cost_from_matched_legs,
@@ -92,6 +93,7 @@ def _prepare_symbol(
     attach_vix: bool,
     min_regime_train_samples: int,
     purge_bars: int,
+    live_model: LiveRegimeModelConfig | None,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -115,7 +117,14 @@ def _prepare_symbol(
 
     feats = FactorPipeline().run(df)
     feats = classify_state_matrix(feats)
-    forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+    if live_model is not None:
+        forecast = live_model.build_pipeline()
+        decision_kwargs = live_model.decision_kwargs()
+        active_model = live_model.model
+    else:
+        forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+        decision_kwargs = {}
+        active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
     out["has_major_event"] = False
@@ -133,6 +142,7 @@ def _prepare_symbol(
     )
 
     pipeline_row = {
+        "live_model": active_model,
         "close": float(last["close"]),
         "sigma": float(last["sigma"]) if pd.notna(last["sigma"]) else None,
         "mean_price": float(last["mean_price"]) if pd.notna(last.get("mean_price")) else None,
@@ -153,6 +163,7 @@ def _prepare_symbol(
     decision = select_trade_for_row(
         last,
         strike_increment=strike_increment,
+        **decision_kwargs,
         regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
         min_regime_train_samples=min_regime_train_samples,
         regime_purge_bars=purge_bars,
@@ -294,7 +305,8 @@ def _finalize_symbol(
         ],
     }
 
-    conf = float((decision.metadata or {}).get("confidence") or 0.0)
+    meta = decision.metadata or {}
+    conf = float(meta.get("regime_confidence") or meta.get("confidence") or 0.0)
     sf = float(decision.size_fraction or 0.0)
     score = conf * sf
 
@@ -398,6 +410,13 @@ def main() -> int:
         help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
     )
     p.add_argument(
+        "--live-model-config",
+        type=Path,
+        default=Path("data/processed/live_regime_model.json"),
+        help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
+    )
+    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
+    p.add_argument(
         "--out",
         type=Path,
         default=Path("data/processed/universe_trade_plans.json"),
@@ -412,6 +431,12 @@ def main() -> int:
         return 1
 
     syms = _parse_symbols(args.symbols)
+    live_model: LiveRegimeModelConfig | None = None
+    if not args.ignore_live_model:
+        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        if live_model_path.is_file():
+            live_model = load_live_regime_model(live_model_path)
+            print(f"Using live model config: {live_model_path}")
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
@@ -429,6 +454,7 @@ def main() -> int:
                 attach_vix=not args.no_vix,
                 min_regime_train_samples=args.min_regime_train_samples,
                 purge_bars=args.purge_bars,
+                live_model=live_model,
             )
         except Exception as e:
             results[i] = {

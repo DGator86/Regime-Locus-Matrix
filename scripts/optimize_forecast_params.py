@@ -53,7 +53,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-trades", type=int, default=15)
     p.add_argument("--drawdown-penalty", type=float, default=0.75)
     p.add_argument("--use-hmm", action="store_true", help="Slower: refit HMM each trial")
+    p.add_argument("--use-markov", action="store_true", help="Refit Markov-switching model each trial")
     p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument("--hmm-iterations", type=int, default=100)
+    p.add_argument("--hmm-filter-backend", choices=("auto", "numpy", "numba"), default="auto")
+    p.add_argument("--hmm-prefer-gpu", action="store_true")
+    p.add_argument("--markov-states", type=int, default=3)
     p.add_argument(
         "--top",
         type=int,
@@ -71,6 +76,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.use_hmm and args.use_markov:
+        print("Choose only one regime model: --use-hmm or --use-markov", file=sys.stderr)
+        return 1
     sym = str(args.symbol).upper().strip()
     bars_rel = args.bars or rel_bars_csv(sym)
     chain_rel = args.chain or rel_option_chain_csv(sym)
@@ -104,8 +112,13 @@ def main() -> int:
         rng=rng,
         objective=args.objective,  # type: ignore[arg-type]
         min_trades=args.min_trades,
+        use_markov=args.use_markov,
         use_hmm=args.use_hmm,
         hmm_states=args.hmm_states,
+        hmm_n_iter=args.hmm_iterations,
+        hmm_filter_backend=args.hmm_filter_backend,
+        hmm_prefer_gpu=args.hmm_prefer_gpu,
+        markov_states=args.markov_states,
         drawdown_penalty=args.drawdown_penalty,
     )
 

@@ -12,6 +12,67 @@ from hmmlearn import hmm
 from pydantic import BaseModel, Field
 from scipy.special import logsumexp, softmax
 
+try:
+    from numba import njit
+except Exception:  # pragma: no cover - optional acceleration path
+    njit = None
+
+try:
+    from numba import cuda as numba_cuda  # type: ignore[import-untyped]
+except Exception:  # pragma: no cover - GPU path is optional
+    numba_cuda = None
+
+
+def _forward_filter_logspace_numpy(
+    log_frame: np.ndarray,
+    log_start: np.ndarray,
+    log_trans: np.ndarray,
+) -> np.ndarray:
+    n_samples, n_components = log_frame.shape
+    log_alpha = np.zeros((n_samples, n_components), dtype=np.float64)
+    log_alpha[0] = log_start + log_frame[0]
+    for t in range(1, n_samples):
+        log_alpha[t] = logsumexp(log_trans + log_alpha[t - 1][:, np.newaxis], axis=0) + log_frame[t]
+    return log_alpha
+
+
+if njit is not None:
+
+    @njit(cache=True)
+    def _row_logsumexp(values: np.ndarray) -> float:
+        max_value = np.max(values)
+        acc = 0.0
+        for i in range(values.shape[0]):
+            acc += np.exp(values[i] - max_value)
+        return float(max_value + np.log(acc))
+
+
+    @njit(cache=True)
+    def _forward_filter_logspace_numba(
+        log_frame: np.ndarray,
+        log_start: np.ndarray,
+        log_trans: np.ndarray,
+    ) -> np.ndarray:
+        n_samples, n_components = log_frame.shape
+        log_alpha = np.zeros((n_samples, n_components), dtype=np.float64)
+        log_alpha[0] = log_start + log_frame[0]
+        work = np.zeros(n_components, dtype=np.float64)
+        for t in range(1, n_samples):
+            for j in range(n_components):
+                for i in range(n_components):
+                    work[i] = log_trans[i, j] + log_alpha[t - 1, i]
+                log_alpha[t, j] = _row_logsumexp(work) + log_frame[t, j]
+        return log_alpha
+
+else:
+
+    def _forward_filter_logspace_numba(
+        log_frame: np.ndarray,
+        log_start: np.ndarray,
+        log_trans: np.ndarray,
+    ) -> np.ndarray:
+        raise RuntimeError("Numba backend requested but numba is unavailable.")
+
 
 class HMMConfig(BaseModel):
     n_states: int = Field(
@@ -24,6 +85,11 @@ class HMMConfig(BaseModel):
     n_iter: int = 100
     random_state: int = 42
     model_path: Path | None = None
+    filter_backend: Literal["auto", "numpy", "numba"] = "auto"
+    prefer_gpu: bool = Field(
+        False,
+        description="Request GPU acceleration metadata when a CUDA runtime is available.",
+    )
 
 
 class RLMHMM:
@@ -31,6 +97,7 @@ class RLMHMM:
         self.config = config
         self.model: hmm.GaussianHMM | None = None
         self.state_labels: list[str] | None = None
+        self.last_filter_backend: str | None = None
 
     def prepare_observations(self, df: pd.DataFrame) -> np.ndarray:
         """Return (n_samples, 4) array of standardized scores."""
@@ -106,15 +173,21 @@ class RLMHMM:
         model = self.model
         log_frame = model._compute_log_likelihood(obs)
         n_samples, n_components = log_frame.shape
-        log_start = np.log(model.startprob_ + 1e-300)
-        log_trans = np.log(model.transmat_ + 1e-300)
-        log_alpha = np.zeros((n_samples, n_components))
-        log_alpha[0] = log_start + log_frame[0]
-        for t in range(1, n_samples):
-            log_alpha[t] = logsumexp(log_trans + log_alpha[t - 1][:, np.newaxis], axis=0) + log_frame[t]
-        out = np.zeros((n_samples, n_components))
+        log_start = np.log(model.startprob_ + 1e-300).astype(np.float64)
+        log_trans = np.log(model.transmat_ + 1e-300).astype(np.float64)
+        backend = self._resolve_filter_backend()
+        if backend == "numba":
+            log_alpha = _forward_filter_logspace_numba(log_frame.astype(np.float64), log_start, log_trans)
+        else:
+            log_alpha = _forward_filter_logspace_numpy(log_frame.astype(np.float64), log_start, log_trans)
+        out = np.zeros((n_samples, n_components), dtype=np.float64)
         for t in range(n_samples):
             out[t] = softmax(log_alpha[t])
+        gpu_requested = bool(self.config.prefer_gpu)
+        gpu_suffix = ""
+        if gpu_requested:
+            gpu_suffix = "+gpu" if self._gpu_runtime_available() else "+gpu-fallback"
+        self.last_filter_backend = f"{backend}{gpu_suffix}"
         return out
 
     def most_likely_state(self, df: pd.DataFrame) -> np.ndarray:
@@ -135,3 +208,22 @@ class RLMHMM:
     @classmethod
     def load(cls, path: Path) -> "RLMHMM":
         return joblib.load(path)
+
+    def _resolve_filter_backend(self) -> Literal["numpy", "numba"]:
+        requested = self.config.filter_backend
+        if requested == "numpy":
+            return "numpy"
+        if requested == "numba":
+            if njit is None:
+                raise RuntimeError("HMM numba backend requested but numba is unavailable.")
+            return "numba"
+        return "numba" if njit is not None else "numpy"
+
+    @staticmethod
+    def _gpu_runtime_available() -> bool:
+        if numba_cuda is None:
+            return False
+        try:
+            return bool(numba_cuda.is_available())
+        except Exception:  # pragma: no cover - CUDA probing is environment-specific
+            return False
