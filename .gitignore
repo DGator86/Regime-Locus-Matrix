@@ -3,6 +3,5 @@ __pycache__/
 src/regime_locus_matrix.egg-info/
 .env
 
-# Local data lake (IBKR + Massive Parquet pulls; large / non-reproducible)
-data/stocks/
-data/options/
+# Local data lake and generated outputs (large / non-reproducible)
+data/
