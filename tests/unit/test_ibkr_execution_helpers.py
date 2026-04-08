@@ -31,7 +31,11 @@ def test_live_port_requires_ack() -> None:
 
 
 def test_assert_paper_trading_port() -> None:
-    from rlm.execution.ibkr_combo_orders import assert_paper_trading_port, legs_from_ibkr_combo_spec, reverse_legs_for_close
+    from rlm.execution.ibkr_combo_orders import (
+        assert_paper_trading_port,
+        legs_from_ibkr_combo_spec,
+        reverse_legs_for_close,
+    )
 
     assert_paper_trading_port(7497)
     assert_paper_trading_port(4002)

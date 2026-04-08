@@ -119,10 +119,8 @@ def _load_or_synthetic_bars(
         return synthetic_bars_demo(end, periods=max(warmup_days, 120))
     p = ROOT / path
     if not p.is_file():
-        raise FileNotFoundError(f"Bars file not found: {p}. Pass --synthetic or create the CSV.")
-    bars = pd.read_csv(p, parse_dates=["timestamp"])
-    bars = bars.sort_values("timestamp").set_index("timestamp")
-    return bars
+        raise FileNotFoundError(p)
+    return pd.read_csv(p, parse_dates=["timestamp"]).sort_values("timestamp").set_index("timestamp")
 
 
 def _load_or_synthetic_chain(

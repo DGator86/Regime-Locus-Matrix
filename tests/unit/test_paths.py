@@ -1,7 +1,7 @@
 from rlm.datasets.paths import (
     rel_bars_csv,
-    rel_option_chain_csv,
     rel_features_csv,
+    rel_option_chain_csv,
 )
 
 

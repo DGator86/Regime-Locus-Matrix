@@ -9,8 +9,13 @@ import pandas as pd
 from rlm.backtest.commission import calculate_commission
 from rlm.backtest.cost_model import calculate_transaction_cost
 from rlm.backtest.expiry import settle_legs_at_expiry
-from rlm.backtest.fills import FillConfig, entry_fill_price, exit_fill_price, signed_cashflow_for_fill
-from rlm.backtest.lifecycle import ExpiryLiquidationPolicy, LifecycleConfig
+from rlm.backtest.fills import (
+    FillConfig,
+    entry_fill_price,
+    exit_fill_price,
+    signed_cashflow_for_fill,
+)
+from rlm.backtest.lifecycle import LifecycleConfig
 from rlm.backtest.revalue import (
     aggregate_repriced_exit_value,
     aggregate_repriced_mark_value,

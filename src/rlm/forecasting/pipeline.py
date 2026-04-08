@@ -4,7 +4,7 @@ import pandas as pd
 
 from rlm.forecasting.bands import compute_state_matrix_bands
 from rlm.forecasting.distribution import estimate_distribution
-from rlm.forecasting.hmm import HMMConfig, RLMHMM
+from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
