@@ -14,9 +14,11 @@ from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv, rel_roee_policy_csv
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.pipeline import (
     ForecastPipeline,
     HybridForecastPipeline,
+    HybridMarkovForecastPipeline,
     HybridProbabilisticForecastPipeline,
 )
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
@@ -31,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
+    parser.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime overlay.")
+    parser.add_argument("--markov-states", type=int, default=3, help="Number of Markov regimes.")
     parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
     parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
@@ -85,6 +89,8 @@ def main() -> None:
         sigma_floor=1e-4,
         direction_neutral_threshold=0.3,
     )
+    if args.use_hmm and args.use_markov:
+        raise SystemExit("Use either --use-hmm or --use-markov, not both.")
     if args.use_hmm and args.probabilistic:
         forecast_df = HybridProbabilisticForecastPipeline(
             config=fc,
@@ -93,12 +99,27 @@ def main() -> None:
             hmm_config=HMMConfig(n_states=args.hmm_states),
             model_path=args.model_path,
         ).run(factor_df)
+    elif args.use_markov and args.probabilistic:
+        forecast_df = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
+            model_path=args.model_path,
+        ).run(factor_df)
     elif args.use_hmm:
         forecast_df = HybridForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
             hmm_config=HMMConfig(n_states=args.hmm_states),
+        ).run(factor_df)
+    elif args.use_markov:
+        forecast_df = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
         ).run(factor_df)
     elif args.probabilistic:
         forecast_df = ProbabilisticForecastPipeline(
@@ -145,6 +166,9 @@ def main() -> None:
         "hmm_confidence",
         "hmm_size_mult",
         "hmm_trade_allowed",
+        "markov_state",
+        "markov_state_label",
+        "markov_confidence",
     ]
     print(policy_df[[c for c in cols if c in policy_df.columns]].tail(15))
     out_path = ROOT / out_rel

@@ -264,31 +264,36 @@ def rolling_window_manifest(
     cfg: WalkForwardConfig,
 ) -> pd.DataFrame:
     """Rows describing each walk-forward fold (indices match :func:`~rlm.backtest.walkforward.run_walkforward`)."""
-    n = len(bars_index)
+    from rlm.backtest.walkforward import _build_walkforward_windows
+
     rows: list[dict[str, Any]] = []
-    start = 0
-    wid = 0
-    while start + cfg.is_window + cfg.oos_window <= n:
-        is_start = start
-        is_end = start + cfg.is_window
-        oos_end = is_end + cfg.oos_window
+    for window in _build_walkforward_windows(n_bars=len(bars_index), cfg=cfg):
+        wid = int(window["window_id"])
+        is_start = int(window["is_start"])
+        nominal_is_end = int(window["nominal_is_end"])
+        effective_is_end = int(window["effective_is_end"])
+        oos_start = int(window["oos_start"])
+        oos_end = int(window["oos_end"])
         rows.append(
             {
                 "window_id": wid,
                 "is_bar_start_idx": is_start,
-                "is_bar_end_idx": is_end,
-                "oos_bar_start_idx": is_end,
+                "is_bar_end_idx": effective_is_end,
+                "nominal_is_bar_end_idx": nominal_is_end,
+                "oos_bar_start_idx": oos_start,
                 "oos_bar_end_idx": oos_end,
                 "is_start_date": bars_index[is_start],
-                "is_end_date": bars_index[is_end - 1],
-                "oos_start_date": bars_index[is_end],
+                "is_end_date": bars_index[effective_is_end - 1],
+                "nominal_is_end_date": bars_index[nominal_is_end - 1],
+                "oos_start_date": bars_index[oos_start],
                 "oos_end_date": bars_index[oos_end - 1],
-                "n_is_bars": cfg.is_window,
+                "n_is_bars": effective_is_end - is_start,
+                "n_nominal_is_bars": cfg.is_window,
                 "n_oos_bars": cfg.oos_window,
+                "purge_bars": int(cfg.purge_bars),
+                "regime_aware": bool(cfg.regime_aware),
             }
         )
-        wid += 1
-        start += cfg.step_size
     return pd.DataFrame(rows)
 
 

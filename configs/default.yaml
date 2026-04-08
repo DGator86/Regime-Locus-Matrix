@@ -17,6 +17,9 @@ walkforward:
   is_window: 100
   oos_window: 50
   step_size: 50
+  purge_bars: 0
+  regime_aware: false
+  min_regime_train_samples: 20
 
 # Used by ForecastPipeline / HybridForecastPipeline (optimize via scripts/optimize_forecast_params.py).
 forecast:
@@ -29,6 +32,17 @@ forecast:
   realized_vol_annualization: 252.0
   probabilistic_lower_quantile: 0.1
   probabilistic_upper_quantile: 0.9
+
+regime:
+  model: hmm  # hmm | markov
+  markov_k_regimes: 3
+  markov_switching_variance: true
+
+options_surface:
+  enabled: true
+  min_dte: 7
+  max_dte: 120
+  min_points_per_expiry: 5
 
 roee_hmm:
   hmm_confidence_threshold: 0.6

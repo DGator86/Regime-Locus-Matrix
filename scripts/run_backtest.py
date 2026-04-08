@@ -23,9 +23,11 @@ from rlm.datasets.paths import (
 )
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.pipeline import (
     ForecastPipeline,
     HybridForecastPipeline,
+    HybridMarkovForecastPipeline,
     HybridProbabilisticForecastPipeline,
 )
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
@@ -40,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
+    parser.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
+    parser.add_argument("--markov-states", type=int, default=3)
     parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
     parser.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
@@ -112,6 +116,8 @@ def _load_or_synthetic_chain(path: str, bars: pd.DataFrame, *, synthetic: bool, 
 
 def main() -> None:
     args = parse_args()
+    if args.use_hmm and args.use_markov:
+        raise SystemExit("Use either --use-hmm or --use-markov, not both.")
     sym = str(args.symbol).upper().strip()
     bars_rel = args.bars or rel_bars_csv(sym)
     chain_rel = args.chain or rel_option_chain_csv(sym)
@@ -163,6 +169,21 @@ def main() -> None:
             vol_window=100,
             hmm_config=HMMConfig(n_states=args.hmm_states),
         ).run(features)
+    elif args.use_markov and args.probabilistic:
+        features = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
+            model_path=args.model_path,
+        ).run(features)
+    elif args.use_markov:
+        features = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
+        ).run(features)
     elif args.probabilistic:
         features = ProbabilisticForecastPipeline(
             config=fc,
@@ -200,7 +221,7 @@ def main() -> None:
         quantity_per_trade=1,
         roee_config=(
             ROEEConfig(use_dynamic_sizing=args.dynamic_sizing)
-            if (args.use_hmm or args.dynamic_sizing)
+            if (args.use_hmm or args.use_markov or args.dynamic_sizing)
             else None
         ),
     )

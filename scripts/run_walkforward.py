@@ -20,6 +20,7 @@ from rlm.datasets.paths import (
     walkforward_trades_filename,
 )
 from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.types.forecast import ForecastConfig
 
 
@@ -29,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
     p.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
     p.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
     p.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
@@ -52,6 +54,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--is-window", type=int, default=100)
     p.add_argument("--oos-window", type=int, default=50)
     p.add_argument("--step-size", type=int, default=50)
+    p.add_argument("--purge-bars", type=int, default=0, help="Purge bars between IS and OOS windows.")
+    p.add_argument("--regime-aware", action="store_true", help="Expand IS windows to cover OOS regimes.")
+    p.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=20,
+        help="Minimum training samples for each OOS regime when --regime-aware.",
+    )
     p.add_argument("--initial-capital", type=float, default=100_000.0)
     p.add_argument("--strike-increment", type=float, default=5.0)
     p.add_argument(
@@ -117,9 +127,14 @@ def main() -> None:
             underlying_symbol=und,
             quantity_per_trade=args.quantity_per_trade,
             use_dynamic_sizing=args.dynamic_sizing,
+            purge_bars=args.purge_bars,
+            regime_aware=args.regime_aware,
+            min_regime_train_samples=args.min_regime_train_samples,
         ),
         use_hmm=args.use_hmm,
         hmm_config=HMMConfig(n_states=args.hmm_states) if args.use_hmm else None,
+        use_markov=args.use_markov,
+        markov_config=MarkovSwitchingConfig() if args.use_markov else None,
         use_probabilistic=args.probabilistic,
         probabilistic_model_path=args.model_path,
     )
