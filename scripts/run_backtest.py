@@ -56,6 +56,18 @@ def parse_args() -> argparse.Namespace:
         "--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing."
     )
     parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    parser.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
+    )
+    parser.add_argument(
         "--vault-uncertainty-threshold",
         type=float,
         default=0.03,
@@ -119,8 +131,10 @@ def _load_or_synthetic_bars(
         return synthetic_bars_demo(end, periods=max(warmup_days, 120))
     p = ROOT / path
     if not p.is_file():
-        raise FileNotFoundError(p)
-    return pd.read_csv(p, parse_dates=["timestamp"]).sort_values("timestamp").set_index("timestamp")
+        raise FileNotFoundError(f"Bars file not found: {p}. Pass --synthetic or create the CSV.")
+    bars = pd.read_csv(p, parse_dates=["timestamp"])
+    bars = bars.sort_values("timestamp").set_index("timestamp")
+    return bars
 
 
 def _load_or_synthetic_chain(
@@ -241,6 +255,8 @@ def main() -> None:
         quantity_per_trade=1,
         roee_config=ROEEConfig(
             use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
             vault_uncertainty_threshold=args.vault_uncertainty_threshold,
             vault_size_multiplier=args.vault_size_multiplier,
         ),

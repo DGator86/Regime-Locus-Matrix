@@ -18,6 +18,10 @@ class ROEEConfig:
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    regime_adjusted_kelly: bool = True
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
     vault_uncertainty_threshold: float | None = 0.03
     vault_size_multiplier: float = 0.5
     min_regime_train_samples: int = 0
@@ -191,6 +195,10 @@ def apply_roee_policy(
             vol_target=cfg.vol_target,
             max_kelly_fraction=cfg.max_kelly_fraction,
             max_capital_fraction=cfg.max_capital_fraction,
+            regime_adjusted_kelly=cfg.regime_adjusted_kelly,
+            high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=cfg.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
             vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
             vault_size_multiplier=cfg.vault_size_multiplier,
         )

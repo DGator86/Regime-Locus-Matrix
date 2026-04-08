@@ -26,7 +26,10 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Walk-forward backtest. Build inputs first: scripts/build_rolling_backtest_dataset.py"
+        description=(
+            "Walk-forward backtest. Build inputs first: "
+            "scripts/build_rolling_backtest_dataset.py"
+        )
     )
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
@@ -38,6 +41,18 @@ def parse_args() -> argparse.Namespace:
         "--model-path", type=str, default=None, help="Optional quantile model artifact JSON."
     )
     p.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
+    p.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    p.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
+    )
     p.add_argument(
         "--vault-uncertainty-threshold",
         type=float,
@@ -112,12 +127,14 @@ def main() -> None:
         raise SystemExit(
             f"Bars file not found: {bars_path}\n"
             "Run: python scripts/build_rolling_backtest_dataset.py --demo\n"
-            f"  or: python scripts/build_rolling_backtest_dataset.py --fetch-ibkr --symbol {sym} --start 2022-01-01"
+            "  or: python scripts/build_rolling_backtest_dataset.py "
+            f"--fetch-ibkr --symbol {sym} --start 2022-01-01"
         )
     if not chain_path.is_file():
         raise SystemExit(
             f"Chain file not found: {chain_path}\n"
-            "Synthetic chain: python scripts/build_rolling_backtest_dataset.py (writes option_chain_* from bars)\n"
+            "Synthetic chain: python scripts/build_rolling_backtest_dataset.py "
+            "(writes option_chain_* from bars)\n"
             "Real snapshots: python scripts/append_option_snapshot.py --symbol "
             f"{sym} --as-of YYYY-MM-DD --replace-same-day"
         )
@@ -147,6 +164,8 @@ def main() -> None:
             underlying_symbol=und,
             quantity_per_trade=args.quantity_per_trade,
             use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
             vault_uncertainty_threshold=args.vault_uncertainty_threshold,
             vault_size_multiplier=args.vault_size_multiplier,
             purge_bars=args.purge_bars,

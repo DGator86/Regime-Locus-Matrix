@@ -34,7 +34,10 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Factors → forecast → state matrix → ROEE policy (default bars: data/raw/bars_{SYMBOL}.csv)."
+        description=(
+            "Factors → forecast → state matrix → ROEE policy "
+            "(default bars: data/raw/bars_{SYMBOL}.csv)."
+        )
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
@@ -48,6 +51,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument(
         "--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing."
+    )
+    parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    parser.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
     )
     parser.add_argument(
         "--vault-uncertainty-threshold",
@@ -79,7 +94,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chain",
         default=None,
-        help="Option chain CSV for enrichment (default: data/raw/option_chain_{SYMBOL}.csv if present)",
+        help=(
+            "Option chain CSV for enrichment "
+            "(default: data/raw/option_chain_{SYMBOL}.csv if present)"
+        ),
     )
     parser.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX.")
     parser.add_argument(
@@ -92,7 +110,10 @@ def parse_args() -> argparse.Namespace:
         "--min-regime-train-samples",
         type=int,
         default=5,
-        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+        help=(
+            "Pause new trades when the current regime has fewer prior training "
+            "samples than this threshold."
+        ),
     )
     return parser.parse_args()
 
@@ -176,6 +197,8 @@ def main() -> None:
         strike_increment=5.0,
         config=ROEEConfig(
             use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
             vault_uncertainty_threshold=args.vault_uncertainty_threshold,
             vault_size_multiplier=args.vault_size_multiplier,
             min_regime_train_samples=args.min_regime_train_samples,

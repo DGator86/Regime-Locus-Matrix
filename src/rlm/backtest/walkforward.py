@@ -32,6 +32,11 @@ class WalkForwardConfig:
     underlying_symbol: str = "SPY"
     quantity_per_trade: int = 1
     use_dynamic_sizing: bool = False
+    max_kelly_fraction: float = 0.25
+    regime_adjusted_kelly: bool = True
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
     vault_uncertainty_threshold: float | None = 0.03
     vault_size_multiplier: float = 0.5
     purge_bars: int = 0
@@ -157,7 +162,6 @@ def run_walkforward(
     for window in windows:
         window_id = int(window["window_id"])
         nominal_is_start = int(window["is_start"])
-        nominal_is_end = int(window["nominal_is_end"])
         effective_is_end = int(window["effective_is_end"])
         oos_start = int(window["oos_start"])
         oos_end = int(window["oos_end"])
@@ -264,6 +268,11 @@ def run_walkforward(
 
         effective_roee_config = roee_config or ROEEConfig(
             use_dynamic_sizing=(cfg.use_dynamic_sizing or use_hmm or use_markov),
+            max_kelly_fraction=cfg.max_kelly_fraction,
+            regime_adjusted_kelly=cfg.regime_adjusted_kelly,
+            high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=cfg.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
             vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
             vault_size_multiplier=cfg.vault_size_multiplier,
         )
