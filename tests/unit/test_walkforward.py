@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.backtest.walkforward import run_walkforward, WalkForwardConfig
+from rlm.backtest.walkforward import WalkForwardConfig, run_walkforward
 from rlm.types.forecast import ForecastConfig
 
 

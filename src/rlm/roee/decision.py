@@ -135,6 +135,8 @@ def select_trade_for_row(
     high_vol_kelly_multiplier: float = 0.5,
     transition_kelly_multiplier: float = 0.75,
     calm_trend_kelly_multiplier: float = 1.25,
+    vault_uncertainty_threshold: float | None = 0.03,
+    vault_size_multiplier: float = 0.5,
     regime_train_sample_count: int | None = None,
     min_regime_train_samples: int | None = None,
     regime_purge_bars: int = 0,
@@ -242,6 +244,11 @@ def select_trade_for_row(
                 else None
             )
         ),
+        forecast_uncertainty=(
+            _finite_float(row.get("forecast_uncertainty"), default=np.nan)
+            if pd.notna(row.get("forecast_uncertainty"))
+            else None
+        ),
         realized_vol=(
             _finite_float(row.get("realized_vol"), default=np.nan)
             if pd.notna(row.get("realized_vol"))
@@ -261,6 +268,8 @@ def select_trade_for_row(
         high_vol_kelly_multiplier=high_vol_kelly_multiplier,
         transition_kelly_multiplier=transition_kelly_multiplier,
         calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
+        vault_uncertainty_threshold=vault_uncertainty_threshold,
+        vault_size_multiplier=vault_size_multiplier,
     )
 
     if use_hmm and decision.action == "enter":

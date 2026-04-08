@@ -4,9 +4,9 @@ from pathlib import Path
 from rlm.datasets.data_lake import (
     data_lake_root,
     option_ticker_file_slug,
+    options_contracts_dir,
     options_flatfile_daily_parquet,
     stock_1d_parquet,
-    options_contracts_dir,
 )
 
 

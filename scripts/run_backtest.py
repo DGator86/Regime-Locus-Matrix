@@ -68,6 +68,18 @@ def parse_args() -> argparse.Namespace:
         help="Disable latent-regime Kelly adjustment (enabled by default).",
     )
     parser.add_argument(
+        "--vault-uncertainty-threshold",
+        type=float,
+        default=0.03,
+        help="Cut size when forecast 5th-95th range exceeds this return-width threshold.",
+    )
+    parser.add_argument(
+        "--vault-size-multiplier",
+        type=float,
+        default=0.5,
+        help="Position-size multiplier to apply when the Vault rule triggers.",
+    )
+    parser.add_argument(
         "--today",
         action="store_true",
         help="Restrict the engine to the current calendar date (local).",
@@ -241,14 +253,12 @@ def main() -> None:
         strike_increment=5.0,
         underlying_symbol=sym,
         quantity_per_trade=1,
-        roee_config=(
-            ROEEConfig(
-                use_dynamic_sizing=args.dynamic_sizing,
-                max_kelly_fraction=args.kelly_fraction,
-                regime_adjusted_kelly=args.regime_adjusted_kelly,
-            )
-            if (args.use_hmm or args.use_markov or args.dynamic_sizing)
-            else None
+        roee_config=ROEEConfig(
+            use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
+            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+            vault_size_multiplier=args.vault_size_multiplier,
         ),
     )
 

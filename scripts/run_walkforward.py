@@ -54,6 +54,18 @@ def parse_args() -> argparse.Namespace:
         help="Disable latent-regime Kelly adjustment (enabled by default).",
     )
     p.add_argument(
+        "--vault-uncertainty-threshold",
+        type=float,
+        default=0.03,
+        help="Cut size when forecast 5th-95th range exceeds this return-width threshold.",
+    )
+    p.add_argument(
+        "--vault-size-multiplier",
+        type=float,
+        default=0.5,
+        help="Position-size multiplier to apply when the Vault rule triggers.",
+    )
+    p.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
         help=f"Ticker for default --bars/--chain paths (default {DEFAULT_SYMBOL})",
@@ -154,6 +166,8 @@ def main() -> None:
             use_dynamic_sizing=args.dynamic_sizing,
             max_kelly_fraction=args.kelly_fraction,
             regime_adjusted_kelly=args.regime_adjusted_kelly,
+            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+            vault_size_multiplier=args.vault_size_multiplier,
             purge_bars=args.purge_bars,
             regime_aware=args.regime_aware,
             min_regime_train_samples=args.min_regime_train_samples,

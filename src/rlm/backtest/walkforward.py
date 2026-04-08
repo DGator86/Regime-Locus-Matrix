@@ -37,6 +37,8 @@ class WalkForwardConfig:
     high_vol_kelly_multiplier: float = 0.5
     transition_kelly_multiplier: float = 0.75
     calm_trend_kelly_multiplier: float = 1.25
+    vault_uncertainty_threshold: float | None = 0.03
+    vault_size_multiplier: float = 0.5
     purge_bars: int = 0
     regime_aware: bool = False
     min_regime_train_samples: int = 20
@@ -271,6 +273,8 @@ def run_walkforward(
             high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
             transition_kelly_multiplier=cfg.transition_kelly_multiplier,
             calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
+            vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
+            vault_size_multiplier=cfg.vault_size_multiplier,
         )
         effective_roee_config = replace(
             effective_roee_config,

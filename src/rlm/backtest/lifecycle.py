@@ -5,7 +5,7 @@ from enum import Enum
 
 import pandas as pd
 
-from rlm.backtest.commission import CommissionConfig, CommissionModel
+from rlm.backtest.commission import CommissionConfig
 from rlm.backtest.cost_model import TransactionCostConfig
 
 
@@ -28,7 +28,9 @@ class ExpiryLiquidationPolicy(str, Enum):
 class LifecycleConfig:
     force_close_dte: int = 1
     close_at_expiry_if_open: bool = True
-    expiry_liquidation_policy: ExpiryLiquidationPolicy = ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
+    expiry_liquidation_policy: ExpiryLiquidationPolicy = (
+        ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
+    )
     max_holding_bars: int | None = None
     one_trade_per_bar: bool = True
     # Legacy scalar — kept for backward compatibility.  Prefer commission_config.
@@ -60,7 +62,9 @@ def days_to_expiry(*, timestamp: pd.Timestamp, expiry: str | pd.Timestamp | None
     return int((exp - ts).days)
 
 
-def should_force_close_before_expiry(*, timestamp: pd.Timestamp, expiry: str | pd.Timestamp | None, config: LifecycleConfig) -> bool:
+def should_force_close_before_expiry(
+    *, timestamp: pd.Timestamp, expiry: str | pd.Timestamp | None, config: LifecycleConfig
+) -> bool:
     dte = days_to_expiry(timestamp=timestamp, expiry=expiry)
     return dte is not None and 0 < dte <= int(config.force_close_dte)
 
@@ -70,7 +74,9 @@ def is_at_or_past_expiry(*, timestamp: pd.Timestamp, expiry: str | pd.Timestamp 
     return dte is not None and dte <= 0
 
 
-def should_close_for_max_holding(*, entry_bar_index: int | None, current_bar_index: int, config: LifecycleConfig) -> bool:
+def should_close_for_max_holding(
+    *, entry_bar_index: int | None, current_bar_index: int, config: LifecycleConfig
+) -> bool:
     if config.max_holding_bars is None or entry_bar_index is None:
         return False
     return (current_bar_index - entry_bar_index) >= int(config.max_holding_bars)

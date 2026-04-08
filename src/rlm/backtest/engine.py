@@ -101,6 +101,8 @@ class BacktestEngine:
                 high_vol_kelly_multiplier=rc.high_vol_kelly_multiplier,
                 transition_kelly_multiplier=rc.transition_kelly_multiplier,
                 calm_trend_kelly_multiplier=rc.calm_trend_kelly_multiplier,
+                vault_uncertainty_threshold=rc.vault_uncertainty_threshold,
+                vault_size_multiplier=rc.vault_size_multiplier,
                 regime_train_sample_count=int(row.get("regime_train_sample_count", 0) or 0),
                 min_regime_train_samples=rc.min_regime_train_samples,
                 regime_purge_bars=rc.purge_bars,

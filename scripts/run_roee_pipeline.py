@@ -65,6 +65,18 @@ def parse_args() -> argparse.Namespace:
         help="Disable latent-regime Kelly adjustment (enabled by default).",
     )
     parser.add_argument(
+        "--vault-uncertainty-threshold",
+        type=float,
+        default=0.03,
+        help="Cut size when forecast 5th-95th range exceeds this return-width threshold.",
+    )
+    parser.add_argument(
+        "--vault-size-multiplier",
+        type=float,
+        default=0.5,
+        help="Position-size multiplier to apply when the Vault rule triggers.",
+    )
+    parser.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
         help=f"Ticker for default paths (default {DEFAULT_SYMBOL})",
@@ -187,6 +199,8 @@ def main() -> None:
             use_dynamic_sizing=args.dynamic_sizing,
             max_kelly_fraction=args.kelly_fraction,
             regime_adjusted_kelly=args.regime_adjusted_kelly,
+            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+            vault_size_multiplier=args.vault_size_multiplier,
             min_regime_train_samples=args.min_regime_train_samples,
             purge_bars=args.purge_bars,
         ),
@@ -208,6 +222,7 @@ def main() -> None:
         "forecast_return_lower",
         "forecast_return_median",
         "forecast_return_upper",
+        "forecast_uncertainty",
         "realized_vol",
         "regime_train_sample_count",
         "regime_train_sample_requirement",
@@ -216,6 +231,9 @@ def main() -> None:
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",
+        "vault_triggered",
+        "vault_size_multiplier",
+        "vault_uncertainty_threshold",
         "roee_leg_count",
         "hmm_confidence",
         "hmm_size_mult",

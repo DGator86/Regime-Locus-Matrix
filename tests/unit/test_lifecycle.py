@@ -2,7 +2,12 @@ import pandas as pd
 
 from rlm.backtest.cost_model import TransactionCostConfig
 from rlm.backtest.engine import BacktestEngine
-from rlm.backtest.lifecycle import LifecycleConfig, days_to_expiry, is_at_or_past_expiry, should_force_close_before_expiry
+from rlm.backtest.lifecycle import (
+    LifecycleConfig,
+    days_to_expiry,
+    is_at_or_past_expiry,
+    should_force_close_before_expiry,
+)
 from rlm.backtest.portfolio import Portfolio
 from rlm.types.options import TradeDecision
 
