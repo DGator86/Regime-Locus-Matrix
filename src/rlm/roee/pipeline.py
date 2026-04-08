@@ -6,6 +6,7 @@ import pandas as pd
 
 from rlm.roee.decision import _finite_float, compute_hmm_modulators
 from rlm.roee.policy import select_trade
+from rlm.roee.regime_safety import attach_regime_safety_columns, build_regime_safety_rationale
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,8 @@ class ROEEConfig:
     max_capital_fraction: float = 0.5
     vault_uncertainty_threshold: float | None = 0.03
     vault_size_multiplier: float = 0.5
+    min_regime_train_samples: int = 0
+    purge_bars: int = 0
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool]:
@@ -57,7 +60,11 @@ def apply_roee_policy(
 
     cfg = config or ROEEConfig()
 
-    out = df.copy()
+    out = attach_regime_safety_columns(
+        df,
+        min_regime_train_samples=cfg.min_regime_train_samples,
+        purge_bars=cfg.purge_bars,
+    )
 
     actions = []
     strategy_names = []
@@ -76,6 +83,40 @@ def apply_roee_policy(
 
     for _, row in out.iterrows():
         mod = _hmm_modulators_for_config(row, cfg)
+        regime_train_sample_count = int(row.get("regime_train_sample_count", 0) or 0)
+        regime_safety_ok = bool(row.get("regime_safety_ok", True))
+        if cfg.min_regime_train_samples > 0 and not regime_safety_ok:
+            actions.append("hold")
+            strategy_names.append("regime_safety_check")
+            rationales.append(
+                build_regime_safety_rationale(
+                    regime_key=str(row.get("regime_key", "")),
+                    regime_train_sample_count=regime_train_sample_count,
+                    min_regime_train_samples=cfg.min_regime_train_samples,
+                    purge_bars=cfg.purge_bars,
+                )
+            )
+            size_fractions.append(0.0)
+            target_profit_pcts.append(0.0)
+            max_risk_pcts.append(0.0)
+            leg_counts.append(0)
+            hmm_confidences.append(mod["confidence"])
+            hmm_size_multipliers.append(mod["size_mult"])
+            hmm_trade_flags.append(False)
+            vault_triggers.append(False)
+            vault_size_multipliers.append(float(cfg.vault_size_multiplier))
+            vault_uncertainties.append(
+                float(row["forecast_uncertainty"])
+                if "forecast_uncertainty" in out.columns
+                and pd.notna(row.get("forecast_uncertainty"))
+                else float("nan")
+            )
+            vault_uncertainty_thresholds.append(
+                float(cfg.vault_uncertainty_threshold)
+                if cfg.vault_uncertainty_threshold is not None
+                else float("nan")
+            )
+            continue
         if not bool(mod["trade"]):
             actions.append("hold")
             strategy_names.append("hmm_gate")

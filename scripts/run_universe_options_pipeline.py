@@ -45,6 +45,7 @@ from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.pipeline import ForecastPipeline
 from rlm.roee.chain_match import estimate_entry_cost_from_matched_legs, estimate_mark_value_from_matched_legs, match_legs_to_chain
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 
 
@@ -74,6 +75,8 @@ def _one_symbol(
     stop_loss_frac: float,
     trail_activate_frac: float,
     trail_retrace_frac: float,
+    min_regime_train_samples: int,
+    purge_bars: int,
     client: MassiveClient,
 ) -> dict[str, object]:
     run_at = datetime.now(timezone.utc).isoformat()
@@ -102,6 +105,11 @@ def _one_symbol(
     out = forecast.run(feats)
     out = out.copy()
     out["has_major_event"] = False
+    out = attach_regime_safety_columns(
+        out,
+        min_regime_train_samples=min_regime_train_samples,
+        purge_bars=purge_bars,
+    )
 
     last = out.iloc[-1]
     ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.utcnow().tz_localize(None)
@@ -115,6 +123,8 @@ def _one_symbol(
         "lower_2s": float(last["lower_2s"]) if pd.notna(last.get("lower_2s")) else None,
         "upper_2s": float(last["upper_2s"]) if pd.notna(last.get("upper_2s")) else None,
         "regime_key": str(last.get("regime_key", "")),
+        "regime_train_sample_count": int(last.get("regime_train_sample_count", 0) or 0),
+        "regime_safety_ok": bool(last.get("regime_safety_ok", True)),
         "S_D": float(last["S_D"]) if pd.notna(last["S_D"]) else None,
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
@@ -122,7 +132,13 @@ def _one_symbol(
     }
     base["pipeline"] = pipeline_row
 
-    decision = select_trade_for_row(last, strike_increment=strike_increment)
+    decision = select_trade_for_row(
+        last,
+        strike_increment=strike_increment,
+        regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
+        min_regime_train_samples=min_regime_train_samples,
+        regime_purge_bars=purge_bars,
+    )
     base["decision"] = {
         "action": decision.action,
         "strategy_name": decision.strategy_name,
@@ -133,7 +149,11 @@ def _one_symbol(
     }
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
-        base["skip_reason"] = "roee_skip_or_no_legs"
+        base["skip_reason"] = (
+            "regime_safety_check"
+            if decision.strategy_name == "regime_safety_check"
+            else "roee_skip_or_no_legs"
+        )
         return base
 
     try:
@@ -252,6 +272,13 @@ def main() -> int:
     p.add_argument("--stop-loss-frac", type=float, default=0.5, help="Hard stop = V0 - frac * entry_debit")
     p.add_argument("--trail-activate-frac", type=float, default=0.15, help="Start trailing after V0 + frac * D")
     p.add_argument("--trail-retrace-frac", type=float, default=0.25, help="Trail stop = peak * (1 - this)")
+    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
     p.add_argument("--top", type=int, default=0, help="If >0, only keep N highest rank_score among active plans")
     p.add_argument(
         "--out",
@@ -285,6 +312,8 @@ def main() -> int:
                 stop_loss_frac=args.stop_loss_frac,
                 trail_activate_frac=args.trail_activate_frac,
                 trail_retrace_frac=args.trail_retrace_frac,
+                min_regime_train_samples=args.min_regime_train_samples,
+                purge_bars=args.purge_bars,
                 client=client,
             )
         except Exception as e:
