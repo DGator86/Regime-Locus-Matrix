@@ -6,6 +6,7 @@ from enum import Enum
 import pandas as pd
 
 from rlm.backtest.commission import CommissionConfig, CommissionModel
+from rlm.backtest.cost_model import TransactionCostConfig
 
 
 class ExpiryLiquidationPolicy(str, Enum):
@@ -33,6 +34,7 @@ class LifecycleConfig:
     # Legacy scalar — kept for backward compatibility.  Prefer commission_config.
     commission_per_contract: float = 0.65
     commission_config: CommissionConfig = field(default_factory=CommissionConfig)
+    transaction_cost_config: TransactionCostConfig = field(default_factory=TransactionCostConfig)
 
     def __post_init__(self) -> None:
         # Sync the legacy scalar with commission_config when it is still at the

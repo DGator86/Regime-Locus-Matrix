@@ -7,6 +7,7 @@ import pandas as pd
 
 from rlm.data.bs_greeks import bs_greeks_row
 from rlm.data.option_chain import normalize_option_chain
+from rlm.options.surface import build_surface_feature_frame
 
 
 def _oi_weight(s: pd.Series) -> pd.Series:
@@ -216,6 +217,48 @@ def enrich_bars_from_option_chain(
     return out
 
 
+def enrich_bars_with_surface_features(
+    bars: pd.DataFrame,
+    chain: pd.DataFrame,
+    *,
+    underlying: str,
+) -> pd.DataFrame:
+    """
+    Add SVI/local-vol surface-derived features by calendar date.
+    """
+    if chain is None or chain.empty:
+        return bars.copy()
+
+    und = str(underlying).upper().strip()
+    out = bars.copy()
+    ch = normalize_option_chain(chain)
+    ch = ch.loc[ch["underlying"].str.upper() == und].copy()
+    if ch.empty or "iv" not in ch.columns or pd.to_numeric(ch["iv"], errors="coerce").notna().sum() == 0:
+        return out
+
+    surface = build_surface_feature_frame(ch)
+    if surface.empty:
+        return out
+
+    out = out.copy()
+    out["_d"] = pd.to_datetime(out.index).normalize()
+    for col in surface.columns:
+        out[col] = out["_d"].map(surface[col])
+    out = out.drop(columns=["_d"])
+
+    neutral = {
+        "surface_atm_forward_iv": np.nan,
+        "surface_skew": 0.0,
+        "surface_convexity": 0.0,
+        "surface_term_slope": 0.0,
+    }
+    for k, v in neutral.items():
+        if k in out.columns:
+            out[k] = out[k].fillna(v)
+
+    return out
+
+
 def enrich_bars_with_vix(bars: pd.DataFrame) -> pd.DataFrame:
     """Attach ^VIX and ^VVIX (when available) aligned to bar dates; no-op if columns already populated."""
     out = bars.copy()
@@ -288,6 +331,7 @@ def prepare_bars_for_factors(
     b = bars.sort_index().copy()
     if option_chain is not None and not option_chain.empty:
         b = enrich_bars_from_option_chain(b, option_chain, underlying=underlying)
+        b = enrich_bars_with_surface_features(b, option_chain, underlying=underlying)
     if attach_vix:
         b = enrich_bars_with_vix(b)
     return b

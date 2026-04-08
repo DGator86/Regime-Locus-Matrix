@@ -2,24 +2,45 @@
 
 ## Forecasting
 
-### HMM Hybrid Layer
+### Regime and forecast layers
 
-RLM remains a deterministic and explicit options-native engine. The optional HMM layer adds soft probabilities over the standardized factor space (`S_D`, `S_V`, `S_L`, `S_G`) and exposes persistence/transition-aware confidence for downstream sizing and gating.
+RLM remains a deterministic and explicit options-native engine. Optional regime layers now include both the original HMM overlay and a Markov-switching volatility model, while the options enrichment path can derive local-surface-style features from the chain.
 
 - `ForecastPipeline` is unchanged for deterministic operation.
+- `ProbabilisticForecastPipeline` adds:
+  - `forecast_return_lower`, `forecast_return_median`, `forecast_return_upper`
+  - `forecast_uncertainty`, `realized_vol`, `forecast_source`
+  - optional loading of an offline quantile model artifact trained by `scripts/train_probabilistic_model.py`
 - `HybridForecastPipeline` augments output with:
   - `hmm_probs` (**forward-filtered** probabilities P(z_t | x_{1:t}) — no smoothing lookahead within the run dataframe)
   - `hmm_state` (argmax of filtered probabilities per bar)
   - `hmm_state_label` (mode `regime_key` label per state, from IS fit)
-- **Backtests** (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): when you pass `--use-hmm`, the engine uses `ROEEConfig` so the same HMM confidence gate and size multiplier as `apply_roee_policy` apply row-by-row. Without `--use-hmm`, decisions use `select_trade` only (no HMM columns required).
+- `HybridMarkovForecastPipeline` adds:
+  - `markov_probs` (filtered regime probabilities from a Markov-switching model fit on returns)
+  - `markov_state`, `markov_state_label`
+  - `markov_reference_col` metadata so downstream diagnostics know which return stream drove the fit
+- Option-chain enrichment now supports SVI-derived features such as:
+  - `atm_forward_iv`
+  - `surface_skew`
+  - `surface_convexity`
+  - `surface_fit_error`
+- Dynamic sizing is now available through `ROEEConfig(use_dynamic_sizing=True)` or the CLI flag `--dynamic-sizing`; the backtest converts `size_fraction` into actual contract quantity rather than storing it as metadata only.
+- Transaction costs now support an extra friction model on top of fill slippage and commissions via `LifecycleConfig.transaction_cost_config`.
+- Walk-forward validation now supports purging and regime-aware training-window expansion via `--purge-bars` and `--regime-aware`.
+- **Backtests** (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): when you pass `--use-hmm` or `--use-markov`, the engine uses `ROEEConfig` so the same confidence-aware gating and sizing path is applied row-by-row. Without a regime model, decisions use `select_trade` only.
 
 Example usage:
 
 ```bash
 python scripts/run_forecast_pipeline.py --use-hmm --hmm-states 6
+python scripts/run_forecast_pipeline.py --use-markov --markov-states 3
+python scripts/run_forecast_pipeline.py --probabilistic --model-path models/probabilistic_forecast.json
 python scripts/run_roee_pipeline.py --use-hmm --hmm-states 6
-python scripts/run_walkforward.py --use-hmm --hmm-states 6
-python scripts/run_backtest.py --use-hmm --hmm-states 6
+python scripts/run_roee_pipeline.py --use-markov --markov-states 3 --dynamic-sizing
+python scripts/run_roee_pipeline.py --probabilistic --dynamic-sizing
+python scripts/run_walkforward.py --use-markov --probabilistic --dynamic-sizing --purge-bars 5 --regime-aware
+python scripts/run_backtest.py --use-hmm --probabilistic --dynamic-sizing --hmm-states 6
+python scripts/train_probabilistic_model.py --symbol SPY --out models/probabilistic_forecast.json
 ```
 
 Batch ROEE labelling (does not run the backtest engine) remains in `apply_roee_policy` in `src/rlm/roee/pipeline.py`.

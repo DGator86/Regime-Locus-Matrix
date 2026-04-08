@@ -3,6 +3,7 @@ import pandas as pd
 
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.pipeline import ForecastPipeline
+from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
 
@@ -62,6 +63,12 @@ def test_forecast_pipeline_outputs_distribution_columns() -> None:
         "upper_1s",
         "lower_2s",
         "upper_2s",
+        "forecast_return",
+        "forecast_return_lower",
+        "forecast_return_median",
+        "forecast_return_upper",
+        "forecast_uncertainty",
+        "realized_vol",
     ]
     for col in required:
         assert col in forecast_out.columns
@@ -98,3 +105,30 @@ def test_band_ordering_is_valid() -> None:
     assert (valid["lower_1s"] <= valid["mean_price"]).all()
     assert (valid["mean_price"] <= valid["upper_1s"]).all()
     assert (valid["upper_1s"] <= valid["upper_2s"]).all()
+
+
+def test_probabilistic_pipeline_fallback_emits_ordered_quantiles() -> None:
+    df = make_sample_bars()
+
+    factor_out = FactorPipeline().run(df)
+    forecast_out = ProbabilisticForecastPipeline(
+        config=ForecastConfig(sigma_floor=1e-4),
+        move_window=50,
+        vol_window=50,
+    ).run(factor_out)
+
+    valid = forecast_out.dropna(
+        subset=[
+            "forecast_return_lower",
+            "forecast_return_median",
+            "forecast_return_upper",
+            "forecast_uncertainty",
+            "forecast_source",
+        ]
+    )
+
+    assert not valid.empty
+    assert (valid["forecast_return_lower"] <= valid["forecast_return_median"]).all()
+    assert (valid["forecast_return_median"] <= valid["forecast_return_upper"]).all()
+    assert (valid["forecast_uncertainty"] >= 0.0).all()
+    assert set(valid["forecast_source"]) == {"distribution_fallback"}

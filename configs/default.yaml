@@ -17,6 +17,9 @@ walkforward:
   is_window: 100
   oos_window: 50
   step_size: 50
+  purge_bars: 0
+  regime_aware: false
+  min_regime_train_samples: 20
 
 # Used by ForecastPipeline / HybridForecastPipeline (optimize via scripts/optimize_forecast_params.py).
 forecast:
@@ -25,8 +28,33 @@ forecast:
   direction_neutral_threshold: 0.3
   move_window: 100
   vol_window: 100
+  realized_vol_window: 20
+  realized_vol_annualization: 252.0
+  probabilistic_lower_quantile: 0.1
+  probabilistic_upper_quantile: 0.9
+
+regime:
+  model: hmm  # hmm | markov
+  markov_k_regimes: 3
+  markov_switching_variance: true
+
+options_surface:
+  enabled: true
+  min_dte: 7
+  max_dte: 120
+  min_points_per_expiry: 5
 
 roee_hmm:
   hmm_confidence_threshold: 0.6
   sizing_multiplier: 1.0
   transition_penalty: 0.5
+  use_dynamic_sizing: false
+  vol_target: 0.15
+  max_kelly_fraction: 0.25
+  max_capital_fraction: 0.5
+
+transaction_cost:
+  extra_spread_fraction: 0.0
+  underlying_slippage_bps: 0.0
+  market_impact_factor: 0.0
+  avg_daily_volume_floor: 1000

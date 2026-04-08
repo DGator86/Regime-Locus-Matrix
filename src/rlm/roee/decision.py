@@ -64,6 +64,10 @@ def select_trade_for_row(
     hmm_confidence_threshold: float | None = None,
     hmm_sizing_multiplier: float = 1.0,
     hmm_transition_penalty: float = 0.5,
+    use_dynamic_sizing: bool = False,
+    vol_target: float = 0.15,
+    max_kelly_fraction: float = 0.25,
+    max_capital_fraction: float = 0.5,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -124,6 +128,24 @@ def select_trade_for_row(
             else False
         ),
         strike_increment=strike_increment,
+        forecast_return=(
+            _finite_float(row.get("forecast_return"), default=np.nan)
+            if pd.notna(row.get("forecast_return"))
+            else (
+                _finite_float(row.get("forecast_return_median"), default=np.nan)
+                if pd.notna(row.get("forecast_return_median"))
+                else None
+            )
+        ),
+        realized_vol=(
+            _finite_float(row.get("realized_vol"), default=np.nan)
+            if pd.notna(row.get("realized_vol"))
+            else None
+        ),
+        use_dynamic_sizing=use_dynamic_sizing,
+        vol_target=vol_target,
+        max_kelly_fraction=max_kelly_fraction,
+        max_capital_fraction=max_capital_fraction,
     )
 
     if use_hmm and decision.action == "enter":

@@ -37,7 +37,8 @@ from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline
 from rlm.roee.pipeline import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
@@ -68,6 +69,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
     p.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX during enrichment")
     p.add_argument(
         "--move-window",
@@ -139,6 +141,13 @@ def main() -> int:
             vol_window=mw,
             hmm_config=HMMConfig(n_states=args.hmm_states),
         ).run(features)
+    elif args.use_markov:
+        features = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=mw,
+            vol_window=mw,
+            markov_config=MarkovSwitchingConfig(),
+        ).run(features)
     else:
         features = ForecastPipeline(config=fc, move_window=mw, vol_window=mw).run(features)
 
@@ -148,7 +157,7 @@ def main() -> int:
         strike_increment=5.0,
         underlying_symbol=sym,
         quantity_per_trade=1,
-        roee_config=ROEEConfig() if args.use_hmm else None,
+        roee_config=ROEEConfig() if (args.use_hmm or args.use_markov) else None,
     )
 
     equity_frame, trades_frame, summary = engine.run(features, chain)
