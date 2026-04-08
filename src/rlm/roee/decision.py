@@ -41,20 +41,52 @@ def _finite_float(x: object, default: float = 0.0) -> float:
         return default
 
 
-def compute_hmm_modulators(row: pd.Series, hmm_confidence_threshold: float, sizing_multiplier: float, transition_penalty: float) -> dict[str, float | bool]:
-    if "hmm_probs" not in row or row.get("hmm_probs") is None:
-        return {"confidence": 1.0, "size_mult": 1.0, "trade": True}
+def _extract_regime_probabilities(row: pd.Series) -> tuple[np.ndarray | None, str]:
+    for col, model_name in (("hmm_probs", "hmm"), ("markov_probs", "markov")):
+        if col not in row or row.get(col) is None:
+            continue
+        probs = np.array(row[col], dtype=float)
+        if probs.size == 0 or not np.isfinite(probs).all():
+            continue
+        return probs, model_name
+    return None, "none"
 
-    probs = np.array(row["hmm_probs"], dtype=float)
-    if probs.size == 0 or not np.isfinite(probs).all():
-        return {"confidence": 1.0, "size_mult": 1.0, "trade": True}
+
+def compute_regime_modulators(
+    row: pd.Series,
+    confidence_threshold: float,
+    sizing_multiplier: float,
+    transition_penalty: float,
+) -> dict[str, float | bool | str]:
+    probs, model_name = _extract_regime_probabilities(row)
+    if probs is None:
+        return {"confidence": 1.0, "size_mult": 1.0, "trade": True, "model": model_name}
 
     max_prob = float(probs.max())
     trans_risk = 1.0 - max_prob
     confidence = max_prob
     size_mult = sizing_multiplier * max_prob * (1.0 - transition_penalty * trans_risk)
-    trade = confidence >= hmm_confidence_threshold
-    return {"confidence": confidence, "size_mult": max(float(size_mult), 0.0), "trade": trade}
+    trade = confidence >= confidence_threshold
+    return {
+        "confidence": confidence,
+        "size_mult": max(float(size_mult), 0.0),
+        "trade": trade,
+        "model": model_name,
+    }
+
+
+def compute_hmm_modulators(
+    row: pd.Series,
+    hmm_confidence_threshold: float,
+    sizing_multiplier: float,
+    transition_penalty: float,
+) -> dict[str, float | bool | str]:
+    return compute_regime_modulators(
+        row,
+        confidence_threshold=hmm_confidence_threshold,
+        sizing_multiplier=sizing_multiplier,
+        transition_penalty=transition_penalty,
+    )
 
 
 def select_trade_for_row(
@@ -86,19 +118,26 @@ def select_trade_for_row(
     use_hmm = hmm_confidence_threshold is not None
 
     if use_hmm:
-        mod = compute_hmm_modulators(
+        mod = compute_regime_modulators(
             row,
-            hmm_confidence_threshold=float(hmm_confidence_threshold),
+            confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
         )
         if not bool(mod["trade"]):
+            regime_model = str(mod["model"])
             return TradeDecision(
                 action="skip",
-                strategy_name="hmm_gate",
+                strategy_name=f"{regime_model}_gate" if regime_model != "none" else "regime_gate",
                 regime_key=str(row.get("regime_key", "")),
-                rationale="HMM confidence below threshold",
+                rationale=f"{regime_model.upper()} confidence below threshold"
+                if regime_model != "none"
+                else "Regime confidence below threshold",
                 metadata={
+                    "regime_model": regime_model,
+                    "regime_confidence": mod["confidence"],
+                    "regime_size_mult": mod["size_mult"],
+                    "regime_trade_allowed": False,
                     "hmm_confidence": mod["confidence"],
                     "hmm_size_mult": mod["size_mult"],
                     "hmm_trade_allowed": False,
@@ -149,14 +188,18 @@ def select_trade_for_row(
     )
 
     if use_hmm and decision.action == "enter":
-        mod = compute_hmm_modulators(
+        mod = compute_regime_modulators(
             row,
-            hmm_confidence_threshold=float(hmm_confidence_threshold),
+            confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
         )
         base_sf = float(decision.size_fraction or 0.0)
         meta = dict(decision.metadata)
+        meta["regime_model"] = str(mod["model"])
+        meta["regime_confidence"] = mod["confidence"]
+        meta["regime_size_mult"] = mod["size_mult"]
+        meta["regime_trade_allowed"] = True
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
@@ -167,13 +210,17 @@ def select_trade_for_row(
         )
 
     if use_hmm:
-        mod = compute_hmm_modulators(
+        mod = compute_regime_modulators(
             row,
-            hmm_confidence_threshold=float(hmm_confidence_threshold),
+            confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
         )
         meta = dict(decision.metadata)
+        meta["regime_model"] = str(mod["model"])
+        meta["regime_confidence"] = mod["confidence"]
+        meta["regime_size_mult"] = mod["size_mult"]
+        meta["regime_trade_allowed"] = True
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True

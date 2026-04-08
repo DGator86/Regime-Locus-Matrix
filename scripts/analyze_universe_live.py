@@ -33,6 +33,7 @@ if str(ROOT / "src") not in sys.path:
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_model
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.pipeline import ForecastPipeline
 from rlm.roee.decision import select_trade_for_row
@@ -52,6 +53,7 @@ def _one_symbol(
     vol_window: int,
     strike_increment: float,
     attach_vix: bool,
+    live_model: LiveRegimeModelConfig | None,
 ) -> dict[str, object]:
     bars = fetch_historical_stock_bars(
         sym,
@@ -82,16 +84,24 @@ def _one_symbol(
     feats = FactorPipeline().run(df)
     feats = classify_state_matrix(feats)
 
-    forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+    if live_model is not None:
+        forecast = live_model.build_pipeline()
+        decision_kwargs = live_model.decision_kwargs()
+        active_model = live_model.model
+    else:
+        forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+        decision_kwargs = {}
+        active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
     out["has_major_event"] = False
 
     last = out.iloc[-1]
-    d = select_trade_for_row(last, strike_increment=strike_increment)
+    d = select_trade_for_row(last, strike_increment=strike_increment, **decision_kwargs)
 
     return {
         "symbol": sym,
+        "live_model": active_model,
         "close": float(last["close"]),
         "sigma": float(last["sigma"]),
         "regime_key": str(last.get("regime_key", "")),
@@ -120,11 +130,24 @@ def main() -> int:
     p.add_argument("--strike-increment", type=float, default=1.0, help="ROEE strike grid (use 0.5 for sub-$200 names)")
     p.add_argument("--ibkr-delay", type=float, default=0.35, help="Seconds between IBKR requests (pacing)")
     p.add_argument("--no-vix", action="store_true", help="Skip ^VIX/^VVIX (faster, less macro context)")
+    p.add_argument(
+        "--live-model-config",
+        type=Path,
+        default=Path("data/processed/live_regime_model.json"),
+        help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
+    )
+    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
     p.add_argument("--out", type=Path, default=None, help="Optional CSV path under repo root")
     args = p.parse_args()
 
     syms = _parse_symbols(args.symbols)
     rows: list[dict[str, object]] = []
+    live_model: LiveRegimeModelConfig | None = None
+    if not args.ignore_live_model:
+        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        if live_model_path.is_file():
+            live_model = load_live_regime_model(live_model_path)
+            print(f"Using live model config: {live_model_path}")
 
     for i, sym in enumerate(syms):
         if i:
@@ -137,6 +160,7 @@ def main() -> int:
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
                 attach_vix=not args.no_vix,
+                live_model=live_model,
             )
         except Exception as e:
             row = {"symbol": sym, "error": str(e)[:200]}

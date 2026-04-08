@@ -11,12 +11,14 @@ import pandas as pd
 
 from rlm.backtest.engine import BacktestEngine
 from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline
 from rlm.roee.pipeline import ROEEConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
 
 ObjectiveName = Literal["sharpe", "calmar", "composite", "total_return"]
+RegimeModelName = Literal["forecast", "hmm", "markov"]
 
 
 def objective_value(
@@ -65,14 +67,55 @@ class ForecastParamSample:
     vol_window: int
 
 
+def generate_forecast_param_samples(
+    *,
+    n_trials: int,
+    rng: np.random.Generator,
+) -> list[ForecastParamSample]:
+    return [
+        ForecastParamSample(
+            drift_gamma_alpha=float(rng.uniform(0.35, 0.95)),
+            sigma_floor=float(10 ** rng.uniform(-5.0, -2.5)),
+            direction_neutral_threshold=float(rng.uniform(0.12, 0.48)),
+            move_window=int(rng.integers(50, 181)),
+            vol_window=int(rng.integers(50, 181)),
+        )
+        for _ in range(n_trials)
+    ]
+
+
+def _resolve_regime_model(
+    *,
+    regime_model: RegimeModelName | None,
+    use_hmm: bool,
+    use_markov: bool,
+) -> RegimeModelName:
+    if regime_model is not None:
+        return regime_model
+    if use_hmm and use_markov:
+        raise ValueError("Choose only one regime model for tuning.")
+    if use_hmm:
+        return "hmm"
+    if use_markov:
+        return "markov"
+    return "forecast"
+
+
 def evaluate_forecast_backtest(
     factor_frame: pd.DataFrame,
     option_chain: pd.DataFrame,
     *,
     underlying_symbol: str,
     sample: ForecastParamSample,
+    regime_model: RegimeModelName | None = None,
     use_hmm: bool = False,
+    use_markov: bool = False,
     hmm_states: int = 6,
+    hmm_n_iter: int = 100,
+    hmm_filter_backend: Literal["auto", "numpy", "numba"] = "auto",
+    hmm_prefer_gpu: bool = False,
+    markov_states: int = 3,
+    roee_config: ROEEConfig | None = None,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     """
     Run forecast → state matrix → :class:`~rlm.backtest.engine.BacktestEngine` for one parameter set.
@@ -84,12 +127,30 @@ def evaluate_forecast_backtest(
         sigma_floor=sample.sigma_floor,
         direction_neutral_threshold=sample.direction_neutral_threshold,
     )
-    if use_hmm:
+    selected_model = _resolve_regime_model(
+        regime_model=regime_model,
+        use_hmm=use_hmm,
+        use_markov=use_markov,
+    )
+    if selected_model == "hmm":
         pipe = HybridForecastPipeline(
             config=fc,
             move_window=sample.move_window,
             vol_window=sample.vol_window,
-            hmm_config=HMMConfig(n_states=hmm_states),
+            hmm_config=HMMConfig(
+                n_states=hmm_states,
+                n_iter=hmm_n_iter,
+                filter_backend=hmm_filter_backend,
+                prefer_gpu=hmm_prefer_gpu,
+            ),
+        )
+        features = pipe.run(factor_frame.copy())
+    elif selected_model == "markov":
+        pipe = HybridMarkovForecastPipeline(
+            config=fc,
+            move_window=sample.move_window,
+            vol_window=sample.vol_window,
+            markov_config=MarkovSwitchingConfig(n_states=markov_states),
         )
         features = pipe.run(factor_frame.copy())
     else:
@@ -108,7 +169,7 @@ def evaluate_forecast_backtest(
         strike_increment=5.0,
         underlying_symbol=underlying_symbol,
         quantity_per_trade=1,
-        roee_config=ROEEConfig() if use_hmm else None,
+        roee_config=roee_config or (ROEEConfig() if selected_model in {"hmm", "markov"} else None),
     )
     _, trades, summary = engine.run(features, option_chain)
 
@@ -118,8 +179,18 @@ def evaluate_forecast_backtest(
         "direction_neutral_threshold": sample.direction_neutral_threshold,
         "move_window": sample.move_window,
         "vol_window": sample.vol_window,
-        "use_hmm": use_hmm,
+        "regime_model": selected_model,
+        "use_hmm": selected_model == "hmm",
+        "use_markov": selected_model == "markov",
     }
+    if selected_model == "hmm":
+        params["hmm_states"] = hmm_states
+        params["hmm_n_iter"] = hmm_n_iter
+        params["hmm_filter_backend"] = hmm_filter_backend
+        params["hmm_prefer_gpu"] = hmm_prefer_gpu
+    if selected_model == "markov":
+        params["markov_states"] = markov_states
+    params["num_trades"] = int(len(trades))
     return summary, params
 
 
@@ -132,30 +203,47 @@ def random_search_forecast_params(
     rng: np.random.Generator,
     objective: ObjectiveName = "composite",
     min_trades: int = 15,
+    regime_model: RegimeModelName | None = None,
     use_hmm: bool = False,
+    use_markov: bool = False,
     hmm_states: int = 6,
+    hmm_n_iter: int = 100,
+    hmm_filter_backend: Literal["auto", "numpy", "numba"] = "auto",
+    hmm_prefer_gpu: bool = False,
+    markov_states: int = 3,
     drawdown_penalty: float = 0.75,
+    samples: list[ForecastParamSample] | None = None,
+    roee_config: ROEEConfig | None = None,
 ) -> list[tuple[float, dict[str, float], dict[str, Any]]]:
     """
     Random search. Returns list of ``(objective_score, summary, params)`` sorted best-first.
     """
     rows: list[tuple[float, dict[str, float], dict[str, Any]]] = []
+    selected_model = _resolve_regime_model(
+        regime_model=regime_model,
+        use_hmm=use_hmm,
+        use_markov=use_markov,
+    )
+    param_samples = samples or generate_forecast_param_samples(
+        n_trials=max(1, n_trials),
+        rng=rng,
+    )
 
-    for _ in range(n_trials):
-        sample = ForecastParamSample(
-            drift_gamma_alpha=float(rng.uniform(0.35, 0.95)),
-            sigma_floor=float(10 ** rng.uniform(-5.0, -2.5)),
-            direction_neutral_threshold=float(rng.uniform(0.12, 0.48)),
-            move_window=int(rng.integers(50, 181)),
-            vol_window=int(rng.integers(50, 181)),
-        )
+    for sample in param_samples:
         summary, params = evaluate_forecast_backtest(
             factor_frame,
             option_chain,
             underlying_symbol=underlying_symbol,
             sample=sample,
-            use_hmm=use_hmm,
+            regime_model=selected_model,
+            use_hmm=selected_model == "hmm",
+            use_markov=selected_model == "markov",
             hmm_states=hmm_states,
+            hmm_n_iter=hmm_n_iter,
+            hmm_filter_backend=hmm_filter_backend,
+            hmm_prefer_gpu=hmm_prefer_gpu,
+            markov_states=markov_states,
+            roee_config=roee_config,
         )
         score = objective_value(
             summary,
