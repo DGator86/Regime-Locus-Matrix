@@ -34,7 +34,10 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Factors → forecast → state matrix → ROEE policy (default bars: data/raw/bars_{SYMBOL}.csv)."
+        description=(
+            "Factors → forecast → state matrix → ROEE policy "
+            "(default bars: data/raw/bars_{SYMBOL}.csv)."
+        )
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
@@ -79,7 +82,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chain",
         default=None,
-        help="Option chain CSV for enrichment (default: data/raw/option_chain_{SYMBOL}.csv if present)",
+        help=(
+            "Option chain CSV for enrichment "
+            "(default: data/raw/option_chain_{SYMBOL}.csv if present)"
+        ),
     )
     parser.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX.")
     return parser.parse_args()

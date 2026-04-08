@@ -159,7 +159,6 @@ def run_walkforward(
     for window in windows:
         window_id = int(window["window_id"])
         nominal_is_start = int(window["is_start"])
-        nominal_is_end = int(window["nominal_is_end"])
         effective_is_end = int(window["effective_is_end"])
         oos_start = int(window["oos_start"])
         oos_end = int(window["oos_end"])

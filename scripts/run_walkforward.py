@@ -26,7 +26,10 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Walk-forward backtest. Build inputs first: scripts/build_rolling_backtest_dataset.py"
+        description=(
+            "Walk-forward backtest. Build inputs first: "
+            "scripts/build_rolling_backtest_dataset.py"
+        )
     )
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
@@ -112,12 +115,14 @@ def main() -> None:
         raise SystemExit(
             f"Bars file not found: {bars_path}\n"
             "Run: python scripts/build_rolling_backtest_dataset.py --demo\n"
-            f"  or: python scripts/build_rolling_backtest_dataset.py --fetch-ibkr --symbol {sym} --start 2022-01-01"
+            "  or: python scripts/build_rolling_backtest_dataset.py "
+            f"--fetch-ibkr --symbol {sym} --start 2022-01-01"
         )
     if not chain_path.is_file():
         raise SystemExit(
             f"Chain file not found: {chain_path}\n"
-            "Synthetic chain: python scripts/build_rolling_backtest_dataset.py (writes option_chain_* from bars)\n"
+            "Synthetic chain: python scripts/build_rolling_backtest_dataset.py "
+            "(writes option_chain_* from bars)\n"
             "Real snapshots: python scripts/append_option_snapshot.py --symbol "
             f"{sym} --as-of YYYY-MM-DD --replace-same-day"
         )

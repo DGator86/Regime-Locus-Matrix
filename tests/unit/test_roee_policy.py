@@ -3,7 +3,7 @@ from rlm.roee.policy import select_trade
 
 def _dynamic_sizing_kwargs() -> dict[str, float | bool]:
     return {
-        "forecast_return": 0.5,
+        "forecast_return": 1.0,
         "realized_vol": 1.5,
         "use_dynamic_sizing": True,
         "max_kelly_fraction": 0.25,

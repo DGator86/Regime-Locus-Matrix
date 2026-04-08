@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import math
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -112,7 +111,8 @@ def select_trade_for_row(
     """
     Single-bar ROEE decision for backtests and batch pipelines.
 
-    When ``hmm_confidence_threshold`` is None, HMM columns are ignored (same as :func:`select_trade`).
+    When ``hmm_confidence_threshold`` is None, HMM columns are ignored
+    (same as :func:`select_trade`).
     When set, rows with ``hmm_probs`` are gated and size is scaled like :func:`apply_roee_policy`.
     """
     missing = [c for c in _SELECT_TRADE_ROW_COLUMNS if c not in row.index]
