@@ -92,9 +92,15 @@ class BacktestEngine:
                 max_kelly_fraction=rc.max_kelly_fraction if rc is not None else 0.25,
                 max_capital_fraction=rc.max_capital_fraction if rc is not None else 0.5,
                 vault_uncertainty_threshold=(
-                    rc.vault_uncertainty_threshold if rc is not None else 0.03
+                    rc.vault_uncertainty_threshold
+                    if rc is not None
+                    else ROEEConfig().vault_uncertainty_threshold
                 ),
-                vault_size_multiplier=rc.vault_size_multiplier if rc is not None else 0.5,
+                vault_size_multiplier=(
+                    rc.vault_size_multiplier
+                    if rc is not None
+                    else ROEEConfig().vault_size_multiplier
+                ),
             )
 
             if decision.action == "enter" and not (

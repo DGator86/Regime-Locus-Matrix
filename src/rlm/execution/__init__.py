@@ -16,7 +16,11 @@ from rlm.execution.ibkr_combo_orders import (
     resolve_option_contract,
     reverse_legs_for_close,
 )
-from rlm.execution.risk_targets import SpreadExitThresholds, build_spread_exit_thresholds, trailing_stop_from_peak
+from rlm.execution.risk_targets import (
+    SpreadExitThresholds,
+    build_spread_exit_thresholds,
+    trailing_stop_from_peak,
+)
 
 __all__ = [
     "IBKRLegAction",

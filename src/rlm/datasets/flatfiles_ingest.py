@@ -9,7 +9,6 @@ import pandas as pd
 
 from rlm.datasets.data_lake_io import save_parquet
 
-
 _NS_TS_COLUMNS = ("sip_timestamp", "participant_timestamp", "window_start", "timestamp")
 
 

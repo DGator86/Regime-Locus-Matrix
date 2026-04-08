@@ -1,6 +1,6 @@
 import pandas as pd
 
-from rlm.backtest.revalue import reprice_matched_legs, has_full_reprice
+from rlm.backtest.revalue import has_full_reprice, reprice_matched_legs
 
 
 def test_reprice_matched_legs_updates_values() -> None:
