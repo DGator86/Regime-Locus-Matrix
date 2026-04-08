@@ -107,5 +107,9 @@ def test_run_walkforward_reports_purge_and_regime_metadata() -> None:
     assert "purge_bars" in summary_df.columns
     assert "regime_aware" in summary_df.columns
     assert "coverage_adjusted" in summary_df.columns
+    assert "unsafe_oos_bars" in summary_df.columns
+    assert "last_oos_regime_train_samples" in summary_df.columns
+    assert "min_oos_regime_train_samples" in summary_df.columns
+    assert "regime_safety_passed" in summary_df.columns
     assert int(summary_df["purge_bars"].iloc[0]) == 5
     assert bool(summary_df["regime_aware"].iloc[0]) is True

@@ -6,6 +6,7 @@ import pandas as pd
 
 from rlm.roee.decision import _finite_float, compute_hmm_modulators
 from rlm.roee.policy import select_trade
+from rlm.roee.regime_safety import attach_regime_safety_columns, build_regime_safety_rationale
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,12 @@ class ROEEConfig:
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    regime_adjusted_kelly: bool = True
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
+    min_regime_train_samples: int = 0
+    purge_bars: int = 0
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool]:
@@ -55,7 +62,11 @@ def apply_roee_policy(
 
     cfg = config or ROEEConfig()
 
-    out = df.copy()
+    out = attach_regime_safety_columns(
+        df,
+        min_regime_train_samples=cfg.min_regime_train_samples,
+        purge_bars=cfg.purge_bars,
+    )
 
     actions = []
     strategy_names = []
@@ -70,6 +81,27 @@ def apply_roee_policy(
 
     for _, row in out.iterrows():
         mod = _hmm_modulators_for_config(row, cfg)
+        regime_train_sample_count = int(row.get("regime_train_sample_count", 0) or 0)
+        regime_safety_ok = bool(row.get("regime_safety_ok", True))
+        if cfg.min_regime_train_samples > 0 and not regime_safety_ok:
+            actions.append("hold")
+            strategy_names.append("regime_safety_check")
+            rationales.append(
+                build_regime_safety_rationale(
+                    regime_key=str(row.get("regime_key", "")),
+                    regime_train_sample_count=regime_train_sample_count,
+                    min_regime_train_samples=cfg.min_regime_train_samples,
+                    purge_bars=cfg.purge_bars,
+                )
+            )
+            size_fractions.append(0.0)
+            target_profit_pcts.append(0.0)
+            max_risk_pcts.append(0.0)
+            leg_counts.append(0)
+            hmm_confidences.append(mod["confidence"])
+            hmm_size_multipliers.append(mod["size_mult"])
+            hmm_trade_flags.append(False)
+            continue
         if not bool(mod["trade"]):
             actions.append("hold")
             strategy_names.append("hmm_gate")
@@ -111,7 +143,8 @@ def apply_roee_policy(
                 if "forecast_return" in out.columns and pd.notna(row.get("forecast_return"))
                 else (
                     float(row["forecast_return_median"])
-                    if "forecast_return_median" in out.columns and pd.notna(row.get("forecast_return_median"))
+                    if "forecast_return_median" in out.columns
+                    and pd.notna(row.get("forecast_return_median"))
                     else None
                 )
             ),
@@ -124,6 +157,10 @@ def apply_roee_policy(
             vol_target=cfg.vol_target,
             max_kelly_fraction=cfg.max_kelly_fraction,
             max_capital_fraction=cfg.max_capital_fraction,
+            regime_adjusted_kelly=cfg.regime_adjusted_kelly,
+            high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=cfg.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
         )
 
         actions.append(decision.action)

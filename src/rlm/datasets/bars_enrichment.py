@@ -167,6 +167,31 @@ def enrich_bars_from_option_chain(
         spr = pd.to_numeric(sub["ask"], errors="coerce") - pd.to_numeric(sub["bid"], errors="coerce")
         bid_ask_spread = float(spr.median()) if spr.notna().any() else np.nan
 
+        if "spread_pct_mid" in sub.columns:
+            spread_pct_mid = pd.to_numeric(sub["spread_pct_mid"], errors="coerce")
+            options_spread_pct_mid = (
+                float(spread_pct_mid.median()) if spread_pct_mid.notna().any() else np.nan
+            )
+        else:
+            options_spread_pct_mid = np.nan
+
+        if "volume" in gg.columns:
+            options_volume_series = pd.to_numeric(gg["volume"], errors="coerce")
+            options_volume = float(options_volume_series.sum(min_count=1))
+        else:
+            options_volume = np.nan
+
+        if "open_interest" in gg.columns:
+            open_interest = pd.to_numeric(gg["open_interest"], errors="coerce")
+            total_open_interest = float(open_interest.sum(min_count=1))
+        else:
+            total_open_interest = np.nan
+
+        if np.isfinite(options_volume) and np.isfinite(total_open_interest) and total_open_interest > 0:
+            options_volume_to_oi = float(options_volume / total_open_interest)
+        else:
+            options_volume_to_oi = np.nan
+
         atm_iv = float(iv.median()) if iv.notna().any() else np.nan
 
         rows.append(
@@ -179,6 +204,9 @@ def enrich_bars_from_option_chain(
                 "term_structure_ratio": term_structure_ratio,
                 "dealer_position_proxy": dealer_position_proxy,
                 "bid_ask_spread": bid_ask_spread,
+                "options_spread_pct_mid": options_spread_pct_mid,
+                "options_volume": options_volume,
+                "options_volume_to_oi": options_volume_to_oi,
                 "_atm_iv": atm_iv,
             }
         )

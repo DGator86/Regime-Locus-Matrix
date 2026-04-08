@@ -54,6 +54,7 @@ from rlm.roee.chain_match import (
     match_legs_to_chain,
 )
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
 
@@ -89,6 +90,8 @@ def _prepare_symbol(
     vol_window: int,
     strike_increment: float,
     attach_vix: bool,
+    min_regime_train_samples: int,
+    purge_bars: int,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -116,6 +119,11 @@ def _prepare_symbol(
     out = forecast.run(feats)
     out = out.copy()
     out["has_major_event"] = False
+    out = attach_regime_safety_columns(
+        out,
+        min_regime_train_samples=min_regime_train_samples,
+        purge_bars=purge_bars,
+    )
 
     last = out.iloc[-1]
     ts = (
@@ -133,6 +141,8 @@ def _prepare_symbol(
         "lower_2s": float(last["lower_2s"]) if pd.notna(last.get("lower_2s")) else None,
         "upper_2s": float(last["upper_2s"]) if pd.notna(last.get("upper_2s")) else None,
         "regime_key": str(last.get("regime_key", "")),
+        "regime_train_sample_count": int(last.get("regime_train_sample_count", 0) or 0),
+        "regime_safety_ok": bool(last.get("regime_safety_ok", True)),
         "S_D": float(last["S_D"]) if pd.notna(last["S_D"]) else None,
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
@@ -140,7 +150,13 @@ def _prepare_symbol(
     }
     base["pipeline"] = pipeline_row
 
-    decision = select_trade_for_row(last, strike_increment=strike_increment)
+    decision = select_trade_for_row(
+        last,
+        strike_increment=strike_increment,
+        regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
+        min_regime_train_samples=min_regime_train_samples,
+        regime_purge_bars=purge_bars,
+    )
     base["decision"] = {
         "action": decision.action,
         "strategy_name": decision.strategy_name,
@@ -151,7 +167,11 @@ def _prepare_symbol(
     }
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
-        base["skip_reason"] = "roee_skip_or_no_legs"
+        base["skip_reason"] = (
+            "regime_safety_check"
+            if decision.strategy_name == "regime_safety_check"
+            else "roee_skip_or_no_legs"
+        )
         return base, None, None
     return base, decision, ts
 
@@ -370,6 +390,13 @@ def main() -> int:
         default=0,
         help="If >0, only keep N highest rank_score among active plans",
     )
+    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
     p.add_argument(
         "--out",
         type=Path,
@@ -400,6 +427,8 @@ def main() -> int:
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
                 attach_vix=not args.no_vix,
+                min_regime_train_samples=args.min_regime_train_samples,
+                purge_bars=args.purge_bars,
             )
         except Exception as e:
             results[i] = {

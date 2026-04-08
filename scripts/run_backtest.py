@@ -42,11 +42,31 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
-    parser.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
+    parser.add_argument(
+        "--use-markov", action="store_true", help="Use Markov-switching regime model."
+    )
     parser.add_argument("--markov-states", type=int, default=3)
-    parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
-    parser.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
-    parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
+    parser.add_argument(
+        "--probabilistic", action="store_true", help="Use probabilistic forecast output."
+    )
+    parser.add_argument(
+        "--model-path", type=str, default=None, help="Optional quantile model artifact JSON."
+    )
+    parser.add_argument(
+        "--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing."
+    )
+    parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    parser.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
+    )
     parser.add_argument(
         "--today",
         action="store_true",
@@ -81,7 +101,9 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore --bars/--chain files and build in-memory demo data (needed if CSVs absent).",
     )
-    parser.add_argument("--warmup-days", type=int, default=220, help="Synthetic history length (days).")
+    parser.add_argument(
+        "--warmup-days", type=int, default=220, help="Synthetic history length (days)."
+    )
     parser.add_argument(
         "--no-vix",
         action="store_true",
@@ -90,27 +112,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_or_synthetic_bars(path: str, *, synthetic: bool, end: pd.Timestamp, warmup_days: int) -> pd.DataFrame:
+def _load_or_synthetic_bars(
+    path: str, *, synthetic: bool, end: pd.Timestamp, warmup_days: int
+) -> pd.DataFrame:
     if synthetic:
         return synthetic_bars_demo(end, periods=max(warmup_days, 120))
     p = ROOT / path
     if not p.is_file():
-        raise FileNotFoundError(
-            f"Bars file not found: {p}. Pass --synthetic or create the CSV."
-        )
+        raise FileNotFoundError(f"Bars file not found: {p}. Pass --synthetic or create the CSV.")
     bars = pd.read_csv(p, parse_dates=["timestamp"])
     bars = bars.sort_values("timestamp").set_index("timestamp")
     return bars
 
 
-def _load_or_synthetic_chain(path: str, bars: pd.DataFrame, *, synthetic: bool, underlying: str) -> pd.DataFrame:
+def _load_or_synthetic_chain(
+    path: str, bars: pd.DataFrame, *, synthetic: bool, underlying: str
+) -> pd.DataFrame:
     if synthetic:
         return synthetic_option_chain_from_bars(bars, underlying=underlying)
     p = ROOT / path
     if not p.is_file():
-        raise FileNotFoundError(
-            f"Chain file not found: {p}. Pass --synthetic or create the CSV."
-        )
+        raise FileNotFoundError(f"Chain file not found: {p}. Pass --synthetic or create the CSV.")
     return pd.read_csv(p, parse_dates=["timestamp", "expiry"])
 
 
@@ -220,7 +242,11 @@ def main() -> None:
         underlying_symbol=sym,
         quantity_per_trade=1,
         roee_config=(
-            ROEEConfig(use_dynamic_sizing=args.dynamic_sizing)
+            ROEEConfig(
+                use_dynamic_sizing=args.dynamic_sizing,
+                max_kelly_fraction=args.kelly_fraction,
+                regime_adjusted_kelly=args.regime_adjusted_kelly,
+            )
             if (args.use_hmm or args.use_markov or args.dynamic_sizing)
             else None
         ),
