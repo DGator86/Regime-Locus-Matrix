@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -119,9 +120,18 @@ def _load_intraday_vix_series(sym: str, bars_index: pd.Index) -> pd.Series:
         return pd.Series(dtype=float)
 
     now = pd.Timestamp.now(tz=_EXCHANGE_TZ)
+    oldest_available = (now - pd.Timedelta(days=_INTRADAY_DOWNLOAD_LOOKBACK_DAYS)).normalize()
+    if bars_ts.min().normalize() < oldest_available:
+        warnings.warn(
+            f"{sym} 1-minute Yahoo history is only available for roughly the last "
+            f"{_INTRADAY_DOWNLOAD_LOOKBACK_DAYS} days; older intraday bars will remain missing "
+            "unless you prepopulate `vix`/`vvix`.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     request_start = max(
         bars_ts.min().normalize(),
-        (now - pd.Timedelta(days=_INTRADAY_DOWNLOAD_LOOKBACK_DAYS)).normalize(),
+        oldest_available,
     )
     request_end = min(
         bars_ts.max().normalize() + pd.Timedelta(days=1),
