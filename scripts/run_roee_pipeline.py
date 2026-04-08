@@ -14,7 +14,12 @@ from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv, rel_roee_policy_csv
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.pipeline import (
+    ForecastPipeline,
+    HybridForecastPipeline,
+    HybridProbabilisticForecastPipeline,
+)
+from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.pipeline import ROEEConfig, apply_roee_policy
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
@@ -26,6 +31,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
+    parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
+    parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
+    parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
     parser.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
@@ -72,30 +80,46 @@ def main() -> None:
     df = prepare_bars_for_factors(df, opch, underlying=sym, attach_vix=not args.no_vix)
 
     factor_df = FactorPipeline().run(df)
-    if args.use_hmm:
+    fc = ForecastConfig(
+        drift_gamma_alpha=0.65,
+        sigma_floor=1e-4,
+        direction_neutral_threshold=0.3,
+    )
+    if args.use_hmm and args.probabilistic:
+        forecast_df = HybridProbabilisticForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            hmm_config=HMMConfig(n_states=args.hmm_states),
+            model_path=args.model_path,
+        ).run(factor_df)
+    elif args.use_hmm:
         forecast_df = HybridForecastPipeline(
-            config=ForecastConfig(
-                drift_gamma_alpha=0.65,
-                sigma_floor=1e-4,
-                direction_neutral_threshold=0.3,
-            ),
+            config=fc,
             move_window=100,
             vol_window=100,
             hmm_config=HMMConfig(n_states=args.hmm_states),
         ).run(factor_df)
+    elif args.probabilistic:
+        forecast_df = ProbabilisticForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            model_path=args.model_path,
+        ).run(factor_df)
     else:
         forecast_df = ForecastPipeline(
-            config=ForecastConfig(
-                drift_gamma_alpha=0.65,
-                sigma_floor=1e-4,
-                direction_neutral_threshold=0.3,
-            ),
+            config=fc,
             move_window=100,
             vol_window=100,
         ).run(factor_df)
 
     state_df = classify_state_matrix(forecast_df)
-    policy_df = apply_roee_policy(state_df, strike_increment=5.0, config=ROEEConfig())
+    policy_df = apply_roee_policy(
+        state_df,
+        strike_increment=5.0,
+        config=ROEEConfig(use_dynamic_sizing=args.dynamic_sizing),
+    )
 
     cols = [
         "close",
@@ -109,6 +133,11 @@ def main() -> None:
         "dealer_flow_regime",
         "regime_key",
         "sigma",
+        "forecast_return",
+        "forecast_return_lower",
+        "forecast_return_median",
+        "forecast_return_upper",
+        "realized_vol",
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",

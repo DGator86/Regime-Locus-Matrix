@@ -29,6 +29,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
+    p.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
+    p.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
     p.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
@@ -113,9 +116,12 @@ def main() -> None:
             strike_increment=args.strike_increment,
             underlying_symbol=und,
             quantity_per_trade=args.quantity_per_trade,
+            use_dynamic_sizing=args.dynamic_sizing,
         ),
         use_hmm=args.use_hmm,
         hmm_config=HMMConfig(n_states=args.hmm_states) if args.use_hmm else None,
+        use_probabilistic=args.probabilistic,
+        probabilistic_model_path=args.model_path,
     )
 
     wf_sym = und

@@ -31,3 +31,31 @@ def test_select_trade_for_row_runs_when_columns_present() -> None:
     assert d.action == "enter"
     assert d.size_fraction is not None
     assert d.size_fraction == round(float(d.size_fraction), 10)
+
+
+def test_select_trade_for_row_can_use_dynamic_sizing() -> None:
+    row = pd.Series(
+        {
+            "close": 5000.0,
+            "sigma": 0.01,
+            "S_D": 0.8,
+            "S_V": -0.5,
+            "S_L": 0.7,
+            "S_G": 0.8,
+            "direction_regime": "bull",
+            "volatility_regime": "low_vol",
+            "liquidity_regime": "high_liquidity",
+            "dealer_flow_regime": "supportive",
+            "regime_key": "bull|low_vol|high_liquidity|supportive",
+            "forecast_return": 0.02,
+            "realized_vol": 0.20,
+        }
+    )
+    d = select_trade_for_row(
+        row,
+        strike_increment=5.0,
+        use_dynamic_sizing=True,
+    )
+    assert d.action == "enter"
+    assert d.size_fraction == 0.03
+    assert d.metadata.get("size_model") == "kelly_vol_target"

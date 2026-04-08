@@ -7,19 +7,28 @@
 RLM remains a deterministic and explicit options-native engine. The optional HMM layer adds soft probabilities over the standardized factor space (`S_D`, `S_V`, `S_L`, `S_G`) and exposes persistence/transition-aware confidence for downstream sizing and gating.
 
 - `ForecastPipeline` is unchanged for deterministic operation.
+- `ProbabilisticForecastPipeline` adds:
+  - `forecast_return_lower`, `forecast_return_median`, `forecast_return_upper`
+  - `forecast_uncertainty`, `realized_vol`, `forecast_source`
+  - optional loading of an offline quantile model artifact trained by `scripts/train_probabilistic_model.py`
 - `HybridForecastPipeline` augments output with:
   - `hmm_probs` (**forward-filtered** probabilities P(z_t | x_{1:t}) — no smoothing lookahead within the run dataframe)
   - `hmm_state` (argmax of filtered probabilities per bar)
   - `hmm_state_label` (mode `regime_key` label per state, from IS fit)
+- Dynamic sizing is now available through `ROEEConfig(use_dynamic_sizing=True)` or the CLI flag `--dynamic-sizing`; the backtest converts `size_fraction` into actual contract quantity rather than storing it as metadata only.
+- Transaction costs now support an extra friction model on top of fill slippage and commissions via `LifecycleConfig.transaction_cost_config`.
 - **Backtests** (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): when you pass `--use-hmm`, the engine uses `ROEEConfig` so the same HMM confidence gate and size multiplier as `apply_roee_policy` apply row-by-row. Without `--use-hmm`, decisions use `select_trade` only (no HMM columns required).
 
 Example usage:
 
 ```bash
 python scripts/run_forecast_pipeline.py --use-hmm --hmm-states 6
+python scripts/run_forecast_pipeline.py --probabilistic --model-path models/probabilistic_forecast.json
 python scripts/run_roee_pipeline.py --use-hmm --hmm-states 6
-python scripts/run_walkforward.py --use-hmm --hmm-states 6
-python scripts/run_backtest.py --use-hmm --hmm-states 6
+python scripts/run_roee_pipeline.py --probabilistic --dynamic-sizing
+python scripts/run_walkforward.py --use-hmm --probabilistic --dynamic-sizing --hmm-states 6
+python scripts/run_backtest.py --use-hmm --probabilistic --dynamic-sizing --hmm-states 6
+python scripts/train_probabilistic_model.py --symbol SPY --out models/probabilistic_forecast.json
 ```
 
 Batch ROEE labelling (does not run the backtest engine) remains in `apply_roee_policy` in `src/rlm/roee/pipeline.py`.

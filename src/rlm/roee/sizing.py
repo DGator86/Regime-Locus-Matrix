@@ -47,3 +47,45 @@ def compute_size_fraction(
         size *= 0.35
 
     return quantize_fraction(clamp(size, 0.0, base_risk_pct))
+
+
+def compute_regime_penalty_multiplier(
+    confidence: float,
+    base_risk_pct: float,
+    liquidity_regime: str,
+    dealer_flow_regime: str,
+    direction_regime: str,
+) -> float:
+    """
+    Normalized penalty multiplier implied by the legacy size model.
+    """
+    if base_risk_pct <= 0:
+        return 0.0
+    sized = compute_size_fraction(
+        confidence=confidence,
+        base_risk_pct=base_risk_pct,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
+        direction_regime=direction_regime,
+    )
+    return quantize_fraction(clamp(sized / base_risk_pct, 0.0, 1.0))
+
+
+def kelly_voltarget_size(
+    *,
+    forecast_return: float,
+    realized_vol: float,
+    vol_target: float = 0.15,
+    max_kelly_fraction: float = 0.25,
+    max_capital_fraction: float = 0.5,
+) -> float:
+    """
+    Kelly-style size scaled to a target volatility.
+    """
+    if forecast_return <= 0.0 or realized_vol <= 1e-9:
+        return 0.0
+
+    kelly = forecast_return / (realized_vol ** 2)
+    capped_kelly = min(kelly, max_kelly_fraction)
+    size = (vol_target / realized_vol) * capped_kelly
+    return quantize_fraction(clamp(size, 0.0, max_capital_fraction))

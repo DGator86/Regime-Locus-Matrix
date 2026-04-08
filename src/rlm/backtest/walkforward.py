@@ -8,7 +8,12 @@ import pandas as pd
 from rlm.backtest.engine import BacktestEngine
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.pipeline import (
+    ForecastPipeline,
+    HybridForecastPipeline,
+    HybridProbabilisticForecastPipeline,
+)
+from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.pipeline import ROEEConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
@@ -23,6 +28,7 @@ class WalkForwardConfig:
     strike_increment: float = 1.0
     underlying_symbol: str = "SPY"
     quantity_per_trade: int = 1
+    use_dynamic_sizing: bool = False
 
 
 def run_walkforward(
@@ -33,10 +39,15 @@ def run_walkforward(
     wf_config: WalkForwardConfig | None = None,
     use_hmm: bool = False,
     hmm_config: HMMConfig | None = None,
+    use_probabilistic: bool = False,
+    probabilistic_model_path: str | None = None,
+    roee_config: ROEEConfig | None = None,
     hmm_model_dir: Path = Path("models"),
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg = wf_config or WalkForwardConfig()
     fc = forecast_config or ForecastConfig()
+    if use_hmm:
+        hmm_model_dir.mkdir(parents=True, exist_ok=True)
 
     bars = bars.sort_index().copy()
     # Local import avoids circular import: rlm.datasets.backtest_data → walkforward.
@@ -67,7 +78,20 @@ def run_walkforward(
 
         feature_df = FactorPipeline().run(joined)
 
-        if use_hmm:
+        if use_hmm and use_probabilistic:
+            forecast_pipeline = HybridProbabilisticForecastPipeline(
+                config=fc,
+                move_window=cfg.is_window,
+                vol_window=cfg.is_window,
+                hmm_config=hmm_config or HMMConfig(),
+                model_path=probabilistic_model_path,
+            )
+            train_mask = feature_df.index.isin(is_bars.index)
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
+
+            hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
+            forecast_pipeline.hmm.save(hmm_path)
+        elif use_hmm:
             forecast_pipeline = HybridForecastPipeline(
                 config=fc,
                 move_window=cfg.is_window,
@@ -79,6 +103,13 @@ def run_walkforward(
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
+        elif use_probabilistic:
+            feature_df = ProbabilisticForecastPipeline(
+                config=fc,
+                move_window=cfg.is_window,
+                vol_window=cfg.is_window,
+                model_path=probabilistic_model_path,
+            ).run(feature_df)
         else:
             feature_df = ForecastPipeline(
                 config=fc,
@@ -95,7 +126,14 @@ def run_walkforward(
             strike_increment=cfg.strike_increment,
             underlying_symbol=cfg.underlying_symbol,
             quantity_per_trade=cfg.quantity_per_trade,
-            roee_config=ROEEConfig() if use_hmm else None,
+            roee_config=(
+                roee_config
+                or (
+                    ROEEConfig(use_dynamic_sizing=cfg.use_dynamic_sizing)
+                    if (use_hmm or cfg.use_dynamic_sizing)
+                    else None
+                )
+            ),
         )
 
         equity_frame, trades_frame, summary = engine.run(oos_features, oos_chain)

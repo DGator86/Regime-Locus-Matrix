@@ -19,7 +19,12 @@ from rlm.datasets.paths import (
 )
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.pipeline import (
+    ForecastPipeline,
+    HybridForecastPipeline,
+    HybridProbabilisticForecastPipeline,
+)
+from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
 
@@ -29,6 +34,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
+    parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
+    parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
@@ -77,24 +84,36 @@ def main() -> None:
     factor_pipeline = FactorPipeline()
 
     factors = factor_pipeline.run(df)
-    if args.use_hmm:
+    fc = ForecastConfig(
+        drift_gamma_alpha=0.65,
+        sigma_floor=1e-4,
+        direction_neutral_threshold=0.3,
+    )
+    if args.use_hmm and args.probabilistic:
+        forecast = HybridProbabilisticForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            hmm_config=HMMConfig(n_states=args.hmm_states),
+            model_path=args.model_path,
+        ).run(factors)
+    elif args.use_hmm:
         forecast = HybridForecastPipeline(
-            config=ForecastConfig(
-                drift_gamma_alpha=0.65,
-                sigma_floor=1e-4,
-                direction_neutral_threshold=0.3,
-            ),
+            config=fc,
             move_window=100,
             vol_window=100,
             hmm_config=HMMConfig(n_states=args.hmm_states),
         ).run(factors)
+    elif args.probabilistic:
+        forecast = ProbabilisticForecastPipeline(
+            config=fc,
+            move_window=100,
+            vol_window=100,
+            model_path=args.model_path,
+        ).run(factors)
     else:
         forecast = ForecastPipeline(
-            config=ForecastConfig(
-                drift_gamma_alpha=0.65,
-                sigma_floor=1e-4,
-                direction_neutral_threshold=0.3,
-            ),
+            config=fc,
             move_window=100,
             vol_window=100,
         ).run(factors)
@@ -114,6 +133,12 @@ def main() -> None:
         "upper_1s",
         "lower_2s",
         "upper_2s",
+        "forecast_return_lower",
+        "forecast_return_median",
+        "forecast_return_upper",
+        "forecast_uncertainty",
+        "realized_vol",
+        "forecast_source",
     ]
     if args.use_hmm:
         out_cols.extend(["hmm_state", "hmm_state_label"])

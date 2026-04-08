@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from rlm.standardization.transforms import sigma_floor
 from rlm.types.forecast import ForecastConfig
@@ -90,6 +91,53 @@ def compute_sigma(
     return raw_sigma.apply(lambda x: sigma_floor(x, cfg.sigma_floor))
 
 
+def compute_realized_vol(
+    close: pd.Series,
+    window: int = 20,
+    annualization: float = 252.0,
+) -> pd.Series:
+    """
+    Rolling annualized realized volatility from close-to-close returns.
+    """
+    returns = close.pct_change()
+    min_periods = max(5, window // 2)
+    realized = returns.rolling(window=window, min_periods=min_periods).std(ddof=0)
+    return realized * np.sqrt(float(annualization))
+
+
+def compute_probabilistic_return_bands(
+    mu: pd.Series,
+    sigma: pd.Series,
+    *,
+    lower_quantile: float = 0.1,
+    upper_quantile: float = 0.9,
+) -> pd.DataFrame:
+    """
+    Converts the deterministic return estimate into a calibrated-looking
+    forecast interval under a Gaussian fallback assumption.
+    """
+    lower_q = float(lower_quantile)
+    upper_q = float(upper_quantile)
+    if not 0.0 < lower_q < upper_q < 1.0:
+        raise ValueError("Probabilistic quantiles must satisfy 0 < lower < upper < 1.")
+
+    lower_z = float(norm.ppf(lower_q))
+    upper_z = float(norm.ppf(upper_q))
+    lower = mu + sigma * lower_z
+    upper = mu + sigma * upper_z
+
+    return pd.DataFrame(
+        {
+            "forecast_return_lower": lower,
+            "forecast_return_median": mu,
+            "forecast_return_upper": upper,
+            "forecast_return": mu,
+            "forecast_uncertainty": upper - lower,
+        },
+        index=mu.index,
+    )
+
+
 def estimate_distribution(
     df: pd.DataFrame,
     config: ForecastConfig | None = None,
@@ -116,5 +164,20 @@ def estimate_distribution(
     out["mu"] = compute_mu(out["S_D"], out["S_G"], out["b_m"], cfg)
     out["sigma"] = compute_sigma(out["S_V"], out["S_L"], out["S_G"], out["b_sigma"], cfg)
     out["mean_price"] = out["close"] * (1.0 + out["mu"])
+    out["realized_vol"] = compute_realized_vol(
+        out["close"],
+        window=cfg.realized_vol_window,
+        annualization=cfg.realized_vol_annualization,
+    )
+
+    prob = compute_probabilistic_return_bands(
+        out["mu"],
+        out["sigma"],
+        lower_quantile=cfg.probabilistic_lower_quantile,
+        upper_quantile=cfg.probabilistic_upper_quantile,
+    )
+    for col in prob.columns:
+        out[col] = prob[col]
+    out["forecast_source"] = "deterministic_distribution"
 
     return out

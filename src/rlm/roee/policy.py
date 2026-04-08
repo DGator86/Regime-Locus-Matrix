@@ -7,7 +7,13 @@ from rlm.roee.risk import (
     should_skip_for_event_risk,
     spread_quality_ok,
 )
-from rlm.roee.sizing import compute_confidence, compute_size_fraction
+from rlm.roee.sizing import (
+    compute_confidence,
+    compute_regime_penalty_multiplier,
+    compute_size_fraction,
+    kelly_voltarget_size,
+    quantize_fraction,
+)
 from rlm.roee.strategy_map import get_strategy_for_regime
 from rlm.roee.strike_selection import build_legs_from_candidate
 from rlm.types.options import TradeDecision
@@ -29,6 +35,12 @@ def select_trade(
     bid_ask_spread_pct: float | None = None,
     has_major_event: bool = False,
     strike_increment: float = 1.0,
+    forecast_return: float | None = None,
+    realized_vol: float | None = None,
+    use_dynamic_sizing: bool = False,
+    vol_target: float = 0.15,
+    max_kelly_fraction: float = 0.25,
+    max_capital_fraction: float = 0.5,
 ) -> TradeDecision:
     """
     Main ROEE entry point for one bar / one underlying snapshot.
@@ -79,6 +91,50 @@ def select_trade(
         dealer_flow_regime=dealer_flow_regime,
         direction_regime=direction_regime,
     )
+    size_model = "confidence"
+    sizing_meta: dict[str, float | str | bool] = {
+        "confidence": confidence,
+        "require_defined_risk": require_defined_risk,
+        "current_price": float(current_price),
+        "sigma": float(sigma),
+    }
+
+    forecast_ok = forecast_return is not None and math.isfinite(forecast_return)
+    vol_ok = realized_vol is not None and math.isfinite(realized_vol) and realized_vol > 0.0
+    if use_dynamic_sizing and forecast_ok and vol_ok:
+        regime_penalty = compute_regime_penalty_multiplier(
+            confidence=confidence,
+            base_risk_pct=candidate.max_risk_pct,
+            liquidity_regime=liquidity_regime,
+            dealer_flow_regime=dealer_flow_regime,
+            direction_regime=direction_regime,
+        )
+        raw_dynamic_size = kelly_voltarget_size(
+            forecast_return=float(forecast_return),
+            realized_vol=float(realized_vol),
+            vol_target=vol_target,
+            max_kelly_fraction=max_kelly_fraction,
+            max_capital_fraction=max_capital_fraction,
+        )
+        size_fraction = quantize_fraction(
+            min(
+                candidate.max_risk_pct,
+                max_capital_fraction,
+                raw_dynamic_size * regime_penalty,
+            )
+        )
+        size_model = "kelly_vol_target"
+        sizing_meta.update(
+            {
+                "forecast_return": float(forecast_return),
+                "realized_vol": float(realized_vol),
+                "regime_penalty": regime_penalty,
+                "vol_target": float(vol_target),
+                "max_kelly_fraction": float(max_kelly_fraction),
+                "max_capital_fraction": float(max_capital_fraction),
+                "raw_dynamic_size": raw_dynamic_size,
+            }
+        )
 
     if size_fraction <= 0:
         return TradeDecision(
@@ -106,10 +162,5 @@ def select_trade(
         max_risk_pct=candidate.max_risk_pct,
         candidate=candidate,
         legs=legs,
-        metadata={
-            "confidence": confidence,
-            "require_defined_risk": require_defined_risk,
-            "current_price": float(current_price),
-            "sigma": float(sigma),
-        },
+        metadata={**sizing_meta, "size_model": size_model},
     )
