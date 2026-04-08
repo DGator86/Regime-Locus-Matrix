@@ -48,6 +48,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
     parser.add_argument(
+        "--vault-uncertainty-threshold",
+        type=float,
+        default=0.03,
+        help="Cut size when forecast 5th-95th range exceeds this return-width threshold.",
+    )
+    parser.add_argument(
+        "--vault-size-multiplier",
+        type=float,
+        default=0.5,
+        help="Position-size multiplier to apply when the Vault rule triggers.",
+    )
+    parser.add_argument(
         "--today",
         action="store_true",
         help="Restrict the engine to the current calendar date (local).",
@@ -219,10 +231,10 @@ def main() -> None:
         strike_increment=5.0,
         underlying_symbol=sym,
         quantity_per_trade=1,
-        roee_config=(
-            ROEEConfig(use_dynamic_sizing=args.dynamic_sizing)
-            if (args.use_hmm or args.use_markov or args.dynamic_sizing)
-            else None
+        roee_config=ROEEConfig(
+            use_dynamic_sizing=args.dynamic_sizing,
+            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+            vault_size_multiplier=args.vault_size_multiplier,
         ),
     )
 

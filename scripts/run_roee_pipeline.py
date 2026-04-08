@@ -39,6 +39,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
     parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
     parser.add_argument(
+        "--vault-uncertainty-threshold",
+        type=float,
+        default=0.03,
+        help="Cut size when forecast 5th-95th range exceeds this return-width threshold.",
+    )
+    parser.add_argument(
+        "--vault-size-multiplier",
+        type=float,
+        default=0.5,
+        help="Position-size multiplier to apply when the Vault rule triggers.",
+    )
+    parser.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
         help=f"Ticker for default paths (default {DEFAULT_SYMBOL})",
@@ -139,7 +151,11 @@ def main() -> None:
     policy_df = apply_roee_policy(
         state_df,
         strike_increment=5.0,
-        config=ROEEConfig(use_dynamic_sizing=args.dynamic_sizing),
+        config=ROEEConfig(
+            use_dynamic_sizing=args.dynamic_sizing,
+            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+            vault_size_multiplier=args.vault_size_multiplier,
+        ),
     )
 
     cols = [
@@ -158,10 +174,14 @@ def main() -> None:
         "forecast_return_lower",
         "forecast_return_median",
         "forecast_return_upper",
+        "forecast_uncertainty",
         "realized_vol",
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",
+        "vault_triggered",
+        "vault_size_multiplier",
+        "vault_uncertainty_threshold",
         "roee_leg_count",
         "hmm_confidence",
         "hmm_size_mult",

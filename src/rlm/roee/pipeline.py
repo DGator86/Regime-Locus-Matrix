@@ -17,6 +17,8 @@ class ROEEConfig:
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    vault_uncertainty_threshold: float | None = 0.03
+    vault_size_multiplier: float = 0.5
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool]:
@@ -67,6 +69,10 @@ def apply_roee_policy(
     hmm_confidences = []
     hmm_size_multipliers = []
     hmm_trade_flags = []
+    vault_triggers = []
+    vault_size_multipliers = []
+    vault_uncertainties = []
+    vault_uncertainty_thresholds = []
 
     for _, row in out.iterrows():
         mod = _hmm_modulators_for_config(row, cfg)
@@ -81,6 +87,18 @@ def apply_roee_policy(
             hmm_confidences.append(mod["confidence"])
             hmm_size_multipliers.append(mod["size_mult"])
             hmm_trade_flags.append(False)
+            vault_triggers.append(False)
+            vault_size_multipliers.append(float(cfg.vault_size_multiplier))
+            vault_uncertainties.append(
+                float(row["forecast_uncertainty"])
+                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
+                else float("nan")
+            )
+            vault_uncertainty_thresholds.append(
+                float(cfg.vault_uncertainty_threshold)
+                if cfg.vault_uncertainty_threshold is not None
+                else float("nan")
+            )
             continue
 
         decision = select_trade(
@@ -115,6 +133,11 @@ def apply_roee_policy(
                     else None
                 )
             ),
+            forecast_uncertainty=(
+                float(row["forecast_uncertainty"])
+                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
+                else None
+            ),
             realized_vol=(
                 float(row["realized_vol"])
                 if "realized_vol" in out.columns and pd.notna(row.get("realized_vol"))
@@ -124,6 +147,8 @@ def apply_roee_policy(
             vol_target=cfg.vol_target,
             max_kelly_fraction=cfg.max_kelly_fraction,
             max_capital_fraction=cfg.max_capital_fraction,
+            vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
+            vault_size_multiplier=cfg.vault_size_multiplier,
         )
 
         actions.append(decision.action)
@@ -140,6 +165,18 @@ def apply_roee_policy(
         hmm_confidences.append(mod["confidence"])
         hmm_size_multipliers.append(mod["size_mult"])
         hmm_trade_flags.append(decision.action == "enter")
+        vault_triggers.append(bool(decision.metadata.get("vault_triggered", False)))
+        vault_size_multipliers.append(float(decision.metadata.get("vault_size_multiplier", 1.0)))
+        vault_uncertainties.append(
+            float(decision.metadata["forecast_uncertainty"])
+            if "forecast_uncertainty" in decision.metadata
+            else float("nan")
+        )
+        vault_uncertainty_thresholds.append(
+            float(decision.metadata["vault_uncertainty_threshold"])
+            if "vault_uncertainty_threshold" in decision.metadata
+            else float("nan")
+        )
 
     out["roee_action"] = actions
     out["roee_strategy"] = strategy_names
@@ -151,5 +188,9 @@ def apply_roee_policy(
     out["hmm_confidence"] = hmm_confidences
     out["hmm_size_mult"] = hmm_size_multipliers
     out["hmm_trade_allowed"] = hmm_trade_flags
+    out["vault_triggered"] = vault_triggers
+    out["vault_size_multiplier"] = vault_size_multipliers
+    out["vault_forecast_uncertainty"] = vault_uncertainties
+    out["vault_uncertainty_threshold"] = vault_uncertainty_thresholds
 
     return out

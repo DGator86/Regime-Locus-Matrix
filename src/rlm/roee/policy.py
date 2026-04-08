@@ -8,6 +8,7 @@ from rlm.roee.risk import (
     spread_quality_ok,
 )
 from rlm.roee.sizing import (
+    apply_uncertainty_vault,
     compute_confidence,
     compute_regime_penalty_multiplier,
     compute_size_fraction,
@@ -36,11 +37,14 @@ def select_trade(
     has_major_event: bool = False,
     strike_increment: float = 1.0,
     forecast_return: float | None = None,
+    forecast_uncertainty: float | None = None,
     realized_vol: float | None = None,
     use_dynamic_sizing: bool = False,
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
     max_capital_fraction: float = 0.5,
+    vault_uncertainty_threshold: float | None = 0.03,
+    vault_size_multiplier: float = 0.5,
 ) -> TradeDecision:
     """
     Main ROEE entry point for one bar / one underlying snapshot.
@@ -135,6 +139,14 @@ def select_trade(
                 "raw_dynamic_size": raw_dynamic_size,
             }
         )
+
+    size_fraction, vault_meta = apply_uncertainty_vault(
+        size_fraction=size_fraction,
+        forecast_uncertainty=forecast_uncertainty,
+        uncertainty_threshold=vault_uncertainty_threshold,
+        size_multiplier=vault_size_multiplier,
+    )
+    sizing_meta.update(vault_meta)
 
     if size_fraction <= 0:
         return TradeDecision(

@@ -83,3 +83,88 @@ def test_roee_builds_iron_condor_for_clean_range_state() -> None:
     assert decision.action == "enter"
     assert decision.strategy_name == "iron_condor"
     assert len(decision.legs) == 4
+
+
+def test_roee_vault_halves_size_when_uncertainty_exceeds_threshold() -> None:
+    baseline = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        forecast_uncertainty=0.06,
+        vault_uncertainty_threshold=None,
+    )
+    vaulted = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        forecast_uncertainty=0.06,
+        vault_uncertainty_threshold=0.03,
+        vault_size_multiplier=0.5,
+    )
+
+    assert baseline.action == "enter"
+    assert vaulted.action == "enter"
+    assert baseline.size_fraction is not None
+    assert vaulted.size_fraction == baseline.size_fraction * 0.5
+    assert vaulted.metadata["vault_triggered"] is True
+    assert vaulted.metadata["vault_uncertainty_threshold"] == 0.03
+    assert vaulted.metadata["forecast_uncertainty"] == 0.06
+
+
+def test_roee_vault_leaves_size_unchanged_below_threshold() -> None:
+    baseline = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        forecast_uncertainty=0.02,
+        vault_uncertainty_threshold=None,
+    )
+    decision = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        forecast_uncertainty=0.02,
+        vault_uncertainty_threshold=0.03,
+        vault_size_multiplier=0.5,
+    )
+
+    assert baseline.action == "enter"
+    assert decision.action == "enter"
+    assert decision.size_fraction == baseline.size_fraction
+    assert decision.metadata["vault_triggered"] is False

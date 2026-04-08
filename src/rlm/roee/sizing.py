@@ -89,3 +89,32 @@ def kelly_voltarget_size(
     capped_kelly = min(kelly, max_kelly_fraction)
     size = (vol_target / realized_vol) * capped_kelly
     return quantize_fraction(clamp(size, 0.0, max_capital_fraction))
+
+
+def apply_uncertainty_vault(
+    *,
+    size_fraction: float,
+    forecast_uncertainty: float | None,
+    uncertainty_threshold: float | None = 0.03,
+    size_multiplier: float = 0.5,
+) -> tuple[float, dict[str, float | bool]]:
+    """
+    Reduce risk when the forecast interval is wide enough to signal model confusion.
+    """
+    threshold_ok = uncertainty_threshold is not None and float(uncertainty_threshold) > 0.0
+    multiplier = clamp(float(size_multiplier), 0.0, 1.0)
+    uncertainty_ok = forecast_uncertainty is not None
+    uncertainty_value = float(forecast_uncertainty) if uncertainty_ok else None
+    uncertainty_finite = uncertainty_value is not None and uncertainty_value >= 0.0
+    triggered = bool(threshold_ok and uncertainty_finite and uncertainty_value > float(uncertainty_threshold))
+    adjusted = size_fraction * multiplier if triggered else size_fraction
+    metadata: dict[str, float | bool] = {
+        "vault_enabled": bool(threshold_ok),
+        "vault_triggered": triggered,
+        "vault_size_multiplier": quantize_fraction(multiplier),
+    }
+    if threshold_ok:
+        metadata["vault_uncertainty_threshold"] = float(uncertainty_threshold)
+    if uncertainty_finite and uncertainty_value is not None:
+        metadata["forecast_uncertainty"] = uncertainty_value
+    return quantize_fraction(adjusted), metadata

@@ -68,6 +68,8 @@ def select_trade_for_row(
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
     max_capital_fraction: float = 0.5,
+    vault_uncertainty_threshold: float | None = 0.03,
+    vault_size_multiplier: float = 0.5,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -137,6 +139,11 @@ def select_trade_for_row(
                 else None
             )
         ),
+        forecast_uncertainty=(
+            _finite_float(row.get("forecast_uncertainty"), default=np.nan)
+            if pd.notna(row.get("forecast_uncertainty"))
+            else None
+        ),
         realized_vol=(
             _finite_float(row.get("realized_vol"), default=np.nan)
             if pd.notna(row.get("realized_vol"))
@@ -146,6 +153,8 @@ def select_trade_for_row(
         vol_target=vol_target,
         max_kelly_fraction=max_kelly_fraction,
         max_capital_fraction=max_capital_fraction,
+        vault_uncertainty_threshold=vault_uncertainty_threshold,
+        vault_size_multiplier=vault_size_multiplier,
     )
 
     if use_hmm and decision.action == "enter":

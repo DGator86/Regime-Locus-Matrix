@@ -87,6 +87,8 @@ class BacktestEngine:
                 vol_target=rc.vol_target if rc is not None else 0.15,
                 max_kelly_fraction=rc.max_kelly_fraction if rc is not None else 0.25,
                 max_capital_fraction=rc.max_capital_fraction if rc is not None else 0.5,
+                vault_uncertainty_threshold=rc.vault_uncertainty_threshold if rc is not None else 0.03,
+                vault_size_multiplier=rc.vault_size_multiplier if rc is not None else 0.5,
             )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):

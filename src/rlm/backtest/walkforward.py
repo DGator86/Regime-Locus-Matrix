@@ -31,6 +31,8 @@ class WalkForwardConfig:
     underlying_symbol: str = "SPY"
     quantity_per_trade: int = 1
     use_dynamic_sizing: bool = False
+    vault_uncertainty_threshold: float | None = 0.03
+    vault_size_multiplier: float = 0.5
     purge_bars: int = 0
     regime_aware: bool = False
     min_regime_train_samples: int = 20
@@ -250,8 +252,18 @@ def run_walkforward(
             roee_config=(
                 roee_config
                 or (
-                    ROEEConfig(use_dynamic_sizing=cfg.use_dynamic_sizing)
-                    if (use_hmm or use_markov or cfg.use_dynamic_sizing)
+                    ROEEConfig(
+                        use_dynamic_sizing=cfg.use_dynamic_sizing,
+                        vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
+                        vault_size_multiplier=cfg.vault_size_multiplier,
+                    )
+                    if (
+                        use_hmm
+                        or use_markov
+                        or cfg.use_dynamic_sizing
+                        or cfg.vault_uncertainty_threshold != 0.03
+                        or cfg.vault_size_multiplier != 0.5
+                    )
                     else None
                 )
             ),
