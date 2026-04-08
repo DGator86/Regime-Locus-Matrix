@@ -233,7 +233,7 @@ def enrich_bars_with_surface_features(
     out = bars.copy()
     ch = normalize_option_chain(chain)
     ch = ch.loc[ch["underlying"].str.upper() == und].copy()
-    if ch.empty:
+    if ch.empty or "iv" not in ch.columns or pd.to_numeric(ch["iv"], errors="coerce").notna().sum() == 0:
         return out
 
     surface = build_surface_feature_frame(ch)

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.datasets.bars_enrichment import enrich_bars_from_option_chain
+from rlm.datasets.bars_enrichment import enrich_bars_with_surface_features
 
 
 def _make_bars() -> pd.DataFrame:
@@ -54,7 +54,7 @@ def test_enrich_bars_adds_surface_features() -> None:
     bars = _make_bars()
     chain = _make_chain(bars)
 
-    out = enrich_bars_from_option_chain(bars, chain, underlying="SPY")
+    out = enrich_bars_with_surface_features(bars, chain, underlying="SPY")
 
     for col in [
         "surface_atm_forward_iv",

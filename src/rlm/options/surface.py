@@ -204,3 +204,58 @@ def extract_surface_features(
         "surface_fit_error": float(selected.rmse),
         "surface_selected_dte": float(selected.dte),
     }
+
+
+def build_surface_feature_frame(
+    chain: pd.DataFrame,
+    *,
+    target_dte: float = 30.0,
+) -> pd.DataFrame:
+    """
+    Build one row of SVI-derived features per calendar date.
+    """
+    if chain.empty:
+        return pd.DataFrame()
+
+    required = {"timestamp", "strike", "expiry", "dte", "iv"}
+    missing = required.difference(chain.columns)
+    if missing:
+        raise ValueError(f"Missing required chain columns for surface features: {sorted(missing)}")
+
+    work = chain.copy()
+    work["timestamp"] = pd.to_datetime(work["timestamp"])
+    work["_d"] = work["timestamp"].dt.normalize()
+
+    if "underlying_price" in work.columns:
+        spot_by_day = pd.to_numeric(work["underlying_price"], errors="coerce").groupby(work["_d"]).median()
+    else:
+        spot_by_day = pd.Series(dtype=float)
+
+    rows: list[dict[str, float | pd.Timestamp]] = []
+    for day, grp in work.groupby("_d", sort=True):
+        if day in spot_by_day.index and np.isfinite(float(spot_by_day.loc[day])):
+            spot = float(spot_by_day.loc[day])
+        else:
+            if grp.empty:
+                continue
+            spot = float(pd.to_numeric(grp["strike"], errors="coerce").median())
+        if not np.isfinite(spot) or spot <= 0.0:
+            continue
+
+        feats = extract_surface_features(grp, spot=spot, target_dte=target_dte)
+        rows.append(
+            {
+                "_d": pd.Timestamp(day),
+                "surface_atm_forward_iv": feats["surface_atm_iv"],
+                "surface_skew": feats["surface_skew"],
+                "surface_convexity": feats["surface_convexity"],
+                "surface_term_slope": feats["surface_term_structure_ratio"],
+                "surface_fit_error": feats["surface_fit_error"],
+                "surface_selected_dte": feats["surface_selected_dte"],
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows).set_index("_d").sort_index()
