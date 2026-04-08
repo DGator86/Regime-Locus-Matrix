@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +17,7 @@ from rlm.forecasting.pipeline import (
 )
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.pipeline import ROEEConfig
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
 
@@ -254,30 +255,35 @@ def run_walkforward(
                 vol_window=cfg.is_window,
             ).run(feature_df)
 
+        feature_df = classify_state_matrix(feature_df)
+        feature_df = attach_regime_safety_columns(
+            feature_df,
+            min_regime_train_samples=cfg.min_regime_train_samples,
+            purge_bars=cfg.purge_bars,
+        )
         oos_features = feature_df.loc[oos_bars.index].copy()
-        oos_features = classify_state_matrix(oos_features)
         oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
+
+        effective_roee_config = roee_config or ROEEConfig(
+            use_dynamic_sizing=(cfg.use_dynamic_sizing or use_hmm or use_markov),
+            max_kelly_fraction=cfg.max_kelly_fraction,
+            regime_adjusted_kelly=cfg.regime_adjusted_kelly,
+            high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=cfg.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
+        )
+        effective_roee_config = replace(
+            effective_roee_config,
+            min_regime_train_samples=max(int(cfg.min_regime_train_samples), 0),
+            purge_bars=max(int(cfg.purge_bars), 0),
+        )
 
         engine = BacktestEngine(
             initial_capital=cfg.initial_capital,
             strike_increment=cfg.strike_increment,
             underlying_symbol=cfg.underlying_symbol,
             quantity_per_trade=cfg.quantity_per_trade,
-            roee_config=(
-                roee_config
-                or (
-                    ROEEConfig(
-                        use_dynamic_sizing=cfg.use_dynamic_sizing,
-                        max_kelly_fraction=cfg.max_kelly_fraction,
-                        regime_adjusted_kelly=cfg.regime_adjusted_kelly,
-                        high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
-                        transition_kelly_multiplier=cfg.transition_kelly_multiplier,
-                        calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
-                    )
-                    if (use_hmm or use_markov or cfg.use_dynamic_sizing)
-                    else None
-                )
-            ),
+            roee_config=effective_roee_config,
         )
 
         equity_frame, trades_frame, summary = engine.run(oos_features, oos_chain)
@@ -302,6 +308,12 @@ def run_walkforward(
             "nominal_is_end": str(joined.index[max(train_end_in_joined - 1, 0)]),
             "purge_bars": int(cfg.purge_bars),
             "regime_aware": bool(cfg.regime_aware),
+            "unsafe_oos_bars": int((~oos_features["regime_safety_ok"]).sum()),
+            "last_oos_regime_train_samples": int(
+                oos_features["regime_train_sample_count"].iloc[-1]
+            ),
+            "min_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].min()),
+            "regime_safety_passed": bool(oos_features["regime_safety_ok"].all()),
             **regime_meta,
         }
         summary_row.update(summary)

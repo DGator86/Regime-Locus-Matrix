@@ -88,6 +88,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX.")
+    parser.add_argument(
+        "--purge-bars",
+        type=int,
+        default=0,
+        help="Exclude the most recent bars from regime training counts.",
+    )
+    parser.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help=(
+            "Pause new trades when the current regime has fewer prior training "
+            "samples than this threshold."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -172,6 +187,8 @@ def main() -> None:
             use_dynamic_sizing=args.dynamic_sizing,
             max_kelly_fraction=args.kelly_fraction,
             regime_adjusted_kelly=args.regime_adjusted_kelly,
+            min_regime_train_samples=args.min_regime_train_samples,
+            purge_bars=args.purge_bars,
         ),
     )
 
@@ -192,6 +209,10 @@ def main() -> None:
         "forecast_return_median",
         "forecast_return_upper",
         "realized_vol",
+        "regime_train_sample_count",
+        "regime_train_sample_requirement",
+        "regime_train_sample_gap",
+        "regime_safety_ok",
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",

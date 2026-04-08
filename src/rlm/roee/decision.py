@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.roee.policy import select_trade
+from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
 from rlm.types.options import TradeDecision
 
@@ -107,6 +108,9 @@ def select_trade_for_row(
     high_vol_kelly_multiplier: float = 0.5,
     transition_kelly_multiplier: float = 0.75,
     calm_trend_kelly_multiplier: float = 1.25,
+    regime_train_sample_count: int | None = None,
+    min_regime_train_samples: int | None = None,
+    regime_purge_bars: int = 0,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -124,6 +128,32 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
+    min_regime_samples = (
+        max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
+    )
+    train_sample_count = (
+        max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
+    )
+
+    if min_regime_samples > 0 and train_sample_count < min_regime_samples:
+        return TradeDecision(
+            action="hold",
+            strategy_name="regime_safety_check",
+            regime_key=str(row.get("regime_key", "")),
+            rationale=build_regime_safety_rationale(
+                regime_key=str(row.get("regime_key", "")),
+                regime_train_sample_count=train_sample_count,
+                min_regime_train_samples=min_regime_samples,
+                purge_bars=regime_purge_bars,
+            ),
+            metadata={
+                "regime_train_sample_count": train_sample_count,
+                "min_regime_train_samples": min_regime_samples,
+                "regime_train_purge_bars": max(int(regime_purge_bars), 0),
+                "regime_safety_ok": False,
+            },
+        )
+
     latent_regime = resolve_latent_regime_from_row(row)
 
     if use_hmm:

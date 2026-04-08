@@ -20,6 +20,7 @@ from rlm.roee.exits import (
     should_exit_for_zone_breach,
 )
 from rlm.roee.pipeline import ROEEConfig
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 
 # Alias for tests and external monkeypatching (backtests call this once per bar).
@@ -58,6 +59,12 @@ class BacktestEngine:
     ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
         chain = normalize_option_chain(option_chain_df)
         features = classify_state_matrix(feature_df.copy())
+        rc = self.roee_config or ROEEConfig()
+        features = attach_regime_safety_columns(
+            features,
+            min_regime_train_samples=rc.min_regime_train_samples,
+            purge_bars=rc.purge_bars,
+        )
 
         ch = chain.loc[chain["underlying"] == self.underlying_symbol].copy()
         chain_by_ts: dict[pd.Timestamp, pd.DataFrame] = {}
@@ -80,25 +87,23 @@ class BacktestEngine:
                 self.portfolio.mark_equity(ts)
                 continue
 
-            rc = self.roee_config
             decision = decide_trade_for_bar(
                 row,
                 strike_increment=self.strike_increment,
-                hmm_confidence_threshold=rc.hmm_confidence_threshold if rc is not None else None,
-                hmm_sizing_multiplier=rc.sizing_multiplier if rc is not None else 1.0,
-                hmm_transition_penalty=rc.transition_penalty if rc is not None else 0.5,
-                use_dynamic_sizing=rc.use_dynamic_sizing if rc is not None else False,
-                vol_target=rc.vol_target if rc is not None else 0.15,
-                max_kelly_fraction=rc.max_kelly_fraction if rc is not None else 0.25,
-                max_capital_fraction=rc.max_capital_fraction if rc is not None else 0.5,
-                regime_adjusted_kelly=rc.regime_adjusted_kelly if rc is not None else True,
-                high_vol_kelly_multiplier=rc.high_vol_kelly_multiplier if rc is not None else 0.5,
-                transition_kelly_multiplier=(
-                    rc.transition_kelly_multiplier if rc is not None else 0.75
-                ),
-                calm_trend_kelly_multiplier=(
-                    rc.calm_trend_kelly_multiplier if rc is not None else 1.25
-                ),
+                hmm_confidence_threshold=rc.hmm_confidence_threshold,
+                hmm_sizing_multiplier=rc.sizing_multiplier,
+                hmm_transition_penalty=rc.transition_penalty,
+                use_dynamic_sizing=rc.use_dynamic_sizing,
+                vol_target=rc.vol_target,
+                max_kelly_fraction=rc.max_kelly_fraction,
+                max_capital_fraction=rc.max_capital_fraction,
+                regime_adjusted_kelly=rc.regime_adjusted_kelly,
+                high_vol_kelly_multiplier=rc.high_vol_kelly_multiplier,
+                transition_kelly_multiplier=rc.transition_kelly_multiplier,
+                calm_trend_kelly_multiplier=rc.calm_trend_kelly_multiplier,
+                regime_train_sample_count=int(row.get("regime_train_sample_count", 0) or 0),
+                min_regime_train_samples=rc.min_regime_train_samples,
+                regime_purge_bars=rc.purge_bars,
             )
 
             if decision.action == "enter" and not (
