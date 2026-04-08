@@ -7,7 +7,7 @@ from rlm.backtest.portfolio import Portfolio
 from rlm.types.options import TradeDecision
 
 
-def _decision_with_one_leg(expiry: str = "2025-01-12", size_fraction: float = 0.05) -> TradeDecision:
+def _decision_with_one_leg(expiry: str = "2025-01-12", size_fraction: float | None = None) -> TradeDecision:
     return TradeDecision(
         action="enter",
         strategy_name="test",
