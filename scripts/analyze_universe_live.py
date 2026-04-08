@@ -37,6 +37,7 @@ from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_m
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.pipeline import ForecastPipeline
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 
 
@@ -54,6 +55,8 @@ def _one_symbol(
     strike_increment: float,
     attach_vix: bool,
     live_model: LiveRegimeModelConfig | None,
+    min_regime_train_samples: int,
+    purge_bars: int,
 ) -> dict[str, object]:
     bars = fetch_historical_stock_bars(
         sym,
@@ -95,9 +98,21 @@ def _one_symbol(
     out = forecast.run(feats)
     out = out.copy()
     out["has_major_event"] = False
+    out = attach_regime_safety_columns(
+        out,
+        min_regime_train_samples=min_regime_train_samples,
+        purge_bars=purge_bars,
+    )
 
     last = out.iloc[-1]
-    d = select_trade_for_row(last, strike_increment=strike_increment, **decision_kwargs)
+    d = select_trade_for_row(
+        last,
+        strike_increment=strike_increment,
+        **decision_kwargs,
+        regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
+        min_regime_train_samples=min_regime_train_samples,
+        regime_purge_bars=purge_bars,
+    )
 
     return {
         "symbol": sym,
@@ -105,6 +120,8 @@ def _one_symbol(
         "close": float(last["close"]),
         "sigma": float(last["sigma"]),
         "regime_key": str(last.get("regime_key", "")),
+        "regime_train_sample_count": int(last.get("regime_train_sample_count", 0) or 0),
+        "regime_safety_ok": bool(last.get("regime_safety_ok", True)),
         "S_D": float(last["S_D"]) if pd.notna(last["S_D"]) else None,
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
@@ -137,6 +154,13 @@ def main() -> int:
         help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
     )
     p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
+    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
     p.add_argument("--out", type=Path, default=None, help="Optional CSV path under repo root")
     args = p.parse_args()
 
@@ -161,6 +185,8 @@ def main() -> int:
                 strike_increment=args.strike_increment,
                 attach_vix=not args.no_vix,
                 live_model=live_model,
+                min_regime_train_samples=args.min_regime_train_samples,
+                purge_bars=args.purge_bars,
             )
         except Exception as e:
             row = {"symbol": sym, "error": str(e)[:200]}
@@ -177,6 +203,8 @@ def main() -> int:
         "strategy",
         "size_fraction",
         "regime_key",
+        "regime_train_sample_count",
+        "regime_safety_ok",
         "S_D",
         "S_V",
         "error",

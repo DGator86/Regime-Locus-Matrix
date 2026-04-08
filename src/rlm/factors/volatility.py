@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from rlm.factors.base import FactorCalculator
@@ -50,6 +51,34 @@ class VolatilityFactors(FactorCalculator):
                 neutral_value=1.0,
                 k=0.8,
             ),
+            FactorSpec(
+                name="abnormal_options_volume",
+                category=FactorCategory.VOLATILITY,
+                transform_kind=TransformKind.RATIO,
+                neutral_value=1.0,
+                k=0.9,
+            ),
+            FactorSpec(
+                name="options_volume_to_oi",
+                category=FactorCategory.VOLATILITY,
+                transform_kind=TransformKind.RATIO,
+                neutral_value=0.15,
+                k=0.9,
+            ),
+            FactorSpec(
+                name="underlying_vix_corr",
+                category=FactorCategory.VOLATILITY,
+                transform_kind=TransformKind.SIGNED,
+                scale_value=0.25,
+                k=1.0,
+            ),
+            FactorSpec(
+                name="underlying_vix_corr_breakdown",
+                category=FactorCategory.VOLATILITY,
+                transform_kind=TransformKind.SIGNED,
+                scale_value=0.15,
+                k=1.0,
+            ),
         ]
 
     def specs(self) -> list[FactorSpec]:
@@ -79,11 +108,29 @@ class VolatilityFactors(FactorCalculator):
         ret = close.pct_change()
         out["realized_volatility"] = ret.rolling(20, min_periods=5).std()
 
+        if "options_volume" in df.columns:
+            options_volume_avg = df["options_volume"].rolling(20, min_periods=5).mean().replace(0, np.nan)
+            out["abnormal_options_volume"] = df["options_volume"] / options_volume_avg
+        else:
+            out["abnormal_options_volume"] = pd.NA
+
+        if "options_volume_to_oi" in df.columns:
+            out["options_volume_to_oi"] = df["options_volume_to_oi"]
+        else:
+            out["options_volume_to_oi"] = pd.NA
+
         if "vix" in df.columns:
             vix_med = df["vix"].rolling(252, min_periods=20).median()
             out["vix_ratio"] = df["vix"] / vix_med
+            vix_ret = df["vix"].pct_change()
+            corr20 = ret.rolling(20, min_periods=10).corr(vix_ret)
+            out["underlying_vix_corr"] = corr20
+            corr_baseline = corr20.rolling(126, min_periods=20).median()
+            out["underlying_vix_corr_breakdown"] = corr20 - corr_baseline
         else:
             out["vix_ratio"] = pd.NA
+            out["underlying_vix_corr"] = pd.NA
+            out["underlying_vix_corr_breakdown"] = pd.NA
 
         if "vvix" in df.columns:
             vvix_med = df["vvix"].rolling(252, min_periods=20).median()

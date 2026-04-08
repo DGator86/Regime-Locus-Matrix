@@ -11,7 +11,12 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv, rel_roee_policy_csv
+from rlm.datasets.paths import (
+    DEFAULT_SYMBOL,
+    rel_bars_csv,
+    rel_option_chain_csv,
+    rel_roee_policy_csv,
+)
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
@@ -29,15 +34,36 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Factors → forecast → state matrix → ROEE policy (default bars: data/raw/bars_{SYMBOL}.csv)."
+        description=(
+            "Factors → forecast → state matrix → ROEE policy "
+            "(default bars: data/raw/bars_{SYMBOL}.csv)."
+        )
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
-    parser.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime overlay.")
+    parser.add_argument(
+        "--use-markov", action="store_true", help="Use Markov-switching regime overlay."
+    )
     parser.add_argument("--markov-states", type=int, default=3, help="Number of Markov regimes.")
-    parser.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
+    parser.add_argument(
+        "--probabilistic", action="store_true", help="Use probabilistic forecast output."
+    )
     parser.add_argument("--model-path", default=None, help="Optional quantile model artifact JSON.")
-    parser.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
+    parser.add_argument(
+        "--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing."
+    )
+    parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    parser.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
+    )
     parser.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
@@ -56,9 +82,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chain",
         default=None,
-        help="Option chain CSV for enrichment (default: data/raw/option_chain_{SYMBOL}.csv if present)",
+        help=(
+            "Option chain CSV for enrichment "
+            "(default: data/raw/option_chain_{SYMBOL}.csv if present)"
+        ),
     )
     parser.add_argument("--no-vix", action="store_true", help="Skip yfinance VIX/VVIX.")
+    parser.add_argument(
+        "--purge-bars",
+        type=int,
+        default=0,
+        help="Exclude the most recent bars from regime training counts.",
+    )
+    parser.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help=(
+            "Pause new trades when the current regime has fewer prior training "
+            "samples than this threshold."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -139,7 +183,13 @@ def main() -> None:
     policy_df = apply_roee_policy(
         state_df,
         strike_increment=5.0,
-        config=ROEEConfig(use_dynamic_sizing=args.dynamic_sizing),
+        config=ROEEConfig(
+            use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
+            min_regime_train_samples=args.min_regime_train_samples,
+            purge_bars=args.purge_bars,
+        ),
     )
 
     cols = [
@@ -159,6 +209,10 @@ def main() -> None:
         "forecast_return_median",
         "forecast_return_upper",
         "realized_vol",
+        "regime_train_sample_count",
+        "regime_train_sample_requirement",
+        "regime_train_sample_gap",
+        "regime_safety_ok",
         "roee_action",
         "roee_strategy",
         "roee_size_fraction",

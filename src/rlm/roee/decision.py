@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import math
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
 
 from rlm.roee.policy import select_trade
+from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
 from rlm.types.options import TradeDecision
 
@@ -89,6 +89,37 @@ def compute_hmm_modulators(
     )
 
 
+def resolve_latent_regime_from_row(row: pd.Series) -> dict[str, str | float | None]:
+    if "markov_state_label" in row.index and pd.notna(row.get("markov_state_label")):
+        confidence = _finite_float(row.get("markov_confidence"), default=np.nan)
+        return {
+            "label": str(row["markov_state_label"]),
+            "confidence": confidence if math.isfinite(confidence) else None,
+            "source": "markov",
+        }
+
+    if "hmm_state_label" in row.index and pd.notna(row.get("hmm_state_label")):
+        confidence = None
+        if "hmm_probs" in row.index and row.get("hmm_probs") is not None:
+            probs = np.array(row["hmm_probs"], dtype=float)
+            if probs.size > 0 and np.isfinite(probs).all():
+                confidence = float(probs.max())
+        if (
+            confidence is None
+            and "hmm_confidence" in row.index
+            and pd.notna(row.get("hmm_confidence"))
+        ):
+            hmm_confidence = _finite_float(row.get("hmm_confidence"), default=np.nan)
+            confidence = hmm_confidence if math.isfinite(hmm_confidence) else None
+        return {
+            "label": str(row["hmm_state_label"]),
+            "confidence": confidence,
+            "source": "hmm",
+        }
+
+    return {"label": None, "confidence": None, "source": None}
+
+
 def select_trade_for_row(
     row: pd.Series,
     *,
@@ -100,11 +131,19 @@ def select_trade_for_row(
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
     max_capital_fraction: float = 0.5,
+    regime_adjusted_kelly: bool = True,
+    high_vol_kelly_multiplier: float = 0.5,
+    transition_kelly_multiplier: float = 0.75,
+    calm_trend_kelly_multiplier: float = 1.25,
+    regime_train_sample_count: int | None = None,
+    min_regime_train_samples: int | None = None,
+    regime_purge_bars: int = 0,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
 
-    When ``hmm_confidence_threshold`` is None, HMM columns are ignored (same as :func:`select_trade`).
+    When ``hmm_confidence_threshold`` is None, HMM columns are ignored
+    (same as :func:`select_trade`).
     When set, rows with ``hmm_probs`` are gated and size is scaled like :func:`apply_roee_policy`.
     """
     missing = [c for c in _SELECT_TRADE_ROW_COLUMNS if c not in row.index]
@@ -116,6 +155,33 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
+    min_regime_samples = (
+        max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
+    )
+    train_sample_count = (
+        max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
+    )
+
+    if min_regime_samples > 0 and train_sample_count < min_regime_samples:
+        return TradeDecision(
+            action="hold",
+            strategy_name="regime_safety_check",
+            regime_key=str(row.get("regime_key", "")),
+            rationale=build_regime_safety_rationale(
+                regime_key=str(row.get("regime_key", "")),
+                regime_train_sample_count=train_sample_count,
+                min_regime_train_samples=min_regime_samples,
+                purge_bars=regime_purge_bars,
+            ),
+            metadata={
+                "regime_train_sample_count": train_sample_count,
+                "min_regime_train_samples": min_regime_samples,
+                "regime_train_purge_bars": max(int(regime_purge_bars), 0),
+                "regime_safety_ok": False,
+            },
+        )
+
+    latent_regime = resolve_latent_regime_from_row(row)
 
     if use_hmm:
         mod = compute_regime_modulators(
@@ -185,6 +251,16 @@ def select_trade_for_row(
         vol_target=vol_target,
         max_kelly_fraction=max_kelly_fraction,
         max_capital_fraction=max_capital_fraction,
+        regime_adjusted_kelly=regime_adjusted_kelly,
+        regime_state_label=(
+            str(latent_regime["label"]) if latent_regime["label"] is not None else None
+        ),
+        regime_state_confidence=(
+            float(latent_regime["confidence"]) if latent_regime["confidence"] is not None else None
+        ),
+        high_vol_kelly_multiplier=high_vol_kelly_multiplier,
+        transition_kelly_multiplier=transition_kelly_multiplier,
+        calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
     )
 
     if use_hmm and decision.action == "enter":
@@ -203,6 +279,8 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if latent_regime["source"] is not None:
+            meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(
             decision,
             size_fraction=quantize_fraction(base_sf * float(mod["size_mult"])),
@@ -224,6 +302,13 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if latent_regime["source"] is not None:
+            meta["kelly_latent_regime_source"] = str(latent_regime["source"])
+        return replace(decision, metadata=meta)
+
+    if decision.action == "enter" and latent_regime["source"] is not None:
+        meta = dict(decision.metadata)
+        meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(decision, metadata=meta)
 
     return decision

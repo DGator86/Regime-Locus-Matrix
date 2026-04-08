@@ -33,6 +33,43 @@ forecast:
   probabilistic_lower_quantile: 0.1
   probabilistic_upper_quantile: 0.9
 
+feature_engineering:
+  enabled_factors:
+    direction:
+      - price_vs_vwap
+      - price_vs_anchored_vwap
+      - cvd_slope
+      - volume_imbalance
+      - ma_spread_over_atr
+      - adx_direction_bias
+      - roc_n
+      - market_breadth_ratio
+      - relative_strength_vs_index
+    volatility:
+      - atr_over_price
+      - bollinger_width
+      - realized_volatility
+      - vix_ratio
+      - vvix_ratio
+      - abnormal_options_volume
+      - options_volume_to_oi
+      - underlying_vix_corr
+      - underlying_vix_corr_breakdown
+    liquidity:
+      - spread_over_price
+      - volume_vs_average
+      - spread_pct_mid
+      - spread_shock
+      - order_book_depth_ratio
+    dealer_flow:
+      - gex_signal
+      - vanna_signal
+      - charm_signal
+      - put_call_skew
+      - iv_rank_ratio
+      - term_structure_ratio
+      - dealer_position_proxy
+
 regime:
   model: hmm  # hmm | markov
   markov_k_regimes: 3
@@ -50,8 +87,12 @@ roee_hmm:
   transition_penalty: 0.5
   use_dynamic_sizing: false
   vol_target: 0.15
-  max_kelly_fraction: 0.25
+  max_kelly_fraction: 0.25  # Fractional Kelly cap; keep below 1.0.
   max_capital_fraction: 0.5
+  regime_adjusted_kelly: true
+  high_vol_kelly_multiplier: 0.5
+  transition_kelly_multiplier: 0.75
+  calm_trend_kelly_multiplier: 1.25
 
 transaction_cost:
   extra_spread_fraction: 0.0
