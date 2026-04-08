@@ -28,6 +28,7 @@ def _minimal_chain(ts: pd.Timestamp, spot: float) -> pd.DataFrame:
                 "vanna": 0.01,
                 "charm": -0.02,
                 "open_interest": 5000.0,
+                "volume": 800.0,
             }
         )
     return pd.DataFrame(rows)
@@ -56,6 +57,12 @@ def test_enrich_bars_from_option_chain_adds_dealer_columns() -> None:
     assert np.isfinite(out.loc[idx[0], "gex"])
     assert np.isfinite(out.loc[idx[1], "gex"])
     assert "bid_ask_spread" in out.columns
+    assert "options_spread_pct_mid" in out.columns
+    assert "options_volume" in out.columns
+    assert "options_volume_to_oi" in out.columns
+    assert np.isfinite(out.loc[idx[0], "options_spread_pct_mid"])
+    assert np.isfinite(out.loc[idx[0], "options_volume"])
+    assert np.isfinite(out.loc[idx[0], "options_volume_to_oi"])
     assert out.loc[idx[2], "gex"] == 0.0  # neutral fill without chain row
 
 
