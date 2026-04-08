@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import warnings
+from zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
 
 from rlm.data.bs_greeks import bs_greeks_row
 from rlm.data.option_chain import normalize_option_chain
 from rlm.options.surface import build_surface_feature_frame
+
+_EXCHANGE_TZ = ZoneInfo("America/New_York")
+_INTRADAY_DOWNLOAD_CHUNK_DAYS = 7
+_INTRADAY_DOWNLOAD_LOOKBACK_DAYS = 30
 
 
 def _oi_weight(s: pd.Series) -> pd.Series:
@@ -32,6 +39,140 @@ def _rolling_iv_rank(iv_series: pd.Series, window: int = 252, min_periods: int =
         return float((finite <= last).sum() / finite.size)
 
     return iv_series.rolling(window, min_periods=min_periods).apply(_pct_last, raw=True)
+
+
+def _bars_are_intraday(index: pd.Index) -> bool:
+    ts = pd.DatetimeIndex(pd.to_datetime(index))
+    if ts.empty:
+        return False
+    counts = pd.Series(1, index=ts.normalize()).groupby(level=0).sum()
+    return bool((counts > 1).any())
+
+
+def _to_exchange_time(index: pd.Index) -> pd.DatetimeIndex:
+    ts = pd.DatetimeIndex(pd.to_datetime(index))
+    if ts.tz is None:
+        return ts.tz_localize(_EXCHANGE_TZ)
+    return ts.tz_convert(_EXCHANGE_TZ)
+
+
+def _extract_close_series(df: pd.DataFrame, sym: str) -> pd.Series:
+    if isinstance(df.columns, pd.MultiIndex):
+        close_col = ("Close", sym) if ("Close", sym) in df.columns else ("Adj Close", sym)
+        if close_col in df.columns:
+            s = df[close_col]
+        else:
+            s = df["Close"].iloc[:, 0] if "Close" in df.columns else df.iloc[:, -1]
+    else:
+        s = df["Adj Close"] if "Adj Close" in df.columns else df["Close"]
+    return pd.to_numeric(s, errors="coerce").dropna()
+
+
+def _load_yfinance_close_series(
+    sym: str,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    interval: str | None = None,
+) -> pd.Series:
+    try:
+        import yfinance as yf
+    except ImportError:
+        return pd.Series(dtype=float)
+
+    kwargs = {
+        "start": start.strftime("%Y-%m-%d"),
+        "end": end.strftime("%Y-%m-%d"),
+        "progress": False,
+        "auto_adjust": False,
+    }
+    if interval is not None:
+        kwargs["interval"] = interval
+
+    try:
+        df = yf.download(sym, **kwargs)
+    except Exception:
+        return pd.Series(dtype=float)
+    if df.empty:
+        return pd.Series(dtype=float)
+
+    s = _extract_close_series(df, sym)
+    if s.empty:
+        return pd.Series(dtype=float)
+
+    ts = pd.DatetimeIndex(pd.to_datetime(s.index))
+    if interval is None:
+        s.index = ts.normalize()
+        return s.groupby(level=0).last()
+
+    if ts.tz is None:
+        ts = ts.tz_localize(_EXCHANGE_TZ)
+    else:
+        ts = ts.tz_convert(_EXCHANGE_TZ)
+    s.index = ts
+    s = s.sort_index()
+    return s[~s.index.duplicated(keep="last")]
+
+
+def _load_intraday_vix_series(sym: str, bars_index: pd.Index) -> pd.Series:
+    bars_ts = _to_exchange_time(bars_index)
+    if bars_ts.empty:
+        return pd.Series(dtype=float)
+
+    now = pd.Timestamp.now(tz=_EXCHANGE_TZ)
+    oldest_available = (now - pd.Timedelta(days=_INTRADAY_DOWNLOAD_LOOKBACK_DAYS)).normalize()
+    if bars_ts.min().normalize() < oldest_available:
+        warnings.warn(
+            f"{sym} 1-minute Yahoo history is only available for roughly the last "
+            f"{_INTRADAY_DOWNLOAD_LOOKBACK_DAYS} days; older intraday bars will remain missing "
+            "unless you prepopulate `vix`/`vvix`.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    request_start = max(
+        bars_ts.min().normalize(),
+        oldest_available,
+    )
+    request_end = min(
+        bars_ts.max().normalize() + pd.Timedelta(days=1),
+        now.normalize() + pd.Timedelta(days=1),
+    )
+    if request_start >= request_end:
+        return pd.Series(dtype=float)
+
+    parts: list[pd.Series] = []
+    chunk_start = request_start
+    while chunk_start < request_end:
+        chunk_end = min(
+            chunk_start + pd.Timedelta(days=_INTRADAY_DOWNLOAD_CHUNK_DAYS),
+            request_end,
+        )
+        chunk = _load_yfinance_close_series(
+            sym,
+            start=chunk_start,
+            end=chunk_end,
+            interval="1m",
+        )
+        if not chunk.empty:
+            parts.append(chunk)
+        chunk_start = chunk_end
+
+    if not parts:
+        return pd.Series(dtype=float)
+
+    source = pd.concat(parts).sort_index()
+    source = source[~source.index.duplicated(keep="last")]
+
+    out = pd.Series(np.nan, index=bars_ts, dtype=float)
+    bar_days = pd.Index(bars_ts.normalize().unique()).sort_values()
+    for day in bar_days:
+        day_end = day + pd.Timedelta(days=1)
+        day_bars = bars_ts[(bars_ts >= day) & (bars_ts < day_end)]
+        day_source = source[(source.index >= day) & (source.index < day_end)]
+        if day_source.empty:
+            continue
+        out.loc[day_bars] = day_source.reindex(day_bars, method="ffill").to_numpy()
+    return out
 
 
 def _gamma_fill(
@@ -288,60 +429,47 @@ def enrich_bars_with_surface_features(
 
 
 def enrich_bars_with_vix(bars: pd.DataFrame) -> pd.DataFrame:
-    """Attach ^VIX and ^VVIX (when available) aligned to bar dates; no-op if columns already populated."""
+    """
+    Attach ^VIX and ^VVIX when available.
+
+    Daily bars receive same-date closes. Intraday bars use the last known 1-minute
+    reading at or before each bar timestamp, without carrying stale values across days.
+    """
     out = bars.copy()
     need_vix = "vix" not in out.columns or out["vix"].isna().all()
     need_vvix = "vvix" not in out.columns or out["vvix"].isna().all()
     if not need_vix and not need_vvix:
         return out
 
-    try:
-        import yfinance as yf
-    except ImportError:
+    bars_index = pd.DatetimeIndex(pd.to_datetime(out.index))
+    is_intraday = _bars_are_intraday(bars_index)
+
+    if is_intraday:
+        if need_vix:
+            vx = _load_intraday_vix_series("^VIX", bars_index)
+            if not vx.empty:
+                out["vix"] = vx.to_numpy()
+        if need_vvix:
+            vv = _load_intraday_vix_series("^VVIX", bars_index)
+            if not vv.empty:
+                out["vvix"] = vv.to_numpy()
         return out
 
     start = pd.Timestamp(out.index.min()).normalize() - pd.Timedelta(days=7)
     end = pd.Timestamp(out.index.max()).normalize() + pd.Timedelta(days=2)
-
-    idx = pd.to_datetime(out.index).normalize().unique()
-
-    def _load(sym: str) -> pd.Series:
-        try:
-            df = yf.download(
-                sym,
-                start=start.strftime("%Y-%m-%d"),
-                end=end.strftime("%Y-%m-%d"),
-                progress=False,
-                auto_adjust=False,
-            )
-        except Exception:
-            return pd.Series(dtype=float)
-        if df.empty:
-            return pd.Series(dtype=float)
-        if isinstance(df.columns, pd.MultiIndex):
-            close_col = ("Close", sym) if ("Close", sym) in df.columns else ("Adj Close", sym)
-            if close_col in df.columns:
-                s = df[close_col]
-            else:
-                s = df["Close"].iloc[:, 0] if "Close" in df.columns else df.iloc[:, -1]
-        else:
-            s = df["Adj Close"] if "Adj Close" in df.columns else df["Close"]
-        s.index = pd.to_datetime(s.index).normalize()
-        return s.groupby(level=0).last()
+    idx = pd.DatetimeIndex(pd.to_datetime(out.index)).normalize()
 
     if need_vix:
-        vx = _load("^VIX")
+        vx = _load_yfinance_close_series("^VIX", start=start, end=end)
         if not vx.empty:
-            m = pd.Series(out.index.normalize()).map(vx)
-            out["vix"] = m.values
+            out["vix"] = pd.Series(idx).map(vx).values
     if need_vvix:
-        vv = _load("^VVIX")
+        vv = _load_yfinance_close_series("^VVIX", start=start, end=end)
         if not vv.empty:
-            m = pd.Series(out.index.normalize()).map(vv)
-            out["vvix"] = m.values
-        elif need_vvix and "vix" in out.columns:
-            # Coarse proxy: vol-of-vol absent → scale VIX for factor stability
-            out["vvix"] = out["vix"] * 5.0
+            out["vvix"] = pd.Series(idx).map(vv).values
+        elif "vix" in out.columns:
+            # Daily runs keep the historical proxy only when no VVIX series is available.
+            out["vvix"] = pd.to_numeric(out.get("vvix"), errors="coerce").fillna(out["vix"] * 5.0)
 
     return out
 

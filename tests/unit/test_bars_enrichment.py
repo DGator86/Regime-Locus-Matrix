@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from rlm.datasets.bars_enrichment import enrich_bars_from_option_chain, prepare_bars_for_factors
+from rlm.datasets import bars_enrichment
+from rlm.datasets.bars_enrichment import (
+    enrich_bars_from_option_chain,
+    enrich_bars_with_vix,
+    prepare_bars_for_factors,
+)
 
 
 def _minimal_chain(ts: pd.Timestamp, spot: float) -> pd.DataFrame:
@@ -81,3 +87,132 @@ def test_prepare_bars_skips_vix_when_disabled() -> None:
     )
     out = prepare_bars_for_factors(bars, None, underlying="SPY", attach_vix=False)
     assert "vix" not in out.columns or out["vix"].isna().all()
+
+
+def test_enrich_bars_with_vix_uses_last_known_intraday_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    idx = pd.to_datetime(
+        [
+            "2026-04-07 09:30:00",
+            "2026-04-07 09:31:00",
+            "2026-04-07 09:33:00",
+            "2026-04-07 09:36:00",
+        ]
+    )
+    bars = pd.DataFrame(
+        {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1e6,
+            "vwap": 100.0,
+        },
+        index=idx,
+    )
+    bars.index.name = "timestamp"
+
+    vix_src = pd.Series(
+        [20.0, 20.4, 20.8],
+        index=pd.DatetimeIndex(
+            pd.to_datetime(
+                [
+                    "2026-04-07 09:31:00",
+                    "2026-04-07 09:33:00",
+                    "2026-04-07 09:35:00",
+                ]
+            )
+        ).tz_localize("America/New_York"),
+        dtype=float,
+    )
+    vvix_src = pd.Series(
+        [100.0, 101.5],
+        index=pd.DatetimeIndex(
+            pd.to_datetime(
+                [
+                    "2026-04-07 09:32:00",
+                    "2026-04-07 09:34:00",
+                ]
+            )
+        ).tz_localize("America/New_York"),
+        dtype=float,
+    )
+
+    def _fake_loader(sym: str, bars_index: pd.Index) -> pd.Series:
+        bars_ts = bars_enrichment._to_exchange_time(bars_index)
+        source = vix_src if sym == "^VIX" else vvix_src
+        out = pd.Series(np.nan, index=bars_ts, dtype=float)
+        out.loc[:] = source.reindex(bars_ts, method="ffill").to_numpy()
+        return out
+
+    monkeypatch.setattr(bars_enrichment, "_load_intraday_vix_series", _fake_loader)
+
+    out = enrich_bars_with_vix(bars)
+
+    assert np.isnan(out.loc[idx[0], "vix"])
+    assert out.loc[idx[1], "vix"] == 20.0
+    assert out.loc[idx[2], "vix"] == 20.4
+    assert out.loc[idx[3], "vix"] == 20.8
+
+    assert np.isnan(out.loc[idx[0], "vvix"])
+    assert np.isnan(out.loc[idx[1], "vvix"])
+    assert out.loc[idx[2], "vvix"] == 100.0
+    assert out.loc[idx[3], "vvix"] == 101.5
+
+
+def test_enrich_bars_with_vix_does_not_carry_intraday_values_across_days(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    idx = pd.to_datetime(
+        [
+            "2026-04-07 15:59:00",
+            "2026-04-08 09:30:00",
+            "2026-04-08 09:31:00",
+        ]
+    )
+    bars = pd.DataFrame(
+        {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1e6,
+            "vwap": 100.0,
+        },
+        index=idx,
+    )
+    bars.index.name = "timestamp"
+
+    source = pd.Series(
+        [22.0, 19.5],
+        index=pd.DatetimeIndex(
+            pd.to_datetime(
+                [
+                    "2026-04-07 15:59:00",
+                    "2026-04-08 09:31:00",
+                ]
+            )
+        ).tz_localize("America/New_York"),
+        dtype=float,
+    )
+
+    def _fake_loader(sym: str, bars_index: pd.Index) -> pd.Series:
+        bars_ts = bars_enrichment._to_exchange_time(bars_index)
+        out = pd.Series(np.nan, index=bars_ts, dtype=float)
+        for day in pd.Index(bars_ts.normalize().unique()).sort_values():
+            day_end = day + pd.Timedelta(days=1)
+            day_bars = bars_ts[(bars_ts >= day) & (bars_ts < day_end)]
+            day_source = source[(source.index >= day) & (source.index < day_end)]
+            if day_source.empty:
+                continue
+            out.loc[day_bars] = day_source.reindex(day_bars, method="ffill").to_numpy()
+        return out
+
+    monkeypatch.setattr(bars_enrichment, "_load_intraday_vix_series", _fake_loader)
+
+    out = enrich_bars_with_vix(bars)
+
+    assert out.loc[idx[0], "vix"] == 22.0
+    assert np.isnan(out.loc[idx[1], "vix"])
+    assert out.loc[idx[2], "vix"] == 19.5
