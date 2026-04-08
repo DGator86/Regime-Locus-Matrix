@@ -105,6 +105,10 @@ def apply_roee_policy(
             hmm_confidences.append(mod["confidence"])
             hmm_size_multipliers.append(mod["size_mult"])
             hmm_trade_flags.append(False)
+            regime_models.append(str(mod["model"]))
+            regime_confidences.append(mod["confidence"])
+            regime_size_multipliers.append(mod["size_mult"])
+            regime_trade_flags.append(False)
             continue
         if not bool(mod["trade"]):
             actions.append("hold")
