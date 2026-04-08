@@ -1,6 +1,15 @@
 from rlm.roee.policy import select_trade
 
 
+def _dynamic_sizing_kwargs() -> dict[str, float | bool]:
+    return {
+        "forecast_return": 0.5,
+        "realized_vol": 1.5,
+        "use_dynamic_sizing": True,
+        "max_kelly_fraction": 0.25,
+    }
+
+
 def test_roee_selects_bull_call_spread_for_clean_bull_state() -> None:
     decision = select_trade(
         current_price=5000.0,
@@ -83,3 +92,85 @@ def test_roee_builds_iron_condor_for_clean_range_state() -> None:
     assert decision.action == "enter"
     assert decision.strategy_name == "iron_condor"
     assert len(decision.legs) == 4
+
+
+def test_roee_regime_adjusted_kelly_cuts_size_in_high_vol_markov_state() -> None:
+    baseline = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        regime_adjusted_kelly=False,
+        **_dynamic_sizing_kwargs(),
+    )
+    stressed = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        regime_state_label="bear|high_vol|high_liquidity|supportive_like",
+        regime_state_confidence=0.8,
+        **_dynamic_sizing_kwargs(),
+    )
+
+    assert baseline.size_fraction == 0.018
+    assert stressed.size_fraction == 0.0108
+    assert float(stressed.metadata["max_kelly_fraction"]) == 0.15
+    assert float(stressed.metadata["kelly_fraction_multiplier"]) == 0.6
+
+
+def test_roee_regime_adjusted_kelly_boosts_size_in_calm_trending_markov_state() -> None:
+    baseline = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        regime_adjusted_kelly=False,
+        **_dynamic_sizing_kwargs(),
+    )
+    accelerated = select_trade(
+        current_price=5000.0,
+        sigma=0.01,
+        s_d=0.8,
+        s_v=-0.5,
+        s_l=0.7,
+        s_g=0.8,
+        direction_regime="bull",
+        volatility_regime="low_vol",
+        liquidity_regime="high_liquidity",
+        dealer_flow_regime="supportive",
+        regime_key="bull|low_vol|high_liquidity|supportive",
+        strike_increment=5.0,
+        regime_state_label="bull|low_vol|high_liquidity|supportive_like",
+        regime_state_confidence=0.8,
+        **_dynamic_sizing_kwargs(),
+    )
+
+    assert baseline.size_fraction == 0.018
+    assert accelerated.size_fraction == 0.0216
+    assert float(accelerated.metadata["max_kelly_fraction"]) == 0.3
+    assert float(accelerated.metadata["kelly_fraction_multiplier"]) == 1.2

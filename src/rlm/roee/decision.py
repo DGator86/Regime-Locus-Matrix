@@ -41,7 +41,12 @@ def _finite_float(x: object, default: float = 0.0) -> float:
         return default
 
 
-def compute_hmm_modulators(row: pd.Series, hmm_confidence_threshold: float, sizing_multiplier: float, transition_penalty: float) -> dict[str, float | bool]:
+def compute_hmm_modulators(
+    row: pd.Series,
+    hmm_confidence_threshold: float,
+    sizing_multiplier: float,
+    transition_penalty: float,
+) -> dict[str, float | bool]:
     if "hmm_probs" not in row or row.get("hmm_probs") is None:
         return {"confidence": 1.0, "size_mult": 1.0, "trade": True}
 
@@ -57,6 +62,37 @@ def compute_hmm_modulators(row: pd.Series, hmm_confidence_threshold: float, sizi
     return {"confidence": confidence, "size_mult": max(float(size_mult), 0.0), "trade": trade}
 
 
+def resolve_latent_regime_from_row(row: pd.Series) -> dict[str, str | float | None]:
+    if "markov_state_label" in row.index and pd.notna(row.get("markov_state_label")):
+        confidence = _finite_float(row.get("markov_confidence"), default=np.nan)
+        return {
+            "label": str(row["markov_state_label"]),
+            "confidence": confidence if math.isfinite(confidence) else None,
+            "source": "markov",
+        }
+
+    if "hmm_state_label" in row.index and pd.notna(row.get("hmm_state_label")):
+        confidence = None
+        if "hmm_probs" in row.index and row.get("hmm_probs") is not None:
+            probs = np.array(row["hmm_probs"], dtype=float)
+            if probs.size > 0 and np.isfinite(probs).all():
+                confidence = float(probs.max())
+        if (
+            confidence is None
+            and "hmm_confidence" in row.index
+            and pd.notna(row.get("hmm_confidence"))
+        ):
+            hmm_confidence = _finite_float(row.get("hmm_confidence"), default=np.nan)
+            confidence = hmm_confidence if math.isfinite(hmm_confidence) else None
+        return {
+            "label": str(row["hmm_state_label"]),
+            "confidence": confidence,
+            "source": "hmm",
+        }
+
+    return {"label": None, "confidence": None, "source": None}
+
+
 def select_trade_for_row(
     row: pd.Series,
     *,
@@ -68,6 +104,10 @@ def select_trade_for_row(
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
     max_capital_fraction: float = 0.5,
+    regime_adjusted_kelly: bool = True,
+    high_vol_kelly_multiplier: float = 0.5,
+    transition_kelly_multiplier: float = 0.75,
+    calm_trend_kelly_multiplier: float = 1.25,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -84,6 +124,7 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
+    latent_regime = resolve_latent_regime_from_row(row)
 
     if use_hmm:
         mod = compute_hmm_modulators(
@@ -146,6 +187,16 @@ def select_trade_for_row(
         vol_target=vol_target,
         max_kelly_fraction=max_kelly_fraction,
         max_capital_fraction=max_capital_fraction,
+        regime_adjusted_kelly=regime_adjusted_kelly,
+        regime_state_label=(
+            str(latent_regime["label"]) if latent_regime["label"] is not None else None
+        ),
+        regime_state_confidence=(
+            float(latent_regime["confidence"]) if latent_regime["confidence"] is not None else None
+        ),
+        high_vol_kelly_multiplier=high_vol_kelly_multiplier,
+        transition_kelly_multiplier=transition_kelly_multiplier,
+        calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
     )
 
     if use_hmm and decision.action == "enter":
@@ -160,6 +211,8 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if latent_regime["source"] is not None:
+            meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(
             decision,
             size_fraction=quantize_fraction(base_sf * float(mod["size_mult"])),
@@ -177,6 +230,13 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if latent_regime["source"] is not None:
+            meta["kelly_latent_regime_source"] = str(latent_regime["source"])
+        return replace(decision, metadata=meta)
+
+    if decision.action == "enter" and latent_regime["source"] is not None:
+        meta = dict(decision.metadata)
+        meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(decision, metadata=meta)
 
     return decision

@@ -31,9 +31,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
     p.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
-    p.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
-    p.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
+    p.add_argument(
+        "--probabilistic", action="store_true", help="Use probabilistic forecast output."
+    )
+    p.add_argument(
+        "--model-path", type=str, default=None, help="Optional quantile model artifact JSON."
+    )
     p.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
+    p.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Fractional Kelly cap to use when dynamic sizing is enabled.",
+    )
+    p.add_argument(
+        "--no-regime-adjusted-kelly",
+        action="store_false",
+        dest="regime_adjusted_kelly",
+        help="Disable latent-regime Kelly adjustment (enabled by default).",
+    )
     p.add_argument(
         "--symbol",
         default=DEFAULT_SYMBOL,
@@ -54,8 +70,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--is-window", type=int, default=100)
     p.add_argument("--oos-window", type=int, default=50)
     p.add_argument("--step-size", type=int, default=50)
-    p.add_argument("--purge-bars", type=int, default=0, help="Purge bars between IS and OOS windows.")
-    p.add_argument("--regime-aware", action="store_true", help="Expand IS windows to cover OOS regimes.")
+    p.add_argument(
+        "--purge-bars", type=int, default=0, help="Purge bars between IS and OOS windows."
+    )
+    p.add_argument(
+        "--regime-aware", action="store_true", help="Expand IS windows to cover OOS regimes."
+    )
     p.add_argument(
         "--min-regime-train-samples",
         type=int,
@@ -127,6 +147,8 @@ def main() -> None:
             underlying_symbol=und,
             quantity_per_trade=args.quantity_per_trade,
             use_dynamic_sizing=args.dynamic_sizing,
+            max_kelly_fraction=args.kelly_fraction,
+            regime_adjusted_kelly=args.regime_adjusted_kelly,
             purge_bars=args.purge_bars,
             regime_aware=args.regime_aware,
             min_regime_train_samples=args.min_regime_train_samples,
