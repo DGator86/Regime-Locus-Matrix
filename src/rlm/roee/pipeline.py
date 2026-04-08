@@ -91,7 +91,8 @@ def apply_roee_policy(
             vault_size_multipliers.append(float(cfg.vault_size_multiplier))
             vault_uncertainties.append(
                 float(row["forecast_uncertainty"])
-                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
+                if "forecast_uncertainty" in out.columns
+                and pd.notna(row.get("forecast_uncertainty"))
                 else float("nan")
             )
             vault_uncertainty_thresholds.append(
@@ -129,13 +130,15 @@ def apply_roee_policy(
                 if "forecast_return" in out.columns and pd.notna(row.get("forecast_return"))
                 else (
                     float(row["forecast_return_median"])
-                    if "forecast_return_median" in out.columns and pd.notna(row.get("forecast_return_median"))
+                    if "forecast_return_median" in out.columns
+                    and pd.notna(row.get("forecast_return_median"))
                     else None
                 )
             ),
             forecast_uncertainty=(
                 float(row["forecast_uncertainty"])
-                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
+                if "forecast_uncertainty" in out.columns
+                and pd.notna(row.get("forecast_uncertainty"))
                 else None
             ),
             realized_vol=(

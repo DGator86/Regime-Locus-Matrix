@@ -40,4 +40,7 @@ def test_apply_roee_policy_surfaces_vault_scaling_columns() -> None:
     assert vaulted.loc[frame.index[0], "vault_size_multiplier"] == 0.5
     assert vaulted.loc[frame.index[0], "vault_forecast_uncertainty"] == 0.04
     assert vaulted.loc[frame.index[0], "vault_uncertainty_threshold"] == 0.03
-    assert vaulted.loc[frame.index[0], "roee_size_fraction"] == baseline.loc[frame.index[0], "roee_size_fraction"] * 0.5
+    assert (
+        vaulted.loc[frame.index[0], "roee_size_fraction"]
+        == baseline.loc[frame.index[0], "roee_size_fraction"] * 0.5
+    )

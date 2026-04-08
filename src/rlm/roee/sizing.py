@@ -85,7 +85,7 @@ def kelly_voltarget_size(
     if forecast_return <= 0.0 or realized_vol <= 1e-9:
         return 0.0
 
-    kelly = forecast_return / (realized_vol ** 2)
+    kelly = forecast_return / (realized_vol**2)
     capped_kelly = min(kelly, max_kelly_fraction)
     size = (vol_target / realized_vol) * capped_kelly
     return quantize_fraction(clamp(size, 0.0, max_capital_fraction))
@@ -106,7 +106,9 @@ def apply_uncertainty_vault(
     uncertainty_ok = forecast_uncertainty is not None
     uncertainty_value = float(forecast_uncertainty) if uncertainty_ok else None
     uncertainty_finite = uncertainty_value is not None and uncertainty_value >= 0.0
-    triggered = bool(threshold_ok and uncertainty_finite and uncertainty_value > float(uncertainty_threshold))
+    triggered = bool(
+        threshold_ok and uncertainty_finite and uncertainty_value > float(uncertainty_threshold)
+    )
     adjusted = size_fraction * multiplier if triggered else size_fraction
     metadata: dict[str, float | bool] = {
         "vault_enabled": bool(threshold_ok),

@@ -31,8 +31,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--use-hmm", action="store_true")
     p.add_argument("--hmm-states", type=int, default=6)
     p.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
-    p.add_argument("--probabilistic", action="store_true", help="Use probabilistic forecast output.")
-    p.add_argument("--model-path", type=str, default=None, help="Optional quantile model artifact JSON.")
+    p.add_argument(
+        "--probabilistic", action="store_true", help="Use probabilistic forecast output."
+    )
+    p.add_argument(
+        "--model-path", type=str, default=None, help="Optional quantile model artifact JSON."
+    )
     p.add_argument("--dynamic-sizing", action="store_true", help="Enable Kelly/vol-target sizing.")
     p.add_argument(
         "--vault-uncertainty-threshold",
@@ -66,8 +70,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--is-window", type=int, default=100)
     p.add_argument("--oos-window", type=int, default=50)
     p.add_argument("--step-size", type=int, default=50)
-    p.add_argument("--purge-bars", type=int, default=0, help="Purge bars between IS and OOS windows.")
-    p.add_argument("--regime-aware", action="store_true", help="Expand IS windows to cover OOS regimes.")
+    p.add_argument(
+        "--purge-bars", type=int, default=0, help="Purge bars between IS and OOS windows."
+    )
+    p.add_argument(
+        "--regime-aware", action="store_true", help="Expand IS windows to cover OOS regimes."
+    )
     p.add_argument(
         "--min-regime-train-samples",
         type=int,

@@ -41,7 +41,12 @@ def _finite_float(x: object, default: float = 0.0) -> float:
         return default
 
 
-def compute_hmm_modulators(row: pd.Series, hmm_confidence_threshold: float, sizing_multiplier: float, transition_penalty: float) -> dict[str, float | bool]:
+def compute_hmm_modulators(
+    row: pd.Series,
+    hmm_confidence_threshold: float,
+    sizing_multiplier: float,
+    transition_penalty: float,
+) -> dict[str, float | bool]:
     if "hmm_probs" not in row or row.get("hmm_probs") is None:
         return {"confidence": 1.0, "size_mult": 1.0, "trade": True}
 

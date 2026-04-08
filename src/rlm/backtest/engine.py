@@ -14,7 +14,11 @@ from rlm.backtest.portfolio import Portfolio
 from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
 from rlm.roee.chain_match import match_legs_to_chain
 from rlm.roee.decision import select_trade_for_row
-from rlm.roee.exits import should_exit_for_profit, should_exit_for_regime_flip, should_exit_for_zone_breach
+from rlm.roee.exits import (
+    should_exit_for_profit,
+    should_exit_for_regime_flip,
+    should_exit_for_zone_breach,
+)
 from rlm.roee.pipeline import ROEEConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -87,17 +91,25 @@ class BacktestEngine:
                 vol_target=rc.vol_target if rc is not None else 0.15,
                 max_kelly_fraction=rc.max_kelly_fraction if rc is not None else 0.25,
                 max_capital_fraction=rc.max_capital_fraction if rc is not None else 0.5,
-                vault_uncertainty_threshold=rc.vault_uncertainty_threshold if rc is not None else 0.03,
+                vault_uncertainty_threshold=(
+                    rc.vault_uncertainty_threshold if rc is not None else 0.03
+                ),
                 vault_size_multiplier=rc.vault_size_multiplier if rc is not None else 0.5,
             )
 
-            if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
+            if decision.action == "enter" and not (
+                self.lifecycle_config.one_trade_per_bar and traded_this_bar
+            ):
                 dte_min = int(decision.candidate.target_dte_min) if decision.candidate else 20
                 dte_max = int(decision.candidate.target_dte_max) if decision.candidate else 45
-                chain_slice = select_nearest_expiry_slice(row_chain, dte_min=dte_min, dte_max=dte_max)
+                chain_slice = select_nearest_expiry_slice(
+                    row_chain, dte_min=dte_min, dte_max=dte_max
+                )
 
                 if not chain_slice.empty:
-                    matched_decision = match_legs_to_chain(decision=decision, chain_slice=chain_slice)
+                    matched_decision = match_legs_to_chain(
+                        decision=decision, chain_slice=chain_slice
+                    )
                     if matched_decision.action == "enter":
                         opened_id = self.portfolio.open_from_decision(
                             timestamp=pd.Timestamp(ts),
@@ -116,6 +128,7 @@ class BacktestEngine:
         trades_frame = self.portfolio.closed_trades_frame()
 
         from rlm.backtest.metrics import summarize_backtest
+
         summary = summarize_backtest(equity_frame, trades_frame)
         return equity_frame, trades_frame, summary
 
@@ -163,7 +176,9 @@ class BacktestEngine:
 
             pnl_pct = pos.pnl_pct()
 
-            if pricing_ok and should_exit_for_profit(pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct):
+            if pricing_ok and should_exit_for_profit(
+                pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct
+            ):
                 to_close.append((position_id, "profit_target"))
                 continue
 

@@ -111,7 +111,9 @@ def _expand_training_window_for_regimes(
 
     if adjusted_start < train_start:
         train = classify_state_matrix(feature_df.iloc[adjusted_start:train_end].copy())
-    coverage["covered_regimes"] = int(sum((train["regime_key"] == regime).sum() >= min_samples for regime in test_regimes))
+    coverage["covered_regimes"] = int(
+        sum((train["regime_key"] == regime).sum() >= min_samples for regime in test_regimes)
+    )
     return adjusted_start, coverage
 
 
@@ -194,7 +196,9 @@ def run_walkforward(
                 model_path=probabilistic_model_path,
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
+            feature_df = forecast_pipeline.run(
+                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
+            )
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -205,7 +209,10 @@ def run_walkforward(
                 vol_window=cfg.is_window,
                 markov_config=markov_config or MarkovSwitchingConfig(),
                 model_path=probabilistic_model_path,
-            ).run(feature_df, train_mask=pd.Series(feature_df.index.isin(is_bars.index), index=feature_df.index))
+            ).run(
+                feature_df,
+                train_mask=pd.Series(feature_df.index.isin(is_bars.index), index=feature_df.index),
+            )
         elif use_hmm:
             forecast_pipeline = HybridForecastPipeline(
                 config=fc,
@@ -214,7 +221,9 @@ def run_walkforward(
                 hmm_config=hmm_config or HMMConfig(),
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
+            feature_df = forecast_pipeline.run(
+                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
+            )
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -225,7 +234,10 @@ def run_walkforward(
                 vol_window=cfg.is_window,
                 markov_config=markov_config or MarkovSwitchingConfig(),
                 model_path=None,
-            ).run(feature_df, train_mask=pd.Series(feature_df.index.isin(is_bars.index), index=feature_df.index))
+            ).run(
+                feature_df,
+                train_mask=pd.Series(feature_df.index.isin(is_bars.index), index=feature_df.index),
+            )
         elif use_probabilistic:
             feature_df = ProbabilisticForecastPipeline(
                 config=fc,
