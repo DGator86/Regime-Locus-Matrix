@@ -9,9 +9,11 @@ from rlm.roee.risk import (
 )
 from rlm.roee.sizing import (
     compute_confidence,
+    compute_regime_adjusted_kelly_fraction,
     compute_regime_penalty_multiplier,
     compute_size_fraction,
     kelly_voltarget_size,
+    parse_latent_regime_label,
     quantize_fraction,
 )
 from rlm.roee.strategy_map import get_strategy_for_regime
@@ -41,6 +43,12 @@ def select_trade(
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
     max_capital_fraction: float = 0.5,
+    regime_adjusted_kelly: bool = True,
+    regime_state_label: str | None = None,
+    regime_state_confidence: float | None = None,
+    high_vol_kelly_multiplier: float = 0.5,
+    transition_kelly_multiplier: float = 0.75,
+    calm_trend_kelly_multiplier: float = 1.25,
 ) -> TradeDecision:
     """
     Main ROEE entry point for one bar / one underlying snapshot.
@@ -92,7 +100,7 @@ def select_trade(
         direction_regime=direction_regime,
     )
     size_model = "confidence"
-    sizing_meta: dict[str, float | str | bool] = {
+    sizing_meta: dict[str, float | str | bool | None] = {
         "confidence": confidence,
         "require_defined_risk": require_defined_risk,
         "current_price": float(current_price),
@@ -102,6 +110,19 @@ def select_trade(
     forecast_ok = forecast_return is not None and math.isfinite(forecast_return)
     vol_ok = realized_vol is not None and math.isfinite(realized_vol) and realized_vol > 0.0
     if use_dynamic_sizing and forecast_ok and vol_ok:
+        effective_kelly_fraction = float(max_kelly_fraction)
+        kelly_direction_regime, kelly_volatility_regime = parse_latent_regime_label(
+            regime_state_label
+        )
+        if regime_adjusted_kelly:
+            effective_kelly_fraction = compute_regime_adjusted_kelly_fraction(
+                base_kelly_fraction=float(max_kelly_fraction),
+                regime_state_label=regime_state_label,
+                regime_state_confidence=regime_state_confidence,
+                high_vol_multiplier=high_vol_kelly_multiplier,
+                transition_multiplier=transition_kelly_multiplier,
+                calm_trend_multiplier=calm_trend_kelly_multiplier,
+            )
         regime_penalty = compute_regime_penalty_multiplier(
             confidence=confidence,
             base_risk_pct=candidate.max_risk_pct,
@@ -113,7 +134,7 @@ def select_trade(
             forecast_return=float(forecast_return),
             realized_vol=float(realized_vol),
             vol_target=vol_target,
-            max_kelly_fraction=max_kelly_fraction,
+            max_kelly_fraction=effective_kelly_fraction,
             max_capital_fraction=max_capital_fraction,
         )
         size_fraction = quantize_fraction(
@@ -130,9 +151,26 @@ def select_trade(
                 "realized_vol": float(realized_vol),
                 "regime_penalty": regime_penalty,
                 "vol_target": float(vol_target),
-                "max_kelly_fraction": float(max_kelly_fraction),
+                "base_kelly_fraction": float(max_kelly_fraction),
+                "max_kelly_fraction": effective_kelly_fraction,
                 "max_capital_fraction": float(max_capital_fraction),
                 "raw_dynamic_size": raw_dynamic_size,
+                "regime_adjusted_kelly": regime_adjusted_kelly,
+                "regime_state_label": regime_state_label or "",
+                "regime_state_confidence": (
+                    float(regime_state_confidence)
+                    if regime_state_confidence is not None
+                    and math.isfinite(float(regime_state_confidence))
+                    else None
+                ),
+                "kelly_regime_source": "latent_state" if regime_state_label else "disabled",
+                "kelly_direction_regime": kelly_direction_regime or "",
+                "kelly_volatility_regime": kelly_volatility_regime or "",
+                "kelly_fraction_multiplier": (
+                    quantize_fraction(effective_kelly_fraction / float(max_kelly_fraction))
+                    if float(max_kelly_fraction) > 0.0
+                    else 0.0
+                ),
             }
         )
 

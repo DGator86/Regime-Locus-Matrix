@@ -18,6 +18,10 @@ class ROEEConfig:
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    regime_adjusted_kelly: bool = True
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
     min_regime_train_samples: int = 0
     purge_bars: int = 0
 
@@ -139,7 +143,8 @@ def apply_roee_policy(
                 if "forecast_return" in out.columns and pd.notna(row.get("forecast_return"))
                 else (
                     float(row["forecast_return_median"])
-                    if "forecast_return_median" in out.columns and pd.notna(row.get("forecast_return_median"))
+                    if "forecast_return_median" in out.columns
+                    and pd.notna(row.get("forecast_return_median"))
                     else None
                 )
             ),
@@ -152,6 +157,10 @@ def apply_roee_policy(
             vol_target=cfg.vol_target,
             max_kelly_fraction=cfg.max_kelly_fraction,
             max_capital_fraction=cfg.max_capital_fraction,
+            regime_adjusted_kelly=cfg.regime_adjusted_kelly,
+            high_vol_kelly_multiplier=cfg.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=cfg.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
         )
 
         actions.append(decision.action)
