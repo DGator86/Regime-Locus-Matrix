@@ -41,18 +41,17 @@ class FactorPipeline:
         self.feature_config = (
             load_feature_engineering_config() if feature_config is None else feature_config
         )
-        base_calculators = [OrderFlowFactors(), VolatilityFactors(), LiquidityFactors(), DealerFlowFactors()]
-        self.calculators = [
-            MultiTimeframeEngine(calc)
-            for calc in base_calculators
+        base_calculators = [
             OrderFlowFactors(),
-            CandlePatternFactors(),
-            SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
+            DealerFlowFactors(),
+        ]
+        self.calculators = [MultiTimeframeEngine(calc) for calc in base_calculators] + [
+            CandlePatternFactors(),
+            SupportResistanceFactors(),
             MultiTimeframeLiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
-            DealerFlowFactors(),
         ]
         self.max_workers = (
             max_workers if max_workers is not None else int(os.getenv("RLM_FACTOR_WORKERS", "1"))

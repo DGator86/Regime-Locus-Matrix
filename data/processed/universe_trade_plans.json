@@ -1,0 +1,269 @@
+{
+  "generated_at_utc": "2026-04-09T14:44:39.672939+00:00",
+  "symbols_requested": [
+    "AAPL",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+    "SPY",
+    "QQQ"
+  ],
+  "results": [
+    {
+      "symbol": "AAPL",
+      "run_at_utc": "2026-04-09T14:44:21.415481+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 257.56,
+        "sigma": 0.00984527813654584,
+        "mean_price": 257.56,
+        "lower_1s": 255.02425016315127,
+        "upper_1s": 260.09574983684877,
+        "lower_2s": 252.4885003263025,
+        "upper_2s": 262.6314996736975,
+        "regime_key": "range|transition|low_liquidity|destabilizing",
+        "S_D": -0.10928375011117679,
+        "S_V": 0.3259591668625356,
+        "S_L": -0.887093350610159,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "AMZN",
+      "run_at_utc": "2026-04-09T14:44:25.213720+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 224.41,
+        "sigma": 0.020781466906179123,
+        "mean_price": 224.41,
+        "lower_1s": 219.74643101158435,
+        "upper_1s": 229.07356898841564,
+        "lower_2s": 215.08286202316867,
+        "upper_2s": 233.73713797683132,
+        "regime_key": "range|high_vol|low_liquidity|destabilizing",
+        "S_D": 0.04171272068070131,
+        "S_V": 0.45569235066851566,
+        "S_L": -0.696300437604149,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "GOOGL",
+      "run_at_utc": "2026-04-09T14:44:27.209230+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 311.77,
+        "sigma": 0.017666659635524006,
+        "mean_price": 311.77,
+        "lower_1s": 306.26206552543266,
+        "upper_1s": 317.2779344745673,
+        "lower_2s": 300.75413105086534,
+        "upper_2s": 322.7858689491346,
+        "regime_key": "range|high_vol|low_liquidity|destabilizing",
+        "S_D": -0.13798535388668604,
+        "S_V": 0.49302216279860966,
+        "S_L": -0.7924882878478241,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "META",
+      "run_at_utc": "2026-04-09T14:44:29.460795+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 625.3,
+        "sigma": 0.019352664295735202,
+        "mean_price": 625.3,
+        "lower_1s": 613.1987790158768,
+        "upper_1s": 637.4012209841231,
+        "lower_2s": 601.0975580317535,
+        "upper_2s": 649.5024419682464,
+        "regime_key": "range|high_vol|low_liquidity|destabilizing",
+        "S_D": -0.15634938904284632,
+        "S_V": 0.5468465670974264,
+        "S_L": -0.6620783857050531,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "MSFT",
+      "run_at_utc": "2026-04-09T14:44:31.433139+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 367.27,
+        "sigma": 0.015118908203482436,
+        "mean_price": 364.48228751960727,
+        "lower_1s": 358.92956610371425,
+        "upper_1s": 370.0350089355003,
+        "lower_2s": 353.3768446878213,
+        "upper_2s": 375.58773035139325,
+        "regime_key": "bear|high_vol|low_liquidity|destabilizing",
+        "S_D": -0.7413279035248881,
+        "S_V": 0.4038887461748505,
+        "S_L": -0.7938585470362075,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "NVDA",
+      "run_at_utc": "2026-04-09T14:44:33.318426+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 181.47,
+        "sigma": 0.024348312573697663,
+        "mean_price": 181.47,
+        "lower_1s": 177.0515117172511,
+        "upper_1s": 185.8884882827489,
+        "lower_2s": 172.63302343450218,
+        "upper_2s": 190.30697656549782,
+        "regime_key": "range|high_vol|low_liquidity|destabilizing",
+        "S_D": -0.13294889553466444,
+        "S_V": 0.4645647283349484,
+        "S_L": -0.9065075885092058,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "TSLA",
+      "run_at_utc": "2026-04-09T14:44:35.321407+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 339.38,
+        "sigma": 0.030414445691200644,
+        "mean_price": 334.7515072131966,
+        "lower_1s": 324.4294526345169,
+        "upper_1s": 345.0735617918763,
+        "lower_2s": 314.1073980558372,
+        "upper_2s": 355.39561637055596,
+        "regime_key": "bear|high_vol|low_liquidity|destabilizing",
+        "S_D": -0.780990234614246,
+        "S_V": 0.5355045235666825,
+        "S_L": -0.812513575437012,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "SPY",
+      "run_at_utc": "2026-04-09T14:44:37.163318+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 673.99,
+        "sigma": 0.007672749107950406,
+        "mean_price": 673.99,
+        "lower_1s": 668.8186438287325,
+        "upper_1s": 679.1613561712675,
+        "lower_2s": 663.647287657465,
+        "upper_2s": 684.332712342535,
+        "regime_key": "range|transition|low_liquidity|destabilizing",
+        "S_D": -0.214653102570814,
+        "S_V": 0.2966132896439393,
+        "S_L": -0.9635003762886786,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    },
+    {
+      "symbol": "QQQ",
+      "run_at_utc": "2026-04-09T14:44:38.444766+00:00",
+      "status": "skipped",
+      "pipeline": {
+        "close": 603.19,
+        "sigma": 0.01088455171820479,
+        "mean_price": 603.19,
+        "lower_1s": 596.624547249096,
+        "upper_1s": 609.755452750904,
+        "lower_2s": 590.0590944981922,
+        "upper_2s": 616.3209055018079,
+        "regime_key": "range|transition|low_liquidity|destabilizing",
+        "S_D": -0.2751451461261806,
+        "S_V": 0.3653804476949788,
+        "S_L": -0.9473193827379021,
+        "S_G": 0.0
+      },
+      "decision": {
+        "action": "skip",
+        "strategy_name": null,
+        "rationale": "Major event risk filter active.",
+        "size_fraction": null,
+        "regime_key": null,
+        "metadata": {}
+      },
+      "skip_reason": "roee_skip_or_no_legs"
+    }
+  ],
+  "active_ranked": []
+}

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.data.massive import MassiveClient
@@ -58,6 +60,10 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
+from rlm.utils.market_hours import entry_window_open, session_label
+
+
+_IBKR_HIST_LOCK = threading.Lock()
 
 
 def _parse_symbols(s: str) -> list[str]:
@@ -87,6 +93,7 @@ def _prepare_symbol(
     sym: str,
     *,
     duration: str,
+    bar_size: str,
     move_window: int,
     vol_window: int,
     strike_increment: float,
@@ -94,6 +101,12 @@ def _prepare_symbol(
     min_regime_train_samples: int,
     purge_bars: int,
     live_model: LiveRegimeModelConfig | None,
+    market_hours_only: bool,
+    buffer_open_minutes: int,
+    buffer_close_minutes: int,
+    event_lookahead_days: int,
+    serialize_ibkr: bool,
+    short_dte: bool,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -102,12 +115,23 @@ def _prepare_symbol(
         "status": "skipped",
     }
 
-    bars = fetch_historical_stock_bars(
-        sym,
-        duration=duration,
-        bar_size="1 day",
-        timeout_sec=120.0,
-    )
+    if market_hours_only and not entry_window_open(
+        buffer_open_minutes=buffer_open_minutes,
+        buffer_close_minutes=buffer_close_minutes,
+    ):
+        base["skip_reason"] = f"outside_entry_window ({session_label()})"
+        return base, None, None
+
+    fetch_kw: dict[str, object] = {
+        "duration": duration,
+        "bar_size": bar_size,
+        "timeout_sec": 120.0,
+    }
+    if serialize_ibkr:
+        with _IBKR_HIST_LOCK:
+            bars = fetch_historical_stock_bars(sym, **fetch_kw)
+    else:
+        bars = fetch_historical_stock_bars(sym, **fetch_kw)
     if bars.empty:
         base["skip_reason"] = "no_ibkr_bars"
         return base, None, None
@@ -127,7 +151,9 @@ def _prepare_symbol(
         active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
-    out["has_major_event"] = False
+    out["has_major_event"] = bool(
+        has_major_event_today(sym, lookahead_days=event_lookahead_days)
+    )
     out = attach_regime_safety_columns(
         out,
         min_regime_train_samples=min_regime_train_samples,
@@ -167,6 +193,7 @@ def _prepare_symbol(
         regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
         min_regime_train_samples=min_regime_train_samples,
         regime_purge_bars=purge_bars,
+        short_dte=short_dte,
     )
     base["decision"] = {
         "action": decision.action,
@@ -233,6 +260,8 @@ def _finalize_symbol(
     stop_loss_frac: float,
     trail_activate_frac: float,
     trail_retrace_frac: float,
+    dte_min_override: int | None = None,
+    dte_max_override: int | None = None,
 ) -> dict[str, object]:
     sym = str(base.get("symbol", ""))
     candidate = decision.candidate
@@ -245,14 +274,20 @@ def _finalize_symbol(
         base["skip_reason"] = "no_tradable_option_quotes"
         return base
 
-    expiry_slice = select_nearest_expiry_slice(
-        chain,
-        candidate.target_dte_min,
-        candidate.target_dte_max,
+    dte_min = (
+        int(dte_min_override)
+        if dte_min_override is not None
+        else int(candidate.target_dte_min)
     )
+    dte_max = (
+        int(dte_max_override)
+        if dte_max_override is not None
+        else int(candidate.target_dte_max)
+    )
+    expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
     if expiry_slice.empty:
         base["skip_reason"] = "no_contracts_in_dte_window"
-        base["dte_window"] = [candidate.target_dte_min, candidate.target_dte_max]
+        base["dte_window"] = [dte_min, dte_max]
         return base
 
     matched = match_legs_to_chain(decision=decision, chain_slice=expiry_slice)
@@ -282,10 +317,7 @@ def _finalize_symbol(
         trail_retrace_frac_from_peak=trail_retrace_frac,
     )
 
-    sn = str(decision.strategy_name or "").lower()
-    credit_style = any(
-        x in sn for x in ("iron_condor", "condor", "short_strangle", "strangle")
-    ) or float(entry_debit) < 0
+    credit_style = float(entry_debit) < 0
     combo_order_action = "SELL" if credit_style else "BUY"
     lim = float(round(debit_mag, 4))
 
@@ -330,6 +362,7 @@ def _finalize_symbol(
                 "target_profit_pct": candidate.target_profit_pct,
                 "max_risk_pct": candidate.max_risk_pct,
             },
+            "regime_key": str(decision.regime_key or ""),
             "ibkr_combo_spec": ibkr_spec,
             "rank_score": score,
         }
@@ -344,6 +377,56 @@ def main() -> int:
     )
     p.add_argument("--symbols", default=",".join(LIQUID_UNIVERSE), help="Comma-separated tickers")
     p.add_argument("--duration", default="180 D", help="IBKR history window")
+    p.add_argument(
+        "--bar-size",
+        default="1 day",
+        help='IBKR bar size (e.g. "1 day", "1 hour")',
+    )
+    p.add_argument(
+        "--market-hours-only",
+        action="store_true",
+        help="Skip symbols outside the RTH entry window (see buffer flags)",
+    )
+    p.add_argument(
+        "--buffer-open-minutes",
+        type=int,
+        default=15,
+        help="Minutes after 09:30 ET before allowing entries",
+    )
+    p.add_argument(
+        "--buffer-close-minutes",
+        type=int,
+        default=30,
+        help="Minutes before 16:00 ET after which entries are blocked",
+    )
+    p.add_argument(
+        "--event-lookahead-days",
+        type=int,
+        default=1,
+        help="Forward days for earnings/macro event check (has_major_event)",
+    )
+    p.add_argument(
+        "--serialize-ibkr",
+        action="store_true",
+        help="Serialize IBKR historical requests (use with parallel workers)",
+    )
+    p.add_argument(
+        "--short-dte",
+        action="store_true",
+        help="Use 0DTE/1DTE strategy map via select_trade(short_dte=True)",
+    )
+    p.add_argument(
+        "--dte-min",
+        type=int,
+        default=None,
+        help="Override min DTE when slicing Massive chain (default: candidate window)",
+    )
+    p.add_argument(
+        "--dte-max",
+        type=int,
+        default=None,
+        help="Override max DTE when slicing Massive chain (default: candidate window)",
+    )
     p.add_argument("--move-window", type=int, default=100)
     p.add_argument("--vol-window", type=int, default=100)
     p.add_argument("--strike-increment", type=float, default=1.0)
@@ -424,6 +507,16 @@ def main() -> int:
     )
     args = p.parse_args()
 
+    duration = str(args.duration)
+    bar_size = str(args.bar_size)
+    if bar_size != "1 day" and duration.endswith(" D"):
+        try:
+            days = int(duration.split()[0])
+            if days < 30:
+                duration = "30 D"
+        except (ValueError, IndexError):
+            pass
+
     try:
         client = MassiveClient()
     except ValueError as e:
@@ -447,7 +540,8 @@ def main() -> int:
         try:
             base, decision, ts = _prepare_symbol(
                 sym,
-                duration=args.duration,
+                duration=duration,
+                bar_size=bar_size,
                 move_window=args.move_window,
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
@@ -455,6 +549,12 @@ def main() -> int:
                 min_regime_train_samples=args.min_regime_train_samples,
                 purge_bars=args.purge_bars,
                 live_model=live_model,
+                market_hours_only=bool(args.market_hours_only),
+                buffer_open_minutes=int(args.buffer_open_minutes),
+                buffer_close_minutes=int(args.buffer_close_minutes),
+                event_lookahead_days=int(args.event_lookahead_days),
+                serialize_ibkr=bool(args.serialize_ibkr),
+                short_dte=bool(args.short_dte),
             )
         except Exception as e:
             results[i] = {
@@ -516,6 +616,8 @@ def main() -> int:
                     stop_loss_frac=args.stop_loss_frac,
                     trail_activate_frac=args.trail_activate_frac,
                     trail_retrace_frac=args.trail_retrace_frac,
+                    dte_min_override=args.dte_min,
+                    dte_max_override=args.dte_max,
                 )
         else:
             batch = massive_option_chains_from_client(
@@ -552,6 +654,8 @@ def main() -> int:
                     stop_loss_frac=args.stop_loss_frac,
                     trail_activate_frac=args.trail_activate_frac,
                     trail_retrace_frac=args.trail_retrace_frac,
+                    dte_min_override=args.dte_min,
+                    dte_max_override=args.dte_max,
                 )
 
     final_results: list[dict[str, object]] = []

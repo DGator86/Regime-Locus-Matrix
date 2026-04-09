@@ -61,6 +61,10 @@ flatfiles = [
 ib-insync = [
     "ib_insync",
 ]
+# Streamlit terminal: ``python -m streamlit run scripts/rlm_terminal.py`` (Windows-friendly)
+ui = [
+    "streamlit>=1.28.0",
+]
 
 [tool.black]
 line-length = 100

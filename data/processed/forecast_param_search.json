@@ -1,0 +1,73 @@
+{
+  "objective": "composite",
+  "min_trades": 5,
+  "seed": 1,
+  "trials": 4,
+  "symbol": "SPY",
+  "best_score": -9.738153423678725,
+  "best_params": {
+    "drift_gamma_alpha": 0.6797562126038357,
+    "sigma_floor": 1.171919506486641e-05,
+    "direction_neutral_threshold": 0.39126471912293037,
+    "move_window": 159,
+    "vol_window": 120,
+    "use_hmm": false
+  },
+  "best_summary": {
+    "final_equity": 96528.78038502313,
+    "total_return_pct": -0.034712196149768726,
+    "max_drawdown": -0.034712196149768726,
+    "sharpe": -9.712119276566398,
+    "num_trades": 110.0,
+    "win_rate": 0.0,
+    "profit_factor": 0.0,
+    "avg_trade_pnl": -31.55654195432939,
+    "avg_trade_pnl_pct": -2.0
+  },
+  "top": [
+    {
+      "score": -9.738153423678725,
+      "params": {
+        "drift_gamma_alpha": 0.6797562126038357,
+        "sigma_floor": 1.171919506486641e-05,
+        "direction_neutral_threshold": 0.39126471912293037,
+        "move_window": 159,
+        "vol_window": 120,
+        "use_hmm": false
+      },
+      "summary": {
+        "final_equity": 96528.78038502313,
+        "total_return_pct": -0.034712196149768726,
+        "max_drawdown": -0.034712196149768726,
+        "sharpe": -9.712119276566398,
+        "num_trades": 110.0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "avg_trade_pnl": -31.55654195432939,
+        "avg_trade_pnl_pct": -2.0
+      }
+    },
+    {
+      "score": -9.747056432634139,
+      "params": {
+        "drift_gamma_alpha": 0.5370988712062912,
+        "sigma_floor": 0.00011437105373990413,
+        "direction_neutral_threshold": 0.417972933775359,
+        "move_window": 83,
+        "vol_window": 103,
+        "use_hmm": false
+      },
+      "summary": {
+        "final_equity": 96532.1646489242,
+        "total_return_pct": -0.03467835351075799,
+        "max_drawdown": -0.03467835351075799,
+        "sharpe": -9.72104766750107,
+        "num_trades": 110.0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "avg_trade_pnl": -31.525775918865243,
+        "avg_trade_pnl_pct": -2.016018000732924
+      }
+    }
+  ]
+}

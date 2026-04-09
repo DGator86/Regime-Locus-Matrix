@@ -127,6 +127,7 @@ def select_trade_for_row(
     hmm_confidence_threshold: float | None = None,
     hmm_sizing_multiplier: float = 1.0,
     hmm_transition_penalty: float = 0.5,
+    short_dte: bool = False,
     use_dynamic_sizing: bool = False,
     vol_target: float = 0.15,
     max_kelly_fraction: float = 0.25,
@@ -147,6 +148,11 @@ def select_trade_for_row(
     When ``hmm_confidence_threshold`` is None, HMM columns are ignored
     (same as :func:`select_trade`).
     When set, rows with ``hmm_probs`` are gated and size is scaled like :func:`apply_roee_policy`.
+
+    Parameters
+    ----------
+    short_dte:
+        Forward to :func:`select_trade` to activate 0DTE / 1DTE intraday strategy selection.
     """
     missing = [c for c in _SELECT_TRADE_ROW_COLUMNS if c not in row.index]
     if missing:
@@ -270,6 +276,7 @@ def select_trade_for_row(
         calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
         vault_uncertainty_threshold=vault_uncertainty_threshold,
         vault_size_multiplier=vault_size_multiplier,
+        short_dte=short_dte,
     )
 
     if use_hmm and decision.action == "enter":

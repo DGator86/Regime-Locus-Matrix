@@ -496,5 +496,10 @@ def _wait_order_terminal(app: Any, order_id: int, *, transmit: bool, timeout_sec
                 return trail
             if not transmit and last in ("PreSubmitted", "Submitted", "Inactive", "PendingSubmit"):
                 return trail
+        # Return early if IBKR sent an error for this specific order (e.g., order rejected).
+        # The error() callback only stores reqId != -1 errors in _error_lines.
+        if any(r == order_id for r, _, _ in app._error_lines):
+            errs = [(c, m) for r, c, m in app._error_lines if r == order_id]
+            raise RuntimeError(f"IBKR order {order_id} error: {errs[-1]}")
         time.sleep(0.05)
     return trail
