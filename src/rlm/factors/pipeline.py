@@ -7,6 +7,7 @@ from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.order_flow import OrderFlowFactors
+from rlm.factors.support_resistance import SupportResistanceFactors
 from rlm.factors.volatility import VolatilityFactors
 from rlm.types.factors import FactorSpec
 
@@ -18,6 +19,7 @@ class FactorPipeline:
         )
         self.calculators = [
             OrderFlowFactors(),
+            SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
             DealerFlowFactors(),
