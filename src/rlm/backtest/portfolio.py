@@ -7,9 +7,15 @@ import numpy as np
 import pandas as pd
 
 from rlm.backtest.commission import calculate_commission
+from rlm.backtest.cost_model import calculate_transaction_cost
 from rlm.backtest.expiry import settle_legs_at_expiry
-from rlm.backtest.fills import FillConfig, entry_fill_price, exit_fill_price, signed_cashflow_for_fill
-from rlm.backtest.lifecycle import ExpiryLiquidationPolicy, LifecycleConfig
+from rlm.backtest.fills import (
+    FillConfig,
+    entry_fill_price,
+    exit_fill_price,
+    signed_cashflow_for_fill,
+)
+from rlm.backtest.lifecycle import LifecycleConfig
 from rlm.backtest.revalue import (
     aggregate_repriced_exit_value,
     aggregate_repriced_mark_value,
@@ -83,17 +89,17 @@ class Portfolio:
     def can_open(
         self,
         net_premium_debit_per_unit: float,
-        entry_commission: float,
+        entry_friction: float,
         quantity: int,
-        capital_reserve: float,
+        risk_capital: float,
     ) -> bool:
-        """Cash needed to open: commission + max(0, net premium outflow) + BP reserve for credit risk.
+        """Cash needed to open: friction + max(premium outflow, risk capital).
 
         ``net_premium_debit_per_unit`` is the signed net from :meth:`_compute_entry_cost` (positive = pay debit).
         """
         total_premium_flow = float(net_premium_debit_per_unit) * int(quantity)
         premium_cash_need = max(0.0, total_premium_flow)
-        required = float(entry_commission) + premium_cash_need + float(capital_reserve)
+        required = float(entry_friction) + max(premium_cash_need, float(risk_capital))
         return self.cash >= required
 
     def _compute_entry_cost(
@@ -134,6 +140,25 @@ class Portfolio:
             return 0.0
         return float(width) * float(contract_multiplier) * float(quantity)
 
+    @classmethod
+    def _risk_capital_per_unit(
+        cls,
+        *,
+        matched_legs: list[dict],
+        contract_multiplier: int,
+        entry_cost: float,
+    ) -> float:
+        reserve = cls._capital_reserve_for_structure(
+            matched_legs=matched_legs,
+            contract_multiplier=contract_multiplier,
+            quantity=1,
+        )
+        if entry_cost >= 0.0:
+            return float(max(entry_cost, 0.0))
+        if reserve > 0.0:
+            return float(max(reserve + entry_cost, 0.0))
+        return float(abs(entry_cost))
+
     def _initial_marks_from_matched_legs(
         self,
         *,
@@ -155,6 +180,49 @@ class Portfolio:
             exit_total += signed_ex * self.contract_multiplier
         return float(mark_total), float(exit_total)
 
+    def _resolve_position_quantity(
+        self,
+        *,
+        decision: TradeDecision,
+        matched_legs: list[dict],
+        underlying_price: float,
+        base_quantity: int,
+        fill_config: FillConfig,
+    ) -> int:
+        min_quantity = max(int(base_quantity), 1)
+        if decision.size_fraction is None:
+            return min_quantity
+        size_fraction = float(decision.size_fraction or 0.0)
+        if size_fraction <= 0.0:
+            return 0
+
+        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config)
+        entry_friction_per_unit = calculate_commission(
+            config=self.lifecycle_config.commission_config,
+            leg_count=max(len(matched_legs), 1),
+            quantity=1,
+        ) + calculate_transaction_cost(
+            matched_legs=matched_legs,
+            underlying_price=underlying_price,
+            quantity=1,
+            contract_multiplier=self.contract_multiplier,
+            config=self.lifecycle_config.transaction_cost_config,
+        ).total
+        risk_capital_per_unit = self._risk_capital_per_unit(
+            matched_legs=matched_legs,
+            contract_multiplier=self.contract_multiplier,
+            entry_cost=entry_cost,
+        )
+        capital_per_unit = max(max(entry_cost, 0.0), risk_capital_per_unit) + entry_friction_per_unit
+        if capital_per_unit <= 1e-9:
+            return min_quantity
+
+        budget = self.equity() * size_fraction
+        sized_quantity = int(budget // capital_per_unit)
+        if sized_quantity <= 0:
+            return 0
+        return max(min_quantity, sized_quantity)
+
     def open_from_decision(
         self,
         *,
@@ -173,22 +241,49 @@ class Portfolio:
         if not matched:
             return None
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=fill_config)
+        cfg = fill_config or FillConfig(contract_multiplier=self.contract_multiplier)
+        actual_quantity = self._resolve_position_quantity(
+            decision=decision,
+            matched_legs=matched,
+            underlying_price=underlying_price,
+            base_quantity=quantity,
+            fill_config=cfg,
+        )
+        if actual_quantity <= 0:
+            return None
+
+        entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=cfg)
         leg_count = max(len(matched), 1)
         entry_commission = calculate_commission(
             config=self.lifecycle_config.commission_config,
             leg_count=leg_count,
-            quantity=quantity,
+            quantity=actual_quantity,
         )
-        total_entry_cost = entry_cost * quantity
-        cfg = fill_config or FillConfig(contract_multiplier=self.contract_multiplier)
-        reserve = self._capital_reserve_for_structure(matched, self.contract_multiplier, quantity)
+        entry_transaction_cost = calculate_transaction_cost(
+            matched_legs=matched,
+            underlying_price=underlying_price,
+            quantity=actual_quantity,
+            contract_multiplier=self.contract_multiplier,
+            config=self.lifecycle_config.transaction_cost_config,
+        )
+        total_entry_cost = entry_cost * actual_quantity
+        risk_capital = self._risk_capital_per_unit(
+            matched_legs=matched,
+            contract_multiplier=self.contract_multiplier,
+            entry_cost=entry_cost,
+        ) * actual_quantity
 
-        if not self.can_open(entry_cost, entry_commission, quantity, reserve):
+        if not self.can_open(
+            entry_cost,
+            entry_commission + entry_transaction_cost.total,
+            actual_quantity,
+            risk_capital,
+        ):
             return None
 
         self.cash -= total_entry_cost
         self.cash -= entry_commission
+        self.cash -= entry_transaction_cost.total
 
         expiry = matched[0]["expiry"] if matched else None
         position_id = str(uuid.uuid4())
@@ -196,6 +291,14 @@ class Portfolio:
         meta = dict(decision.metadata)
         meta["reprice_ok"] = True
         meta["last_reprice"] = {"full": True, "missing_leg_count": 0, "stale": False}
+        meta["requested_size_fraction"] = float(decision.size_fraction or 0.0)
+        meta["resolved_quantity"] = int(actual_quantity)
+        meta["risk_capital"] = float(risk_capital)
+        meta["entry_cost_breakdown"] = {
+            "premium_cashflow": float(total_entry_cost),
+            "commission": float(entry_commission),
+            **entry_transaction_cost.to_dict(),
+        }
 
         pos = OpenPosition(
             position_id=position_id,
@@ -205,8 +308,8 @@ class Portfolio:
             underlying_symbol=underlying_symbol,
             entry_underlying_price=float(underlying_price),
             expiry=expiry,
-            entry_cost=float(entry_cost + (entry_commission / quantity)),
-            quantity=int(quantity),
+            entry_cost=float(entry_cost + ((entry_commission + entry_transaction_cost.total) / actual_quantity)),
+            quantity=int(actual_quantity),
             matched_legs=matched,
             target_profit_pct=float(decision.target_profit_pct or 0.5),
             max_risk_pct=float(decision.max_risk_pct or 0.02),
@@ -275,12 +378,24 @@ class Portfolio:
             leg_count=leg_count,
             quantity=pos.quantity,
         )
-        exit_value = pos.exit_value() - (exit_commission / pos.quantity)
+        exit_transaction_cost = calculate_transaction_cost(
+            matched_legs=pos.matched_legs,
+            underlying_price=underlying_price,
+            quantity=pos.quantity,
+            contract_multiplier=self.contract_multiplier,
+            config=self.lifecycle_config.transaction_cost_config,
+        )
+        exit_value = pos.exit_value() - ((exit_commission + exit_transaction_cost.total) / pos.quantity)
         total_exit_value = exit_value * pos.quantity
         self.cash += total_exit_value
 
         pnl = (exit_value - pos.entry_cost) * pos.quantity
         pnl_pct = pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
+        metadata = dict(pos.metadata)
+        metadata["exit_cost_breakdown"] = {
+            "commission": float(exit_commission),
+            **exit_transaction_cost.to_dict(),
+        }
 
         trade = TradeRecord(
             position_id=pos.position_id,
@@ -297,7 +412,7 @@ class Portfolio:
             pnl_pct=float(pnl_pct) if pd.notna(pnl_pct) else np.nan,
             quantity=pos.quantity,
             exit_reason=exit_reason,
-            metadata=dict(pos.metadata),
+            metadata=metadata,
         )
 
         self.closed_trades.append(trade)

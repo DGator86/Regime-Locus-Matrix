@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.forecasting.hmm import HMMConfig, RLMHMM
+from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.pipeline import HybridForecastPipeline
 from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -26,7 +26,9 @@ def _synthetic_scores(n: int = 300) -> pd.DataFrame:
 
 def test_rlm_hmm_fit_and_predict_shape() -> None:
     df = _synthetic_scores(250)
-    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11)).fit(df, verbose=False)
+    model = RLMHMM(
+        HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")
+    ).fit(df, verbose=False)
 
     probs = model.predict_proba(df)
     states = model.most_likely_state(df)
@@ -38,6 +40,7 @@ def test_rlm_hmm_fit_and_predict_shape() -> None:
     filt = model.predict_proba_filtered(df)
     assert filt.shape == probs.shape
     assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
+    assert model.last_filter_backend == "numpy"
 
 
 def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:

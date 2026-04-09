@@ -21,7 +21,8 @@ dependencies = [
     "plotly",
     "tabulate",
     "jinja2",
-    "hmmlearn>=0.3.0"
+    "hmmlearn>=0.3.0",
+    "optuna>=3.6.0"
 ]
 
 [project.optional-dependencies]

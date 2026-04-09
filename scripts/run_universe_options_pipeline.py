@@ -6,8 +6,10 @@ For each symbol (default: ``LIQUID_UNIVERSE`` = Mag7 + SPY + QQQ):
 
 1. IBKR daily bars → ``prepare_bars_for_factors`` → factors → state matrix → forecast (latest bar).
 2. ``select_trade_for_row`` → strategy + abstract legs.
-3. If **enter**: fetch **full** Massive option snapshot (paginated), normalize, DTE slice, ``match_legs_to_chain``.
-4. Build **entry debit** (bid/ask), **mid mark** ``V0``, take-profit / hard-stop / trailing activation levels
+3. If **enter**: fetch a filtered Massive option snapshot (paginated), normalize,
+   DTE slice, ``match_legs_to_chain``.
+4. Build **entry debit** (bid/ask), **mid mark** ``V0``, take-profit /
+   hard-stop / trailing activation levels
    (:mod:`rlm.execution.risk_targets`), plus JSON suitable for ``ibkr_place_roee_combo.py``.
 
 Output: JSON file consumed by ``scripts/monitor_active_trade_plans.py``.
@@ -16,25 +18,23 @@ Examples::
 
     python scripts/run_universe_options_pipeline.py --out data/processed/universe_trade_plans.json
     python scripts/run_universe_options_pipeline.py --top 3 --stop-loss-frac 0.45
-    python scripts/run_universe_options_pipeline.py --workers 4
-
-Use ``--workers`` > 1 to process symbols concurrently (IBKR history is serialized; Massive snapshot
-calls run in parallel). Watch Massive rate limits.
 """
 
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import json
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# ruff: noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -44,18 +44,25 @@ from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.data.massive import MassiveClient
-from rlm.data.massive_option_chain import massive_option_chain_from_client
+from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors.pipeline import FactorPipeline
+from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_model
 from rlm.forecasting.pipeline import ForecastPipeline
-from rlm.roee.chain_match import estimate_entry_cost_from_matched_legs, estimate_mark_value_from_matched_legs, match_legs_to_chain
+from rlm.roee.chain_match import (
+    estimate_entry_cost_from_matched_legs,
+    estimate_mark_value_from_matched_legs,
+    match_legs_to_chain,
+)
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.types.options import TradeDecision
 from rlm.utils.market_hours import entry_window_open, session_label
 
-# IBKR historical requests use one socket per call; same client_id cannot safely overlap.
+
 _IBKR_HIST_LOCK = threading.Lock()
 
 
@@ -73,7 +80,16 @@ def _filter_tradable_chain(chain: pd.DataFrame) -> pd.DataFrame:
     return chain.loc[ok].copy()
 
 
-def _one_symbol(
+@dataclass
+class _PendingUniverseSymbol:
+    index: int
+    symbol: str
+    base: dict[str, object]
+    decision: TradeDecision
+    timestamp: pd.Timestamp
+
+
+def _prepare_symbol(
     sym: str,
     *,
     duration: str,
@@ -82,20 +98,16 @@ def _one_symbol(
     vol_window: int,
     strike_increment: float,
     attach_vix: bool,
-    massive_limit: int,
-    stop_loss_frac: float,
-    trail_activate_frac: float,
-    trail_retrace_frac: float,
-    client: MassiveClient,
-    serialize_ibkr: bool,
+    min_regime_train_samples: int,
+    purge_bars: int,
+    live_model: LiveRegimeModelConfig | None,
     market_hours_only: bool,
     buffer_open_minutes: int,
     buffer_close_minutes: int,
     event_lookahead_days: int,
+    serialize_ibkr: bool,
     short_dte: bool,
-    dte_min_override: int | None,
-    dte_max_override: int | None,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
         "symbol": sym,
@@ -108,42 +120,55 @@ def _one_symbol(
         buffer_close_minutes=buffer_close_minutes,
     ):
         base["skip_reason"] = f"outside_entry_window ({session_label()})"
-        return base
+        return base, None, None
 
+    fetch_kw: dict[str, object] = {
+        "duration": duration,
+        "bar_size": bar_size,
+        "timeout_sec": 120.0,
+    }
     if serialize_ibkr:
         with _IBKR_HIST_LOCK:
-            bars = fetch_historical_stock_bars(
-                sym,
-                duration=duration,
-                bar_size=bar_size,
-                timeout_sec=120.0,
-            )
+            bars = fetch_historical_stock_bars(sym, **fetch_kw)
     else:
-        bars = fetch_historical_stock_bars(
-            sym,
-            duration=duration,
-            bar_size=bar_size,
-            timeout_sec=120.0,
-        )
+        bars = fetch_historical_stock_bars(sym, **fetch_kw)
     if bars.empty:
         base["skip_reason"] = "no_ibkr_bars"
-        return base
+        return base, None, None
 
     df = bars.sort_values("timestamp").set_index("timestamp")
     df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
 
     feats = FactorPipeline().run(df)
     feats = classify_state_matrix(feats)
-    forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+    if live_model is not None:
+        forecast = live_model.build_pipeline()
+        decision_kwargs = live_model.decision_kwargs()
+        active_model = live_model.model
+    else:
+        forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+        decision_kwargs = {}
+        active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
-    _event_flag = has_major_event_today(sym, lookahead_days=event_lookahead_days)
-    out["has_major_event"] = _event_flag
+    out["has_major_event"] = bool(
+        has_major_event_today(sym, lookahead_days=event_lookahead_days)
+    )
+    out = attach_regime_safety_columns(
+        out,
+        min_regime_train_samples=min_regime_train_samples,
+        purge_bars=purge_bars,
+    )
 
     last = out.iloc[-1]
-    ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.utcnow().tz_localize(None)
+    ts = (
+        last.name
+        if isinstance(last.name, pd.Timestamp)
+        else pd.Timestamp.now(tz="UTC").tz_localize(None)
+    )
 
     pipeline_row = {
+        "live_model": active_model,
         "close": float(last["close"]),
         "sigma": float(last["sigma"]) if pd.notna(last["sigma"]) else None,
         "mean_price": float(last["mean_price"]) if pd.notna(last.get("mean_price")) else None,
@@ -152,6 +177,8 @@ def _one_symbol(
         "lower_2s": float(last["lower_2s"]) if pd.notna(last.get("lower_2s")) else None,
         "upper_2s": float(last["upper_2s"]) if pd.notna(last.get("upper_2s")) else None,
         "regime_key": str(last.get("regime_key", "")),
+        "regime_train_sample_count": int(last.get("regime_train_sample_count", 0) or 0),
+        "regime_safety_ok": bool(last.get("regime_safety_ok", True)),
         "S_D": float(last["S_D"]) if pd.notna(last["S_D"]) else None,
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
@@ -159,7 +186,15 @@ def _one_symbol(
     }
     base["pipeline"] = pipeline_row
 
-    decision = select_trade_for_row(last, strike_increment=strike_increment, short_dte=short_dte)
+    decision = select_trade_for_row(
+        last,
+        strike_increment=strike_increment,
+        **decision_kwargs,
+        regime_train_sample_count=int(last.get("regime_train_sample_count", 0) or 0),
+        min_regime_train_samples=min_regime_train_samples,
+        regime_purge_bars=purge_bars,
+        short_dte=short_dte,
+    )
     base["decision"] = {
         "action": decision.action,
         "strategy_name": decision.strategy_name,
@@ -170,18 +205,68 @@ def _one_symbol(
     }
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
-        base["skip_reason"] = "roee_skip_or_no_legs"
-        return base
-
-    try:
-        chain = massive_option_chain_from_client(
-            client,
-            sym,
-            timestamp=ts,
-            limit=int(massive_limit),
+        base["skip_reason"] = (
+            "regime_safety_check"
+            if decision.strategy_name == "regime_safety_check"
+            else "roee_skip_or_no_legs"
         )
-    except Exception as e:
-        base["skip_reason"] = f"massive_chain_error:{e}"
+        return base, None, None
+    return base, decision, ts
+
+
+def _build_incremental_snapshot_params(
+    ts: pd.Timestamp,
+    decision: TradeDecision,
+    *,
+    massive_limit: int,
+    strike_increment: float,
+) -> dict[str, object]:
+    params: dict[str, object] = {
+        "limit": int(massive_limit),
+        "sort": "expiration_date",
+        "order": "asc",
+    }
+    candidate = decision.candidate
+    if candidate is not None:
+        anchor = pd.Timestamp(ts)
+        if anchor.tzinfo is not None:
+            anchor = anchor.tz_localize(None)
+        anchor = anchor.normalize()
+        params["expiration_date.gte"] = str(
+            (anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date()
+        )
+        params["expiration_date.lte"] = str(
+            (anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date()
+        )
+
+    strikes = [float(leg.strike) for leg in decision.legs]
+    if strikes:
+        pad = max(float(strike_increment), 1.0)
+        params["strike_price.gte"] = max(0.0, min(strikes) - pad)
+        params["strike_price.lte"] = max(strikes) + pad
+
+    option_types = {str(leg.option_type).lower().strip() for leg in decision.legs}
+    option_types.discard("")
+    if len(option_types) == 1:
+        params["contract_type"] = next(iter(option_types))
+    return params
+
+
+def _finalize_symbol(
+    base: dict[str, object],
+    *,
+    decision: TradeDecision,
+    chain: pd.DataFrame,
+    stop_loss_frac: float,
+    trail_activate_frac: float,
+    trail_retrace_frac: float,
+    dte_min_override: int | None = None,
+    dte_max_override: int | None = None,
+) -> dict[str, object]:
+    sym = str(base.get("symbol", ""))
+    candidate = decision.candidate
+    if candidate is None:
+        base["skip_reason"] = "roee_skip_or_no_legs"
         return base
 
     chain = _filter_tradable_chain(chain)
@@ -189,13 +274,20 @@ def _one_symbol(
         base["skip_reason"] = "no_tradable_option_quotes"
         return base
 
-    c = decision.candidate
-    dte_lo = dte_min_override if dte_min_override is not None else c.target_dte_min
-    dte_hi = dte_max_override if dte_max_override is not None else c.target_dte_max
-    expiry_slice = select_nearest_expiry_slice(chain, dte_lo, dte_hi)
+    dte_min = (
+        int(dte_min_override)
+        if dte_min_override is not None
+        else int(candidate.target_dte_min)
+    )
+    dte_max = (
+        int(dte_max_override)
+        if dte_max_override is not None
+        else int(candidate.target_dte_max)
+    )
+    expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
     if expiry_slice.empty:
         base["skip_reason"] = "no_contracts_in_dte_window"
-        base["dte_window"] = [dte_lo, dte_hi]
+        base["dte_window"] = [dte_min, dte_max]
         return base
 
     matched = match_legs_to_chain(decision=decision, chain_slice=expiry_slice)
@@ -214,7 +306,7 @@ def _one_symbol(
         base["skip_reason"] = "invalid_v0_mark"
         return base
 
-    tp_pct = float(c.target_profit_pct)
+    tp_pct = float(candidate.target_profit_pct)
     debit_mag = abs(float(entry_debit))
     thresholds = build_spread_exit_thresholds(
         v0=float(v0),
@@ -225,15 +317,9 @@ def _one_symbol(
         trail_retrace_frac_from_peak=trail_retrace_frac,
     )
 
-    sn = str(decision.strategy_name or "").lower()
-    # All strategies are now Level 2 debit structures — the parent BAG order always BUYs.
-    # Credit only if debit is unexpectedly negative (fallback guard).
     credit_style = float(entry_debit) < 0
     combo_order_action = "SELL" if credit_style else "BUY"
-    # IBKR BAG limit price is dollars-per-share of the underlying (same quoting convention
-    # as a single-leg option price).  estimate_entry_cost already applied × 100 to get
-    # per-contract dollars, so we divide back to get the per-share IBKR price.
-    lim = float(round(debit_mag / 100.0, 4))
+    lim = float(round(debit_mag, 4))
 
     ibkr_spec = {
         "underlying": sym,
@@ -251,7 +337,8 @@ def _one_symbol(
         ],
     }
 
-    conf = float((decision.metadata or {}).get("confidence") or 0.0)
+    meta = decision.metadata or {}
+    conf = float(meta.get("regime_confidence") or meta.get("confidence") or 0.0)
     sf = float(decision.size_fraction or 0.0)
     score = conf * sf
 
@@ -269,14 +356,13 @@ def _one_symbol(
                 "v_trail_activate": thresholds.v_trail_activate,
                 "trail_retrace_frac": thresholds.trail_retrace_frac,
             },
-            "regime_key": str(decision.regime_key or ""),
-            "regime_direction": str((decision.regime_key or "").split("|")[0]),
             "candidate": {
-                "target_dte_min": c.target_dte_min,
-                "target_dte_max": c.target_dte_max,
-                "target_profit_pct": c.target_profit_pct,
-                "max_risk_pct": c.max_risk_pct,
+                "target_dte_min": candidate.target_dte_min,
+                "target_dte_max": candidate.target_dte_max,
+                "target_profit_pct": candidate.target_profit_pct,
+                "max_risk_pct": candidate.max_risk_pct,
             },
+            "regime_key": str(decision.regime_key or ""),
             "ibkr_combo_spec": ibkr_spec,
             "rank_score": score,
         }
@@ -285,73 +371,134 @@ def _one_symbol(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--symbols", default=",".join(LIQUID_UNIVERSE), help="Comma-separated tickers")
-    p.add_argument("--duration", default="180 D", help="IBKR history window (e.g. '180 D', '5 D')")
+    p.add_argument("--duration", default="180 D", help="IBKR history window")
     p.add_argument(
         "--bar-size",
         default="1 day",
-        help="IBKR bar size string (e.g. '1 day', '15 mins', '5 mins'). "
-        "Use '5 D' for --duration when fetching 5m intraday bars.",
+        help='IBKR bar size (e.g. "1 day", "1 hour")',
     )
-    p.add_argument("--move-window", type=int, default=100,
-                   help="Forecast rolling window in bars (use 390 for 5m intraday bars)")
-    p.add_argument("--vol-window", type=int, default=100)
     p.add_argument(
         "--market-hours-only",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Skip symbols outside the RTH entry window (default: True). Use --no-market-hours-only to disable.",
+        action="store_true",
+        help="Skip symbols outside the RTH entry window (see buffer flags)",
     )
-    p.add_argument("--buffer-open-minutes", type=int, default=15,
-                   help="Ignore the first N minutes after open (default 15)")
-    p.add_argument("--buffer-close-minutes", type=int, default=30,
-                   help="Ignore the last N minutes before close (default 30)")
+    p.add_argument(
+        "--buffer-open-minutes",
+        type=int,
+        default=15,
+        help="Minutes after 09:30 ET before allowing entries",
+    )
+    p.add_argument(
+        "--buffer-close-minutes",
+        type=int,
+        default=30,
+        help="Minutes before 16:00 ET after which entries are blocked",
+    )
     p.add_argument(
         "--event-lookahead-days",
         type=int,
         default=1,
-        help="Flag symbols with earnings or macro events within N calendar days (default 1)",
+        help="Forward days for earnings/macro event check (has_major_event)",
     )
-    p.add_argument("--strike-increment", type=float, default=1.0)
+    p.add_argument(
+        "--serialize-ibkr",
+        action="store_true",
+        help="Serialize IBKR historical requests (use with parallel workers)",
+    )
     p.add_argument(
         "--short-dte",
         action="store_true",
-        default=False,
-        help="Select 0DTE / 1DTE intraday strategies instead of the default 14–60 DTE structures.",
+        help="Use 0DTE/1DTE strategy map via select_trade(short_dte=True)",
     )
     p.add_argument(
         "--dte-min",
         type=int,
         default=None,
-        help="Override the strategy's target_dte_min when matching the option chain slice.",
+        help="Override min DTE when slicing Massive chain (default: candidate window)",
     )
     p.add_argument(
         "--dte-max",
         type=int,
         default=None,
-        help="Override the strategy's target_dte_max when matching the option chain slice.",
+        help="Override max DTE when slicing Massive chain (default: candidate window)",
     )
-    p.add_argument("--ibkr-delay", type=float, default=0.35, help="Pause between symbols (workers==1 only)")
-    p.add_argument("--massive-delay", type=float, default=0.35, help="Pause after each Massive snapshot pull (workers==1 only)")
+    p.add_argument("--move-window", type=int, default=100)
+    p.add_argument("--vol-window", type=int, default=100)
+    p.add_argument("--strike-increment", type=float, default=1.0)
+    p.add_argument("--ibkr-delay", type=float, default=0.35)
     p.add_argument(
-        "--workers",
-        type=int,
-        default=1,
-        help="Concurrent symbols (default 1 sequential). IBKR bars are locked; Massive runs in parallel.",
+        "--massive-delay",
+        type=float,
+        default=0.35,
+        help="Pause between serial Massive pulls; ignored when --massive-workers > 1",
     )
     p.add_argument("--no-vix", action="store_true")
-    p.add_argument("--massive-limit", type=int, default=250, help="Per-page limit for option snapshot pagination")
-    p.add_argument("--stop-loss-frac", type=float, default=0.5, help="Hard stop = V0 - frac * entry_debit")
-    p.add_argument("--trail-activate-frac", type=float, default=0.15, help="Start trailing after V0 + frac * D")
-    p.add_argument("--trail-retrace-frac", type=float, default=0.25, help="Trail stop = peak * (1 - this)")
-    p.add_argument("--top", type=int, default=0, help="If >0, only keep N highest rank_score among active plans")
     p.add_argument(
-        "--allow-duplicates",
-        action="store_true",
-        default=False,
-        help="Allow new active plans even when the symbol already has an open position in monitor state",
+        "--massive-limit",
+        type=int,
+        default=250,
+        help="Per-page limit for option snapshot pagination",
     )
+    p.add_argument(
+        "--massive-workers",
+        type=int,
+        default=4,
+        help="Concurrent Massive chain fetch workers",
+    )
+    p.add_argument(
+        "--massive-cache-ttl",
+        type=float,
+        default=15.0,
+        help="In-memory TTL in seconds for hot Massive chains",
+    )
+    p.add_argument(
+        "--massive-hot-cache-symbols",
+        default="SPY,QQQ",
+        help="Comma-separated symbols eligible for RAM chain caching",
+    )
+    p.add_argument(
+        "--stop-loss-frac",
+        type=float,
+        default=0.5,
+        help="Hard stop = V0 - frac * entry_debit",
+    )
+    p.add_argument(
+        "--trail-activate-frac",
+        type=float,
+        default=0.15,
+        help="Start trailing after V0 + frac * D",
+    )
+    p.add_argument(
+        "--trail-retrace-frac",
+        type=float,
+        default=0.25,
+        help="Trail stop = peak * (1 - this)",
+    )
+    p.add_argument(
+        "--top",
+        type=int,
+        default=0,
+        help="If >0, only keep N highest rank_score among active plans",
+    )
+    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--min-regime-train-samples",
+        type=int,
+        default=5,
+        help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
+    p.add_argument(
+        "--live-model-config",
+        type=Path,
+        default=Path("data/processed/live_regime_model.json"),
+        help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
+    )
+    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
     p.add_argument(
         "--out",
         type=Path,
@@ -360,148 +507,191 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    # Auto-scale defaults for intraday bar sizes so the user can simply pass
-    # --bar-size "5 mins" without having to also override --duration and --move-window.
-    _intraday_bar_sizes = {"5 mins", "5 min", "5m", "15 mins", "15 min", "15m", "1 min", "1 hour"}
-    _bar_size_norm = args.bar_size.strip().lower()
-    _is_intraday = any(_bar_size_norm.startswith(x.lower()) for x in _intraday_bar_sizes) or (
-        "min" in _bar_size_norm or "hour" in _bar_size_norm
-    )
-    if _is_intraday:
-        # If the user kept the daily default for --duration, switch to 5 D (≈5 RTH sessions)
-        if args.duration == "180 D":
-            args.duration = "5 D"
-            print(f"[intraday] --duration auto-set to '{args.duration}' for bar-size '{args.bar_size}'")
-        # If the user kept the daily default for --move-window, switch to 390 (1 RTH week at 5m)
-        if args.move_window == 100:
-            args.move_window = 390
-            args.vol_window = 390
-            print(f"[intraday] --move-window / --vol-window auto-set to 390 for bar-size '{args.bar_size}'")
-
-    syms = _parse_symbols(args.symbols)
-    results: list[dict[str, object]] = []
-    workers = max(1, int(args.workers))
+    duration = str(args.duration)
+    bar_size = str(args.bar_size)
+    if bar_size != "1 day" and duration.endswith(" D"):
+        try:
+            days = int(duration.split()[0])
+            if days < 30:
+                duration = "30 D"
+        except (ValueError, IndexError):
+            pass
 
     try:
-        shared_massive = MassiveClient() if workers == 1 else None
+        client = MassiveClient()
     except ValueError as e:
         print(f"Massive client: {e}", file=sys.stderr)
         return 1
 
-    def _run_sym(sym: str) -> dict[str, object]:
-        client = shared_massive if shared_massive is not None else MassiveClient()
+    syms = _parse_symbols(args.symbols)
+    live_model: LiveRegimeModelConfig | None = None
+    if not args.ignore_live_model:
+        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        if live_model_path.is_file():
+            live_model = load_live_regime_model(live_model_path)
+            print(f"Using live model config: {live_model_path}")
+    hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
+    results: list[dict[str, object] | None] = [None] * len(syms)
+    pending: list[_PendingUniverseSymbol] = []
+
+    for i, sym in enumerate(syms):
+        if i:
+            time.sleep(max(0.0, args.ibkr_delay))
         try:
-            return _one_symbol(
+            base, decision, ts = _prepare_symbol(
                 sym,
-                duration=args.duration,
-                bar_size=args.bar_size,
+                duration=duration,
+                bar_size=bar_size,
                 move_window=args.move_window,
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
                 attach_vix=not args.no_vix,
-                massive_limit=args.massive_limit,
-                stop_loss_frac=args.stop_loss_frac,
-                trail_activate_frac=args.trail_activate_frac,
-                trail_retrace_frac=args.trail_retrace_frac,
-                client=client,
-                serialize_ibkr=workers > 1,
-                market_hours_only=args.market_hours_only,
-                buffer_open_minutes=args.buffer_open_minutes,
-                buffer_close_minutes=args.buffer_close_minutes,
-                event_lookahead_days=args.event_lookahead_days,
-                short_dte=args.short_dte,
-                dte_min_override=args.dte_min,
-                dte_max_override=args.dte_max,
+                min_regime_train_samples=args.min_regime_train_samples,
+                purge_bars=args.purge_bars,
+                live_model=live_model,
+                market_hours_only=bool(args.market_hours_only),
+                buffer_open_minutes=int(args.buffer_open_minutes),
+                buffer_close_minutes=int(args.buffer_close_minutes),
+                event_lookahead_days=int(args.event_lookahead_days),
+                serialize_ibkr=bool(args.serialize_ibkr),
+                short_dte=bool(args.short_dte),
             )
         except Exception as e:
-            return {
+            results[i] = {
                 "symbol": sym,
                 "run_at_utc": datetime.now(timezone.utc).isoformat(),
                 "status": "error",
                 "skip_reason": str(e)[:500],
             }
+            continue
 
-    if workers == 1:
-        for i, sym in enumerate(syms):
-            if i:
-                time.sleep(max(0.0, args.ibkr_delay))
-            row = _run_sym(sym)
-            results.append(row)
-            st = row.get("status", "")
-            sr = row.get("skip_reason", "")
-            dec = row.get("decision")
-            strat = dec.get("strategy_name", "") if isinstance(dec, dict) else ""
-            print(f"{sym}: {st} {strat} {sr}")
+        if decision is None or ts is None:
+            results[i] = base
+            continue
 
-            if isinstance(dec, dict) and dec.get("action") == "enter":
-                time.sleep(max(0.0, args.massive_delay))
-    else:
-        by_sym: dict[str, dict[str, object]] = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            futs = {ex.submit(_run_sym, sym): sym for sym in syms}
-            for fut in concurrent.futures.as_completed(futs):
-                sym = futs[fut]
-                row = fut.result()
-                by_sym[sym] = row
-                st = row.get("status", "")
-                sr = row.get("skip_reason", "")
-                dec = row.get("decision")
-                strat = dec.get("strategy_name", "") if isinstance(dec, dict) else ""
-                print(f"{sym}: {st} {strat} {sr}", flush=True)
-        results = [by_sym[s] for s in syms]
+        pending.append(
+            _PendingUniverseSymbol(
+                index=i,
+                symbol=sym,
+                base=base,
+                decision=decision,
+                timestamp=ts,
+            )
+        )
 
-    actives = [r for r in results if r.get("status") == "active"]
+    if pending:
+        if int(args.massive_workers) <= 1 and len(pending) > 1 and float(args.massive_delay) > 0:
+            for j, item in enumerate(pending):
+                if j:
+                    time.sleep(max(0.0, float(args.massive_delay)))
+                batch = massive_option_chains_from_client(
+                    client,
+                    [item.symbol],
+                    timestamps={item.symbol: item.timestamp},
+                    per_symbol_params={
+                        item.symbol: _build_incremental_snapshot_params(
+                            item.timestamp,
+                            item.decision,
+                            massive_limit=args.massive_limit,
+                            strike_increment=args.strike_increment,
+                        )
+                    },
+                    max_workers=1,
+                    cache_ttl_s=max(0.0, float(args.massive_cache_ttl)),
+                    hot_cache_symbols=hot_cache_symbols,
+                )
+                if item.symbol in batch.errors:
+                    item.base["skip_reason"] = f"massive_chain_error:{batch.errors[item.symbol]}"
+                    results[item.index] = item.base
+                    continue
+                chain = batch.chains.get(item.symbol)
+                if chain is None:
+                    item.base["skip_reason"] = "massive_chain_error:missing_chain"
+                    results[item.index] = item.base
+                    continue
+                results[item.index] = _finalize_symbol(
+                    item.base,
+                    decision=item.decision,
+                    chain=chain,
+                    stop_loss_frac=args.stop_loss_frac,
+                    trail_activate_frac=args.trail_activate_frac,
+                    trail_retrace_frac=args.trail_retrace_frac,
+                    dte_min_override=args.dte_min,
+                    dte_max_override=args.dte_max,
+                )
+        else:
+            batch = massive_option_chains_from_client(
+                client,
+                [item.symbol for item in pending],
+                timestamps={item.symbol: item.timestamp for item in pending},
+                per_symbol_params={
+                    item.symbol: _build_incremental_snapshot_params(
+                        item.timestamp,
+                        item.decision,
+                        massive_limit=args.massive_limit,
+                        strike_increment=args.strike_increment,
+                    )
+                    for item in pending
+                },
+                max_workers=max(1, int(args.massive_workers)),
+                cache_ttl_s=max(0.0, float(args.massive_cache_ttl)),
+                hot_cache_symbols=hot_cache_symbols,
+            )
+            for item in pending:
+                if item.symbol in batch.errors:
+                    item.base["skip_reason"] = f"massive_chain_error:{batch.errors[item.symbol]}"
+                    results[item.index] = item.base
+                    continue
+                chain = batch.chains.get(item.symbol)
+                if chain is None:
+                    item.base["skip_reason"] = "massive_chain_error:missing_chain"
+                    results[item.index] = item.base
+                    continue
+                results[item.index] = _finalize_symbol(
+                    item.base,
+                    decision=item.decision,
+                    chain=chain,
+                    stop_loss_frac=args.stop_loss_frac,
+                    trail_activate_frac=args.trail_activate_frac,
+                    trail_retrace_frac=args.trail_retrace_frac,
+                    dte_min_override=args.dte_min,
+                    dte_max_override=args.dte_max,
+                )
+
+    final_results: list[dict[str, object]] = []
+    for sym, row in zip(syms, results):
+        if row is None:
+            row = {
+                "symbol": sym,
+                "run_at_utc": datetime.now(timezone.utc).isoformat(),
+                "status": "error",
+                "skip_reason": "missing_pipeline_result",
+            }
+        final_results.append(row)
+        st = row.get("status", "")
+        sr = row.get("skip_reason", "")
+        dec = row.get("decision")
+        strat = dec.get("strategy_name", "") if isinstance(dec, dict) else ""
+        print(f"{sym}: {st} {strat} {sr}")
+
+    actives = [r for r in final_results if r.get("status") == "active"]
     actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
     if args.top > 0 and actives:
         keep_ids = {id(x) for x in actives[: args.top]}
-        for r in results:
+        for r in final_results:
             if r.get("status") == "active" and id(r) not in keep_ids:
                 r["status"] = "trimmed"
                 r["skip_reason"] = f"not_in_top_{args.top}"
 
-    final_active = [r for r in results if r.get("status") == "active"]
+    final_active = [r for r in final_results if r.get("status") == "active"]
     final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
-
-    # Duplicate guard: suppress new active plans for symbols that already have a CONFIRMED
-    # open paper position (paper_opened=True, paper_close_sent not set) in the EXISTING
-    # plans JSON file.  We check paper_opened rather than monitor state entries so that
-    # hypothetical / unentered plans (where ibkr_paper_trade_from_plans failed) do not
-    # trigger false duplicates.
-    if not args.allow_duplicates:
-        existing_plans_path = ROOT / args.out if not args.out.is_absolute() else args.out
-        open_syms: set[str] = set()
-        if existing_plans_path.is_file():
-            try:
-                prev_payload: dict = json.loads(existing_plans_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                prev_payload = {}
-            for row in (prev_payload.get("active_ranked") or []) + (prev_payload.get("results") or []):
-                if not isinstance(row, dict):
-                    continue
-                if not row.get("paper_opened"):
-                    continue  # not yet confirmed open — not a real position
-                if row.get("paper_close_sent"):
-                    continue  # already closed
-                sym_part = str(row.get("symbol", "")).upper()
-                if sym_part:
-                    open_syms.add(sym_part)
-        for r in results:
-            if r.get("status") == "active":
-                sym_upper = str(r.get("symbol", "")).upper()
-                if sym_upper in open_syms:
-                    r["status"] = "duplicate_active"
-                    r["skip_reason"] = f"symbol_already_open_in_monitor ({sym_upper})"
-                    print(f"  [dup-guard] {sym_upper} already open — marking duplicate_active")
-        # Rebuild final_active after dedup
-        final_active = [r for r in results if r.get("status") == "active"]
-        final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
 
     out_path = ROOT / args.out if not args.out.is_absolute() else args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "symbols_requested": syms,
-        "results": results,
+        "results": final_results,
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")

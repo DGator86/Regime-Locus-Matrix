@@ -1,16 +1,23 @@
 import pandas as pd
 
+from rlm.backtest.cost_model import TransactionCostConfig
 from rlm.backtest.engine import BacktestEngine
-from rlm.backtest.lifecycle import LifecycleConfig, days_to_expiry, is_at_or_past_expiry, should_force_close_before_expiry
+from rlm.backtest.lifecycle import (
+    LifecycleConfig,
+    days_to_expiry,
+    is_at_or_past_expiry,
+    should_force_close_before_expiry,
+)
 from rlm.backtest.portfolio import Portfolio
 from rlm.types.options import TradeDecision
 
 
-def _decision_with_one_leg(expiry: str = "2025-01-12") -> TradeDecision:
+def _decision_with_one_leg(expiry: str = "2025-01-12", size_fraction: float | None = None) -> TradeDecision:
     return TradeDecision(
         action="enter",
         strategy_name="test",
         regime_key="test_regime",
+        size_fraction=size_fraction,
         target_profit_pct=10.0,
         max_risk_pct=0.05,
         metadata={
@@ -66,6 +73,64 @@ def test_portfolio_applies_commissions_on_open_and_close() -> None:
     assert trade is not None
     # pnl is reduced by the close commission that is netted from exit value
     assert trade.pnl < 10.0
+
+
+def test_portfolio_scales_quantity_from_size_fraction() -> None:
+    portfolio = Portfolio(
+        initial_capital=10_000.0,
+        lifecycle_config=LifecycleConfig(commission_per_contract=0.0),
+    )
+    decision = _decision_with_one_leg(size_fraction=0.20)
+
+    position_id = portfolio.open_from_decision(
+        timestamp=pd.Timestamp("2025-01-10 10:00:00"),
+        underlying_symbol="SPY",
+        underlying_price=100.0,
+        decision=decision,
+        quantity=1,
+    )
+    assert position_id is not None
+
+    pos = portfolio.open_positions[position_id]
+    assert pos.quantity > 1
+    assert pos.metadata.get("resolved_quantity") == pos.quantity
+
+
+def test_portfolio_applies_transaction_cost_model() -> None:
+    portfolio = Portfolio(
+        initial_capital=10_000.0,
+        lifecycle_config=LifecycleConfig(
+            commission_per_contract=0.0,
+            transaction_cost_config=TransactionCostConfig(
+                extra_spread_fraction=0.5,
+                underlying_slippage_bps=10.0,
+            ),
+        ),
+    )
+    decision = _decision_with_one_leg(size_fraction=0.10)
+
+    position_id = portfolio.open_from_decision(
+        timestamp=pd.Timestamp("2025-01-10 10:00:00"),
+        underlying_symbol="SPY",
+        underlying_price=100.0,
+        decision=decision,
+        quantity=1,
+    )
+    assert position_id is not None
+
+    pos = portfolio.open_positions[position_id]
+    assert pos.metadata["entry_cost_breakdown"]["total"] > 0.0
+
+    pos.current_exit_value_cache = pos.entry_cost + 20.0
+    trade = portfolio.close_position(
+        position_id=position_id,
+        timestamp_exit=pd.Timestamp("2025-01-10 11:00:00"),
+        underlying_price=101.0,
+        exit_reason="test",
+    )
+    assert trade is not None
+    assert trade.metadata["exit_cost_breakdown"]["total"] > 0.0
+    assert trade.pnl < 20.0 * trade.quantity
 
 
 def test_engine_forces_close_before_expiry(monkeypatch) -> None:

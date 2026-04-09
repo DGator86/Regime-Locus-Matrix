@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Poll **Massive** option snapshots for open trade plans and evaluate **mid-mark** vs exit rules:
+Poll **Massive** option snapshots for open trade plans and evaluate **mid-mark**
+vs exit rules:
 
 - **Take profit** when ``V >= v_take_profit``
 - **Hard stop** when ``V <= v_hard_stop``
@@ -17,9 +18,12 @@ direction of ``ibkr_combo_spec`` once per plan when an exit **ACTION** fires.
 
 Examples::
 
-    python scripts/monitor_active_trade_plans.py --plans data/processed/universe_trade_plans.json --once
-    python scripts/monitor_active_trade_plans.py --plans data/processed/universe_trade_plans.json --interval 120
-    python scripts/monitor_active_trade_plans.py --plans data/processed/universe_trade_plans.json --paper-close --once
+    python scripts/monitor_active_trade_plans.py \
+        --plans data/processed/universe_trade_plans.json --once
+    python scripts/monitor_active_trade_plans.py \
+        --plans data/processed/universe_trade_plans.json --interval 120
+    python scripts/monitor_active_trade_plans.py \
+        --plans data/processed/universe_trade_plans.json --paper-close --once
 """
 
 from __future__ import annotations
@@ -38,8 +42,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+# ruff: noqa: E402
 from rlm.data.massive import MassiveClient
-from rlm.data.massive_option_chain import massive_option_chain_from_client
+from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.execution.dte_utils import dte_from_plan, needs_force_close
 from rlm.execution.ibkr_combo_orders import (
     assert_paper_trading_port,
@@ -100,6 +105,47 @@ def _append_trade_log(log_path: Path, row: dict) -> None:
 
 def _contract_key(leg: dict) -> str:
     return str(leg.get("symbol") or leg.get("contract_symbol") or "")
+
+
+def _parse_symbols(s: str) -> list[str]:
+    parts = [x.strip().upper() for x in s.replace(";", ",").split(",")]
+    return [p for p in parts if p]
+
+
+def _build_incremental_snapshot_params(
+    plans: list[dict], *, massive_limit: int
+) -> dict[str, object]:
+    params: dict[str, object] = {
+        "limit": int(massive_limit),
+        "sort": "expiration_date",
+        "order": "asc",
+    }
+    expiries: list[str] = []
+    strikes: list[float] = []
+    option_types: set[str] = set()
+    for plan in plans:
+        for leg in plan.get("matched_legs") or []:
+            expiry = leg.get("expiry")
+            if expiry:
+                expiries.append(str(pd.Timestamp(expiry).date()))
+            strike = leg.get("strike")
+            if strike is not None:
+                try:
+                    strikes.append(float(strike))
+                except (TypeError, ValueError):
+                    pass
+            option_type = str(leg.get("option_type", "")).lower().strip()
+            if option_type in {"call", "put"}:
+                option_types.add(option_type)
+    if expiries:
+        params["expiration_date.gte"] = min(expiries)
+        params["expiration_date.lte"] = max(expiries)
+    if strikes:
+        params["strike_price.gte"] = min(strikes)
+        params["strike_price.lte"] = max(strikes)
+    if len(option_types) == 1:
+        params["contract_type"] = next(iter(option_types))
+    return params
 
 
 def _refresh_matched_mids(chain: pd.DataFrame, matched_legs: list[dict]) -> list[dict] | None:
@@ -166,8 +212,12 @@ def _evaluate_plan(
 
     # DTE-based force close: emit before TP/stop to ensure 0DTE positions are closed
     plan_dte = dte_from_plan(plan)
-    dte_label = f"  DTE={plan_dte:.3f}" if plan_dte == plan_dte else ""  # hide NaN
-    msg = f"[{sym}] {pid} V={v:.2f}  V0={plan.get('entry_mid_mark_dollars')}  debit={plan.get('entry_debit_dollars')}{dte_label}"
+    dte_suffix = f"  DTE={plan_dte:.3f}" if plan_dte == plan_dte else ""
+    msg = (
+        f"[{sym}] {pid} V={v:.2f}  "
+        f"V0={plan.get('entry_mid_mark_dollars')}  "
+        f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
+    )
 
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
@@ -249,7 +299,10 @@ def _evaluate_plan(
         close_parent = "BUY" if oa == "SELL" else "SELL"
 
         if paper_close_dry_run:
-            print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT {close_parent} qty={qty} legs={len(close_legs)}")
+            print(
+                f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT "
+                f"{close_parent} qty={qty} legs={len(close_legs)}"
+            )
             st["paper_close_sent"] = True
             return
 
@@ -267,7 +320,10 @@ def _evaluate_plan(
             print(f"[{sym}] {pid} PAPER-CLOSE FAILED: {e}", file=sys.stderr)
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--plans", type=Path, required=True, help="universe_trade_plans.json")
     p.add_argument(
         "--state",
@@ -275,9 +331,31 @@ def main() -> int:
         default=Path("data/processed/trade_monitor_state.json"),
         help="Persistent peak/trail state",
     )
-    p.add_argument("--interval", type=float, default=120.0, help="Seconds between polls (if not --once)")
+    p.add_argument(
+        "--interval",
+        type=float,
+        default=120.0,
+        help="Seconds between polls (if not --once)",
+    )
     p.add_argument("--once", action="store_true", help="Single poll then exit")
     p.add_argument("--massive-limit", type=int, default=250)
+    p.add_argument(
+        "--massive-workers",
+        type=int,
+        default=4,
+        help="Concurrent Massive chain refresh workers",
+    )
+    p.add_argument(
+        "--massive-cache-ttl",
+        type=float,
+        default=15.0,
+        help="In-memory TTL in seconds for hot Massive chains",
+    )
+    p.add_argument(
+        "--massive-hot-cache-symbols",
+        default="SPY,QQQ",
+        help="Comma-separated symbols eligible for RAM chain caching",
+    )
     p.add_argument(
         "--paper-close",
         action="store_true",
@@ -357,11 +435,27 @@ def main() -> int:
                 by_sym.setdefault(sym, []).append(pl)
 
         min_dte_seen = float("inf")
+        hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
+        snapshot_params_by_symbol = {
+            sym: _build_incremental_snapshot_params(plist, massive_limit=args.massive_limit)
+            for sym, plist in by_sym.items()
+        }
+        batch = massive_option_chains_from_client(
+            client,
+            list(by_sym),
+            per_symbol_params=snapshot_params_by_symbol,
+            max_workers=max(1, int(args.massive_workers)),
+            cache_ttl_s=max(0.0, float(args.massive_cache_ttl)),
+            hot_cache_symbols=hot_cache_symbols,
+        )
+
         for sym, plist in by_sym.items():
-            try:
-                chain = massive_option_chain_from_client(client, sym, limit=args.massive_limit)
-            except Exception as e:
-                print(f"[{sym}] Massive error: {e}", file=sys.stderr)
+            if sym in batch.errors:
+                print(f"[{sym}] Massive error: {batch.errors[sym]}", file=sys.stderr)
+                continue
+            chain = batch.chains.get(sym)
+            if chain is None:
+                print(f"[{sym}] Massive error: missing chain response", file=sys.stderr)
                 continue
             for pl in plist:
                 _evaluate_plan(

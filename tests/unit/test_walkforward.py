@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.backtest.walkforward import run_walkforward, WalkForwardConfig
+from rlm.backtest.walkforward import WalkForwardConfig, run_walkforward
 from rlm.types.forecast import ForecastConfig
 
 
@@ -83,3 +83,33 @@ def test_run_walkforward_executes() -> None:
 
     assert summary_df is not None
     assert len(summary_df) > 0
+
+
+def test_run_walkforward_reports_purge_and_regime_metadata() -> None:
+    bars = make_bars(260)
+    chain = make_chain(bars)
+
+    _, _, summary_df = run_walkforward(
+        bars=bars,
+        option_chain=chain,
+        forecast_config=ForecastConfig(),
+        wf_config=WalkForwardConfig(
+            is_window=100,
+            oos_window=40,
+            step_size=40,
+            purge_bars=5,
+            regime_aware=True,
+            min_regime_train_samples=5,
+        ),
+    )
+
+    assert not summary_df.empty
+    assert "purge_bars" in summary_df.columns
+    assert "regime_aware" in summary_df.columns
+    assert "coverage_adjusted" in summary_df.columns
+    assert "unsafe_oos_bars" in summary_df.columns
+    assert "last_oos_regime_train_samples" in summary_df.columns
+    assert "min_oos_regime_train_samples" in summary_df.columns
+    assert "regime_safety_passed" in summary_df.columns
+    assert int(summary_df["purge_bars"].iloc[0]) == 5
+    assert bool(summary_df["regime_aware"].iloc[0]) is True
