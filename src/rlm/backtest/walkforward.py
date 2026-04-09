@@ -7,6 +7,7 @@ import pandas as pd
 
 from rlm.backtest.engine import BacktestEngine
 from rlm.factors.pipeline import FactorPipeline
+from rlm.factors.multi_timeframe import MultiTimeframeEngine
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.pipeline import (
@@ -137,6 +138,8 @@ def run_walkforward(
     probabilistic_model_path: str | None = None,
     roee_config: ROEEConfig | None = None,
     hmm_model_dir: Path = Path("models"),
+    use_mtf: bool = False,
+    higher_tfs: tuple[str, ...] = ("1W", "1M"),
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg = wf_config or WalkForwardConfig()
     fc = forecast_config or ForecastConfig()
@@ -157,6 +160,7 @@ def run_walkforward(
     all_trades = []
     window_summaries = []
     hmm_model_dir.mkdir(parents=True, exist_ok=True)
+    mtf_engine = MultiTimeframeEngine(higher_tfs=higher_tfs) if use_mtf else None
 
     windows = _build_walkforward_windows(n_bars=len(bars), cfg=cfg)
     for window in windows:
@@ -168,6 +172,8 @@ def run_walkforward(
 
         joined = bars.iloc[nominal_is_start:oos_end].copy()
         feature_df = FactorPipeline().run(joined)
+        if mtf_engine is not None:
+            feature_df = mtf_engine.augment_factors(joined, feature_df)
 
         train_start_in_joined = 0
         train_end_in_joined = max(effective_is_end - nominal_is_start, 0)

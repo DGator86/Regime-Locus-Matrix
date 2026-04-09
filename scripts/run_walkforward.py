@@ -21,6 +21,7 @@ from rlm.datasets.paths import (
 )
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.factors.multi_timeframe import format_precompute_instructions, parse_higher_tfs
 from rlm.types.forecast import ForecastConfig
 
 
@@ -112,6 +113,13 @@ def parse_args() -> argparse.Namespace:
         default="data/processed",
         help="Directory for walkforward_*.csv outputs",
     )
+    p.add_argument("--mtf", action="store_true", help="Enable multi-timeframe factor augmentation.")
+    p.add_argument(
+        "--higher-tfs",
+        type=str,
+        default="1W,1M",
+        help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
     return p.parse_args()
 
 
@@ -147,6 +155,10 @@ def main() -> None:
     out_dir = ROOT / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    higher_tfs = parse_higher_tfs(args.higher_tfs)
+    if args.mtf:
+        print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
+
     equity_df, trades_df, summary_df = run_walkforward(
         bars=bars,
         option_chain=chain,
@@ -178,6 +190,8 @@ def main() -> None:
         markov_config=MarkovSwitchingConfig() if args.use_markov else None,
         use_probabilistic=args.probabilistic,
         probabilistic_model_path=args.model_path,
+        use_mtf=args.mtf,
+        higher_tfs=higher_tfs,
     )
 
     wf_sym = und

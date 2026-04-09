@@ -32,6 +32,7 @@ from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_cha
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv
 from rlm.factors.pipeline import FactorPipeline
+from rlm.factors.multi_timeframe import MultiTimeframeEngine, format_precompute_instructions, parse_higher_tfs
 from rlm.forecasting.live_model import (
     LiveForecastParameters,
     LiveHMMParameters,
@@ -52,6 +53,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lookback-bars", type=int, default=520, help="Only calibrate on the most recent N bars")
     p.add_argument("--no-vix", action="store_true")
     p.add_argument("--trials", type=int, default=24, help="Shared parameter samples per contender")
+    p.add_argument("--mtf", action="store_true", help="Enable multi-timeframe factor augmentation.")
+    p.add_argument(
+        "--higher-tfs",
+        type=str,
+        default="1W,1M",
+        help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument(
         "--objective",
@@ -184,6 +192,10 @@ def main() -> int:
 
     bars = prepare_bars_for_factors(bars, chain, underlying=sym, attach_vix=not args.no_vix)
     factors = FactorPipeline().run(bars)
+    if args.mtf:
+        higher_tfs = parse_higher_tfs(args.higher_tfs)
+        factors = MultiTimeframeEngine(higher_tfs=higher_tfs).augment_factors(bars, factors)
+        print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
 
     samples = generate_forecast_param_samples(
         n_trials=max(1, int(args.trials)),

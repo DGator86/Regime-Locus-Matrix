@@ -28,6 +28,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from rlm.factors.multi_timeframe import format_precompute_instructions, parse_higher_tfs
 
 DEFAULT_SYMBOLS = ("SPY", "QQQ", "IWM", "AAPL", "TSLA", "NVDA")
 
@@ -67,12 +71,23 @@ def main() -> int:
     p.add_argument("--fetch-trades", action="store_true")
     p.add_argument("--quote-window-gte", default="2026-03-20T13:30:00Z")
     p.add_argument("--quote-window-lt", default="2026-03-20T20:00:00Z")
+    p.add_argument("--mtf", action="store_true", help="Print and enforce MTF pre-compute guidance.")
+    p.add_argument(
+        "--higher-tfs",
+        default="1W,1M",
+        help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
     args = p.parse_args()
 
     syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not syms:
         print("No symbols", file=sys.stderr)
         return 1
+    higher_tfs = parse_higher_tfs(args.higher_tfs)
+    if args.mtf:
+        print("MTF mode enabled for downstream pipelines.")
+        for sym in syms:
+            print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
 
     py = sys.executable
 
