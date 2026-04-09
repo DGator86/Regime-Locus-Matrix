@@ -29,9 +29,16 @@ def select_trade(
     bid_ask_spread_pct: float | None = None,
     has_major_event: bool = False,
     strike_increment: float = 1.0,
+    short_dte: bool = False,
 ) -> TradeDecision:
     """
     Main ROEE entry point for one bar / one underlying snapshot.
+
+    Parameters
+    ----------
+    short_dte:
+        When True, the strategy map selects 0DTE / 1DTE intraday strategies
+        instead of the default 14–60 DTE multi-week structures.
     """
     if not math.isfinite(current_price) or current_price <= 0:
         return TradeDecision(action="skip", rationale="Invalid current price.")
@@ -50,6 +57,7 @@ def select_trade(
         volatility=volatility_regime,
         liquidity=liquidity_regime,
         dealer_flow=dealer_flow_regime,
+        short_dte=short_dte,
     )
 
     if candidate.strategy_name == "no_trade_or_micro_position":

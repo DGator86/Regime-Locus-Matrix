@@ -6,3 +6,7 @@ src/regime_locus_matrix.egg-info/
 # Local data lake (IBKR + Massive Parquet pulls; large / non-reproducible)
 data/stocks/
 data/options/
+
+# Bare (no-symbol) backtest output — incomplete placeholder artifact; symbol-specific
+# files (backtest_equity_{SYMBOL}.csv) are the canonical outputs.
+data/processed/backtest_equity.csv

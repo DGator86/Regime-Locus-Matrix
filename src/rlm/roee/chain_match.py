@@ -93,6 +93,23 @@ def match_legs_to_chain(
 
         matched_legs.append(_row_to_matched_leg(row, side=leg.side))
 
+    # Reject combos where two legs resolve to the exact same contract (same option_type,
+    # strike, and expiry).  Such a position has zero net exposure and IBKR rejects it
+    # as a "riskless combination" (error 10087).
+    seen_contracts: set[tuple[str, float, str]] = set()
+    for ml in matched_legs:
+        key = (ml.option_type, ml.strike, ml.expiry)
+        if key in seen_contracts:
+            return TradeDecision(
+                action="skip",
+                strategy_name=decision.strategy_name,
+                regime_key=decision.regime_key,
+                rationale=f"Duplicate contract for {key} — riskless combination rejected.",
+                candidate=decision.candidate,
+                metadata=decision.metadata,
+            )
+        seen_contracts.add(key)
+
     new_metadata = dict(decision.metadata)
     new_metadata["matched_legs"] = [m.__dict__ for m in matched_legs]
 
