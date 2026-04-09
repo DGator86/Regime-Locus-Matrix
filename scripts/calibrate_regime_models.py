@@ -49,7 +49,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--chain", default=None)
     p.add_argument("--synthetic", action="store_true")
     p.add_argument("--warmup-days", type=int, default=260)
-    p.add_argument("--lookback-bars", type=int, default=520, help="Only calibrate on the most recent N bars")
+    p.add_argument(
+        "--lookback-bars", type=int, default=520, help="Only calibrate on the most recent N bars"
+    )
     p.add_argument("--no-vix", action="store_true")
     p.add_argument("--trials", type=int, default=24, help="Shared parameter samples per contender")
     p.add_argument("--seed", type=int, default=42)
@@ -77,6 +79,11 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--markov-states", type=int, default=3)
     p.add_argument(
+        "--mtf-regimes",
+        action="store_true",
+        help="Enable multi-timeframe regime blending metadata for downstream forecast runs.",
+    )
+    p.add_argument(
         "--export-json",
         type=str,
         default="data/processed/regime_model_calibration.json",
@@ -88,7 +95,9 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/live_regime_model.json",
         help="Promoted live-model config path (repo-relative)",
     )
-    p.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
+    p.add_argument(
+        "--no-promote", action="store_true", help="Write the report but do not update live model"
+    )
     return p.parse_args()
 
 
@@ -151,6 +160,7 @@ def _build_live_config(
             "trials": int(args.trials),
             "seed": int(args.seed),
             "symbol": str(args.symbol).upper().strip(),
+            "mtf_regimes": bool(args.mtf_regimes),
         },
     )
 
@@ -265,31 +275,42 @@ def main() -> int:
         "trials": len(samples),
         "lookback_bars": args.lookback_bars,
         "promotion_performed": not args.no_promote,
+        "mtf_regimes": bool(args.mtf_regimes),
         "promote_path": str(promote_path.relative_to(ROOT)),
         "champion": {
             "model": champion_model,
             "score": champion_score,
             "sharpe": _finite_metric(champion_summary, "sharpe"),
-            "summary": {k: float(v) for k, v in champion_summary.items() if isinstance(v, (int, float))},
+            "summary": {
+                k: float(v) for k, v in champion_summary.items() if isinstance(v, (int, float))
+            },
             "params": champion_params,
         },
         "challenger": {
             "model": challenger_model,
             "score": challenger_score,
             "sharpe": _finite_metric(challenger_summary, "sharpe"),
-            "summary": {k: float(v) for k, v in challenger_summary.items() if isinstance(v, (int, float))},
+            "summary": {
+                k: float(v) for k, v in challenger_summary.items() if isinstance(v, (int, float))
+            },
             "params": challenger_params,
         },
         "contenders": {
             "hmm": {
                 "best_score": float(hmm_best_score),
-                "best_summary": {k: float(v) for k, v in hmm_best_summary.items() if isinstance(v, (int, float))},
+                "best_summary": {
+                    k: float(v) for k, v in hmm_best_summary.items() if isinstance(v, (int, float))
+                },
                 "best_params": hmm_best_params,
                 "top": _top_payload(hmm_results, top_n=min(args.top, len(hmm_results))),
             },
             "markov": {
                 "best_score": float(markov_best_score),
-                "best_summary": {k: float(v) for k, v in markov_best_summary.items() if isinstance(v, (int, float))},
+                "best_summary": {
+                    k: float(v)
+                    for k, v in markov_best_summary.items()
+                    if isinstance(v, (int, float))
+                },
                 "best_params": markov_best_params,
                 "top": _top_payload(markov_results, top_n=min(args.top, len(markov_results))),
             },
@@ -297,8 +318,10 @@ def main() -> int:
     }
     export_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
-    print(f"Champion: {champion_model.upper()}  sharpe={_finite_metric(champion_summary, 'sharpe'):.6g}")
-    print(f"Challenger: {challenger_model.upper()}  sharpe={_finite_metric(challenger_summary, 'sharpe'):.6g}")
+    champion_sharpe = _finite_metric(champion_summary, "sharpe")
+    challenger_sharpe = _finite_metric(challenger_summary, "sharpe")
+    print(f"Champion: {champion_model.upper()}  sharpe={champion_sharpe:.6g}")
+    print(f"Challenger: {challenger_model.upper()}  sharpe={challenger_sharpe:.6g}")
     print(f"Wrote calibration report: {export_path.relative_to(ROOT)}")
     if args.no_promote:
         print("Live promotion skipped (--no-promote).")
