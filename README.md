@@ -113,6 +113,44 @@ All CLIs resolve paths from the **repository root** and use **`--symbol`** (defa
 | Tune forecast params | `python scripts/optimize_forecast_params.py --symbol SPY --trials 80 --objective composite` → prints top runs and writes `data/processed/forecast_param_search.json` |
 | Weekly regime tournament | `python scripts/calibrate_regime_models.py --symbol SPY --trials 24 --no-vix` or `scripts/weekly_regime_model_tournament.sh --symbol SPY --trials 24 --no-vix` → writes `regime_model_calibration.json` and promotes `live_regime_model.json` |
 
+## Multi-timeframe (MTF) workflow
+
+All major pipelines now support:
+
+- `--mtf` to enable higher-timeframe factor augmentation via `MultiTimeframeEngine`.
+- `--higher-tfs` to set comma-separated higher timeframe rules (default: `1W,1M`).
+
+Supported scripts:
+
+- `scripts/calibrate_regime_models.py`
+- `scripts/run_forecast_pipeline.py`
+- `scripts/run_backtest.py`
+- `scripts/run_walkforward.py`
+- `scripts/run_data_lake_pipeline.py` (prints HTF pre-compute guidance for downstream runs)
+
+### End-to-end MTF flow
+
+```bash
+# 1) Build/update local bars + chain as usual
+python3 scripts/build_rolling_backtest_dataset.py --fetch-ibkr --symbol SPY --start 2022-01-01
+
+# 2) Pre-compute and validate HTF factor overlays
+python3 scripts/run_forecast_pipeline.py --symbol SPY --mtf --higher-tfs 1W,1M --no-vix
+
+# 3) Run a single backtest with HTF overlays
+python3 scripts/run_backtest.py --symbol SPY --mtf --higher-tfs 1W,1M --no-vix
+
+# 4) Run walk-forward with the same HTF specification
+python3 scripts/run_walkforward.py --symbol SPY --mtf --higher-tfs 1W,1M
+
+# 5) Weekly regime calibration with HTF overlays
+python3 scripts/calibrate_regime_models.py --symbol SPY --trials 24 --mtf --higher-tfs 1W,1M --no-vix
+```
+
+### HTF pre-compute instructions
+
+When `--mtf` is present, pipelines print explicit pre-compute instructions so you can warm and verify higher-timeframe factor columns before heavy calibration/walk-forward jobs. Keep `--higher-tfs` consistent across scripts in the same experiment to avoid train/eval drift.
+
 ## Massive API
 
 Python client: `rlm.data.massive.MassiveClient` ([REST quickstart](https://massive.com/docs/rest/quickstart), [flat files quickstart](https://massive.com/docs/flat-files/quickstart), full index: [llms.txt](https://massive.com/docs/llms.txt)).

@@ -23,6 +23,7 @@ from rlm.datasets.paths import (
 )
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.factors.multi_timeframe import format_precompute_instructions, parse_higher_tfs
 from rlm.types.forecast import ForecastConfig
 
 
@@ -135,6 +136,13 @@ def parse_args() -> argparse.Namespace:
         default="data/processed",
         help="Directory for walkforward_*.csv outputs",
     )
+    p.add_argument("--mtf", action="store_true", help="Enable multi-timeframe factor augmentation.")
+    p.add_argument(
+        "--higher-tfs",
+        type=str,
+        default="1W,1M",
+        help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
     return p.parse_args()
 
 
@@ -143,6 +151,39 @@ def _run_once(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     sym = str(args.symbol).upper().strip()
     und = str(args.underlying).upper().strip() if args.underlying else sym
+    bars_rel = args.bars or rel_bars_csv(sym)
+    chain_rel = args.chain or rel_option_chain_csv(sym)
+    bars_path = ROOT / bars_rel
+    chain_path = ROOT / chain_rel
+    if not bars_path.is_file():
+        raise SystemExit(
+            f"Bars file not found: {bars_path}\n"
+            "Run: python scripts/build_rolling_backtest_dataset.py --demo\n"
+            "  or: python scripts/build_rolling_backtest_dataset.py "
+            f"--fetch-ibkr --symbol {sym} --start 2022-01-01"
+        )
+    if not chain_path.is_file():
+        raise SystemExit(
+            f"Chain file not found: {chain_path}\n"
+            "Synthetic chain: python scripts/build_rolling_backtest_dataset.py "
+            "(writes option_chain_* from bars)\n"
+            "Real snapshots: python scripts/append_option_snapshot.py --symbol "
+            f"{sym} --as-of YYYY-MM-DD --replace-same-day"
+        )
+
+    bars = pd.read_csv(bars_path, parse_dates=["timestamp"])
+    bars = bars.sort_values("timestamp").set_index("timestamp")
+
+    chain = pd.read_csv(chain_path, parse_dates=["timestamp", "expiry"])
+
+    out_dir = ROOT / args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    higher_tfs = parse_higher_tfs(args.higher_tfs)
+    if args.mtf:
+        print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
+
+    equity_df, trades_df, summary_df = run_walkforward(
     return run_walkforward(
         bars=bars,
         option_chain=chain,
@@ -177,6 +218,8 @@ def _run_once(
         ),
         use_probabilistic=args.probabilistic,
         probabilistic_model_path=args.model_path,
+        use_mtf=args.mtf,
+        higher_tfs=higher_tfs,
     )
 
 

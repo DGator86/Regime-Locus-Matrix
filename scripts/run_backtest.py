@@ -32,6 +32,7 @@ from rlm.datasets.paths import (
     rel_option_chain_csv,
 )
 from rlm.factors.pipeline import FactorPipeline
+from rlm.factors.multi_timeframe import MultiTimeframeEngine, format_precompute_instructions, parse_higher_tfs
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.pipeline import (
@@ -139,6 +140,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip yfinance VIX/VVIX when enriching bars from the option chain.",
     )
+    parser.add_argument("--mtf", action="store_true", help="Enable multi-timeframe factor augmentation.")
+    parser.add_argument(
+        "--higher-tfs",
+        type=str,
+        default="1W,1M",
+        help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
     parser.add_argument("--optuna-trials", type=int, default=0)
     parser.add_argument("--optuna-timeout", type=int, default=None)
     parser.add_argument("--mtf-fast-weight", type=float, default=0.6)
@@ -204,6 +211,17 @@ def _build_features(
     hmm_states = int(round(tuned.get("hmm_states", args.hmm_states)))
     markov_states = int(round(tuned.get("markov_states", args.markov_states)))
 
+    bars = prepare_bars_for_factors(bars, chain, underlying=sym, attach_vix=not args.no_vix)
+
+    features = FactorPipeline().run(bars)
+    if args.mtf:
+        higher_tfs = parse_higher_tfs(args.higher_tfs)
+        features = MultiTimeframeEngine(higher_tfs=higher_tfs).augment_factors(bars, features)
+        print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
+    fc = ForecastConfig(
+        drift_gamma_alpha=0.65,
+        sigma_floor=1e-4,
+        direction_neutral_threshold=0.3,
     features = FactorPipeline().run(
         prepare_bars_for_factors(bars, chain, underlying=args.symbol, attach_vix=not args.no_vix)
     )
