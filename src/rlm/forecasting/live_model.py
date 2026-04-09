@@ -7,7 +7,11 @@ from pydantic import BaseModel, Field
 
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline
+from rlm.forecasting.pipeline import (
+    ForecastPipeline,
+    HybridForecastPipeline,
+    HybridMarkovForecastPipeline,
+)
 from rlm.roee.pipeline import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
@@ -66,6 +70,9 @@ class LiveHMMParameters(BaseModel):
     n_iter: int = 100
     filter_backend: Literal["auto", "numpy", "numba"] = "auto"
     prefer_gpu: bool = False
+    hierarchical: bool = True
+    macro_weight: float = 0.45
+    micro_timeframes: tuple[str, ...] = ("5min", "1min")
 
     def to_hmm_config(self) -> HMMConfig:
         return HMMConfig(
@@ -80,6 +87,9 @@ class LiveMarkovParameters(BaseModel):
     n_states: int = 3
     switching_variance: bool = True
     trend: str = "c"
+    hierarchical: bool = True
+    macro_weight: float = 0.45
+    micro_timeframes: tuple[str, ...] = ("5min", "1min")
 
     def to_markov_config(self) -> MarkovSwitchingConfig:
         return MarkovSwitchingConfig(
@@ -97,7 +107,9 @@ class LiveRegimeModelConfig(BaseModel):
     markov: LiveMarkovParameters = Field(default_factory=LiveMarkovParameters)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
-    def build_pipeline(self) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline:
+    def build_pipeline(
+        self,
+    ) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline:
         forecast_config = self.forecast.to_forecast_config()
         if self.model == "hmm":
             return HybridForecastPipeline(
@@ -105,6 +117,9 @@ class LiveRegimeModelConfig(BaseModel):
                 move_window=self.forecast.move_window,
                 vol_window=self.forecast.vol_window,
                 hmm_config=self.hmm.to_hmm_config(),
+                hierarchical=self.hmm.hierarchical,
+                macro_weight=self.hmm.macro_weight,
+                micro_timeframes=self.hmm.micro_timeframes,
             )
         if self.model == "markov":
             return HybridMarkovForecastPipeline(
@@ -112,6 +127,9 @@ class LiveRegimeModelConfig(BaseModel):
                 move_window=self.forecast.move_window,
                 vol_window=self.forecast.vol_window,
                 markov_config=self.markov.to_markov_config(),
+                hierarchical=self.markov.hierarchical,
+                macro_weight=self.markov.macro_weight,
+                micro_timeframes=self.markov.micro_timeframes,
             )
         return ForecastPipeline(
             config=forecast_config,
