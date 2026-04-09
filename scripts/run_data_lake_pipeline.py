@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""
-Run the recommended fetch order into the canonical data lake (local Parquet only):
-
-1. IBKR stock daily + intraday bars per symbol
-2. Massive option contracts per underlying
-3. (Optional) Massive option bars / quotes / trades for explicit tickers
-
-Default symbols: SPY, QQQ, IWM, AAPL, TSLA, NVDA
-
-Requires:
-  - TWS/Gateway + pip install 'regime-locus-matrix[ibkr]' pyarrow
-  - MASSIVE_API_KEY + pyarrow
-
-Examples::
-
-    python scripts/run_data_lake_pipeline.py --symbols SPY,QQQ
-    python scripts/run_data_lake_pipeline.py --skip-stocks --contracts-only --symbols SPY
-    python scripts/run_data_lake_pipeline.py --option-tickers O:SPY260619C00650000 \\
-        --option-from 2026-01-01 --option-to 2026-04-01 --option-underlying SPY
-"""
+"""Run the recommended fetch order into the canonical data lake (local Parquet only)."""
 
 from __future__ import annotations
 
@@ -28,6 +9,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from rlm.utils.parallel import parallel_map
 
 DEFAULT_SYMBOLS = ("SPY", "QQQ", "IWM", "AAPL", "TSLA", "NVDA")
 
@@ -37,8 +23,120 @@ def _run(cmd: list[str]) -> int:
     return subprocess.call(cmd, cwd=str(ROOT))
 
 
+def _run_bundle(cmds: list[list[str]]) -> int:
+    for cmd in cmds:
+        rc = _run(cmd)
+        if rc != 0:
+            return rc
+    return 0
+
+
+def _stock_task(task: tuple[str, str, str, str, str, str]) -> int:
+    py, symbol, stock_1d_duration, stock_1d_slug, stock_1m_duration, stock_1m_slug = task
+    return _run_bundle(
+        [
+            [
+                py,
+                "scripts/fetch_ibkr_stock_parquet.py",
+                symbol,
+                "--duration",
+                stock_1d_duration,
+                "--bar-size",
+                "1 day",
+                "--duration-slug",
+                stock_1d_slug,
+                "--interval",
+                "1d",
+            ],
+            [
+                py,
+                "scripts/fetch_ibkr_stock_parquet.py",
+                symbol,
+                "--duration",
+                stock_1m_duration,
+                "--bar-size",
+                "1 min",
+                "--duration-slug",
+                stock_1m_slug,
+                "--interval",
+                "1m",
+            ],
+        ]
+    )
+
+
+def _contract_task(task: tuple[str, str, str | None]) -> int:
+    py, symbol, expiration_date = task
+    cmd = [py, "scripts/fetch_massive_contracts.py", "--underlying", symbol, "--limit", "1000"]
+    if expiration_date:
+        cmd += ["--expiration-date", expiration_date]
+    return _run(cmd)
+
+
+def _option_bars_task(task: tuple[str, str, str, str, str, str]) -> int:
+    py, ot, underlying, timespan, opt_from, opt_to = task
+    return _run(
+        [
+            py,
+            "scripts/fetch_massive_option_bars.py",
+            "--option-ticker",
+            ot,
+            "--underlying-path",
+            underlying,
+            "--multiplier",
+            "1",
+            "--timespan",
+            timespan,
+            "--from",
+            opt_from,
+            "--to",
+            opt_to,
+        ]
+    )
+
+
+def _option_quotes_task(task: tuple[str, str, str, str, str]) -> int:
+    py, ot, underlying, ts_gte, ts_lt = task
+    return _run(
+        [
+            py,
+            "scripts/fetch_massive_option_quotes.py",
+            "--option-ticker",
+            ot,
+            "--underlying-path",
+            underlying,
+            "--timestamp-gte",
+            ts_gte,
+            "--timestamp-lt",
+            ts_lt,
+        ]
+    )
+
+
+def _option_trades_task(task: tuple[str, str, str, str, str]) -> int:
+    py, ot, underlying, ts_gte, ts_lt = task
+    return _run(
+        [
+            py,
+            "scripts/fetch_massive_option_trades.py",
+            "--option-ticker",
+            ot,
+            "--underlying-path",
+            underlying,
+            "--timestamp-gte",
+            ts_gte,
+            "--timestamp-lt",
+            ts_lt,
+        ]
+    )
+
+
+def _first_bad(results: list[int]) -> int:
+    return next((int(rc) for rc in results if int(rc) != 0), 0)
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--symbols",
         default=",".join(DEFAULT_SYMBOLS),
@@ -47,8 +145,7 @@ def main() -> int:
     p.add_argument("--skip-stocks", action="store_true")
     p.add_argument("--skip-contracts", action="store_true")
     p.add_argument("--contracts-only", action="store_true", help="Only step 2 (Massive contracts)")
-    p.add_argument(
-        "--stock-1d-duration", default="2 Y", help="IBKR duration for daily bars")
+    p.add_argument("--stock-1d-duration", default="2 Y", help="IBKR duration for daily bars")
     p.add_argument("--stock-1d-slug", default="2y")
     p.add_argument("--stock-1m-duration", default="10 D")
     p.add_argument("--stock-1m-slug", default="10d")
@@ -58,7 +155,9 @@ def main() -> int:
         default="",
         help="Comma-separated O: tickers for aggs (and optionally quotes/trades windows)",
     )
-    p.add_argument("--option-underlying", default="SPY", help="data/options/{this}/… for option aggs")
+    p.add_argument(
+        "--option-underlying", default="SPY", help="data/options/{this}/… for option aggs"
+    )
     p.add_argument("--option-from", default="2026-01-01")
     p.add_argument("--option-to", default="2026-04-01")
     p.add_argument("--option-timespan", default="day", choices=("day", "minute", "hour"))
@@ -67,6 +166,15 @@ def main() -> int:
     p.add_argument("--fetch-trades", action="store_true")
     p.add_argument("--quote-window-gte", default="2026-03-20T13:30:00Z")
     p.add_argument("--quote-window-lt", default="2026-03-20T20:00:00Z")
+    p.add_argument(
+        "--jobs", type=int, default=1, help="Number of workers for per-symbol / per-ticker tasks"
+    )
+    p.add_argument(
+        "--parallel-backend",
+        default="process",
+        choices=("serial", "thread", "process", "ray"),
+        help="Execution backend for parallel ingest.",
+    )
     args = p.parse_args()
 
     syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -77,129 +185,88 @@ def main() -> int:
     py = sys.executable
 
     if args.contracts_only:
-        for s in syms:
-            cmd = [
-                py,
-                "scripts/fetch_massive_contracts.py",
-                "--underlying",
-                s,
-                "--limit",
-                "1000",
-            ]
-            if args.expiration_date:
-                cmd += ["--expiration-date", args.expiration_date]
-            rc = _run(cmd)
-            if rc != 0:
-                return rc
-        return 0
+        tasks = [(py, s, args.expiration_date) for s in syms]
+        return _first_bad(
+            parallel_map(
+                _contract_task, tasks, max_workers=args.jobs, backend=args.parallel_backend
+            )
+        )
 
     if not args.skip_stocks:
-        for s in syms:
-            rc = _run(
-                [
-                    py,
-                    "scripts/fetch_ibkr_stock_parquet.py",
-                    s,
-                    "--duration",
-                    args.stock_1d_duration,
-                    "--bar-size",
-                    "1 day",
-                    "--duration-slug",
-                    args.stock_1d_slug,
-                    "--interval",
-                    "1d",
-                ]
+        stock_tasks = [
+            (
+                py,
+                s,
+                args.stock_1d_duration,
+                args.stock_1d_slug,
+                args.stock_1m_duration,
+                args.stock_1m_slug,
             )
-            if rc != 0:
-                return rc
-            rc = _run(
-                [
-                    py,
-                    "scripts/fetch_ibkr_stock_parquet.py",
-                    s,
-                    "--duration",
-                    args.stock_1m_duration,
-                    "--bar-size",
-                    "1 min",
-                    "--duration-slug",
-                    args.stock_1m_slug,
-                    "--interval",
-                    "1m",
-                ]
+            for s in syms
+        ]
+        bad = _first_bad(
+            parallel_map(
+                _stock_task, stock_tasks, max_workers=args.jobs, backend=args.parallel_backend
             )
-            if rc != 0:
-                return rc
+        )
+        if bad:
+            return bad
 
     if not args.skip_contracts:
-        for s in syms:
-            cmd = [py, "scripts/fetch_massive_contracts.py", "--underlying", s, "--limit", "1000"]
-            if args.expiration_date:
-                cmd += ["--expiration-date", args.expiration_date]
-            rc = _run(cmd)
-            if rc != 0:
-                return rc
+        contract_tasks = [(py, s, args.expiration_date) for s in syms]
+        bad = _first_bad(
+            parallel_map(
+                _contract_task, contract_tasks, max_workers=args.jobs, backend=args.parallel_backend
+            )
+        )
+        if bad:
+            return bad
 
     tickers = [t.strip() for t in args.option_tickers.split(",") if t.strip()]
     if tickers and not args.skip_option_bars:
-        for ot in tickers:
-            rc = _run(
-                [
-                    py,
-                    "scripts/fetch_massive_option_bars.py",
-                    "--option-ticker",
-                    ot,
-                    "--underlying-path",
-                    args.option_underlying,
-                    "--multiplier",
-                    "1",
-                    "--timespan",
-                    args.option_timespan,
-                    "--from",
-                    args.option_from,
-                    "--to",
-                    args.option_to,
-                ]
+        bar_tasks = [
+            (py, ot, args.option_underlying, args.option_timespan, args.option_from, args.option_to)
+            for ot in tickers
+        ]
+        bad = _first_bad(
+            parallel_map(
+                _option_bars_task, bar_tasks, max_workers=args.jobs, backend=args.parallel_backend
             )
-            if rc != 0:
-                return rc
+        )
+        if bad:
+            return bad
 
     if tickers and args.fetch_quotes:
-        for ot in tickers:
-            rc = _run(
-                [
-                    py,
-                    "scripts/fetch_massive_option_quotes.py",
-                    "--option-ticker",
-                    ot,
-                    "--underlying-path",
-                    args.option_underlying,
-                    "--timestamp-gte",
-                    args.quote_window_gte,
-                    "--timestamp-lt",
-                    args.quote_window_lt,
-                ]
+        quote_tasks = [
+            (py, ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
+            for ot in tickers
+        ]
+        bad = _first_bad(
+            parallel_map(
+                _option_quotes_task,
+                quote_tasks,
+                max_workers=args.jobs,
+                backend=args.parallel_backend,
             )
-            if rc != 0:
-                return rc
+        )
+        if bad:
+            return bad
 
     if tickers and args.fetch_trades:
-        for ot in tickers:
-            rc = _run(
-                [
-                    py,
-                    "scripts/fetch_massive_option_trades.py",
-                    "--option-ticker",
-                    ot,
-                    "--underlying-path",
-                    args.option_underlying,
-                    "--timestamp-gte",
-                    args.quote_window_gte,
-                    "--timestamp-lt",
-                    args.quote_window_lt,
-                ]
+        trade_tasks = [
+            (py, ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
+            for ot in tickers
+        ]
+        bad = _first_bad(
+            parallel_map(
+                _option_trades_task,
+                trade_tasks,
+                max_workers=args.jobs,
+                backend=args.parallel_backend,
             )
-            if rc != 0:
-                return rc
+        )
+        if bad:
+            return bad
 
     return 0
 
