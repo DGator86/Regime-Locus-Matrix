@@ -16,6 +16,7 @@ from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
 from rlm.factors.order_flow import OrderFlowFactors
+from rlm.factors.support_resistance import SupportResistanceFactors
 from rlm.factors.volatility import VolatilityFactors
 from rlm.types.factors import FactorSpec
 from rlm.utils.parallel import parallel_map
@@ -39,6 +40,7 @@ class FactorPipeline:
         )
         self.calculators = [
             OrderFlowFactors(),
+            SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
