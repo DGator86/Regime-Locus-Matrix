@@ -96,6 +96,11 @@ def parse_args() -> argparse.Namespace:
         help="Micro regime bars used for metadata and live-model config.",
     )
     p.add_argument(
+        "--mtf-regimes",
+        action="store_true",
+        help="Enable multi-timeframe regime blending metadata for downstream forecast runs.",
+    )
+    p.add_argument(
         "--export-json",
         type=str,
         default="data/processed/regime_model_calibration.json",
@@ -309,6 +314,7 @@ def _build_live_config(
             "trials": int(args.trials),
             "seed": int(args.seed),
             "symbol": str(args.symbol).upper().strip(),
+            "mtf_regimes": bool(args.mtf_regimes),
             "hierarchical": bool(args.hierarchical),
             "macro_weight": float(args.macro_weight),
             "micro_timeframes": [str(x) for x in args.micro_timeframes],
@@ -407,6 +413,7 @@ def main() -> int:
         "trials": len(samples),
         "lookback_bars": args.lookback_bars,
         "promotion_performed": not args.no_promote,
+        "mtf_regimes": bool(args.mtf_regimes),
         "promote_path": str(promote_path.relative_to(ROOT)),
         "hierarchical": {
             "enabled": bool(args.hierarchical),
@@ -419,6 +426,41 @@ def main() -> int:
         },
         "champion": {
             "model": champion_model,
+            "score": champion_score,
+            "sharpe": _finite_metric(champion_summary, "sharpe"),
+            "summary": {
+                k: float(v) for k, v in champion_summary.items() if isinstance(v, (int, float))
+            },
+            "params": champion_params,
+        },
+        "challenger": {
+            "model": challenger_model,
+            "score": challenger_score,
+            "sharpe": _finite_metric(challenger_summary, "sharpe"),
+            "summary": {
+                k: float(v) for k, v in challenger_summary.items() if isinstance(v, (int, float))
+            },
+            "params": challenger_params,
+        },
+        "contenders": {
+            "hmm": {
+                "best_score": float(hmm_best_score),
+                "best_summary": {
+                    k: float(v) for k, v in hmm_best_summary.items() if isinstance(v, (int, float))
+                },
+                "best_params": hmm_best_params,
+                "top": _top_payload(hmm_results, top_n=min(args.top, len(hmm_results))),
+            },
+            "markov": {
+                "best_score": float(markov_best_score),
+                "best_summary": {
+                    k: float(v)
+                    for k, v in markov_best_summary.items()
+                    if isinstance(v, (int, float))
+                },
+                "best_params": markov_best_params,
+                "top": _top_payload(markov_results, top_n=min(args.top, len(markov_results))),
+            },
             "states": int(champion["states"]),
             "score": float(champion["best_score"]),
             "sharpe": float(champion["best_sharpe"]),
@@ -442,6 +484,10 @@ def main() -> int:
     }
     export_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
+    champion_sharpe = _finite_metric(champion_summary, "sharpe")
+    challenger_sharpe = _finite_metric(challenger_summary, "sharpe")
+    print(f"Champion: {champion_model.upper()}  sharpe={champion_sharpe:.6g}")
+    print(f"Challenger: {challenger_model.upper()}  sharpe={challenger_sharpe:.6g}")
     print(
         f"Champion: {champion_model.upper()} states={int(champion['states'])} "
         f"sharpe={float(champion['best_sharpe']):.6g}"

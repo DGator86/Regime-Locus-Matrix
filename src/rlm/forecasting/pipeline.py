@@ -10,6 +10,7 @@ from rlm.forecasting.distribution import estimate_distribution
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
+from rlm.regimes.multi_timeframe_regimes import MultiTimeframeRegimeModel
 from rlm.types.forecast import ForecastConfig
 
 
@@ -67,6 +68,10 @@ class HybridForecastPipeline:
         move_window: int = 100,
         vol_window: int = 100,
         hmm_config: HMMConfig | None = None,
+        mtf_regimes: bool = False,
+        mtf_htf_prob_paths: dict[str, str] | None = None,
+        mtf_htf_weights: dict[str, float] | None = None,
+        mtf_ltf_weight: float = 0.7,
         hierarchical: bool = False,
         macro_weight: float = 0.45,
         micro_timeframes: tuple[str, ...] = ("5min", "1min"),
@@ -77,6 +82,18 @@ class HybridForecastPipeline:
             vol_window=vol_window,
         )
         self.hmm = RLMHMM(hmm_config or HMMConfig()) if hmm_config else None
+        self.mtf_regimes = bool(mtf_regimes)
+        self.mtf = (
+            MultiTimeframeRegimeModel(
+                model="hmm",
+                hmm_config=hmm_config or HMMConfig(),
+                htf_prob_paths=mtf_htf_prob_paths or {},
+                htf_weights=mtf_htf_weights or {},
+                ltf_weight=mtf_ltf_weight,
+            )
+            if self.mtf_regimes
+            else None
+        )
         self.hierarchical = bool(hierarchical)
         self.macro_weight = float(np.clip(macro_weight, 0.0, 1.0))
         self.micro_timeframes = tuple(micro_timeframes)
@@ -163,6 +180,10 @@ class HybridForecastPipeline:
             df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+
+        if self.mtf is not None:
+            self.mtf.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
+            df = self.mtf.annotate(df, prefix="mtf")
 
         return df
 
