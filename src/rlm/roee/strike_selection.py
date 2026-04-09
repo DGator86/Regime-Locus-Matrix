@@ -46,7 +46,41 @@ def build_legs_from_candidate(
     name = candidate.strategy_name
     legs: list[OptionLeg] = []
 
-    if name in {"bull_call_debit_spread", "small_bull_debit_spread"}:
+    # ------------------------------------------------------------------
+    # Level 2 single-leg strategies
+    # ------------------------------------------------------------------
+    if name == "long_call":
+        long_strike = target_strike_from_sigma(
+            current_price, sigma, candidate.long_sigma or 0.5, strike_increment
+        )
+        legs = [OptionLeg(side="long", option_type="call", strike=long_strike)]
+
+    elif name == "long_put":
+        long_strike = target_strike_from_sigma(
+            current_price, sigma, candidate.long_sigma or -0.5, strike_increment
+        )
+        legs = [OptionLeg(side="long", option_type="put", strike=long_strike)]
+
+    # ------------------------------------------------------------------
+    # Level 2 long straddle — buy ATM call + ATM put
+    # ------------------------------------------------------------------
+    elif name in {"long_straddle", "scalp_long_straddle"}:
+        atm_call = target_strike_from_sigma(
+            current_price, sigma, candidate.long_sigma or 0.0, strike_increment
+        )
+        atm_put = target_strike_from_sigma(
+            current_price, sigma, candidate.hedge_sigma or 0.0, strike_increment
+        )
+        legs = [
+            OptionLeg(side="long", option_type="call", strike=atm_call),
+            OptionLeg(side="long", option_type="put", strike=atm_put),
+        ]
+
+    # ------------------------------------------------------------------
+    # Level 2 long debit spreads (replace diagonals / credit verticals)
+    # ------------------------------------------------------------------
+    elif name in {"long_call_spread", "bull_call_debit_spread", "small_bull_debit_spread",
+                  "0dte_bull_call_spread"}:
         long_strike = target_strike_from_sigma(
             current_price, sigma, candidate.long_sigma or 0.5, strike_increment
         )
@@ -58,7 +92,8 @@ def build_legs_from_candidate(
             OptionLeg(side="short", option_type="call", strike=short_strike),
         ]
 
-    elif name in {"bear_put_debit_spread", "small_bear_debit_spread"}:
+    elif name in {"long_put_spread", "bear_put_debit_spread", "small_bear_debit_spread",
+                  "0dte_bear_put_spread"}:
         long_strike = target_strike_from_sigma(
             current_price, sigma, candidate.long_sigma or -0.5, strike_increment
         )
@@ -109,46 +144,47 @@ def build_legs_from_candidate(
             OptionLeg(side="long", option_type="call", strike=call_strike),
         ]
 
+    elif name == "long_iron_condor":
+        # Debit iron condor (Level 2): buy near-OTM put spread + near-OTM call spread.
+        # Profits when underlying moves significantly in either direction (breakout structure).
+        inner = candidate.wings_sigma_low or 1.0
+        outer = candidate.wings_sigma_high or 1.5
+
+        buy_put = target_strike_from_sigma(current_price, sigma, -inner, strike_increment)
+        sell_put = target_strike_from_sigma(current_price, sigma, -outer, strike_increment)
+        buy_call = target_strike_from_sigma(current_price, sigma, inner, strike_increment)
+        sell_call = target_strike_from_sigma(current_price, sigma, outer, strike_increment)
+
+        legs = [
+            OptionLeg(side="long", option_type="put", strike=buy_put),
+            OptionLeg(side="short", option_type="put", strike=sell_put),
+            OptionLeg(side="long", option_type="call", strike=buy_call),
+            OptionLeg(side="short", option_type="call", strike=sell_call),
+        ]
+
     elif name in {
         "iron_condor",
         "small_iron_condor",
         "broken_wing_condor",
         "small_short_strangle_or_condor",
+        "0dte_iron_condor",
+        "1dte_iron_condor",
     }:
+        # These names are retained for compatibility but all map to the same
+        # debit iron condor leg structure now that we are Level 2 only.
         low = candidate.wings_sigma_low or 1.5
         high = candidate.wings_sigma_high or 2.0
 
-        short_put = target_strike_from_sigma(current_price, sigma, -low, strike_increment)
-        long_put = target_strike_from_sigma(current_price, sigma, -high, strike_increment)
-        short_call = target_strike_from_sigma(current_price, sigma, low, strike_increment)
-        long_call = target_strike_from_sigma(current_price, sigma, high, strike_increment)
+        buy_put = target_strike_from_sigma(current_price, sigma, -low, strike_increment)
+        sell_put = target_strike_from_sigma(current_price, sigma, -high, strike_increment)
+        buy_call = target_strike_from_sigma(current_price, sigma, low, strike_increment)
+        sell_call = target_strike_from_sigma(current_price, sigma, high, strike_increment)
 
         legs = [
-            OptionLeg(side="long", option_type="put", strike=long_put),
-            OptionLeg(side="short", option_type="put", strike=short_put),
-            OptionLeg(side="short", option_type="call", strike=short_call),
-            OptionLeg(side="long", option_type="call", strike=long_call),
-        ]
-
-    elif name in {
-        "call_diagonal_spread",
-        "put_diagonal_spread",
-        "call_vertical_or_broken_wing_butterfly",
-        "put_vertical_or_broken_wing_butterfly",
-    }:
-        # Same-expiry two-leg vertical placeholder (not a true diagonal / BWB until multi-expiry matching exists).
-        sign_long = candidate.long_sigma or 0.5
-        sign_short = candidate.short_sigma or 1.5
-        opt_type = "call" if "call" in name else "put"
-        long_strike = target_strike_from_sigma(
-            current_price, sigma, sign_long, strike_increment
-        )
-        short_strike = target_strike_from_sigma(
-            current_price, sigma, sign_short, strike_increment
-        )
-        legs = [
-            OptionLeg(side="long", option_type=opt_type, strike=long_strike),
-            OptionLeg(side="short", option_type=opt_type, strike=short_strike),
+            OptionLeg(side="long", option_type="put", strike=buy_put),
+            OptionLeg(side="short", option_type="put", strike=sell_put),
+            OptionLeg(side="long", option_type="call", strike=buy_call),
+            OptionLeg(side="short", option_type="call", strike=sell_call),
         ]
 
     else:

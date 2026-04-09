@@ -94,6 +94,17 @@ def massive_option_snapshot_results_to_dataframe(
         bid = _float_or(lq.get("bid"))
         ask = _float_or(lq.get("ask"))
 
+        # Fallback when last_quote is absent (Massive plan may not include real-time NBBO).
+        # Synthesise bid/ask from the day close (last trade price) using a conservative spread.
+        # 2 % of mid, floored at $0.02 per side — suitable for paper trading and chain matching.
+        if bid is None or ask is None:
+            day = row.get("day") if isinstance(row.get("day"), dict) else {}
+            mid_price = _float_or(day.get("close")) or _float_or(day.get("vwap"))
+            if mid_price is not None and mid_price > 0:
+                half_spread = max(0.02, mid_price * 0.02) / 2.0
+                bid = round(mid_price - half_spread, 2)
+                ask = round(mid_price + half_spread, 2)
+
         exp = details.get("expiration_date")
         if exp:
             expiry = pd.Timestamp(str(exp))

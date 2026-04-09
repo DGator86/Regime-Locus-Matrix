@@ -27,7 +27,7 @@ def test_roee_selects_bull_call_spread_for_clean_bull_state() -> None:
     )
 
     assert decision.action == "enter"
-    assert decision.strategy_name == "bull_call_debit_spread"
+    assert decision.strategy_name == "long_call_spread"
     assert len(decision.legs) == 2
     assert decision.size_fraction is not None
     assert decision.size_fraction > 0.0
@@ -90,7 +90,7 @@ def test_roee_builds_iron_condor_for_clean_range_state() -> None:
     )
 
     assert decision.action == "enter"
-    assert decision.strategy_name == "iron_condor"
+    assert decision.strategy_name == "long_iron_condor"
     assert len(decision.legs) == 4
 
 

@@ -29,9 +29,11 @@ Examples::
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -43,6 +45,7 @@ if str(ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
+from rlm.execution.dte_utils import dte_from_plan, needs_force_close
 from rlm.execution.ibkr_combo_orders import (
     assert_paper_trading_port,
     legs_from_ibkr_combo_spec,
@@ -70,6 +73,34 @@ def _load_state(path: Path) -> dict:
 def _save_state(path: Path, state: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+
+
+_TRADE_LOG_COLUMNS = [
+    "timestamp_utc",
+    "plan_id",
+    "symbol",
+    "strategy",
+    "entry_debit",
+    "entry_mid",
+    "current_mark",
+    "peak_mark",
+    "unrealized_pnl",
+    "unrealized_pnl_pct",
+    "signal",
+    "closed",
+    "dte",
+]
+
+
+def _append_trade_log(log_path: Path, row: dict) -> None:
+    """Append one row to the trade log CSV, creating headers on first write."""
+    is_new = not log_path.is_file() or log_path.stat().st_size == 0
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
+        if is_new:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def _contract_key(leg: dict) -> str:
@@ -151,6 +182,8 @@ def _evaluate_plan(
     state: dict,
     paper_close: bool,
     paper_close_dry_run: bool,
+    force_close_dte: float,
+    trade_log_path: Path | None = None,
 ) -> None:
     pid = str(plan.get("plan_id") or plan.get("symbol") or "unknown")
     thr = plan.get("thresholds") or {}
@@ -177,14 +210,19 @@ def _evaluate_plan(
         st["trail_on"] = True
         print(f"[{sym}] {pid} TRAIL ARMED  V={v:.2f} >= activate={v_tr_act:.2f}")
 
+    # DTE-based force close: emit before TP/stop to ensure 0DTE positions are closed
+    plan_dte = dte_from_plan(plan)
+    dte_suffix = f"  DTE={plan_dte:.3f}" if plan_dte == plan_dte else ""
     msg = (
         f"[{sym}] {pid} V={v:.2f}  "
         f"V0={plan.get('entry_mid_mark_dollars')}  "
-        f"debit={plan.get('entry_debit_dollars')}"
+        f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
     )
 
     signal = "hold"
-    if v >= v_tp:
+    if needs_force_close(plan, force_close_dte):
+        signal = "expiry_force_close"
+    elif v >= v_tp:
         signal = "take_profit"
     elif v <= v_sl:
         signal = "hard_stop"
@@ -194,7 +232,9 @@ def _evaluate_plan(
         if v < tstop:
             signal = "trailing_stop"
 
-    if signal == "take_profit":
+    if signal == "expiry_force_close":
+        print(f"{msg}  ACTION: EXPIRY_FORCE_CLOSE (DTE={plan_dte:.3f} <= {force_close_dte})")
+    elif signal == "take_profit":
         print(f"{msg}  ACTION: TAKE_PROFIT (V >= {v_tp:.2f})")
     elif signal == "hard_stop":
         print(f"{msg}  ACTION: HARD_STOP (V <= {v_sl:.2f})")
@@ -211,7 +251,35 @@ def _evaluate_plan(
 
     st["last_signal"] = signal
 
-    exit_signals = frozenset({"take_profit", "hard_stop", "trailing_stop"})
+    # --- Trade log -----------------------------------------------------------
+    if trade_log_path is not None:
+        entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
+        entry_mid   = float(plan.get("entry_mid_mark_dollars") or 0.0)
+        # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
+        pnl = v - entry_debit
+        pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
+        exit_signals_set = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
+        _append_trade_log(
+            trade_log_path,
+            {
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "plan_id": pid,
+                "symbol": sym,
+                "strategy": str(plan.get("strategy") or ""),
+                "entry_debit": round(entry_debit, 4),
+                "entry_mid": round(entry_mid, 4),
+                "current_mark": round(v, 4),
+                "peak_mark": round(float(st.get("peak_v", v)), 4),
+                "unrealized_pnl": round(pnl, 4),
+                "unrealized_pnl_pct": round(pnl_pct, 2) if pnl_pct == pnl_pct else "",
+                "signal": signal,
+                "closed": "1" if signal in exit_signals_set else "0",
+                "dte": round(plan_dte, 3) if plan_dte == plan_dte else "",
+            },
+        )
+    # -------------------------------------------------------------------------
+
+    exit_signals = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
     if (
         paper_close
         and signal in exit_signals
@@ -298,10 +366,34 @@ def main() -> int:
         action="store_true",
         help="Print close intent only (no IBKR); does not require paper port",
     )
+    p.add_argument(
+        "--trade-log",
+        type=Path,
+        default=Path("data/processed/trade_log.csv"),
+        help="CSV file to append per-poll P&L rows (default: data/processed/trade_log.csv).",
+    )
+    p.add_argument(
+        "--no-trade-log",
+        action="store_true",
+        help="Disable trade log CSV writing.",
+    )
+    p.add_argument(
+        "--force-close-dte",
+        type=float,
+        default=0.0,
+        help=(
+            "Force-close positions when DTE falls below this threshold (fractional days). "
+            "0.0 = disabled. Recommended: 0.1 (~2.4 h) for 0DTE positions."
+        ),
+    )
     args = p.parse_args()
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
     state_path = ROOT / args.state if not args.state.is_absolute() else args.state
+    trade_log_path: Path | None = None
+    if not args.no_trade_log:
+        raw = args.trade_log
+        trade_log_path = ROOT / raw if not raw.is_absolute() else raw
 
     if not plans_path.is_file():
         print(f"Missing plans file: {plans_path}", file=sys.stderr)
@@ -313,7 +405,8 @@ def main() -> int:
         print(f"Massive: {e}", file=sys.stderr)
         return 1
 
-    def run_cycle() -> None:
+    def run_cycle() -> float:
+        """Execute one monitor cycle.  Returns the recommended sleep interval (seconds)."""
         if args.paper_close and not args.paper_close_dry_run:
             _, port, _ = load_ibkr_order_socket_config()
             assert_paper_trading_port(port)
@@ -341,6 +434,7 @@ def main() -> int:
             if sym:
                 by_sym.setdefault(sym, []).append(pl)
 
+        min_dte_seen = float("inf")
         hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
         snapshot_params_by_symbol = {
             sym: _build_incremental_snapshot_params(plist, massive_limit=args.massive_limit)
@@ -370,14 +464,26 @@ def main() -> int:
                     state=state,
                     paper_close=bool(args.paper_close or args.paper_close_dry_run),
                     paper_close_dry_run=bool(args.paper_close_dry_run),
+                    force_close_dte=args.force_close_dte,
+                    trade_log_path=trade_log_path,
                 )
+                d = dte_from_plan(pl)
+                if d == d and d >= 0:  # not NaN, not expired
+                    min_dte_seen = min(min_dte_seen, d)
 
         _save_state(state_path, state)
 
-    run_cycle()
+        # Adaptive interval: short-DTE positions need faster polling
+        base = max(5.0, args.interval)
+        if min_dte_seen < 1.0:
+            # 0DTE / intraday: poll at 1/4 of the base interval, min 15s
+            return max(15.0, base / 4.0)
+        return base
+
+    next_sleep = run_cycle()
     while not args.once:
-        time.sleep(max(5.0, args.interval))
-        run_cycle()
+        time.sleep(next_sleep)
+        next_sleep = run_cycle()
 
     return 0
 
