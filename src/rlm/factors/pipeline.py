@@ -10,14 +10,15 @@ try:
 except Exception:  # pragma: no cover - polars is optional at runtime
     pl = None
 
+from rlm.factors.advanced_orderflow_liquidity import AdvancedOrderFlowLiquidityFactors
 from rlm.factors.base import compute_composite_scores, standardize_factor_frame
-from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.candle_patterns import CandlePatternFactors
+from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
+from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
 from rlm.factors.multi_timeframe_engine import MultiTimeframeEngine
 from rlm.factors.multi_timeframe_liquidity import MultiTimeframeLiquidityFactors
-from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
 from rlm.factors.order_flow import OrderFlowFactors
 from rlm.factors.support_resistance import SupportResistanceFactors
 from rlm.factors.volatility import VolatilityFactors
@@ -41,18 +42,18 @@ class FactorPipeline:
         self.feature_config = (
             load_feature_engineering_config() if feature_config is None else feature_config
         )
-        base_calculators = [OrderFlowFactors(), VolatilityFactors(), LiquidityFactors(), DealerFlowFactors()]
-        self.calculators = [
-            MultiTimeframeEngine(calc)
-            for calc in base_calculators
+        base_calculators = [
             OrderFlowFactors(),
-            CandlePatternFactors(),
-            SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
+            DealerFlowFactors(),
+        ]
+        self.calculators = [MultiTimeframeEngine(calc) for calc in base_calculators] + [
+            CandlePatternFactors(),
+            SupportResistanceFactors(),
             MultiTimeframeLiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
-            DealerFlowFactors(),
+            AdvancedOrderFlowLiquidityFactors(),
         ]
         self.max_workers = (
             max_workers if max_workers is not None else int(os.getenv("RLM_FACTOR_WORKERS", "1"))

@@ -56,6 +56,7 @@ def select_trade(
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
     pool_confluence_score: float | None = None,
+    orderflow_confluence_score: float | None = None,
     bullish_liquidity_pool_nearby: bool = False,
     bearish_liquidity_pool_nearby: bool = False,
     fvg_alignment_score: float | None = None,
@@ -219,6 +220,9 @@ def select_trade(
         else 0.0
     )
     pool_score = float(pool_confluence_score) if pool_confluence_score is not None else 0.0
+    orderflow_score = (
+        float(orderflow_confluence_score) if orderflow_confluence_score is not None else 0.0
+    )
     fvg_score = float(fvg_alignment_score) if fvg_alignment_score is not None else 0.0
     ob_score = (
         float(order_block_alignment_score) if order_block_alignment_score is not None else 0.0
@@ -265,12 +269,22 @@ def select_trade(
     #   and pool_confluence_score >= 2
     # inside the correct HMM state (trend + non-high-vol context).
     hmm_state_allows_sweep_boost = (
-        (hmm_direction_regime == direction_regime and hmm_direction_regime in {"bull", "bear"})
-        and hmm_volatility_regime not in {"high", "crisis", "panic"}
-    )
+        hmm_direction_regime == direction_regime and hmm_direction_regime in {"bull", "bear"}
+    ) and hmm_volatility_regime not in {"high", "crisis", "panic"}
     if sweep_score > 2.0 and pool_score >= 2.0 and hmm_state_allows_sweep_boost:
         overlay_multiplier *= 1.25
         overlay_signals.append("hmm_sweep_pool_boost")
+
+    # Conservative order-flow add-on:
+    # - requires a strong substructure cluster (orderflow_confluence_score > 2.5),
+    # - requires directional alignment with the active trend/HMM direction,
+    # - applies only a modest +15% multiplier so core risk controls remain dominant.
+    orderflow_direction_aligned = direction_regime in {"bull", "bear"} and (
+        hmm_direction_regime in {"", direction_regime} or hmm_direction_regime == direction_regime
+    )
+    if orderflow_score > 2.5 and orderflow_direction_aligned:
+        overlay_multiplier *= 1.15
+        overlay_signals.append("orderflow_confluence_directional_boost")
 
     if overlay_multiplier != 1.0:
         size_fraction = quantize_fraction(
@@ -283,12 +297,14 @@ def select_trade(
             "mtf_confluence_score": mtf_score,
             "mtf_confluence_liquidity_sweep_confirmed": sweep_score,
             "pool_confluence_score": pool_score,
+            "orderflow_confluence_score": orderflow_score,
             "fvg_alignment_score": fvg_score,
             "order_block_alignment_score": ob_score,
             "support_resistance_alignment_score": sr_score,
             "bullish_candle_pattern_score": bullish_candle,
             "bearish_candle_pattern_score": bearish_candle,
             "hmm_state_allows_sweep_boost": hmm_state_allows_sweep_boost,
+            "orderflow_direction_aligned": orderflow_direction_aligned,
         }
     )
 
