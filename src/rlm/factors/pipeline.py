@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - polars is optional at runtime
 
 from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.config import filter_specs, load_feature_engineering_config
+from rlm.factors.candle_patterns import CandlePatternFactors
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
@@ -40,6 +41,7 @@ class FactorPipeline:
         )
         self.calculators = [
             OrderFlowFactors(),
+            CandlePatternFactors(),
             SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
