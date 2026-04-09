@@ -6,6 +6,7 @@ from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
+from rlm.factors.multi_timeframe_engine import MultiTimeframeEngine
 from rlm.factors.order_flow import OrderFlowFactors
 from rlm.factors.volatility import VolatilityFactors
 from rlm.types.factors import FactorSpec
@@ -16,11 +17,10 @@ class FactorPipeline:
         self.feature_config = (
             load_feature_engineering_config() if feature_config is None else feature_config
         )
+        base_calculators = [OrderFlowFactors(), VolatilityFactors(), LiquidityFactors(), DealerFlowFactors()]
         self.calculators = [
-            OrderFlowFactors(),
-            VolatilityFactors(),
-            LiquidityFactors(),
-            DealerFlowFactors(),
+            MultiTimeframeEngine(calc)
+            for calc in base_calculators
         ]
 
     def specs(self) -> list[FactorSpec]:
