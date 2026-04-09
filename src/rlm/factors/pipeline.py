@@ -4,6 +4,7 @@ import pandas as pd
 
 from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.config import filter_specs, load_feature_engineering_config
+from rlm.factors.candle_patterns import CandlePatternFactors
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.order_flow import OrderFlowFactors
@@ -18,6 +19,7 @@ class FactorPipeline:
         )
         self.calculators = [
             OrderFlowFactors(),
+            CandlePatternFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
             DealerFlowFactors(),
