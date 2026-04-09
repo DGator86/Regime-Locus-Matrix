@@ -46,7 +46,6 @@ if njit is not None:
             acc += np.exp(values[i] - max_value)
         return float(max_value + np.log(acc))
 
-
     @njit(cache=True)
     def _forward_filter_logspace_numba(
         log_frame: np.ndarray,
@@ -77,8 +76,8 @@ else:
 class HMMConfig(BaseModel):
     n_states: int = Field(
         6,
-        ge=4,
-        le=12,
+        ge=2,
+        le=15,
         description="Number of hidden states (empirically 6 works well)",
     )
     covariance_type: Literal["full", "tied", "diag", "spherical"] = "full"
@@ -177,9 +176,13 @@ class RLMHMM:
         log_trans = np.log(model.transmat_ + 1e-300).astype(np.float64)
         backend = self._resolve_filter_backend()
         if backend == "numba":
-            log_alpha = _forward_filter_logspace_numba(log_frame.astype(np.float64), log_start, log_trans)
+            log_alpha = _forward_filter_logspace_numba(
+                log_frame.astype(np.float64), log_start, log_trans
+            )
         else:
-            log_alpha = _forward_filter_logspace_numpy(log_frame.astype(np.float64), log_start, log_trans)
+            log_alpha = _forward_filter_logspace_numpy(
+                log_frame.astype(np.float64), log_start, log_trans
+            )
         out = np.zeros((n_samples, n_components), dtype=np.float64)
         for t in range(n_samples):
             out[t] = softmax(log_alpha[t])

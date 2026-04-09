@@ -25,6 +25,12 @@ from rlm.types.forecast import ForecastConfig
 
 
 def parse_args() -> argparse.Namespace:
+    def _state_count(value: str) -> int:
+        iv = int(value)
+        if iv < 2 or iv > 15:
+            raise argparse.ArgumentTypeError("state counts must be in [2, 15]")
+        return iv
+
     p = argparse.ArgumentParser(
         description=(
             "Walk-forward backtest. Build inputs first: "
@@ -32,8 +38,9 @@ def parse_args() -> argparse.Namespace:
         )
     )
     p.add_argument("--use-hmm", action="store_true")
-    p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument("--hmm-states", type=_state_count, default=6)
     p.add_argument("--use-markov", action="store_true", help="Use Markov-switching regime model.")
+    p.add_argument("--markov-states", type=_state_count, default=3)
     p.add_argument(
         "--probabilistic", action="store_true", help="Use probabilistic forecast output."
     )
@@ -175,7 +182,9 @@ def main() -> None:
         use_hmm=args.use_hmm,
         hmm_config=HMMConfig(n_states=args.hmm_states) if args.use_hmm else None,
         use_markov=args.use_markov,
-        markov_config=MarkovSwitchingConfig() if args.use_markov else None,
+        markov_config=(
+            MarkovSwitchingConfig(n_states=args.markov_states) if args.use_markov else None
+        ),
         use_probabilistic=args.probabilistic,
         probabilistic_model_path=args.model_path,
     )
