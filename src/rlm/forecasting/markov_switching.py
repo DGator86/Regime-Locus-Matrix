@@ -1,4 +1,5 @@
 """Markov-switching overlay for RLM using statsmodels."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,7 +15,7 @@ class MarkovSwitchingConfig(BaseModel):
     n_states: int = Field(
         3,
         ge=2,
-        le=6,
+        le=15,
         description="Number of Markov regimes",
     )
     switching_variance: bool = True

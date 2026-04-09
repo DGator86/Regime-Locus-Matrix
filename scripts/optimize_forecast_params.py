@@ -35,6 +35,12 @@ from rlm.optimization.tuning import random_search_forecast_params
 
 
 def parse_args() -> argparse.Namespace:
+    def _state_count(value: str) -> int:
+        iv = int(value)
+        if iv < 2 or iv > 15:
+            raise argparse.ArgumentTypeError("state counts must be in [2, 15]")
+        return iv
+
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--symbol", default=DEFAULT_SYMBOL)
     p.add_argument("--bars", default=None)
@@ -53,12 +59,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-trades", type=int, default=15)
     p.add_argument("--drawdown-penalty", type=float, default=0.75)
     p.add_argument("--use-hmm", action="store_true", help="Slower: refit HMM each trial")
-    p.add_argument("--use-markov", action="store_true", help="Refit Markov-switching model each trial")
-    p.add_argument("--hmm-states", type=int, default=6)
+    p.add_argument(
+        "--use-markov", action="store_true", help="Refit Markov-switching model each trial"
+    )
+    p.add_argument("--hmm-states", type=_state_count, default=6)
     p.add_argument("--hmm-iterations", type=int, default=100)
     p.add_argument("--hmm-filter-backend", choices=("auto", "numpy", "numba"), default="auto")
     p.add_argument("--hmm-prefer-gpu", action="store_true")
-    p.add_argument("--markov-states", type=int, default=3)
+    p.add_argument("--markov-states", type=_state_count, default=3)
     p.add_argument(
         "--top",
         type=int,
@@ -129,7 +137,14 @@ def main() -> int:
         print(f"--- rank {i + 1}  score={score:.6g} ---")
         for k, v in params.items():
             print(f"  {k}: {v}")
-        for k in ("total_return_pct", "sharpe", "max_drawdown", "num_trades", "win_rate", "profit_factor"):
+        for k in (
+            "total_return_pct",
+            "sharpe",
+            "max_drawdown",
+            "num_trades",
+            "win_rate",
+            "profit_factor",
+        ):
             if k in summary:
                 print(f"  {k}: {summary[k]}")
         print()
@@ -145,7 +160,9 @@ def main() -> int:
         "symbol": sym,
         "best_score": best_score,
         "best_params": best_params,
-        "best_summary": {k: float(v) for k, v in best_summary.items() if isinstance(v, (int, float))},
+        "best_summary": {
+            k: float(v) for k, v in best_summary.items() if isinstance(v, (int, float))
+        },
         "top": [
             {
                 "score": float(r[0]),
