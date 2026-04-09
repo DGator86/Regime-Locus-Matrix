@@ -50,6 +50,7 @@ def _one_symbol(
     sym: str,
     *,
     duration: str,
+    bar_size: str,
     move_window: int,
     vol_window: int,
     strike_increment: float,
@@ -61,7 +62,7 @@ def _one_symbol(
     bars = fetch_historical_stock_bars(
         sym,
         duration=duration,
-        bar_size="1 day",
+        bar_size=bar_size,
         timeout_sec=120.0,
     )
     if bars.empty:
@@ -135,26 +136,47 @@ def _one_symbol(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument(
         "--symbols",
         default=",".join(LIQUID_UNIVERSE),
         help="Comma-separated tickers (default: LIQUID_UNIVERSE)",
     )
     p.add_argument("--duration", default="180 D", help="IBKR historical duration string")
+    p.add_argument(
+        "--bar-size", default="1 day", help="IBKR bar size (e.g., '1 day', '1 hour', '5 mins')."
+    )
     p.add_argument("--move-window", type=int, default=100, help="Distribution move baseline window")
     p.add_argument("--vol-window", type=int, default=100, help="Vol baseline window")
-    p.add_argument("--strike-increment", type=float, default=1.0, help="ROEE strike grid (use 0.5 for sub-$200 names)")
-    p.add_argument("--ibkr-delay", type=float, default=0.35, help="Seconds between IBKR requests (pacing)")
-    p.add_argument("--no-vix", action="store_true", help="Skip ^VIX/^VVIX (faster, less macro context)")
+    p.add_argument(
+        "--strike-increment",
+        type=float,
+        default=1.0,
+        help="ROEE strike grid (use 0.5 for sub-$200 names)",
+    )
+    p.add_argument(
+        "--ibkr-delay", type=float, default=0.35, help="Seconds between IBKR requests (pacing)"
+    )
+    p.add_argument(
+        "--no-vix", action="store_true", help="Skip ^VIX/^VVIX (faster, less macro context)"
+    )
     p.add_argument(
         "--live-model-config",
         type=Path,
         default=Path("data/processed/live_regime_model.json"),
         help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
     )
-    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
-    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--ignore-live-model", action="store_true", help="Ignore any promoted live model config."
+    )
+    p.add_argument(
+        "--purge-bars",
+        type=int,
+        default=0,
+        help="Exclude the most recent bars from regime training counts.",
+    )
     p.add_argument(
         "--min-regime-train-samples",
         type=int,
@@ -168,7 +190,11 @@ def main() -> int:
     rows: list[dict[str, object]] = []
     live_model: LiveRegimeModelConfig | None = None
     if not args.ignore_live_model:
-        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        live_model_path = (
+            ROOT / args.live_model_config
+            if not args.live_model_config.is_absolute()
+            else args.live_model_config
+        )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
@@ -180,6 +206,7 @@ def main() -> int:
             row = _one_symbol(
                 sym,
                 duration=args.duration,
+                bar_size=args.bar_size,
                 move_window=args.move_window,
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
