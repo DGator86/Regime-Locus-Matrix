@@ -41,6 +41,7 @@ class WalkForwardConfig:
     vault_uncertainty_threshold: float | None = 0.03
     vault_size_multiplier: float = 0.5
     purge_bars: int = 0
+    regime_boundary_aware_purge: bool = True
     regime_aware: bool = False
     min_regime_train_samples: int = 20
 
@@ -49,6 +50,7 @@ def _build_walkforward_windows(
     *,
     n_bars: int,
     cfg: WalkForwardConfig,
+    regime_keys: pd.Series | None = None,
 ) -> list[dict[str, int]]:
     windows: list[dict[str, int]] = []
     start = 0
@@ -56,6 +58,19 @@ def _build_walkforward_windows(
     while start + cfg.is_window + cfg.oos_window <= n_bars:
         nominal_is_end = start + cfg.is_window
         effective_is_end = max(start, nominal_is_end - max(int(cfg.purge_bars), 0))
+        if (
+            cfg.regime_boundary_aware_purge
+            and regime_keys is not None
+            and 0 < nominal_is_end <= len(regime_keys)
+            and effective_is_end > start
+        ):
+            anchor_idx = nominal_is_end - 1
+            anchor_regime = str(regime_keys.iloc[anchor_idx])
+            while (
+                effective_is_end > start
+                and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime
+            ):
+                effective_is_end -= 1
         if effective_is_end <= start:
             effective_is_end = nominal_is_end
         oos_end = nominal_is_end + cfg.oos_window
@@ -162,7 +177,8 @@ def run_walkforward(
     hmm_model_dir.mkdir(parents=True, exist_ok=True)
     mtf_engine = MultiTimeframeEngine(higher_tfs=higher_tfs) if use_mtf else None
 
-    windows = _build_walkforward_windows(n_bars=len(bars), cfg=cfg)
+    global_regimes = classify_state_matrix(FactorPipeline().run(bars.copy()))["regime_key"]
+    windows = _build_walkforward_windows(n_bars=len(bars), cfg=cfg, regime_keys=global_regimes)
     for window in windows:
         window_id = int(window["window_id"])
         nominal_is_start = int(window["is_start"])
@@ -318,6 +334,7 @@ def run_walkforward(
             "nominal_is_end": str(joined.index[max(train_end_in_joined - 1, 0)]),
             "purge_bars": int(cfg.purge_bars),
             "regime_aware": bool(cfg.regime_aware),
+            "regime_boundary_aware_purge": bool(cfg.regime_boundary_aware_purge),
             "unsafe_oos_bars": int((~oos_features["regime_safety_ok"]).sum()),
             "last_oos_regime_train_samples": int(
                 oos_features["regime_train_sample_count"].iloc[-1]

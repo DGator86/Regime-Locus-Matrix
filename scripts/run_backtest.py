@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -11,7 +12,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.backtest.engine import BacktestEngine
+from rlm.backtest.engine import (
+    BacktestEngine,
+    BacktestHyperparameterOptimizer,
+    GapRiskStressConfig,
+    HyperOptConfig,
+    MTFWeightConfig,
+    MonteCarloBootstrapConfig,
+    PortfolioBacktestEngine,
+    build_fill_config_from_friction,
+)
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import (
@@ -38,8 +48,10 @@ from rlm.types.forecast import ForecastConfig
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run RLM backtest. Use --today or --only-date to evaluate a single day "
-        "(features still use full history for warm-up)."
+        description=(
+            "Run RLM backtest with optional Optuna tuning, stress tests, and "
+            "multi-symbol mode."
+        )
     )
     parser.add_argument("--use-hmm", action="store_true")
     parser.add_argument("--hmm-states", type=int, default=6)
@@ -98,6 +110,12 @@ def parse_args() -> argparse.Namespace:
         help=f"Underlying for default --bars/--chain paths and engine (default {DEFAULT_SYMBOL}).",
     )
     parser.add_argument(
+        "--symbols",
+        type=str,
+        default=None,
+        help="Comma-separated symbols for portfolio-level backtest (e.g. SPY,QQQ,IWM).",
+    )
+    parser.add_argument(
         "--bars",
         type=str,
         default=None,
@@ -128,6 +146,27 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    parser.add_argument("--optuna-trials", type=int, default=0)
+    parser.add_argument("--optuna-timeout", type=int, default=None)
+    parser.add_argument("--mtf-fast-weight", type=float, default=0.6)
+    parser.add_argument("--mtf-medium-weight", type=float, default=0.3)
+    parser.add_argument("--mtf-slow-weight", type=float, default=0.1)
+    parser.add_argument("--friction-spread-fraction", type=float, default=0.25)
+    parser.add_argument("--friction-per-contract-flat", type=float, default=0.0)
+    parser.add_argument("--mc-bootstrap-paths", type=int, default=0)
+    parser.add_argument("--mc-sample-frac", type=float, default=1.0)
+    parser.add_argument("--mc-seed", type=int, default=42)
+    parser.add_argument(
+        "--gap-risk-bps",
+        type=str,
+        default="0,75,150,300",
+        help="Comma-separated downside gap shocks in bps.",
+    )
+    parser.add_argument(
+        "--gap-regime-multipliers",
+        type=str,
+        default=None,
+        help='JSON dict of regime multipliers, e.g. {"bear|high|thin|short_gamma":1.5}',
     )
     return parser.parse_args()
 
@@ -156,37 +195,21 @@ def _load_or_synthetic_chain(
     return pd.read_csv(p, parse_dates=["timestamp", "expiry"])
 
 
-def main() -> None:
-    args = parse_args()
-    if args.use_hmm and args.use_markov:
-        raise SystemExit("Use either --use-hmm or --use-markov, not both.")
-    sym = str(args.symbol).upper().strip()
-    bars_rel = args.bars or rel_bars_csv(sym)
-    chain_rel = args.chain or rel_option_chain_csv(sym)
-
-    if args.today and args.only_date:
-        raise SystemExit("Use either --today or --only-date, not both.")
-
-    if args.today:
-        only_ts = pd.Timestamp(date.today())
-    elif args.only_date:
-        only_ts = pd.Timestamp(datetime.strptime(args.only_date, "%Y-%m-%d").date())
-    else:
-        only_ts = None
-
-    end = only_ts if only_ts is not None else pd.Timestamp.today().normalize()
-    bars = _load_or_synthetic_bars(
-        bars_rel,
-        synthetic=args.synthetic,
-        end=end,
-        warmup_days=args.warmup_days,
+def _build_features(
+    *,
+    bars: pd.DataFrame,
+    chain: pd.DataFrame,
+    args: argparse.Namespace,
+    params: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    tuned = params or {}
+    fc = ForecastConfig(
+        drift_gamma_alpha=float(tuned.get("drift_gamma_alpha", 0.65)),
+        sigma_floor=float(tuned.get("sigma_floor", 1e-4)),
+        direction_neutral_threshold=float(tuned.get("direction_neutral_threshold", 0.3)),
     )
-    chain = _load_or_synthetic_chain(
-        chain_rel,
-        bars,
-        synthetic=args.synthetic,
-        underlying=sym,
-    )
+    hmm_states = int(round(tuned.get("hmm_states", args.hmm_states)))
+    markov_states = int(round(tuned.get("markov_states", args.markov_states)))
 
     bars = prepare_bars_for_factors(bars, chain, underlying=sym, attach_vix=not args.no_vix)
 
@@ -199,94 +222,231 @@ def main() -> None:
         drift_gamma_alpha=0.65,
         sigma_floor=1e-4,
         direction_neutral_threshold=0.3,
+    features = FactorPipeline().run(
+        prepare_bars_for_factors(bars, chain, underlying=args.symbol, attach_vix=not args.no_vix)
     )
+
     if args.use_hmm and args.probabilistic:
-        features = HybridProbabilisticForecastPipeline(
+        return HybridProbabilisticForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
-            hmm_config=HMMConfig(n_states=args.hmm_states),
+            hmm_config=HMMConfig(n_states=hmm_states),
             model_path=args.model_path,
         ).run(features)
-    elif args.use_hmm:
-        features = HybridForecastPipeline(
+    if args.use_hmm:
+        return HybridForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
-            hmm_config=HMMConfig(n_states=args.hmm_states),
+            hmm_config=HMMConfig(n_states=hmm_states),
         ).run(features)
-    elif args.use_markov and args.probabilistic:
-        features = HybridMarkovForecastPipeline(
+    if args.use_markov and args.probabilistic:
+        return HybridMarkovForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
-            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
+            markov_config=MarkovSwitchingConfig(n_states=markov_states),
             model_path=args.model_path,
         ).run(features)
-    elif args.use_markov:
-        features = HybridMarkovForecastPipeline(
+    if args.use_markov:
+        return HybridMarkovForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
-            markov_config=MarkovSwitchingConfig(n_states=args.markov_states),
+            markov_config=MarkovSwitchingConfig(n_states=markov_states),
         ).run(features)
-    elif args.probabilistic:
-        features = ProbabilisticForecastPipeline(
+    if args.probabilistic:
+        return ProbabilisticForecastPipeline(
             config=fc,
             move_window=100,
             vol_window=100,
             model_path=args.model_path,
         ).run(features)
-    else:
-        features = ForecastPipeline(
-            config=fc,
-            move_window=100,
-            vol_window=100,
-        ).run(features)
+    return ForecastPipeline(config=fc, move_window=100, vol_window=100).run(features)
 
-    if only_ts is not None:
-        d = only_ts.normalize()
-        feat_mask = features.index.normalize() == d
-        features_run = features.loc[feat_mask]
-        chain_run = chain.loc[pd.to_datetime(chain["timestamp"]).dt.normalize() == d].copy()
-        if features_run.empty:
-            raise SystemExit(f"No bar rows on {d.date()} after warm-up. Check data range.")
-        if chain_run.empty:
-            raise SystemExit(f"No option chain rows on {d.date()}. Check chain coverage.")
-        print(f"Single-day backtest as-of {d.date()} (1 bar, warm-up used {len(features)} days).")
-    else:
-        features_run = features
-        chain_run = chain
-        print(f"Full backtest: {len(features_run)} bars.")
 
-    engine = BacktestEngine(
-        initial_capital=100_000.0,
-        contract_multiplier=100,
-        strike_increment=5.0,
-        underlying_symbol=sym,
-        quantity_per_trade=1,
-        roee_config=ROEEConfig(
-            use_dynamic_sizing=args.dynamic_sizing,
-            max_kelly_fraction=args.kelly_fraction,
-            regime_adjusted_kelly=args.regime_adjusted_kelly,
-            vault_uncertainty_threshold=args.vault_uncertainty_threshold,
-            vault_size_multiplier=args.vault_size_multiplier,
-        ),
+def main() -> None:
+    args = parse_args()
+    if args.use_hmm and args.use_markov:
+        raise SystemExit("Use either --use-hmm or --use-markov, not both.")
+
+    sym = str(args.symbol).upper().strip()
+    if args.today and args.only_date:
+        raise SystemExit("Use either --today or --only-date, not both.")
+
+    if args.today:
+        only_ts = pd.Timestamp(date.today())
+    elif args.only_date:
+        only_ts = pd.Timestamp(datetime.strptime(args.only_date, "%Y-%m-%d").date())
+    else:
+        only_ts = None
+
+    symbols = [s.strip().upper() for s in (args.symbols or sym).split(",") if s.strip()]
+    if not symbols:
+        symbols = [sym]
+
+    bars_by_symbol: dict[str, pd.DataFrame] = {}
+    chain_by_symbol: dict[str, pd.DataFrame] = {}
+    features_by_symbol: dict[str, pd.DataFrame] = {}
+
+    for symbol in symbols:
+        bars_rel = rel_bars_csv(symbol) if args.bars is None or len(symbols) > 1 else args.bars
+        chain_rel = (
+            rel_option_chain_csv(symbol) if args.chain is None or len(symbols) > 1 else args.chain
+        )
+        end = only_ts if only_ts is not None else pd.Timestamp.today().normalize()
+        bars = _load_or_synthetic_bars(
+            bars_rel,
+            synthetic=args.synthetic,
+            end=end,
+            warmup_days=args.warmup_days,
+        )
+        chain = _load_or_synthetic_chain(
+            chain_rel, bars, synthetic=args.synthetic, underlying=symbol
+        )
+        bars_by_symbol[symbol] = bars
+        chain_by_symbol[symbol] = chain
+        args.symbol = symbol
+        features_by_symbol[symbol] = _build_features(bars=bars, chain=chain, args=args)
+
+    base_mtf = MTFWeightConfig(
+        fast_weight=args.mtf_fast_weight,
+        medium_weight=args.mtf_medium_weight,
+        slow_weight=args.mtf_slow_weight,
     )
 
-    equity_frame, trades_frame, summary = engine.run(features_run, chain_run)
+    gap_levels = tuple(float(x.strip()) for x in args.gap_risk_bps.split(",") if x.strip())
+    gap_mult = json.loads(args.gap_regime_multipliers) if args.gap_regime_multipliers else None
+    gap_cfg = GapRiskStressConfig(downside_gap_bps=gap_levels, regime_multipliers=gap_mult)
+    mc_cfg = None
+    if args.mc_bootstrap_paths > 0:
+        mc_cfg = MonteCarloBootstrapConfig(
+            n_paths=args.mc_bootstrap_paths,
+            sample_frac=args.mc_sample_frac,
+            random_seed=args.mc_seed,
+        )
 
-    print("Backtest summary:")
+    def make_engine(params: dict[str, float] | None = None, *, symbol: str = sym) -> BacktestEngine:
+        tuned = params or {}
+        fill_cfg = build_fill_config_from_friction(
+            spread_fraction=float(
+                tuned.get("friction_spread_fraction", args.friction_spread_fraction)
+            ),
+            per_contract_flat=float(
+                tuned.get("friction_per_contract_flat", args.friction_per_contract_flat)
+            ),
+        )
+        return BacktestEngine(
+            initial_capital=100_000.0,
+            contract_multiplier=100,
+            strike_increment=5.0,
+            underlying_symbol=symbol,
+            quantity_per_trade=1,
+            fill_config=fill_cfg,
+            roee_config=ROEEConfig(
+                use_dynamic_sizing=args.dynamic_sizing,
+                max_kelly_fraction=args.kelly_fraction,
+                regime_adjusted_kelly=args.regime_adjusted_kelly,
+                vault_uncertainty_threshold=args.vault_uncertainty_threshold,
+                vault_size_multiplier=args.vault_size_multiplier,
+            ),
+        )
+
+    if len(symbols) == 1:
+        symbol = symbols[0]
+        option_chain = chain_by_symbol[symbol]
+
+        tuned_params: dict[str, float] | None = None
+        if args.optuna_trials > 0:
+            optimizer = BacktestHyperparameterOptimizer(
+                HyperOptConfig(
+                    n_trials=args.optuna_trials,
+                    timeout_seconds=args.optuna_timeout,
+                    metric="sharpe",
+                )
+            )
+            tuned_params, best_summary, _ = optimizer.optimize(
+                feature_builder=lambda p: _build_features(
+                    bars=bars_by_symbol[symbol],
+                    chain=chain_by_symbol[symbol],
+                    args=args,
+                    params=p,
+                ),
+                option_chain_df=option_chain,
+                engine_builder=lambda p: make_engine(p, symbol=symbol),
+            )
+            print("Optuna best params:")
+            print(tuned_params)
+            print("Optuna best summary:")
+            print(best_summary)
+
+        engine = make_engine(tuned_params, symbol=symbol)
+        features_run = _build_features(
+            bars=bars_by_symbol[symbol],
+            chain=chain_by_symbol[symbol],
+            args=args,
+            params=tuned_params,
+        )
+
+        if only_ts is not None:
+            d = only_ts.normalize()
+            feat_mask = features_run.index.normalize() == d
+            features_run = features_run.loc[feat_mask]
+            option_chain = option_chain.loc[
+                pd.to_datetime(option_chain["timestamp"]).dt.normalize() == d
+            ].copy()
+            if features_run.empty:
+                raise SystemExit(f"No bar rows on {d.date()} after warm-up. Check data range.")
+            if option_chain.empty:
+                raise SystemExit(f"No option chain rows on {d.date()}. Check chain coverage.")
+
+        tuned_mtf = base_mtf
+        if tuned_params is not None:
+            tuned_mtf = MTFWeightConfig(
+                fast_weight=float(tuned_params.get("mtf_fast_weight", base_mtf.fast_weight)),
+                medium_weight=float(tuned_params.get("mtf_medium_weight", base_mtf.medium_weight)),
+                slow_weight=float(tuned_params.get("mtf_slow_weight", base_mtf.slow_weight)),
+            )
+
+        equity_frame, trades_frame, summary, diagnostics = engine.run_with_robustness(
+            features_run,
+            option_chain,
+            mtf_config=tuned_mtf,
+            monte_carlo=mc_cfg,
+            gap_risk=gap_cfg,
+        )
+
+        print("Backtest summary:")
+        for k, v in summary.items():
+            print(f"  {k}: {v}")
+        if diagnostics:
+            print("Robustness diagnostics:")
+            for section, payload in diagnostics.items():
+                print(f"  {section}: {payload}")
+
+        out_dir = ROOT / "data" / "processed"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        equity_path = out_dir / backtest_equity_filename(symbol)
+        trades_path = out_dir / backtest_trades_filename(symbol)
+        equity_frame.to_csv(equity_path)
+        trades_frame.to_csv(trades_path, index=False)
+        print(f"Wrote {equity_path.relative_to(ROOT)} and {trades_path.relative_to(ROOT)}.")
+        return
+
+    engines = {symbol: make_engine(symbol=symbol) for symbol in symbols}
+    portfolio_runner = PortfolioBacktestEngine()
+    equity_frame, trades_frame, summary, corr = portfolio_runner.run_multi_symbol(
+        engines=engines,
+        features_by_symbol=features_by_symbol,
+        chain_by_symbol=chain_by_symbol,
+    )
+    print("Portfolio summary:")
     for k, v in summary.items():
         print(f"  {k}: {v}")
-
-    out_dir = ROOT / "data" / "processed"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    equity_path = out_dir / backtest_equity_filename(sym)
-    trades_path = out_dir / backtest_trades_filename(sym)
-    equity_frame.to_csv(equity_path)
-    trades_frame.to_csv(trades_path, index=False)
-    print(f"Wrote {equity_path.relative_to(ROOT)} and {trades_path.relative_to(ROOT)}.")
+    if not corr.empty:
+        print("Cross-symbol correlation matrix:")
+        print(corr)
 
 
 if __name__ == "__main__":
