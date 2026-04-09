@@ -15,6 +15,7 @@ from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.candle_patterns import CandlePatternFactors
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
+from rlm.factors.multi_timeframe_liquidity import MultiTimeframeLiquidityFactors
 from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
 from rlm.factors.order_flow import OrderFlowFactors
 from rlm.factors.support_resistance import SupportResistanceFactors
@@ -45,6 +46,7 @@ class FactorPipeline:
             SupportResistanceFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
+            MultiTimeframeLiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
             DealerFlowFactors(),
         ]
