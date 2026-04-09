@@ -6,6 +6,7 @@ from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.dealer_flow import DealerFlowFactors
 from rlm.factors.liquidity import LiquidityFactors
+from rlm.factors.multi_timeframe_liquidity import MultiTimeframeLiquidityFactors
 from rlm.factors.order_flow import OrderFlowFactors
 from rlm.factors.volatility import VolatilityFactors
 from rlm.types.factors import FactorSpec
@@ -20,6 +21,7 @@ class FactorPipeline:
             OrderFlowFactors(),
             VolatilityFactors(),
             LiquidityFactors(),
+            MultiTimeframeLiquidityFactors(),
             DealerFlowFactors(),
         ]
 
