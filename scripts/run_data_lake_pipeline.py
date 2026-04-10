@@ -175,6 +175,7 @@ def main() -> int:
         "--higher-tfs",
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
     p.add_argument(
         "--jobs", type=int, default=1, help="Number of workers for per-symbol / per-ticker tasks"
     )
