@@ -10,7 +10,6 @@ from rlm.forecasting.distribution import estimate_distribution
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
-from rlm.regimes.multi_timeframe_regimes import MultiTimeframeRegimeModel
 from rlm.types.forecast import ForecastConfig
 
 
@@ -83,17 +82,17 @@ class HybridForecastPipeline:
         )
         self.hmm = RLMHMM(hmm_config or HMMConfig()) if hmm_config else None
         self.mtf_regimes = bool(mtf_regimes)
-        self.mtf = (
-            MultiTimeframeRegimeModel(
+        if self.mtf_regimes:
+            from rlm.regimes.multi_timeframe_regimes import MultiTimeframeRegimeModel
+            self.mtf: MultiTimeframeRegimeModel | None = MultiTimeframeRegimeModel(
                 model="hmm",
                 hmm_config=hmm_config or HMMConfig(),
                 htf_prob_paths=mtf_htf_prob_paths or {},
                 htf_weights=mtf_htf_weights or {},
                 ltf_weight=mtf_ltf_weight,
             )
-            if self.mtf_regimes
-            else None
-        )
+        else:
+            self.mtf = None
         self.hierarchical = bool(hierarchical)
         self.macro_weight = float(np.clip(macro_weight, 0.0, 1.0))
         self.micro_timeframes = tuple(micro_timeframes)

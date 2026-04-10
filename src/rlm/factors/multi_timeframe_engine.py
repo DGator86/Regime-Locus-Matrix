@@ -51,6 +51,9 @@ class MultiTimeframeEngine(FactorCalculator):
         for feature in base.columns:
             mtf_cols: list[str] = []
             for tf in self.timeframes:
+                # Pandas 4: day offset must be uppercase 'D'; hour/min stay lowercase
+                if tf[-1] == "d" and (len(tf) == 1 or tf[:-1].isdigit()):
+                    tf = tf[:-1] + "D"
                 tf_delta = pd.Timedelta(tf)
                 tf_label = self._sanitize_tf(tf)
                 mtf_col = self._mtf_name(feature, tf)
