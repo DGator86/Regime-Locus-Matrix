@@ -26,6 +26,9 @@ class ROEEConfig:
     vault_size_multiplier: float = 0.5
     min_regime_train_samples: int = 0
     purge_bars: int = 0
+    kronos_confidence_weight: float = 0.4
+    hmm_confidence_weight: float = 0.6
+    kronos_transition_penalty: float = 0.3
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
@@ -34,6 +37,9 @@ def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, 
         confidence_threshold=config.hmm_confidence_threshold,
         sizing_multiplier=config.sizing_multiplier,
         transition_penalty=config.transition_penalty,
+        kronos_confidence_weight=config.kronos_confidence_weight,
+        hmm_confidence_weight=config.hmm_confidence_weight,
+        kronos_transition_penalty=config.kronos_transition_penalty,
     )
 
 

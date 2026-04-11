@@ -14,6 +14,7 @@ from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.candle_patterns import CandlePatternFactors
 from rlm.factors.dealer_flow import DealerFlowFactors
+from rlm.factors.kronos_factors import KronosFactorCalculator
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.multi_timeframe_engine import MultiTimeframeEngine
 from rlm.factors.multi_timeframe_liquidity import MultiTimeframeLiquidityFactors
@@ -52,6 +53,7 @@ class FactorPipeline:
             SupportResistanceFactors(),
             MultiTimeframeLiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
+            KronosFactorCalculator(),
         ]
         self.max_workers = (
             max_workers if max_workers is not None else int(os.getenv("RLM_FACTOR_WORKERS", "1"))

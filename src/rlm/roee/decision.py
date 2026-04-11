@@ -57,18 +57,44 @@ def compute_regime_modulators(
     confidence_threshold: float,
     sizing_multiplier: float,
     transition_penalty: float,
+    kronos_confidence_weight: float = 0.4,
+    hmm_confidence_weight: float = 0.6,
+    kronos_transition_penalty: float = 0.3,
 ) -> dict[str, float | bool | str]:
     probs, model_name = _extract_regime_probabilities(row)
-    if probs is None:
+
+    # --- HMM / Markov baseline confidence ---
+    if probs is not None:
+        max_prob = float(probs.max())
+        hmm_confidence = max_prob
+    else:
+        hmm_confidence = None
+
+    # --- Kronos confidence (if present) ---
+    kronos_agree = _finite_float(row.get("kronos_regime_agreement"), default=np.nan)
+    kronos_agree = kronos_agree if math.isfinite(kronos_agree) else None
+    kronos_trans = bool(row.get("kronos_transition_flag", False))
+
+    # --- Blend into composite confidence ---
+    if hmm_confidence is not None and kronos_agree is not None:
+        composite = hmm_confidence_weight * hmm_confidence + kronos_confidence_weight * kronos_agree
+        model_name = f"{model_name}+kronos"
+    elif hmm_confidence is not None:
+        composite = hmm_confidence
+    elif kronos_agree is not None:
+        composite = kronos_agree
+        model_name = "kronos"
+    else:
         return {"confidence": 1.0, "size_mult": 1.0, "trade": True, "model": model_name}
 
-    max_prob = float(probs.max())
-    trans_risk = 1.0 - max_prob
-    confidence = max_prob
-    size_mult = sizing_multiplier * max_prob * (1.0 - transition_penalty * trans_risk)
-    trade = confidence >= confidence_threshold
+    if kronos_trans:
+        composite *= (1.0 - kronos_transition_penalty)
+
+    trans_risk = 1.0 - composite
+    size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
+    trade = composite >= confidence_threshold
     return {
-        "confidence": confidence,
+        "confidence": float(composite),
         "size_mult": max(float(size_mult), 0.0),
         "trade": trade,
         "model": model_name,

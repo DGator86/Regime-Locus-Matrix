@@ -32,13 +32,11 @@ if str(ROOT / "src") not in sys.path:
 import streamlit as st
 
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import rel_bars_csv
-from rlm.factors.pipeline import FactorPipeline
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.live_model import LiveRegimeModelConfig
 from rlm.roee.decision import select_trade_for_row
+from rlm.ui.pipeline_runner import run_feature_forecast_stack
 from rlm.roee.strategy_map import get_strategy_for_regime
-from rlm.scoring.state_matrix import classify_state_matrix
 
 HMM_CONFIDENCE_DEFAULT = 0.6
 DIRECTIONS = ("bull", "bear", "range", "transition")
@@ -78,31 +76,16 @@ def run_rlm_pipeline(
     vol_window: int,
     attach_vix: bool,
 ) -> tuple[pd.DataFrame | None, str | None]:
-    if bars.empty or "close" not in bars.columns:
-        return None, "No bars or missing 'close' column."
-
-    try:
-        df = prepare_bars_for_factors(
-            bars.copy(),
-            option_chain=None,
-            underlying=symbol.upper(),
-            attach_vix=attach_vix,
-        )
-        feats = FactorPipeline().run(df)
-        feats = classify_state_matrix(feats)
-
-        if use_hmm:
-            pipe = HybridForecastPipeline(move_window=move_window, vol_window=vol_window)
-            out = pipe.run(feats)
-        else:
-            pipe = ForecastPipeline(move_window=move_window, vol_window=vol_window)
-            out = pipe.run(feats)
-
-        out = out.copy()
-        out["has_major_event"] = False
-        return out, None
-    except Exception as e:
-        return None, str(e)
+    mode = "hmm" if use_hmm else "deterministic"
+    return run_feature_forecast_stack(
+        bars,
+        symbol=symbol,
+        attach_vix=attach_vix,
+        move_window=move_window,
+        vol_window=vol_window,
+        forecast_mode=mode,
+        live=LiveRegimeModelConfig(),
+    )
 
 
 def _regime_heatmap_matrix(

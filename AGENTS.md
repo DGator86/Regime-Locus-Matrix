@@ -21,6 +21,10 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 | Backtest | `python3 scripts/run_backtest.py --no-vix` |
 | Walk-forward | `python3 scripts/run_walkforward.py` |
 | HMM forecast | `python3 scripts/run_forecast_pipeline.py --use-hmm --hmm-states 6 --no-vix` |
+| Forecast (no Kronos) | `python3 scripts/run_forecast_pipeline.py --no-kronos --no-vix` |
+| Backtest (no Kronos) | `python3 scripts/run_backtest.py --no-kronos --no-vix` |
+| Fine-tune Kronos | `python3 scripts/finetune_kronos.py --symbol SPY --epochs 10` |
+| Control Center (Streamlit) | From **repo root** (the folder that contains `scripts/` and `pyproject.toml`—not `/.git`): `python3 -m streamlit run scripts/rlm_control_center/app.py` (after `pip install -e ".[ui]"`; optional `ibkr` for live bars). Binds **localhost only** (`127.0.0.1` in [.streamlit/config.toml](.streamlit/config.toml)) — not exposed on LAN; no cloud deploy. |
 
 ### Gotchas
 
@@ -31,3 +35,4 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 - Pre-existing lint issues (133 ruff errors, 34 black reformats) exist in the repo; they are not regressions.
 - External services (IBKR, Massive API, Massive S3) are optional; all unit tests use mocks/synthetic data. Set keys in `.env` (see `.env.example`) only when testing live data flows.
 - `pyproject.toml` defines all config: pytest paths, ruff/black/mypy settings, and optional dependency groups (`ibkr`, `datalake`, `flatfiles`).
+- Kronos (torch) is a **core** dependency (~2GB). The default model (`NeoQuasar/Kronos-mini`, 4.1M params) runs on CPU. First run downloads weights from HuggingFace. Pass `--no-kronos` to forecast/backtest scripts to skip Kronos entirely. Kronos config lives in `configs/default.yaml` under the `kronos:` block.

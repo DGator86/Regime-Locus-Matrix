@@ -116,6 +116,11 @@ def parse_args() -> argparse.Namespace:
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
     )
+    parser.add_argument(
+        "--no-kronos",
+        action="store_true",
+        help="Disable Kronos regime-confidence and forecast overlay.",
+    )
     return parser.parse_args()
 
 
@@ -212,6 +217,12 @@ def main() -> None:
             vol_window=100,
         ).run(factors)
 
+    if not args.no_kronos:
+        from rlm.kronos import KronosRegimeConfidence
+
+        print("Running Kronos regime-confidence overlay ...")
+        forecast = KronosRegimeConfidence().annotate(forecast)
+
     out_cols = [
         "close",
         "S_D",
@@ -234,6 +245,15 @@ def main() -> None:
         "realized_vol",
         "forecast_source",
     ]
+    if not args.no_kronos:
+        out_cols.extend([
+            "kronos_confidence",
+            "kronos_regime_agreement",
+            "kronos_predicted_regime",
+            "kronos_transition_flag",
+            "kronos_forecast_return",
+            "kronos_forecast_vol",
+        ])
     if args.use_hmm:
         out_cols.extend(["hmm_state", "hmm_state_label"])
     if args.mtf_regimes:

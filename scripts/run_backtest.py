@@ -146,6 +146,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
+    parser.add_argument(
+        "--no-kronos",
+        action="store_true",
+        help="Disable Kronos regime-confidence overlay during backtest.",
+    )
     parser.add_argument("--optuna-trials", type=int, default=0)
     parser.add_argument("--optuna-timeout", type=int, default=None)
     parser.add_argument("--mtf-fast-weight", type=float, default=0.6)
@@ -308,7 +314,11 @@ def main() -> None:
         bars_by_symbol[symbol] = bars
         chain_by_symbol[symbol] = chain
         args.symbol = symbol
-        features_by_symbol[symbol] = _build_features(bars=bars, chain=chain, args=args)
+        feat = _build_features(bars=bars, chain=chain, args=args)
+        if not args.no_kronos:
+            from rlm.kronos import KronosRegimeConfidence
+            feat = KronosRegimeConfidence().annotate(feat)
+        features_by_symbol[symbol] = feat
 
     base_mtf = MTFWeightConfig(
         fast_weight=args.mtf_fast_weight,

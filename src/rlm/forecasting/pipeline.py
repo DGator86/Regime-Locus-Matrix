@@ -75,12 +75,16 @@ class HybridForecastPipeline:
         hierarchical: bool = False,
         macro_weight: float = 0.45,
         micro_timeframes: tuple[str, ...] = ("5min", "1min"),
+        forecast_engine: object | None = None,
     ) -> None:
-        self.forecast = ForecastPipeline(
-            config=config,
-            move_window=move_window,
-            vol_window=vol_window,
-        )
+        if forecast_engine is not None:
+            self.forecast = forecast_engine  # type: ignore[assignment]
+        else:
+            self.forecast = ForecastPipeline(
+                config=config,
+                move_window=move_window,
+                vol_window=vol_window,
+            )
         self.hmm = RLMHMM(hmm_config or HMMConfig()) if hmm_config else None
         self.mtf_regimes = bool(mtf_regimes)
         self.mtf = (
