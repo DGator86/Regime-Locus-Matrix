@@ -1,11 +1,19 @@
 from typing import Any
 
 from rlm.forecasting.hmm import HMMConfig, RLMHMM
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
+from rlm.forecasting.pipeline import (
+    ForecastPipeline,
+    HybridForecastPipeline,
+    HybridKronosForecastPipeline,
+)
 
 __all__ = [
     "ForecastPipeline",
     "HybridForecastPipeline",
+    "HybridKronosForecastPipeline",
+    "KronosConfig",
+    "KronosForecastPipeline",
     "RLMHMM",
     "HMMConfig",
     "LiveRegimeModelConfig",

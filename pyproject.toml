@@ -65,6 +65,16 @@ ib-insync = [
 ui = [
     "streamlit>=1.28.0",
 ]
+# Kronos foundation-model forecast layer (see src/rlm/forecasting/kronos_forecast.py).
+# Vendored Kronos source lives in src/rlm/forecasting/kronos/.
+# Install: pip install -e ".[kronos]"
+kronos = [
+    "torch>=2.0.0",
+    "einops>=0.8.0",
+    "huggingface-hub>=0.33.0",
+    "safetensors>=0.6.0",
+    "tqdm>=4.66.0",
+]
 
 [tool.black]
 line-length = 100

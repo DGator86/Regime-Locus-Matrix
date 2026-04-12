@@ -9,6 +9,7 @@ from rlm.forecasting.bands import compute_state_matrix_bands
 from rlm.forecasting.distribution import estimate_distribution
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
+from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
@@ -350,3 +351,113 @@ class HybridMarkovProbabilisticForecastPipeline:
         df = self.forecast.run(df_features)
         self.markov.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
         return self.markov.annotate(df, prefix="markov")
+
+
+class HybridKronosForecastPipeline:
+    """Kronos foundation-model forecast layer with an optional HMM or Markov regime overlay.
+
+    Runs ``KronosForecastPipeline`` to populate all ``forecast_return_*``,
+    ``mu``, ``sigma``, and band columns, then optionally fits and applies the
+    HMM or Markov-switching regime model on top (producing the same
+    ``hmm_probs / hmm_state`` or ``markov_probs / markov_state`` columns as
+    the existing ``HybridForecastPipeline`` and ``HybridMarkovForecastPipeline``).
+
+    Parameters
+    ----------
+    kronos_config:
+        Kronos-specific settings (model variant, lookback, sampling, …).
+    rlm_config:
+        Base RLM distributional config forwarded to
+        ``KronosForecastPipeline``.
+    move_window:
+        Rolling window for base distributional estimates.
+    vol_window:
+        Rolling window for realised-vol estimates.
+    hmm_config:
+        When provided, an HMM regime overlay is fitted and appended.
+        Mutually exclusive with *markov_config*.
+    markov_config:
+        When provided, a Markov-switching regime overlay is fitted and
+        appended.  Mutually exclusive with *hmm_config*.
+
+    Raises
+    ------
+    ValueError
+        If both *hmm_config* and *markov_config* are provided.
+    """
+
+    def __init__(
+        self,
+        kronos_config: KronosConfig | None = None,
+        rlm_config: ForecastConfig | None = None,
+        move_window: int = 100,
+        vol_window: int = 100,
+        hmm_config: HMMConfig | None = None,
+        markov_config: MarkovSwitchingConfig | None = None,
+    ) -> None:
+        if hmm_config is not None and markov_config is not None:
+            raise ValueError(
+                "Provide at most one regime overlay: either hmm_config or markov_config."
+            )
+        self.forecast = KronosForecastPipeline(
+            config=kronos_config,
+            rlm_config=rlm_config,
+            move_window=move_window,
+            vol_window=vol_window,
+        )
+        self.hmm = RLMHMM(hmm_config) if hmm_config is not None else None
+        self.markov = RLMMarkovSwitching(markov_config) if markov_config is not None else None
+
+    def run(
+        self,
+        df_features: pd.DataFrame,
+        train_mask: pd.Series | None = None,
+    ) -> pd.DataFrame:
+        """Run Kronos forecast, then apply the configured regime overlay.
+
+        Parameters
+        ----------
+        df_features:
+            Raw bar DataFrame (at minimum ``open, high, low, close``).
+        train_mask:
+            Boolean Series aligned to *df_features* that marks the in-sample
+            rows used to fit the regime model.  When ``None``, the full
+            series is used for fitting (no train/test split).
+
+        Returns
+        -------
+        pd.DataFrame
+            Kronos forecast columns + regime overlay columns (if configured).
+        """
+        df = self.forecast.run(df_features)
+
+        if self.hmm is not None:
+            fit_df = df.loc[train_mask] if train_mask is not None else df
+            self.hmm.fit(fit_df, verbose=False)
+            probs = self.hmm.predict_proba_filtered(df)
+            probs = np.clip(probs, 1e-12, None)
+            probs = probs / probs.sum(axis=1, keepdims=True)
+            df["hmm_probs"] = probs.tolist()
+            df["hmm_state"] = np.argmax(probs, axis=1).astype(int)
+            df["hmm_confidence"] = probs.max(axis=1).astype(float)
+            if self.hmm.state_labels:
+                df["hmm_state_label"] = [
+                    self.hmm.state_labels[int(s)] for s in df["hmm_state"]
+                ]
+
+        if self.markov is not None:
+            fit_df = df.loc[train_mask] if train_mask is not None else df
+            self.markov.fit(fit_df, verbose=False)
+            base_probs_df = self.markov.filter(df)
+            probs = base_probs_df.to_numpy(dtype=float)
+            probs = np.clip(probs, 1e-12, None)
+            probs = probs / probs.sum(axis=1, keepdims=True)
+            df["markov_probs"] = probs.tolist()
+            df["markov_state"] = np.argmax(probs, axis=1).astype(int)
+            df["markov_confidence"] = probs.max(axis=1).astype(float)
+            if self.markov.state_labels:
+                df["markov_state_label"] = [
+                    self.markov.state_labels[int(s)] for s in df["markov_state"]
+                ]
+
+        return df
