@@ -33,7 +33,7 @@ if str(ROOT / "src") not in sys.path:
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_model
+from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.pipeline import ForecastPipeline
 from rlm.roee.decision import select_trade_for_row
@@ -184,6 +184,17 @@ def main() -> int:
         help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
     )
     p.add_argument("--out", type=Path, default=None, help="Optional CSV path under repo root")
+    # Kronos foundation-model blend
+    p.add_argument(
+        "--use-kronos",
+        action="store_true",
+        help="Blend Kronos foundation-model return forecasts into every symbol's pipeline output.",
+    )
+    p.add_argument("--kronos-weight", type=float, default=0.35,
+                   help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
+    p.add_argument("--kronos-stride", type=int, default=1)
+    p.add_argument("--kronos-samples", type=int, default=5)
     args = p.parse_args()
 
     syms = _parse_symbols(args.symbols)
@@ -198,6 +209,20 @@ def main() -> int:
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
+    if args.use_kronos:
+        kronos_params = LiveKronosParameters(
+            model_name=args.kronos_model,
+            stride=args.kronos_stride,
+            sample_count=args.kronos_samples,
+            weight=args.kronos_weight,
+        )
+        if live_model is not None:
+            live_model = live_model.model_copy(
+                update={"use_kronos": True, "kronos": kronos_params}
+            )
+        else:
+            live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
+        print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")
 
     for i, sym in enumerate(syms):
         if i:

@@ -399,3 +399,172 @@ class KronosForecastPipeline:
             hi = med + rv
 
         return med, lo, hi
+
+    def compute_kronos_overlay(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Run only the Kronos inference layer (no base RLM distributional pass).
+
+        Useful for ``apply_kronos_blend``, where the base distributional layer
+        has already been run by a different pipeline.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns ``median``, ``lower``, ``upper`` aligned to *df*'s index.
+        """
+        return self._run_kronos_rolling(df)
+
+
+# ---------------------------------------------------------------------------
+# Composable blend helpers
+# ---------------------------------------------------------------------------
+
+def apply_kronos_blend(
+    forecast_df: pd.DataFrame,
+    config: KronosConfig | None = None,
+    weight: float = 0.35,
+) -> pd.DataFrame:
+    """Blend Kronos return forecasts into an existing forecast DataFrame.
+
+    Designed to be called *after* any RLM pipeline has already run
+    (``ForecastPipeline``, ``HybridForecastPipeline``, etc.).  Kronos adds a
+    deep-learning signal that is linearly interpolated with the distributional
+    model at the specified ``weight``:
+
+    .. code-block:: text
+
+        mu_out         = (1 - weight) * mu_base         + weight * mu_kronos
+        sigma_out      = (1 - weight) * sigma_base      + weight * sigma_kronos
+        forecast_return_median_out = ...  (same blend)
+
+    The Kronos model is loaded lazily on the first call and cached for the
+    lifetime of the process.  If Kronos is unavailable (torch not installed,
+    network error, …) the function returns *forecast_df* unmodified and emits
+    a ``RuntimeWarning``.
+
+    Parameters
+    ----------
+    forecast_df:
+        Output of any RLM forecast pipeline.  Must contain at minimum
+        ``open, high, low, close`` (for Kronos context) and the standard
+        distributional columns ``mu``, ``sigma``, ``forecast_return``.
+    config:
+        Kronos inference settings.  Defaults to ``KronosConfig()``.
+    weight:
+        Blend weight for the Kronos signal (0.0 → keep base only,
+        1.0 → Kronos only, default ``0.35``).
+
+    Returns
+    -------
+    pd.DataFrame
+        Same index/shape as *forecast_df* with blended forecast columns and
+        ``forecast_source`` updated to reflect the blend (e.g.
+        ``"kronos_blend_0.35_over_hmm"``).
+    """
+    if not (0.0 <= weight <= 1.0):
+        raise ValueError(f"weight must be in [0, 1], got {weight!r}.")
+
+    if weight == 0.0:
+        return forecast_df  # no-op
+
+    cfg = config or KronosConfig()
+    pipe = KronosForecastPipeline(config=cfg)
+
+    try:
+        kronos_df = pipe.compute_kronos_overlay(forecast_df)
+    except Exception as exc:
+        warnings.warn(
+            f"apply_kronos_blend: Kronos inference failed; returning base forecast unchanged. "
+            f"Reason: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return forecast_df
+
+    out = forecast_df.copy()
+    w = weight
+    base_source = str(out.get("forecast_source", pd.Series(["unknown"])).iloc[-1])
+
+    def _blend(base_col: str, kronos_col: str) -> pd.Series:
+        base = pd.to_numeric(out.get(base_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+        kron = kronos_df[kronos_col].fillna(base)
+        return (1.0 - w) * base + w * kron
+
+    out["forecast_return_median"] = _blend("forecast_return_median", "median")
+    out["forecast_return_lower"] = _blend("forecast_return_lower", "lower")
+    out["forecast_return_upper"] = _blend("forecast_return_upper", "upper")
+    out["forecast_return"] = out["forecast_return_median"]
+    out["forecast_uncertainty"] = (
+        (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
+    )
+    out["mu"] = out["forecast_return_median"]
+
+    # Recompute sigma from blended interval
+    z_span = float(norm.ppf(cfg.upper_quantile) - norm.ppf(cfg.lower_quantile))
+    if abs(z_span) > 1e-9:
+        sigma_series = (
+            (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
+        )
+    else:
+        sigma_series = pd.Series(cfg.sigma_floor, index=out.index)
+    out["sigma"] = sigma_series.clip(lower=cfg.sigma_floor)
+    out["mean_price"] = out["close"] * (1.0 + out["forecast_return"])
+    out["forecast_source"] = f"kronos_blend_{w:.2f}_over_{base_source}"
+    out["kronos_forecast_return"] = kronos_df["median"].values
+    out["kronos_forecast_lower"] = kronos_df["lower"].values
+    out["kronos_forecast_upper"] = kronos_df["upper"].values
+    return out
+
+
+class KronosBlendPipeline:
+    """Wraps any existing RLM pipeline and applies a Kronos blend post-step.
+
+    This is the preferred way to add Kronos to the production suite without
+    touching existing pipeline code.  It is fully transparent: the ``run()``
+    signature matches all existing pipeline variants and the output DataFrame
+    is identical in structure to what the underlying pipeline produces, with
+    the ``mu / sigma / forecast_return_*`` columns blended with Kronos.
+
+    Usage (standalone)::
+
+        from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
+        from rlm.forecasting.pipeline import HybridForecastPipeline
+
+        base = HybridForecastPipeline(hmm_config=HMMConfig(n_states=6))
+        pipeline = KronosBlendPipeline(base, weight=0.35)
+        df_out = pipeline.run(df_features)
+
+    Usage (via live model config — see ``LiveRegimeModelConfig.build_pipeline()``)::
+
+        # live_model_config.json: { "use_kronos": true, "kronos": { "weight": 0.4 } }
+        pipeline = live_model.build_pipeline()
+        df_out = pipeline.run(feats)
+
+    Parameters
+    ----------
+    base_pipeline:
+        Any RLM pipeline instance with a ``.run(df, **kw)`` method.
+    kronos_config:
+        Kronos inference settings.
+    weight:
+        Blend weight for Kronos (default ``0.35``).
+    """
+
+    def __init__(
+        self,
+        base_pipeline: object,
+        kronos_config: KronosConfig | None = None,
+        weight: float = 0.35,
+    ) -> None:
+        self.base_pipeline = base_pipeline
+        self.kronos_config = kronos_config or KronosConfig()
+        self.weight = weight
+
+    def run(self, df: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
+        """Run the base pipeline then blend in Kronos forecasts."""
+        import inspect
+        sig = inspect.signature(self.base_pipeline.run)
+        if "train_mask" in sig.parameters:
+            base_out = self.base_pipeline.run(df, **kwargs)
+        else:
+            base_out = self.base_pipeline.run(df)
+        return apply_kronos_blend(base_out, config=self.kronos_config, weight=self.weight)

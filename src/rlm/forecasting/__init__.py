@@ -1,7 +1,12 @@
 from typing import Any
 
 from rlm.forecasting.hmm import HMMConfig, RLMHMM
-from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
+from rlm.forecasting.kronos_forecast import (
+    KronosBlendPipeline,
+    KronosConfig,
+    KronosForecastPipeline,
+    apply_kronos_blend,
+)
 from rlm.forecasting.pipeline import (
     ForecastPipeline,
     HybridForecastPipeline,
@@ -12,8 +17,10 @@ __all__ = [
     "ForecastPipeline",
     "HybridForecastPipeline",
     "HybridKronosForecastPipeline",
+    "KronosBlendPipeline",
     "KronosConfig",
     "KronosForecastPipeline",
+    "apply_kronos_blend",
     "RLMHMM",
     "HMMConfig",
     "LiveRegimeModelConfig",

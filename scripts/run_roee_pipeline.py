@@ -115,6 +115,19 @@ def parse_args() -> argparse.Namespace:
             "samples than this threshold."
         ),
     )
+    # Kronos foundation-model blend
+    parser.add_argument(
+        "--use-kronos",
+        action="store_true",
+        help="Blend Kronos foundation-model return forecasts into the pipeline output.",
+    )
+    parser.add_argument("--kronos-weight", type=float, default=0.35,
+                        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    parser.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
+    parser.add_argument("--kronos-stride", type=int, default=1,
+                        help="Run Kronos every N bars; fill-forward in between (default 1).")
+    parser.add_argument("--kronos-samples", type=int, default=5,
+                        help="MC samples for Kronos uncertainty (default 5).")
     return parser.parse_args()
 
 
@@ -190,6 +203,18 @@ def main() -> None:
             move_window=100,
             vol_window=100,
         ).run(factor_df)
+
+    if args.use_kronos:
+        from rlm.forecasting.kronos_forecast import KronosConfig, apply_kronos_blend
+        forecast_df = apply_kronos_blend(
+            forecast_df,
+            config=KronosConfig(
+                model_name=args.kronos_model,
+                stride=args.kronos_stride,
+                sample_count=args.kronos_samples,
+            ),
+            weight=args.kronos_weight,
+        )
 
     state_df = classify_state_matrix(forecast_df)
     policy_df = apply_roee_policy(
