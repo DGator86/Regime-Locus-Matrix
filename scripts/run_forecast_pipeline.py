@@ -116,6 +116,23 @@ def parse_args() -> argparse.Namespace:
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
     )
+    # Kronos foundation-model blend
+    parser.add_argument(
+        "--use-kronos",
+        action="store_true",
+        help="Blend Kronos foundation-model return forecasts into the pipeline output.",
+    )
+    parser.add_argument(
+        "--kronos-weight",
+        type=float,
+        default=0.35,
+        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
+    )
+    parser.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
+    parser.add_argument("--kronos-stride", type=int, default=1,
+                        help="Run Kronos every N bars; fill-forward in between (default 1).")
+    parser.add_argument("--kronos-samples", type=int, default=5,
+                        help="MC samples for Kronos uncertainty (default 5).")
     return parser.parse_args()
 
 
@@ -212,6 +229,18 @@ def main() -> None:
             vol_window=100,
         ).run(factors)
 
+    if args.use_kronos:
+        from rlm.forecasting.kronos_forecast import KronosConfig, apply_kronos_blend
+        forecast = apply_kronos_blend(
+            forecast,
+            config=KronosConfig(
+                model_name=args.kronos_model,
+                stride=args.kronos_stride,
+                sample_count=args.kronos_samples,
+            ),
+            weight=args.kronos_weight,
+        )
+
     out_cols = [
         "close",
         "S_D",
@@ -240,6 +269,8 @@ def main() -> None:
         out_cols.extend(["mtf_state", "mtf_state_label", "mtf_confidence"])
     if args.use_markov:
         out_cols.extend(["markov_state", "markov_state_label"])
+    if args.use_kronos:
+        out_cols.extend(["kronos_forecast_return", "kronos_forecast_lower", "kronos_forecast_upper"])
 
     out_path = ROOT / out_rel
     out_path.parent.mkdir(parents=True, exist_ok=True)

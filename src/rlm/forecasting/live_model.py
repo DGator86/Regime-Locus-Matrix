@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.pipeline import (
     ForecastPipeline,
@@ -16,6 +17,32 @@ from rlm.roee.pipeline import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
 RegimeModelName = Literal["forecast", "hmm", "markov"]
+
+
+class LiveKronosParameters(BaseModel):
+    """Kronos blend parameters stored inside the live regime model config."""
+
+    model_name: str = "NeoQuasar/Kronos-small"
+    tokenizer_name: str = "NeoQuasar/Kronos-Tokenizer-base"
+    device: str | None = None
+    max_context: int = 512
+    lookback: int = 200
+    pred_len: int = 1
+    sample_count: int = 5
+    stride: int = 1
+    weight: float = 0.35  # blend weight: 0 = base only, 1 = Kronos only
+
+    def to_kronos_config(self) -> KronosConfig:
+        return KronosConfig(
+            model_name=self.model_name,
+            tokenizer_name=self.tokenizer_name,
+            device=self.device,
+            max_context=self.max_context,
+            lookback=self.lookback,
+            pred_len=self.pred_len,
+            sample_count=self.sample_count,
+            stride=self.stride,
+        )
 
 
 class LiveForecastParameters(BaseModel):
@@ -105,24 +132,34 @@ class LiveRegimeModelConfig(BaseModel):
     roee: LiveROEEParameters = Field(default_factory=LiveROEEParameters)
     hmm: LiveHMMParameters = Field(default_factory=LiveHMMParameters)
     markov: LiveMarkovParameters = Field(default_factory=LiveMarkovParameters)
+    use_kronos: bool = False
+    kronos: LiveKronosParameters = Field(default_factory=LiveKronosParameters)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
     def build_pipeline(
         self,
-    ) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline:
+    ) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline | KronosBlendPipeline:
+        """Build the active forecast pipeline, optionally wrapped in a Kronos blend layer.
+
+        When ``use_kronos=True`` the returned pipeline is a ``KronosBlendPipeline``
+        that transparently runs the base model first and then blends in the Kronos
+        deep-learning forecast at ``kronos.weight``.
+        """
         forecast_config = self.forecast.to_forecast_config()
         if self.model == "hmm":
-            return HybridForecastPipeline(
-                config=forecast_config,
-                move_window=self.forecast.move_window,
-                vol_window=self.forecast.vol_window,
-                hmm_config=self.hmm.to_hmm_config(),
-                hierarchical=self.hmm.hierarchical,
-                macro_weight=self.hmm.macro_weight,
-                micro_timeframes=self.hmm.micro_timeframes,
+            base: ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline = (
+                HybridForecastPipeline(
+                    config=forecast_config,
+                    move_window=self.forecast.move_window,
+                    vol_window=self.forecast.vol_window,
+                    hmm_config=self.hmm.to_hmm_config(),
+                    hierarchical=self.hmm.hierarchical,
+                    macro_weight=self.hmm.macro_weight,
+                    micro_timeframes=self.hmm.micro_timeframes,
+                )
             )
-        if self.model == "markov":
-            return HybridMarkovForecastPipeline(
+        elif self.model == "markov":
+            base = HybridMarkovForecastPipeline(
                 config=forecast_config,
                 move_window=self.forecast.move_window,
                 vol_window=self.forecast.vol_window,
@@ -131,11 +168,19 @@ class LiveRegimeModelConfig(BaseModel):
                 macro_weight=self.markov.macro_weight,
                 micro_timeframes=self.markov.micro_timeframes,
             )
-        return ForecastPipeline(
-            config=forecast_config,
-            move_window=self.forecast.move_window,
-            vol_window=self.forecast.vol_window,
-        )
+        else:
+            base = ForecastPipeline(
+                config=forecast_config,
+                move_window=self.forecast.move_window,
+                vol_window=self.forecast.vol_window,
+            )
+        if self.use_kronos:
+            return KronosBlendPipeline(
+                base_pipeline=base,
+                kronos_config=self.kronos.to_kronos_config(),
+                weight=self.kronos.weight,
+            )
+        return base
 
     def decision_kwargs(self) -> dict[str, float | bool]:
         return self.roee.decision_kwargs()
