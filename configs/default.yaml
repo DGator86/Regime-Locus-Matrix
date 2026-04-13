@@ -45,6 +45,7 @@ feature_engineering:
       - roc_n
       - market_breadth_ratio
       - relative_strength_vs_index
+      - kronos_return_forecast
     volatility:
       - atr_over_price
       - bollinger_width
@@ -55,6 +56,8 @@ feature_engineering:
       - options_volume_to_oi
       - underlying_vix_corr
       - underlying_vix_corr_breakdown
+      - kronos_range_forecast
+      - kronos_path_dispersion
     liquidity:
       - spread_over_price
       - volume_vs_average
@@ -93,6 +96,21 @@ roee_hmm:
   high_vol_kelly_multiplier: 0.5
   transition_kelly_multiplier: 0.75
   calm_trend_kelly_multiplier: 1.25
+
+# Kronos foundation model -- regime confidence, forecasting, and factor generation.
+kronos:
+  model_name: "NeoQuasar/Kronos-mini"
+  tokenizer_name: "NeoQuasar/Kronos-Tokenizer-2k"
+  max_context: 2048
+  pred_len: 5
+  temperature: 0.8
+  top_p: 0.9
+  sample_count: 10
+  device: "cpu"
+  finetuned_model_path: null
+  cache_ttl_bars: 1
+  regime_confidence_weight: 0.4
+  hmm_confidence_weight: 0.6
 
 transaction_cost:
   extra_spread_fraction: 0.0

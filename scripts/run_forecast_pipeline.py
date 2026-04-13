@@ -51,6 +51,14 @@ def _parse_tf_key_values(text: str | None, cast_float: bool = False) -> dict[str
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments that control data inputs, model selection, multi-timeframe options, and optional Kronos post-processing.
+    
+    Recognized options include model/regime choices (HMM or Markov and their state counts), probabilistic output and quantile model path, multi-timeframe augmentation and associated higher-timeframe paths/weights, input/output paths for bars and option chain, toggles for VIX attachment and Kronos annotation, and the target symbol.
+    
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Factors → forecast features (default bars: data/raw/bars_{SYMBOL}.csv)."
     )
@@ -116,27 +124,23 @@ def parse_args() -> argparse.Namespace:
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
     )
-    # Kronos foundation-model blend
     parser.add_argument(
-        "--use-kronos",
+        "--no-kronos",
         action="store_true",
-        help="Blend Kronos foundation-model return forecasts into the pipeline output.",
+        help="Disable Kronos regime-confidence and forecast overlay.",
     )
-    parser.add_argument(
-        "--kronos-weight",
-        type=float,
-        default=0.35,
-        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
-    )
-    parser.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
-    parser.add_argument("--kronos-stride", type=int, default=1,
-                        help="Run Kronos every N bars; fill-forward in between (default 1).")
-    parser.add_argument("--kronos-samples", type=int, default=5,
-                        help="MC samples for Kronos uncertainty (default 5).")
     return parser.parse_args()
 
 
 def main() -> None:
+    """
+    Run the end-to-end forecast pipeline driven by command-line arguments and write selected forecast features to a CSV.
+    
+    Parses CLI options, validates mutually exclusive and dependent flags, loads bars (and optional option chain) for the requested symbol, prepares data and computes factor features (optionally augmented with multi-timeframe factors), selects and executes the configured forecasting pipeline (various regime/probabilistic options supported), optionally annotates the forecast with Kronos regime confidence, and writes a subset of forecast columns to the configured output path while printing a tail preview.
+    
+    Raises:
+        SystemExit: if invalid/contradictory CLI flags are provided or required input files (e.g., bars CSV) are missing.
+    """
     args = parse_args()
     if args.use_hmm and args.use_markov:
         raise SystemExit("Use either --use-hmm or --use-markov, not both.")
@@ -229,17 +233,11 @@ def main() -> None:
             vol_window=100,
         ).run(factors)
 
-    if args.use_kronos:
-        from rlm.forecasting.kronos_forecast import KronosConfig, apply_kronos_blend
-        forecast = apply_kronos_blend(
-            forecast,
-            config=KronosConfig(
-                model_name=args.kronos_model,
-                stride=args.kronos_stride,
-                sample_count=args.kronos_samples,
-            ),
-            weight=args.kronos_weight,
-        )
+    if not args.no_kronos:
+        from rlm.kronos import KronosRegimeConfidence
+
+        print("Running Kronos regime-confidence overlay ...")
+        forecast = KronosRegimeConfidence().annotate(forecast)
 
     out_cols = [
         "close",
@@ -263,6 +261,15 @@ def main() -> None:
         "realized_vol",
         "forecast_source",
     ]
+    if not args.no_kronos:
+        out_cols.extend([
+            "kronos_confidence",
+            "kronos_regime_agreement",
+            "kronos_predicted_regime",
+            "kronos_transition_flag",
+            "kronos_forecast_return",
+            "kronos_forecast_vol",
+        ])
     if args.use_hmm:
         out_cols.extend(["hmm_state", "hmm_state_label"])
     if args.mtf_regimes:

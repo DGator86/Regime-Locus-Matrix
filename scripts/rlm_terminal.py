@@ -32,13 +32,11 @@ if str(ROOT / "src") not in sys.path:
 import streamlit as st
 
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import rel_bars_csv
-from rlm.factors.pipeline import FactorPipeline
-from rlm.forecasting.pipeline import ForecastPipeline, HybridForecastPipeline
+from rlm.forecasting.live_model import LiveRegimeModelConfig
 from rlm.roee.decision import select_trade_for_row
+from rlm.ui.pipeline_runner import run_feature_forecast_stack
 from rlm.roee.strategy_map import get_strategy_for_regime
-from rlm.scoring.state_matrix import classify_state_matrix
 
 HMM_CONFIDENCE_DEFAULT = 0.6
 DIRECTIONS = ("bull", "bear", "range", "transition")
@@ -78,31 +76,32 @@ def run_rlm_pipeline(
     vol_window: int,
     attach_vix: bool,
 ) -> tuple[pd.DataFrame | None, str | None]:
-    if bars.empty or "close" not in bars.columns:
-        return None, "No bars or missing 'close' column."
-
-    try:
-        df = prepare_bars_for_factors(
-            bars.copy(),
-            option_chain=None,
-            underlying=symbol.upper(),
-            attach_vix=attach_vix,
-        )
-        feats = FactorPipeline().run(df)
-        feats = classify_state_matrix(feats)
-
-        if use_hmm:
-            pipe = HybridForecastPipeline(move_window=move_window, vol_window=vol_window)
-            out = pipe.run(feats)
-        else:
-            pipe = ForecastPipeline(move_window=move_window, vol_window=vol_window)
-            out = pipe.run(feats)
-
-        out = out.copy()
-        out["has_major_event"] = False
-        return out, None
-    except Exception as e:
-        return None, str(e)
+    """
+    Run the feature/forecast stack on raw bar data to produce processed signals and forecasts.
+    
+    Parameters:
+        bars (pd.DataFrame): Raw OHLCV bar data indexed or keyed by timestamp.
+        symbol (str): Ticker symbol used for model lookup and dataset naming.
+        use_hmm (bool): If True, run the pipeline in HMM (probabilistic) forecast mode; otherwise use deterministic mode.
+        move_window (int): Lookback window (in bars) used for movement/feature calculations.
+        vol_window (int): Lookback window (in bars) used for volatility-related feature calculations.
+        attach_vix (bool): If True, include VIX (volatility index) data as an additional feature when available.
+    
+    Returns:
+        tuple:
+            - processed (pd.DataFrame | None): DataFrame containing features, regime labels, and forecast outputs when successful; `None` on failure or if the pipeline produced no output.
+            - perr (str | None): Error or status message produced by the pipeline when applicable; `None` if no error occurred.
+    """
+    mode = "hmm" if use_hmm else "deterministic"
+    return run_feature_forecast_stack(
+        bars,
+        symbol=symbol,
+        attach_vix=attach_vix,
+        move_window=move_window,
+        vol_window=vol_window,
+        forecast_mode=mode,
+        live=LiveRegimeModelConfig(),
+    )
 
 
 def _regime_heatmap_matrix(
@@ -111,6 +110,20 @@ def _regime_heatmap_matrix(
     *,
     short_dte: bool,
 ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
+    """
+    Build a matrix of strategy risk values and labels for all direction/volatility regime combinations.
+    
+    Parameters:
+        liquidity (str): Liquidity regime label used to resolve strategy (e.g., "high", "low").
+        dealer_flow (str): Dealer flow regime label used to resolve strategy (e.g., "positive", "negative").
+        short_dte (bool): Whether to prefer short-dated option strategies when selecting a strategy.
+    
+    Returns:
+        z (np.ndarray): 2D float array shaped (len(DIRECTIONS), len(VOLS)) containing each regime's max risk as a percentage (0–100).
+        labels (np.ndarray): 2D object array of the same shape with human-readable strategy names (underscores replaced by spaces).
+        y_dirs (list[str]): Ordered list of direction regime names corresponding to z's first axis.
+        x_vols (list[str]): Ordered list of volatility regime names corresponding to z's second axis.
+    """
     z = np.zeros((len(DIRECTIONS), len(VOLS)))
     labels = np.empty(z.shape, dtype=object)
     for i, d in enumerate(DIRECTIONS):

@@ -15,6 +15,7 @@ from rlm.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.factors.candle_patterns import CandlePatternFactors
 from rlm.factors.config import filter_specs, load_feature_engineering_config
 from rlm.factors.dealer_flow import DealerFlowFactors
+from rlm.factors.kronos_factors import KronosFactorCalculator
 from rlm.factors.liquidity import LiquidityFactors
 from rlm.factors.liquidity_pools import AdvancedLiquidityPoolFactors
 from rlm.factors.multi_timeframe_engine import MultiTimeframeEngine
@@ -39,6 +40,14 @@ class FactorPipeline:
         max_workers: int | None = None,
         parallel_backend: str = "thread",
     ) -> None:
+        """
+        Initialize the FactorPipeline with feature configuration, a set of factor calculators, and concurrency settings.
+        
+        Parameters:
+        	feature_config (dict[str, object] | None): Feature engineering configuration to use; if None, the module-wide configuration is loaded.
+        	max_workers (int | None): Maximum number of worker threads/processes for parallel factor computation; if None, the value is read from the RLM_FACTOR_WORKERS environment variable (defaults to 1).
+        	parallel_backend (str): Parallel execution backend identifier (e.g., "thread" or "process") used for computing factors.
+        """
         self.feature_config = (
             load_feature_engineering_config() if feature_config is None else feature_config
         )
@@ -54,6 +63,7 @@ class FactorPipeline:
             MultiTimeframeLiquidityFactors(),
             AdvancedLiquidityPoolFactors(),
             AdvancedOrderFlowLiquidityFactors(),
+            KronosFactorCalculator(),
         ]
         self.max_workers = (
             max_workers if max_workers is not None else int(os.getenv("RLM_FACTOR_WORKERS", "1"))

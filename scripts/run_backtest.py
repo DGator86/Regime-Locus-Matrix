@@ -47,6 +47,18 @@ from rlm.types.forecast import ForecastConfig
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments for configuring and running the RLM backtest.
+    
+    The recognized CLI options control regime/forecast model selection, probabilistic outputs,
+    model artifact loading, position-sizing and vault rules, date filtering, data sources
+    and synthetic data, multi-timeframe feature augmentation, Kronos overlay toggle,
+    Optuna tuning, friction and Monte Carlo bootstrap settings, and gap-risk stress parameters.
+    
+    Returns:
+        argparse.Namespace: Parsed command-line options used to configure the backtest, tuning,
+        data preparation, and robustness/stress configurations.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Run RLM backtest with optional Optuna tuning, stress tests, and "
@@ -146,6 +158,11 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="1W,1M",
         help="Comma-separated higher-timeframe resample rules for --mtf (example: 1W,1M).",
+    )
+    parser.add_argument(
+        "--no-kronos",
+        action="store_true",
+        help="Disable Kronos regime-confidence overlay during backtest.",
     )
     parser.add_argument("--optuna-trials", type=int, default=0)
     parser.add_argument("--optuna-timeout", type=int, default=None)
@@ -327,7 +344,11 @@ def main() -> None:
         bars_by_symbol[symbol] = bars
         chain_by_symbol[symbol] = chain
         args.symbol = symbol
-        features_by_symbol[symbol] = _build_features(bars=bars, chain=chain, args=args)
+        feat = _build_features(bars=bars, chain=chain, args=args)
+        if not args.no_kronos:
+            from rlm.kronos import KronosRegimeConfidence
+            feat = KronosRegimeConfidence().annotate(feat)
+        features_by_symbol[symbol] = feat
 
     base_mtf = MTFWeightConfig(
         fast_weight=args.mtf_fast_weight,

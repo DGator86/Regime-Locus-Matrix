@@ -22,7 +22,11 @@ dependencies = [
     "tabulate",
     "jinja2",
     "hmmlearn>=0.3.0",
-    "optuna>=3.6.0"
+    "optuna>=3.6.0",
+    "torch>=2.0",
+    "einops>=0.8",
+    "huggingface-hub>=0.30",
+    "safetensors>=0.4",
 ]
 
 [project.optional-dependencies]
@@ -61,9 +65,13 @@ flatfiles = [
 ib-insync = [
     "ib_insync",
 ]
-# Streamlit terminal: ``python -m streamlit run scripts/rlm_terminal.py`` (Windows-friendly)
+# Streamlit terminal + Control Center: ``python -m streamlit run scripts/rlm_terminal.py``
+# Control Center: ``python -m streamlit run scripts/rlm_control_center/app.py``
 ui = [
-    "streamlit>=1.28.0",
+    "streamlit>=1.33.0",
+    "streamlit-aggrid>=1.0.0",
+    "streamlit-option-menu>=0.3.6",
+    "kaleido>=0.2.1",
 ]
 # Kronos foundation-model forecast layer (see src/rlm/forecasting/kronos_forecast.py).
 # Vendored Kronos source lives in src/rlm/forecasting/kronos/.

@@ -1,0 +1,20 @@
+# Native dark theme (Streamlit applies this before custom CSS).
+# https://docs.streamlit.io/develop/concepts/configuration/theming
+
+[theme]
+base = "dark"
+primaryColor = "#00f5ff"
+backgroundColor = "#0a0a0a"
+secondaryBackgroundColor = "#141418"
+textColor = "#ececf1"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+# Local-only: no LAN/internet binding; not a public “web deploy”.
+# https://docs.streamlit.io/develop/api-reference/configuration/config.toml
+[server]
+address = "127.0.0.1"
+enableCORS = false
+enableXsrfProtection = true
