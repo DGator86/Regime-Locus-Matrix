@@ -14,6 +14,20 @@ from rlm.factors.kronos_factors import KronosFactorCalculator
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:
+    """
+    Generate a deterministic synthetic OHLCV DataFrame for testing.
+    
+    Creates `n` daily rows starting at 2024-01-01 using a fixed random seed so results are reproducible. The returned DataFrame contains the columns:
+    - `timestamp`: daily timestamps starting 2024-01-01
+    - `open`, `high`, `low`, `close`: synthetic prices
+    - `volume`: integer trading volumes in the range [100000, 200000)
+    
+    Parameters:
+        n (int): Number of rows (days) to generate.
+    
+    Returns:
+        pd.DataFrame: Synthetic OHLCV data with columns `timestamp`, `open`, `high`, `low`, `close`, and `volume`.
+    """
     rng = np.random.RandomState(42)
     close = 100 + np.cumsum(rng.randn(n) * 0.5)
     return pd.DataFrame({
@@ -27,9 +41,30 @@ def _make_bars(n: int = 60) -> pd.DataFrame:
 
 
 def _mock_predictor(sample_count: int = 5, pred_len: int = 3):
+    """
+    Create a MagicMock predictor whose `predict_paths` returns deterministic forecast paths.
+    
+    Parameters:
+        sample_count (int): Number of sample paths to generate per call.
+        pred_len (int): Number of future time steps per path.
+    
+    Returns:
+        MagicMock: A mock object with a `predict_paths(df, future_timestamps=None)` callable that returns a NumPy array of shape (sample_count, pred_len, 6). Each step contains six deterministic features derived from the last `close` in `df`: [low, high, alternate_low, close, volume, volume * close].
+    """
     mock = MagicMock()
 
     def _predict_paths(df, future_timestamps=None):
+        """
+        Create deterministic simulated forecast paths anchored to the last close price in `df`.
+        
+        Parameters:
+            df (pd.DataFrame): Historical OHLCV bars; the last row's `close` value is used as the starting price.
+            future_timestamps (optional): Ignored by this mock; present for API compatibility.
+        
+        Returns:
+            np.ndarray: Array of shape (sample_count, pred_len, 6) with simulated future steps. Each step contains
+            [low, high, open, close, volume, volume * price] constructed deterministically from the last close.
+        """
         current_close = float(df["close"].iloc[-1])
         paths = np.empty((sample_count, pred_len, 6))
         for i in range(sample_count):

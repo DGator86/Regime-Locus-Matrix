@@ -39,6 +39,14 @@ class FactorPipeline:
         max_workers: int | None = None,
         parallel_backend: str = "thread",
     ) -> None:
+        """
+        Initialize the FactorPipeline with feature configuration, a set of factor calculators, and concurrency settings.
+        
+        Parameters:
+        	feature_config (dict[str, object] | None): Feature engineering configuration to use; if None, the module-wide configuration is loaded.
+        	max_workers (int | None): Maximum number of worker threads/processes for parallel factor computation; if None, the value is read from the RLM_FACTOR_WORKERS environment variable (defaults to 1).
+        	parallel_backend (str): Parallel execution backend identifier (e.g., "thread" or "process") used for computing factors.
+        """
         self.feature_config = (
             load_feature_engineering_config() if feature_config is None else feature_config
         )

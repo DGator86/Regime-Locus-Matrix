@@ -71,6 +71,17 @@ DEFAULT_PLANS = ROOT / "data" / "processed" / "universe_trade_plans.json"
 
 
 def _load_bars_ibkr(symbol: str, duration: str, bar_size: str) -> pd.DataFrame:
+    """
+    Load historical price bars for a symbol from the IBKR source.
+    
+    Parameters:
+        symbol (str): Ticker symbol to fetch.
+        duration (str): IBKR-style duration string (e.g., "1 D", "1 M").
+        bar_size (str): IBKR bar size string (e.g., "1 min", "5 mins").
+    
+    Returns:
+        pd.DataFrame: Empty DataFrame if no bars were returned. If non-empty, rows are sorted by the 'timestamp' column and 'timestamp' is set as the DataFrame index.
+    """
     bars = fetch_historical_stock_bars(
         symbol,
         duration=duration,
@@ -83,6 +94,18 @@ def _load_bars_ibkr(symbol: str, duration: str, bar_size: str) -> pd.DataFrame:
 
 
 def _load_bars_csv(symbol: str, csv_override: str | None) -> pd.DataFrame:
+    """
+    Load OHLCV bars for a symbol from a CSV file and return them indexed by timestamp.
+    
+    Reads the CSV at `csv_override` (if provided) or at the default path for `symbol`; requires a 'timestamp' column which is parsed to datetimes. Rows with invalid timestamps are dropped, and the resulting DataFrame is sorted by timestamp and returned with the timestamp set as the index. If the file is missing or lacks a usable 'timestamp' column, an empty DataFrame is returned.
+    
+    Parameters:
+        symbol (str): Ticker symbol used to derive the default CSV path when `csv_override` is not provided.
+        csv_override (str | None): Optional filesystem path to a CSV file to load; if empty or None the default path for `symbol` is used.
+    
+    Returns:
+        pd.DataFrame: DataFrame of bars indexed by timezone-naive timestamps (sorted). Returns an empty DataFrame if the file does not exist or does not contain a valid 'timestamp' column.
+    """
     path = Path(csv_override.strip()) if csv_override else ROOT / rel_bars_csv(symbol)
     if not path.is_file():
         return pd.DataFrame()
@@ -100,6 +123,21 @@ def _regime_heatmap_matrix(
     *,
     short_dte: bool,
 ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
+    """
+    Builds a strategy heatmap and corresponding labels for all regime direction/volatility combinations.
+    
+    Parameters:
+        liquidity (str): Liquidity regime identifier used to select strategies (e.g., "low", "high").
+        dealer_flow (str): Dealer flow regime identifier used to select strategies (e.g., "positive", "negative").
+        short_dte (bool): If true, select strategies appropriate for short days-to-expiry.
+    
+    Returns:
+        tuple: A 4-tuple containing:
+            - z (np.ndarray): 2D array of strategy maximum risk percentages expressed as percent (rows correspond to DIRECTIONS, columns to VOLS).
+            - labels (np.ndarray): 2D object array of strategy display names (underscores replaced with spaces) matching `z` shape.
+            - directions (list[str]): List of direction labels in the same row order as `z`.
+            - vols (list[str]): List of volatility labels in the same column order as `z`.
+    """
     z = np.zeros((len(DIRECTIONS), len(VOLS)))
     labels = np.empty(z.shape, dtype=object)
     for i, d in enumerate(DIRECTIONS):
@@ -111,6 +149,17 @@ def _regime_heatmap_matrix(
 
 
 def _init_session() -> None:
+    """
+    Initialize default Streamlit session state keys used by the dashboard.
+    
+    Sets default values for keys if they are not already present in st.session_state. Keys and defaults:
+    - "selected_symbol": "SPY"
+    - "forecast_mode": "deterministic"
+    - "bars_mode_radio": "Demo"
+    - "proc_df": None
+    - "proc_symbol": ""
+    - "open_drilldown": False
+    """
     st.session_state.setdefault("selected_symbol", "SPY")
     st.session_state.setdefault("forecast_mode", "deterministic")
     st.session_state.setdefault("bars_mode_radio", "Demo")
@@ -121,6 +170,11 @@ def _init_session() -> None:
 
 def main() -> None:
     # set_page_config must be the first Streamlit command (before session_state / widgets).
+    """
+    Render the Streamlit-based "RLM Control Center v1.0" dashboard for interactive regime analysis and pipeline control.
+    
+    Initializes page configuration and session defaults, injects custom styling, builds the sidebar controls (symbol, bars source, forecast stack, model parameters, and pipeline actions), loads price bars from Demo/CSV/IBKR, runs the forecast/feature processing stack (when available), stores processed results in session state, and renders seven main tabs: Universe, Forecasts, Positions, Matrix, Backtest, Pipeline, and Settings. The function updates st.session_state, may invoke external scripts (pipeline actions), and presents charts, tables, downloads, and interactive controls; it reports errors and toasts to the UI as appropriate.
+    """
     st.set_page_config(page_title="RLM Control Center v1.0", layout="wide", page_icon="⚔️")
     _init_session()
     inject_custom_css()

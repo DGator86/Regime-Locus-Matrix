@@ -28,7 +28,20 @@ class KronosConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: str | Path | None = None) -> KronosConfig:
-        """Load from the ``kronos:`` block in a YAML config file."""
+        """
+        Load Kronos configuration from a YAML file's `kronos` block.
+        
+        If `path` is None, the module default config path is used. If the file does not exist,
+        is empty, or contains no `kronos` block, a default `KronosConfig` instance is returned.
+        
+        Parameters:
+        	path (str | Path | None): Path to the YAML configuration file. If omitted, the
+        		module default path is used.
+        
+        Returns:
+        	KronosConfig: A configuration instance built from the `kronos` block, or the
+        		default configuration if the file or block is missing.
+        """
         cfg_path = Path(path) if path else _DEFAULT_CONFIG_PATH
         if not cfg_path.exists():
             return cls()

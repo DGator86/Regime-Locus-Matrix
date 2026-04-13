@@ -14,8 +14,15 @@ from rlm.options.surface import fit_svi_for_expiry, svi_raw
 
 def _ensure_option_chain_dte(df: pd.DataFrame) -> pd.DataFrame:
     """
-    ``fit_svi_for_expiry`` requires a numeric ``dte`` column (calendar days).
-    Many raw chain CSVs only have ``expiry``; derive ``dte`` when missing.
+    Ensure the DataFrame contains a numeric `dte` column representing calendar days to expiry.
+    
+    If `dte` already exists it will be coerced to numeric. If `dte` is missing and `expiry` is absent, `dte` is set to 30.0 for all rows. If `expiry` is present, `dte` is computed as the number of days between the normalized expiry date and a reference date (the median of parsed `timestamp` values when available, otherwise the current UTC date normalized to midnight). Missing or non-finite results are filled with 30.0 and final values are clipped to be at least 1.0.
+    
+    Parameters:
+        df (pd.DataFrame): Input option chain which may contain `dte`, `expiry`, and/or `timestamp` columns.
+    
+    Returns:
+        pd.DataFrame: A copy of `df` with a numeric `dte` column (float) guaranteed to be finite and >= 1.0.
     """
     out = df.copy()
     if "dte" in out.columns:
@@ -39,6 +46,16 @@ def _ensure_option_chain_dte(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def fig_price_locus(processed: pd.DataFrame, *, title: str) -> go.Figure:
+    """
+    Create a two-row Plotly figure showing the price locus: close price with optional uncertainty bands and an optional sigma bar subplot.
+    
+    Parameters:
+        processed (pd.DataFrame): Processed market data indexed by timestamp or by integer position. Must include a "close" column; may optionally include "upper_1s", "lower_1s", "upper_2s", "lower_2s", and "sigma" to render additional traces.
+        title (str): Chart title.
+    
+    Returns:
+        go.Figure: A Plotly figure containing a larger top subplot with the close price line and any available 1σ/2σ boundary lines, and a bottom subplot showing sigma as a bar series when the "sigma" column is present.
+    """
     idx = processed.index
     if not isinstance(idx, pd.DatetimeIndex):
         idx = pd.RangeIndex(len(processed))
@@ -82,6 +99,15 @@ def fig_price_locus(processed: pd.DataFrame, *, title: str) -> go.Figure:
 
 
 def fig_factor_radar(last: pd.Series) -> go.Figure:
+    """
+    Create a filled polar radar chart of four factors (S_D, S_V, S_L, S_G) from the provided latest values.
+    
+    Parameters:
+    	last (pd.Series): Series containing factor values; expected keys are "S_D", "S_V", "S_L", "S_G". Missing or falsy values are treated as 0.
+    
+    Returns:
+    	fig (go.Figure): A Plotly Figure with a closed radar (polar) trace showing the four factor values.
+    """
     cats = ["S_D", "S_V", "S_L", "S_G"]
     vals = [float(last.get(c, 0) or 0) for c in cats]
     fig = go.Figure(
@@ -103,6 +129,17 @@ def fig_factor_radar(last: pd.Series) -> go.Figure:
 
 
 def fig_quantile_fan(processed: pd.DataFrame) -> go.Figure | None:
+    """
+    Builds a Plotly figure showing a filled quantile band and median forecast from processed forecast return columns.
+    
+    Expects `processed` to contain the columns `forecast_return_lower`, `forecast_return_median`, and `forecast_return_upper`. The figure contains a filled polygon between upper and lower quantiles and a median line; the x-axis uses the DataFrame's DatetimeIndex when present, otherwise a RangeIndex.
+    
+    Parameters:
+        processed (pd.DataFrame): DataFrame containing forecast quantile columns.
+    
+    Returns:
+        go.Figure | None: A Plotly Figure with the quantile band and median line, or `None` if any required columns are missing.
+    """
     cols = ["forecast_return_lower", "forecast_return_median", "forecast_return_upper"]
     if not all(c in processed.columns for c in cols):
         return None
@@ -133,6 +170,17 @@ def fig_quantile_fan(processed: pd.DataFrame) -> go.Figure | None:
 
 
 def fig_hmm_markov_stacked(processed: pd.DataFrame) -> go.Figure | None:
+    """
+    Create a stacked-area plot of state probabilities from a sequence of HMM or Markov probability vectors.
+    
+    The x-axis uses the DataFrame index (datetime index if present, otherwise a range index). Prefers the `hmm_probs` column if present; falls back to `markov_probs`. Each column entry must be an iterable of numeric state probabilities of consistent length across rows.
+    
+    Parameters:
+        processed (pd.DataFrame): DataFrame containing either `hmm_probs` or `markov_probs`, where each row value is an iterable of state probabilities.
+    
+    Returns:
+        go.Figure | None: A Plotly figure with stacked area traces (one per state) when a supported column is present, or `None` if neither column exists.
+    """
     idx = processed.index if isinstance(processed.index, pd.DatetimeIndex) else pd.RangeIndex(len(processed))
     x = list(idx)
     if "hmm_probs" in processed.columns:
@@ -173,6 +221,17 @@ def fig_hmm_markov_stacked(processed: pd.DataFrame) -> go.Figure | None:
 
 
 def fig_mtf_alignment_heatmap(processed: pd.DataFrame) -> go.Figure | None:
+    """
+    Create a heatmap of recent multi-timeframe ("mtf") and "confluence" numeric features.
+    
+    Selects up to 32 numeric columns whose names contain "mtf" or "confluence" (case-insensitive), uses up to the last 200 rows, and renders a Plotly heatmap with features on the y-axis and recent bars on the x-axis.
+    
+    Parameters:
+        processed (pd.DataFrame): DataFrame with feature columns; numeric columns whose names include "mtf" or "confluence" are considered.
+    
+    Returns:
+        go.Figure | None: A Plotly Figure containing the heatmap, or `None` if no matching numeric columns are found.
+    """
     cols = [
         c
         for c in processed.columns
@@ -203,7 +262,18 @@ def fig_svi_surface_latest(
     *,
     spot: float | None = None,
 ) -> go.Figure | None:
-    """IV by strike for a few expiries (latest timestamp slice)."""
+    """
+    Plot implied volatility versus strike for up to six expiries using the latest timestamp slice.
+    
+    Builds a scatter of observed IV by strike for each expiry present in the most-recent timestamp of `chain` and overlays SVI-implied IV curves when a fit is available and the expiry group has sufficient points.
+    
+    Parameters:
+        chain (pd.DataFrame): Option chain rows containing at least `iv` and `strike`; may include `expiry`, `timestamp`, and `underlying_price`.
+        spot (float | None): Spot price to use for log-moneyness and SVI conversion. If omitted or invalid, the function infers spot from `underlying_price` median or `strike` median.
+    
+    Returns:
+        go.Figure | None: A Plotly figure containing IV scatter points and optional SVI fit lines, or `None` if `chain` is empty, lacks required `iv` data, contains no rows in the latest timestamp slice, or a valid spot cannot be determined.
+    """
     if chain.empty or "iv" not in chain.columns:
         return None
     work = chain.copy()
@@ -267,7 +337,18 @@ def fig_svi_surface_latest(
 
 
 def fig_svi_fitted_curves(chain: pd.DataFrame, *, spot: float | None = None) -> go.Figure | None:
-    """Per-expiry SVI total-variance fit vs log-moneyness."""
+    """
+    Fit SVI total-variance curves for up to five expiries and return SVI-implied implied-volatility curves plotted against log-moneyness.
+    
+    The function operates on the latest timestamp slice if a `timestamp` column exists. If `expiry` is absent the function falls back to an IV vs log-moneyness scatter plot. If the DataFrame is empty or missing required `iv` or `strike` columns, or if a valid positive `spot` cannot be determined, the function returns `None`.
+    
+    Parameters:
+        chain (pd.DataFrame): Option-chain snapshot containing at minimum `iv` and `strike`. May also include `expiry`, `timestamp`, and `underlying_price`.
+        spot (float | None): Underlying price to use for log-moneyness. If omitted or invalid, the median of `underlying_price` (if present) or `strike` is used.
+    
+    Returns:
+        go.Figure | None: A Plotly Figure with SVI-implied IV curves versus `log(K/S)` (or an IV scatter figure if no `expiry` column), or `None` when prerequisites are not met.
+    """
     if chain.empty or "iv" not in chain.columns or "strike" not in chain.columns:
         return None
     work = chain.copy()
@@ -309,6 +390,16 @@ def fig_svi_fitted_curves(chain: pd.DataFrame, *, spot: float | None = None) -> 
 
 
 def fig_iv_scatter_only(work: pd.DataFrame, *, spot: float) -> go.Figure:
+    """
+    Create a scatter plot of implied volatility versus log-moneyness.
+    
+    Parameters:
+        work (pd.DataFrame): DataFrame containing numeric `strike` and `iv` columns.
+        spot (float): Reference underlying price used to compute log-moneyness as log(strike / spot).
+    
+    Returns:
+        go.Figure: A Plotly Figure with points at x = log(K / S) and y = implied volatility.
+    """
     log_m = np.log(pd.to_numeric(work["strike"], errors="coerce") / spot)
     iv = pd.to_numeric(work["iv"], errors="coerce")
     fig = go.Figure(go.Scatter(x=log_m, y=iv, mode="markers", marker=dict(color="#00f5ff", size=6)))
@@ -317,6 +408,18 @@ def fig_iv_scatter_only(work: pd.DataFrame, *, spot: float) -> go.Figure:
 
 
 def fig_equity_regime(equity: pd.DataFrame, regime_col: str | None) -> go.Figure:
+    """
+    Render an equity time series, optionally coloring markers by a discrete regime column.
+    
+    The function requires the DataFrame to contain 'timestamp' and 'equity' columns; if either is missing an empty Plotly Figure is returned. Timestamps are parsed and rows with invalid timestamps are dropped. If a valid regime column name is provided and present in the DataFrame, markers are colored by the column's categorical codes using the Viridis colorscale and a colorbar is shown; otherwise a plain line trace is drawn.
+    
+    Parameters:
+        equity (pd.DataFrame): DataFrame containing at least 'timestamp' and 'equity' columns.
+        regime_col (str | None): Optional column name whose categorical values will determine marker colors.
+    
+    Returns:
+        go.Figure: A Plotly Figure showing the equity curve (with colored markers when a valid regime column is supplied).
+    """
     if "timestamp" not in equity.columns or "equity" not in equity.columns:
         return go.Figure()
     eq = equity.copy()
@@ -343,6 +446,15 @@ def fig_equity_regime(equity: pd.DataFrame, regime_col: str | None) -> go.Figure
 
 
 def write_figure_png_bytes(fig: go.Figure) -> bytes | None:
+    """
+    Serialize a Plotly figure to PNG image bytes.
+    
+    Parameters:
+        fig (go.Figure): Plotly figure to serialize.
+    
+    Returns:
+        bytes | None: PNG image bytes if serialization succeeds, `None` if serialization fails.
+    """
     try:
         return fig.to_image(format="png", scale=2)
     except Exception:

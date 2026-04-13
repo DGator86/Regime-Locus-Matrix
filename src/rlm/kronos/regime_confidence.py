@@ -36,7 +36,16 @@ _CLIP = 1.0
 
 
 def _direction_proxy(current_close: float, predicted_closes: np.ndarray) -> float:
-    """Multi-bar return as a direction proxy, scaled to roughly [-1, 1]."""
+    """
+    Compute a scaled direction proxy from the multi-bar predicted closes, clamped to [-1, 1].
+    
+    Parameters:
+        current_close (float): The most-recent observed close price; if zero, the function returns 0.0.
+        predicted_closes (np.ndarray): Array of predicted close prices; the final element is used to compute the multi-bar return.
+    
+    Returns:
+        float: Clamped direction proxy in the range [-1, 1]; positive values indicate an expected upward return, negative values indicate an expected downward return.
+    """
     if current_close == 0:
         return 0.0
     final_ret = (predicted_closes[-1] - current_close) / current_close
@@ -45,7 +54,22 @@ def _direction_proxy(current_close: float, predicted_closes: np.ndarray) -> floa
 
 
 def _volatility_proxy(current_close: float, predicted_highs: np.ndarray, predicted_lows: np.ndarray) -> float:
-    """Average predicted range normalised by current close."""
+    """
+    Compute a normalized volatility proxy from predicted highs and lows.
+    
+    If `current_close` is zero, returns `0.0`. Otherwise computes the mean predicted high-low range
+    relative to `current_close`, applies a linear transform (avg_range * 50.0 - 0.5) and clamps the
+    result to the interval [-1.0, 1.0].
+    
+    Parameters:
+        current_close (float): Last observed close price used for normalization.
+        predicted_highs (np.ndarray): Array of predicted high prices for each future step.
+        predicted_lows (np.ndarray): Array of predicted low prices for each future step.
+    
+    Returns:
+        float: A value in [-1.0, 1.0] representing the normalized predicted volatility
+        (approximately 0.5 corresponds to a 1% average predicted range before clamping).
+    """
     if current_close == 0:
         return 0.0
     avg_range = np.mean(predicted_highs - predicted_lows) / current_close
@@ -54,9 +78,15 @@ def _volatility_proxy(current_close: float, predicted_highs: np.ndarray, predict
 
 
 def _classify_path(current_close: float, path: np.ndarray) -> str:
-    """Classify a single predicted OHLCV path into a regime key.
-
-    *path* has shape ``(pred_len, 6)`` — columns are OHLCV + amount.
+    """
+    Assigns a regime key to a single predicted OHLCV path.
+    
+    Parameters:
+        current_close (float): Reference close price for computing proxies.
+        path (np.ndarray): Predicted path with shape (pred_len, 6); columns are OHLCV + amount where index 3 is close, 1 is high, and 2 is low.
+    
+    Returns:
+        Regime key string that encodes discrete labels for direction, volatility, liquidity, and dealer-flow axes.
     """
     closes = path[:, 3]
     highs = path[:, 1]
@@ -91,6 +121,13 @@ class KronosRegimeConfidence:
         config: KronosConfig | None = None,
         predictor: RLMKronosPredictor | None = None,
     ) -> None:
+        """
+        Initialize the KronosRegimeConfidence with a configuration and a predictor.
+        
+        Parameters:
+            config (KronosConfig | None): Configuration to use. If `None`, the configuration is loaded from YAML via KronosConfig.from_yaml().
+            predictor (RLMKronosPredictor | None): Predictor instance to use for path generation. If `None`, an RLMKronosPredictor is created using the resolved `config`.
+        """
         self._config = config or KronosConfig.from_yaml()
         self._predictor = predictor or RLMKronosPredictor(self._config)
 
@@ -103,23 +140,21 @@ class KronosRegimeConfidence:
         bar_df: pd.DataFrame,
         current_regime_key: str | None = None,
     ) -> dict[str, object]:
-        """Compute Kronos confidence columns for the last bar in *bar_df*.
-
-        Parameters
-        ----------
-        bar_df : DataFrame
-            OHLCV history up to (and including) the bar being scored.
-            Must have at least ``max_context`` rows for full context;
-            shorter frames are fine but may reduce quality.
-        current_regime_key : str or None
-            The regime key for the current bar (from ``classify_state_matrix``).
-
-        Returns
-        -------
-        dict with keys:
-            kronos_confidence, kronos_regime_agreement,
-            kronos_predicted_regime, kronos_transition_flag,
-            kronos_forecast_return, kronos_forecast_vol
+        """
+        Compute per-bar Kronos regime-confidence metrics for the final row in bar_df.
+        
+        Parameters:
+            bar_df (pd.DataFrame): OHLCV history ending at the bar to be scored. Shorter-than-configured context is allowed but may reduce prediction quality.
+            current_regime_key (str | None): The current bar's regime key, if available; when provided, agreement and transition metrics are computed relative to this key.
+        
+        Returns:
+            dict: A mapping with the following keys:
+                - kronos_confidence: Fraction of predicted sample paths that share the modal predicted regime.
+                - kronos_regime_agreement: Fraction of predicted paths matching `current_regime_key` (or equal to `kronos_confidence` if `current_regime_key` is None).
+                - kronos_predicted_regime: The modal predicted regime key (string).
+                - kronos_transition_flag: `True` if the modal predicted regime differs from `current_regime_key` (False when `current_regime_key` is None).
+                - kronos_forecast_return: Mean predicted return (final predicted close vs current close) across samples.
+                - kronos_forecast_vol: Standard deviation of predicted returns across samples (0.0 if only one sample).
         """
         current_close = float(bar_df["close"].iloc[-1])
 
@@ -176,10 +211,25 @@ class KronosRegimeConfidence:
         regime_key_col: str = "regime_key",
         min_lookback: int = 30,
     ) -> pd.DataFrame:
-        """Add Kronos confidence columns to every row in *df*.
-
-        For rows where lookback is insufficient (< *min_lookback*), the
-        columns are filled with neutral defaults.
+        """
+        Add Kronos regime-confidence columns to a copy of the input DataFrame.
+        
+        Initializes the following columns with neutral defaults for every row:
+        `kronos_confidence`, `kronos_regime_agreement`, `kronos_predicted_regime`,
+        `kronos_transition_flag`, `kronos_forecast_return`, and `kronos_forecast_vol`.
+        Starting at `min_lookback`, computes per-row scores by calling `score_bar`
+        on a lookback slice bounded by `self._config.max_context`; if `regime_key_col`
+        exists the current row's value is passed as `current_regime_key`. If scoring
+        fails for a row, the row's defaults are left unchanged and the error is logged
+        at debug level.
+        
+        Parameters:
+            df (pd.DataFrame): Input bars DataFrame to annotate.
+            regime_key_col (str): Column name containing the current regime key, if present.
+            min_lookback (int): First row index to score; rows with index < this value keep defaults.
+        
+        Returns:
+            pd.DataFrame: A copy of `df` with the Kronos confidence and forecast columns added.
         """
         out = df.copy()
 

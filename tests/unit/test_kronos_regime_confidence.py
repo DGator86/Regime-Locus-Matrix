@@ -58,6 +58,17 @@ def test_classify_path_returns_regime_key():
 
 
 def _make_bars(n: int = 50) -> pd.DataFrame:
+    """
+    Create a synthetic OHLCV DataFrame of daily bars for testing.
+    
+    Generates deterministic pseudo-random open, high, low, close, and volume columns with a fixed seed so repeated calls produce the same series. The DataFrame includes a daily timestamp index starting at 2024-01-01.
+    
+    Parameters:
+        n (int): Number of bars (rows) to generate. Defaults to 50.
+    
+    Returns:
+        pd.DataFrame: DataFrame with columns ["timestamp", "open", "high", "low", "close", "volume"] and length `n`.
+    """
     rng = np.random.RandomState(42)
     close = 100 + np.cumsum(rng.randn(n) * 0.5)
     return pd.DataFrame({
@@ -71,10 +82,31 @@ def _make_bars(n: int = 50) -> pd.DataFrame:
 
 
 def _mock_predictor_factory(sample_count: int = 5, pred_len: int = 3):
-    """Return a mock RLMKronosPredictor whose predict_paths returns stable arrays."""
+    """
+    Create a mock predictor that implements predict_paths and returns deterministic synthetic path arrays.
+    
+    Parameters:
+        sample_count (int): Number of sample paths to generate per call.
+        pred_len (int): Number of forecast steps per sample path.
+    
+    Returns:
+        mock: A mock predictor object with a `predict_paths(df, future_timestamps=None)` method that returns a NumPy array of shape (sample_count, pred_len, 6). Each entry represents synthetic OHLCV-like features for a forecast step (open, high, low, close, volume, volume_price) constructed deterministically from the input dataframe's last `close` value.
+    """
     mock = MagicMock()
 
     def _predict_paths(df, future_timestamps=None):
+        """
+        Generate deterministic synthetic forecast paths anchored to the last close in `df`.
+        
+        Each returned path sample simulates `pred_len` future steps and encodes six features per step in the following order: [open, high, low, close, volume, dollar_volume]. The values are produced with a small sample-dependent linear drift from the final close in `df`. The optional `future_timestamps` parameter is accepted but ignored.
+        
+        Parameters:
+            df (pd.DataFrame): Historical bars containing a `close` column; the last value is used as the reference close.
+            future_timestamps: Ignored placeholder for API compatibility.
+        
+        Returns:
+            np.ndarray: Array of shape (sample_count, pred_len, 6) with synthetic forecast paths as described above.
+        """
         current_close = float(df["close"].iloc[-1])
         paths = np.empty((sample_count, pred_len, 6))
         for i in range(sample_count):

@@ -10,6 +10,17 @@ from rlm.roee.decision import compute_regime_modulators
 
 
 def _row(**kwargs) -> pd.Series:
+    """
+    Create a pandas Series from the provided keyword arguments.
+    
+    Each keyword argument becomes a Series index label with its corresponding value.
+    
+    Parameters:
+        **kwargs: Arbitrary keyword arguments to include as Series entries.
+    
+    Returns:
+        pd.Series: A Series whose index are the provided keyword names and values are the corresponding argument values.
+    """
     return pd.Series(kwargs)
 
 

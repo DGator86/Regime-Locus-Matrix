@@ -51,6 +51,14 @@ def _parse_tf_key_values(text: str | None, cast_float: bool = False) -> dict[str
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments that control data inputs, model selection, multi-timeframe options, and optional Kronos post-processing.
+    
+    Recognized options include model/regime choices (HMM or Markov and their state counts), probabilistic output and quantile model path, multi-timeframe augmentation and associated higher-timeframe paths/weights, input/output paths for bars and option chain, toggles for VIX attachment and Kronos annotation, and the target symbol.
+    
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Factors → forecast features (default bars: data/raw/bars_{SYMBOL}.csv)."
     )
@@ -125,6 +133,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """
+    Run the end-to-end forecast pipeline driven by command-line arguments and write selected forecast features to a CSV.
+    
+    Parses CLI options, validates mutually exclusive and dependent flags, loads bars (and optional option chain) for the requested symbol, prepares data and computes factor features (optionally augmented with multi-timeframe factors), selects and executes the configured forecasting pipeline (various regime/probabilistic options supported), optionally annotates the forecast with Kronos regime confidence, and writes a subset of forecast columns to the configured output path while printing a tail preview.
+    
+    Raises:
+        SystemExit: if invalid/contradictory CLI flags are provided or required input files (e.g., bars CSV) are missing.
+    """
     args = parse_args()
     if args.use_hmm and args.use_markov:
         raise SystemExit("Use either --use-hmm or --use-markov, not both.")

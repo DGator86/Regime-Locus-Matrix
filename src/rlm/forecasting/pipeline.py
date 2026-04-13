@@ -77,6 +77,23 @@ class HybridForecastPipeline:
         micro_timeframes: tuple[str, ...] = ("5min", "1min"),
         forecast_engine: object | None = None,
     ) -> None:
+        """
+        Initialize a hybrid forecasting pipeline by configuring its forecast engine, optional HMM, and optional multi-timeframe regime model.
+        
+        Parameters:
+            config (ForecastConfig | None): Forecast configuration used when constructing the default ForecastPipeline; ignored if `forecast_engine` is provided.
+            move_window (int): Lookback window length for the default ForecastPipeline.
+            vol_window (int): Volatility window length for the default ForecastPipeline.
+            hmm_config (HMMConfig | None): Configuration for an RLMHMM; when provided an HMM instance will be created and used.
+            mtf_regimes (bool): When True, enable a MultiTimeframeRegimeModel for multi-timeframe regime annotation.
+            mtf_htf_prob_paths (dict[str, str] | None): Mapping of high-timeframe probability column names to source paths for the MTF model.
+            mtf_htf_weights (dict[str, float] | None): Weights for high-timeframe sources used by the MTF model.
+            mtf_ltf_weight (float): Weight for the long-timeframe component in the MTF aggregation (clipped to [0, 1] where applied).
+            hierarchical (bool): When True, enable hierarchical aggregation between macro and micro regime estimates.
+            macro_weight (float): Weight applied to macro (longer timeframe) regime estimates when hierarchical aggregation is enabled; clipped to the [0.0, 1.0] range.
+            micro_timeframes (tuple[str, ...]): Sequence of timeframe rules (e.g., "5min", "1min") used to build micro-level regime models.
+            forecast_engine (object | None): Optional injected forecast engine instance to use instead of constructing the default ForecastPipeline.
+        """
         if forecast_engine is not None:
             self.forecast = forecast_engine  # type: ignore[assignment]
         else:

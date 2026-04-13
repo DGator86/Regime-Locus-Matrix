@@ -6,6 +6,15 @@ import streamlit as st
 
 
 def inject_custom_css() -> None:
+    """
+    Inject a cyber-dark theme and utility styles into the running Streamlit application.
+    
+    This function adds an inline stylesheet that:
+    - Applies a near-black background, light text, and the Inter UI font across the main app container.
+    - Styles header, sidebar, tabs, metric cards, alerts, and code blocks (JetBrains Mono).
+    - Provides utility classes for neon text, animated pulse-status dots, and an animated "aurora" header.
+    - Hides the Streamlit Community Cloud deploy button, the main menu, and the footer to present a local-focused UI.
+    """
     st.markdown(
         """
 <style>

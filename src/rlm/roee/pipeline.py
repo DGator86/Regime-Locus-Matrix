@@ -32,6 +32,21 @@ class ROEEConfig:
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
+    """
+    Builds the HMM/regime modulator settings for a single row using the provided ROEE configuration.
+    
+    Parameters:
+        row (pd.Series): Input row containing regime signals and features used to compute modulators.
+        config (ROEEConfig): ROEE configuration containing confidence thresholds, sizing and transition penalties,
+            and weighting parameters for HMM/Kronos.
+    
+    Returns:
+        dict[str, float | bool | str]: A modulator dictionary including at least:
+            - 'confidence' (float): regime confidence score.
+            - 'size_mult' (float): multiplier applied to computed position size.
+            - 'trade' (bool): whether an HMM-based trade is allowed.
+            - additional fields (e.g., transition/penalty metadata) as provided by compute_regime_modulators.
+    """
     return compute_regime_modulators(
         row,
         confidence_threshold=config.hmm_confidence_threshold,

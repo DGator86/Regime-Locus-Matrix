@@ -7,7 +7,17 @@ import pandas as pd
 
 
 def get_demo_bars(*, symbol: str = "SPY", n: int = 320) -> pd.DataFrame:
-    """Datetime-indexed bars with columns expected by ``prepare_bars_for_factors``."""
+    """
+    Create a deterministic synthetic OHLCV DataFrame indexed by business-day timestamps.
+    
+    Parameters:
+        symbol (str): Ticker symbol for which data is generated (informational only).
+        n (int): Number of business-day bars to generate.
+    
+    Returns:
+        pd.DataFrame: DataFrame indexed by a DatetimeIndex named "timestamp" with columns
+        "open", "high", "low", "close", and "volume".
+    """
     rng = np.random.default_rng(42)
     idx = pd.date_range(end=pd.Timestamp.utcnow().normalize(), periods=n, freq="B")
     close = 450.0 + np.cumsum(rng.normal(0, 1.2, size=n))
@@ -28,7 +38,22 @@ def get_demo_bars(*, symbol: str = "SPY", n: int = 320) -> pd.DataFrame:
 
 
 def get_demo_option_chain_stub(*, symbol: str = "SPY") -> pd.DataFrame:
-    """Minimal option-chain-like frame for SVI / IV demos when no chain CSV exists."""
+    """
+    Generate a minimal, synthetic option-chain table intended for SVI/IV demonstrations when no option-chain CSV is available.
+    
+    Parameters:
+        symbol (str): Underlying symbol for which the synthetic option rows are produced (included for downstream compatibility).
+    
+    Returns:
+        pd.DataFrame: Rows with columns:
+            - `timestamp` (pd.Timestamp): UTC-normalized date for the generated chain.
+            - `strike` (float): Option strike price.
+            - `expiry` (str): Expiry date formatted as YYYY-MM-DD.
+            - `dte` (float): Days to expiry.
+            - `iv` (float): Implied volatility (clamped minimum 0.05).
+            - `underlying_price` (float): Reference underlying price used to compute IV.
+            - `volume` (float): Synthetic trade volume.
+    """
     rng = np.random.default_rng(7)
     ts = pd.Timestamp.utcnow().normalize()
     strikes = np.arange(400.0, 520.0, 2.0)

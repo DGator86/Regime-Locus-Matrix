@@ -31,10 +31,28 @@ class KronosFactorCalculator(FactorCalculator):
         config: KronosConfig | None = None,
         predictor: RLMKronosPredictor | None = None,
     ) -> None:
+        """
+        Initialize the KronosFactorCalculator with a configuration and predictor, defaulting to file-based config and a new RLMKronosPredictor when not provided.
+        
+        Parameters:
+            config (KronosConfig | None): Optional configuration to use; when omitted, loaded via KronosConfig.from_yaml().
+            predictor (RLMKronosPredictor | None): Optional predictor instance to use; when omitted, a new RLMKronosPredictor is constructed with the resolved config.
+        """
         self._config = config or KronosConfig.from_yaml()
         self._predictor = predictor or RLMKronosPredictor(self._config)
 
     def specs(self) -> list[FactorSpec]:
+        """
+        Return the FactorSpec list describing the three Kronos-derived factors produced by this calculator.
+        
+        The returned list defines:
+        - `kronos_return_forecast`: signed direction forecast scaled by 0.01 (one-bar return forecast).
+        - `kronos_range_forecast`: volatility ratio representing predicted high-low range normalized by price with a neutral value of 0.01.
+        - `kronos_path_dispersion`: volatility ratio representing dispersion of predicted sample returns with a neutral value of 0.005.
+        
+        Returns:
+            A list of `FactorSpec` objects for `kronos_return_forecast`, `kronos_range_forecast`, and `kronos_path_dispersion`.
+        """
         return [
             FactorSpec(
                 name="kronos_return_forecast",
@@ -60,6 +78,24 @@ class KronosFactorCalculator(FactorCalculator):
         ]
 
     def compute(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute three Kronos-derived factor series aligned to the input DataFrame's index.
+        
+        Processes each eligible row of `df` using the instance's predictor to produce:
+        - a 1-bar signed return forecast ("kronos_return_forecast"),
+        - a normalized predicted high-low range ("kronos_range_forecast"),
+        - and a dispersion of per-sample predicted returns ("kronos_path_dispersion").
+        Rows with insufficient lookback data, a zero close price, or failed predictions are left as NaN.
+        
+        Parameters:
+            df (pd.DataFrame): Input OHLCV-like DataFrame indexed by timestamp and containing at least a "close" column.
+        
+        Returns:
+            pd.DataFrame: New DataFrame indexed like `df` with columns:
+                - "kronos_return_forecast": predicted 1-bar return (signed).
+                - "kronos_range_forecast": predicted mean high-minus-low normalized by current close.
+                - "kronos_path_dispersion": standard deviation of per-sample predicted returns (0.0 when only one sample).
+        """
         n = len(df)
         ret_forecast = np.full(n, np.nan)
         range_forecast = np.full(n, np.nan)

@@ -32,21 +32,32 @@ class KronosForecastPipeline:
         predictor: RLMKronosPredictor | None = None,
         min_lookback: int = 30,
     ) -> None:
+        """
+        Initialize the KronosForecastPipeline with configuration, predictor, and minimum lookback.
+        
+        Parameters:
+            config (KronosConfig | None): Configuration to use; if None, loaded via KronosConfig.from_yaml().
+            predictor (RLMKronosPredictor | None): Predictor instance to use; if None, a RLMKronosPredictor is created with `config`.
+            min_lookback (int): Minimum number of historical bars required before producing forecasts (start index offset).
+        """
         self._config = config or KronosConfig.from_yaml()
         self._predictor = predictor or RLMKronosPredictor(self._config)
         self._min_lookback = min_lookback
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add forecast columns to *df* using Kronos predictions.
-
-        The following columns are added / overwritten:
-
-        * ``mu``, ``sigma`` -- return-scale drift and vol
-        * ``mean_price`` -- ``close * (1 + mu)``
-        * ``forecast_return``, ``forecast_return_lower``,
-          ``forecast_return_median``, ``forecast_return_upper``
-        * ``forecast_uncertainty``, ``forecast_source``
-        * Band columns via :func:`compute_state_matrix_bands`
+        """
+        Compute and attach Kronos-based forecast columns to the given DataFrame.
+        
+        Adds or overwrites per-row forecast fields including `mu`, `sigma`, `mean_price`, `forecast_return`,
+        `forecast_return_lower`, `forecast_return_median`, `forecast_return_upper`, `forecast_uncertainty`,
+        and `forecast_source`, and also populates state-matrix band columns. Forecasts are produced from
+        multi-sample Kronos prediction paths; for each evaluated row the final predicted close per sample is
+        converted to sample returns and used to derive mean (`mu`), standard deviation (`sigma`, lower-bounded
+        to 1e-4), and the 10th/50th/90th return quantiles (lower/median/upper). Rows with insufficient lookback,
+        a zero `close`, or where prediction fails remain at their initialized default values.
+        
+        Returns:
+            pd.DataFrame: A copy of the input DataFrame with the added forecast and band columns.
         """
         out = df.copy()
 

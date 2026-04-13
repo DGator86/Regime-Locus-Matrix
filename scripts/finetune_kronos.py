@@ -50,6 +50,26 @@ class RLMKlineDataset(Dataset):
         pred_len: int = 10,
         clip: float = 5.0,
     ) -> None:
+        """
+        Initialize the dataset as sliding windows of numeric features and time components derived from the input bars DataFrame.
+        
+        Parameters:
+            df (pd.DataFrame): DataFrame of historical bars. Expected columns include
+                "open", "high", "low", "close", "volume" and optionally "amount" and "timestamp".
+                If "timestamp" is missing, the DataFrame index is used. If "amount" is missing it is
+                computed as volume * close.
+            lookback (int): Number of past steps included in each input window.
+            pred_len (int): Number of future steps reserved for prediction in each window.
+            clip (float): Absolute value used to clip standardized feature values.
+        
+        Behavior:
+            - Parses timestamps and adds time component columns: minute, hour, weekday, day, month.
+            - Builds numpy arrays:
+                - self.features: float32 array of FEATURE_COLS for each row.
+                - self.time_features: float32 array of TIME_COLS for each row.
+            - Sets self.lookback, self.pred_len, self.window (lookback + pred_len + 1),
+              self.clip, and self.n_samples (number of sliding windows available, >= 0).
+        """
         self.lookback = lookback
         self.pred_len = pred_len
         self.window = lookback + pred_len + 1
@@ -71,9 +91,25 @@ class RLMKlineDataset(Dataset):
         self.n_samples = max(len(df) - self.window + 1, 0)
 
     def __len__(self) -> int:
+        """
+        Number of sliding-window samples available in the dataset.
+        
+        Returns:
+            int: Count of available samples (max(len(df) - window + 1, 0)).
+        """
         return self.n_samples
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return a sliding-window sample: standardized/clipped numeric features and corresponding time features.
+        
+        Parameters:
+        	idx (int): Index of the sample window; wrapped via modulo to stay inside valid range.
+        
+        Returns:
+        	x (torch.Tensor): Float tensor of shape (window, num_feature_cols) containing per-window standardized and clipped feature values.
+        	x_stamp (torch.Tensor): Float tensor of shape (window, num_time_cols) containing the time-derived features for the same window.
+        """
         start = idx % (len(self.features) - self.window + 1)
         end = start + self.window
 
@@ -97,6 +133,21 @@ def _train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: str,
 ) -> float:
+    """
+    Runs a single training epoch: processes all batches from `loader`, updates tokenizer and model parameters, and returns the average training loss.
+    
+    Processes each batch by computing the tokenizer reconstruction and quantization losses, computing the predictor's loss using teacher forcing on latent token indices, summing these losses, performing backpropagation with gradient clipping, and stepping `optimizer`.
+    
+    Parameters:
+        tokenizer (KronosTokenizer): Tokenizer being fine-tuned; its parameters are updated.
+        model (Kronos): Predictor being fine-tuned; its parameters are updated.
+        loader (DataLoader): Iterable DataLoader yielding (features, time-stamps) batches.
+        optimizer (torch.optim.Optimizer): Optimizer stepping both tokenizer and model parameters.
+        device (str): Torch device identifier where tensors and models are located.
+    
+    Returns:
+        float: Average training loss computed over all processed batches.
+    """
     tokenizer.train()
     model.train()
     total_loss = 0.0
@@ -140,6 +191,20 @@ def _train_one_epoch(
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments for the Kronos fine-tuning script.
+    
+    Returns:
+        args (argparse.Namespace): Parsed arguments with attributes:
+            symbol (str): Ticker symbol to train on (default "SPY").
+            bars (str|None): Optional path to bars CSV relative to repo root (default None).
+            epochs (int): Number of training epochs (default 10).
+            batch_size (int): Training batch size (default 8).
+            lr (float): Learning rate (default 5e-5).
+            lookback (int): Lookback window length in timesteps (default 90).
+            pred_len (int): Prediction horizon in timesteps (default 10).
+            seed (int): Random seed for reproducibility (default 42).
+    """
     p = argparse.ArgumentParser(description="Fine-tune Kronos on RLM bars.")
     p.add_argument("--symbol", default="SPY")
     p.add_argument("--bars", default=None, help="Override bars CSV path (relative to repo root).")
@@ -153,6 +218,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """
+    Run the CLI fine-tuning pipeline that trains a Kronos tokenizer and predictor on historical bar data and saves the best checkpoint.
+    
+    Reads and time-sorts a bars CSV (path from CLI args or data/raw/bars_{SYMBOL}.csv), splits into train/validation, constructs datasets/loaders, loads pre-trained Kronos tokenizer and model from KronosConfig, runs epoch-wise training and validation, and saves the tokenizer and model to data/models/kronos/{SYMBOL}/ when validation improves. Seeds Python/NumPy/torch from CLI `--seed` and uses the device specified by KronosConfig.
+    
+    Raises:
+        SystemExit: if the specified bars CSV file cannot be found.
+    """
     args = parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)

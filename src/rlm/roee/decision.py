@@ -61,6 +61,25 @@ def compute_regime_modulators(
     hmm_confidence_weight: float = 0.6,
     kronos_transition_penalty: float = 0.3,
 ) -> dict[str, float | bool | str]:
+    """
+    Compute a composite regime confidence and derive gating/sizing modulators for trading.
+    
+    Parameters:
+        row (pd.Series): Input data row containing regime probabilities and optional Kronos fields.
+        confidence_threshold (float): Minimum composite confidence required to allow a trade.
+        sizing_multiplier (float): Base multiplier applied when computing the size factor.
+        transition_penalty (float): Penalty applied to sizing proportional to transition risk (1 - confidence).
+        kronos_confidence_weight (float): Weight applied to Kronos agreement when blending with HMM/Markov confidence.
+        hmm_confidence_weight (float): Weight applied to HMM/Markov confidence when blending with Kronos agreement.
+        kronos_transition_penalty (float): Additional multiplicative penalty applied to composite confidence when a Kronos transition flag is present.
+    
+    Returns:
+        dict[str, float | bool | str]: A dictionary with:
+            - "confidence": composite confidence used for gating and sizing (float).
+            - "size_mult": computed size multiplier (float, >= 0.0).
+            - "trade": `true` if composite confidence >= confidence_threshold, `false` otherwise.
+            - "model": source label for the confidence ("hmm", "markov", "kronos", or appended with "+kronos").
+    """
     probs, model_name = _extract_regime_probabilities(row)
 
     # --- HMM / Markov baseline confidence ---

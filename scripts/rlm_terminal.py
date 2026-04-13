@@ -76,6 +76,22 @@ def run_rlm_pipeline(
     vol_window: int,
     attach_vix: bool,
 ) -> tuple[pd.DataFrame | None, str | None]:
+    """
+    Run the feature/forecast stack on raw bar data to produce processed signals and forecasts.
+    
+    Parameters:
+        bars (pd.DataFrame): Raw OHLCV bar data indexed or keyed by timestamp.
+        symbol (str): Ticker symbol used for model lookup and dataset naming.
+        use_hmm (bool): If True, run the pipeline in HMM (probabilistic) forecast mode; otherwise use deterministic mode.
+        move_window (int): Lookback window (in bars) used for movement/feature calculations.
+        vol_window (int): Lookback window (in bars) used for volatility-related feature calculations.
+        attach_vix (bool): If True, include VIX (volatility index) data as an additional feature when available.
+    
+    Returns:
+        tuple:
+            - processed (pd.DataFrame | None): DataFrame containing features, regime labels, and forecast outputs when successful; `None` on failure or if the pipeline produced no output.
+            - perr (str | None): Error or status message produced by the pipeline when applicable; `None` if no error occurred.
+    """
     mode = "hmm" if use_hmm else "deterministic"
     return run_feature_forecast_stack(
         bars,
@@ -94,6 +110,20 @@ def _regime_heatmap_matrix(
     *,
     short_dte: bool,
 ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
+    """
+    Build a matrix of strategy risk values and labels for all direction/volatility regime combinations.
+    
+    Parameters:
+        liquidity (str): Liquidity regime label used to resolve strategy (e.g., "high", "low").
+        dealer_flow (str): Dealer flow regime label used to resolve strategy (e.g., "positive", "negative").
+        short_dte (bool): Whether to prefer short-dated option strategies when selecting a strategy.
+    
+    Returns:
+        z (np.ndarray): 2D float array shaped (len(DIRECTIONS), len(VOLS)) containing each regime's max risk as a percentage (0–100).
+        labels (np.ndarray): 2D object array of the same shape with human-readable strategy names (underscores replaced by spaces).
+        y_dirs (list[str]): Ordered list of direction regime names corresponding to z's first axis.
+        x_vols (list[str]): Ordered list of volatility regime names corresponding to z's second axis.
+    """
     z = np.zeros((len(DIRECTIONS), len(VOLS)))
     labels = np.empty(z.shape, dtype=object)
     for i, d in enumerate(DIRECTIONS):
