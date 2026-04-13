@@ -1,10 +1,196 @@
 # Regime Locus Matrix
 
+A production-oriented, options-native quantitative engine. RLM ingests equity OHLCV from IBKR and options data from Massive into a Parquet/DuckDB lake, detects market regimes (HMM + Markov-switching), enriches signals with microstructure (GEX surfaces, IV surfaces, full Greeks), forecasts via the Kronos foundation model as a pure sensor, applies ROEE dynamic sizing and policy, and supports live/paper execution with continuous monitoring.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Data Ingestion                       │
+│   IBKR stocks ──► Parquet/DuckDB lake ◄── Massive options  │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────┐
+│                       Factor Pipeline                       │
+│  ┌──────────────┐  ┌─────────────────┐  ┌───────────────┐  │
+│  │   Liquidity  │  │  Kronos Factors │  │ Microstructure│  │
+│  │  & Orderflow │  │  (return / range│  │  GEX surface  │  │
+│  │   Factors    │  │   / dispersion) │  │  IV surface   │  │
+│  └──────────────┘  └────────┬────────┘  └───────────────┘  │
+└───────────────────────────┬─┴───────────────────────────────┘
+                            │  one scalar forecast per bar
+┌───────────────────────────▼─────────────────────────────────┐
+│                     Regime Detection                        │
+│   HMM ──► MTF blend ──► binary regime gate                  │
+│   Markov-switching                    ▲                     │
+│   Kronos regime confidence ───────────┘                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────┐
+│                      ROEE Policy                            │
+│   Dynamic Kelly sizing · confidence gating · combo orders  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+   Backtest / Walk-forward          Live / Paper execution
+   (BacktestEngine)                 (IBKR combo placement)
+```
+
+**Design principle:** Kronos is a pure sensor — one scalar return forecast plus a regime-agreement score. It never fuses with the HMM; the regime layer gates it with a binary pass/fail. ROEE is the single decision layer.
+
+---
+
+## Kronos Foundation Model
+
+Kronos is a time-series foundation model wired into RLM as a composable forecast factor. It is **on by default**; pass `--no-kronos` to disable the overlay.
+
+### What Kronos produces
+
+| Factor | Type | Description |
+|--------|------|-------------|
+| `kronos_return_forecast` | Direction | Predicted mean return over `pred_len` bars |
+| `kronos_range_forecast` | Volatility | Predicted high–low range (volatility proxy) |
+| `kronos_path_dispersion` | Volatility | Spread across sampled paths (uncertainty signal) |
+| `kronos_confidence` | Overlay | Agreement between predicted and current regime |
+| `kronos_regime_agreement` | Overlay | Scalar gate: 1 if regimes agree, 0 if conflict |
+| `kronos_forecast_return` | Overlay | Final blended return signal |
+| `kronos_forecast_vol` | Overlay | Final blended volatility signal |
+| `kronos_transition_flag` | Overlay | 1 when a regime transition is predicted |
+
+### Installation
+
+```bash
+pip install -e ".[kronos]"
+# requires: torch>=2.0, einops>=0.8, huggingface-hub>=0.33, safetensors>=0.6
+```
+
+### Key classes
+
+| Class | Location | Role |
+|-------|----------|------|
+| `KronosFactorCalculator` | `src/rlm/factors/kronos_factors.py` | Plugs into `FactorPipeline`; produces the three base factors |
+| `RLMKronosPredictor` | `src/rlm/kronos/predictor.py` | Lazy-loading adapter; handles multi-sample path generation |
+| `KronosRegimeConfidence` | `src/rlm/kronos/regime_confidence.py` | Derives `kronos_confidence` and `kronos_regime_agreement` |
+| `KronosConfig` | `src/rlm/kronos/config.py` | Loaded from `configs/default.yaml`; controls `model_name`, `pred_len`, `sample_count`, `temperature`, `regime_confidence_weight` |
+| `KronosForecastPipeline` | `src/rlm/forecasting/kronos_forecast.py` | Standalone Kronos forecast pipeline |
+
+### Kronos CLI
+
+```bash
+# Standalone Kronos forecast pipeline
+python scripts/run_kronos_pipeline.py --symbol SPY --sample-count 20
+
+# With regime overlay (HMM-gated)
+python scripts/run_kronos_pipeline.py --symbol SPY --use-hmm --hmm-states 6
+
+# Fine-tune Kronos on local lake data
+python scripts/finetune_kronos.py --symbol SPY
+
+# Full forecast pipeline — Kronos on by default
+python scripts/run_forecast_pipeline.py --symbol SPY --use-hmm
+
+# Disable Kronos overlay (pure HMM/Markov path)
+python scripts/run_forecast_pipeline.py --symbol SPY --use-hmm --no-kronos
+```
+
+### ROEE integration
+
+`ROEEConfig` exposes two Kronos-specific knobs:
+
+```python
+ROEEConfig(
+    kronos_confidence_weight=0.4,   # how much Kronos confidence modulates sizing
+    kronos_transition_penalty=0.3,  # size haircut when kronos_transition_flag=1
+)
+```
+
+---
+
+## Microstructure Layer
+
+The microstructure layer provides real-time Greeks, GEX surfaces, and IV surfaces via async IBKR collectors writing into a DuckDB-backed Parquet lake. All microstructure factors are optional and plug into `FactorPipeline.extra_calculators`.
+
+### Installation
+
+```bash
+pip install -e ".[microstructure]"
+# requires: duckdb>=0.10, pyarrow>=14.0
+```
+
+### Lake layout
+
+```text
+data/microstructure/
+  underlying/{SYM}/1s/          ← 5s OHLCV bars (UnderlyingCollector)
+  options/{SYM}/
+    greeks_snapshots/            ← full 13-Greek surface, every 5 s
+    derived/
+      gex_surface/               ← net dealer GEX by strike & expiry
+      iv_surface/                ← cubic-interpolated IV grid
+```
+
+### Key classes
+
+| Class | Location | Role |
+|-------|----------|------|
+| `UnderlyingCollector` | `src/rlm/microstructure/collectors/underlying.py` | Async IBKR 5 s bar streamer |
+| `OptionsCollector` | `src/rlm/microstructure/collectors/options.py` | Async Greek surface snapshots |
+| `full_greeks_row()` | `src/rlm/microstructure/calculators/greeks.py` | Black-Scholes: all 13 Greeks + `solve_iv()` |
+| `build_gex_surface_from_df()` | `src/rlm/microstructure/calculators/gex.py` | Net dealer GEX; `gex_flip_level()` |
+| `build_iv_surface()` | `src/rlm/microstructure/calculators/iv_surface.py` | Cubic-interpolated IV grid; `query_iv_surface()` |
+| `MicrostructureDB` | `src/rlm/microstructure/database/query.py` | DuckDB query layer; `microstructure_regime_context()` |
+| `GEXFactors` | `src/rlm/microstructure/factors/gex_factors.py` | Factor calculator: `gex_net_total`, `gex_flip_distance`, … |
+| `IVSurfaceFactors` | `src/rlm/microstructure/factors/iv_surface_factors.py` | Factor calculator: `iv_atm_30d`, `iv_skew_25d`, `iv_term_ratio`, … |
+
+### GEX factors
+
+| Column | Description |
+|--------|-------------|
+| `gex_net_total` | Aggregate signed dealer gamma exposure |
+| `gex_sign` | Sign of net GEX (+1 / -1) |
+| `gex_normalized` | Net GEX normalized by open interest |
+| `gex_flip_distance` | Distance from spot to nearest GEX flip level |
+| `gex_call_put_ratio` | Call GEX / Put GEX |
+
+### IV surface factors
+
+| Column | Description |
+|--------|-------------|
+| `iv_atm_30d` | ATM implied vol at 30-day tenor |
+| `iv_skew_25d` | 25-delta put IV minus 25-delta call IV |
+| `iv_term_ratio` | Front-month IV / back-month IV |
+| `iv_surface_change` | Rolling change in ATM IV |
+| `iv_vol_of_vol` | Realized volatility of IV changes |
+
+### Microstructure CLI
+
+```bash
+# Start async collectors (underlying bars + Greek snapshots)
+python scripts/run_microstructure_collectors.py --symbol SPY --interval 5 --max-dte 60
+
+# Bars only (no options)
+python scripts/run_microstructure_collectors.py --symbol SPY --no-options
+
+# Batch build GEX & IV surfaces from stored snapshots
+python scripts/build_microstructure_surfaces.py --symbol SPY
+
+# Query the DuckDB lake directly
+python -c "
+from rlm.microstructure.database.query import MicrostructureDB
+db = MicrostructureDB()
+ctx = db.microstructure_regime_context('SPY')
+print(ctx)
+"
+```
+
+---
+
 ## Forecasting
 
 ### Regime and forecast layers
 
-RLM remains a deterministic and explicit options-native engine. Optional regime layers now include both the original HMM overlay and a Markov-switching volatility model, while the options enrichment path can derive local-surface-style features from the chain.
+RLM remains a deterministic and explicit options-native engine. Optional regime layers include the original HMM overlay and a Markov-switching volatility model; the Kronos foundation model overlays a regime-confidence signal on top of both. Options enrichment derives local-surface-style features from the chain.
 
 - `ForecastPipeline` is unchanged for deterministic operation.
 - `ProbabilisticForecastPipeline` adds:
@@ -19,44 +205,54 @@ RLM remains a deterministic and explicit options-native engine. Optional regime 
   - `markov_probs` (filtered regime probabilities from a Markov-switching model fit on returns)
   - `markov_state`, `markov_state_label`
   - `markov_reference_col` metadata so downstream diagnostics know which return stream drove the fit
-- Option-chain enrichment now supports SVI-derived features such as:
-  - `atm_forward_iv`
-  - `surface_skew`
-  - `surface_convexity`
-  - `surface_fit_error`
-- Dynamic sizing is now available through `ROEEConfig(use_dynamic_sizing=True)` or the CLI flag `--dynamic-sizing`; the backtest converts `size_fraction` into actual contract quantity rather than storing it as metadata only.
-- Transaction costs now support an extra friction model on top of fill slippage and commissions via `LifecycleConfig.transaction_cost_config`.
-- Walk-forward validation now supports purging and regime-aware training-window expansion via `--purge-bars` and `--regime-aware`.
-- **Backtests** (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): when you pass `--use-hmm` or `--use-markov`, the engine uses `ROEEConfig` so the same confidence-aware gating and sizing path is applied row-by-row. Without a regime model, decisions use `select_trade` only.
-- `scripts/calibrate_regime_models.py` runs a weekly champion/challenger tournament across HMM and Markov overlays, promotes the higher-Sharpe winner to `data/processed/live_regime_model.json`, and `scripts/analyze_universe_live.py` / `scripts/run_universe_options_pipeline.py` automatically load that promoted config unless `--ignore-live-model` is passed.
+- Option-chain enrichment supports SVI-derived features:
+  - `atm_forward_iv`, `surface_skew`, `surface_convexity`, `surface_fit_error`
+- Dynamic sizing: `ROEEConfig(use_dynamic_sizing=True)` or `--dynamic-sizing`
+- Transaction costs: extra friction via `LifecycleConfig.transaction_cost_config`
+- Walk-forward: purging and regime-aware training-window expansion via `--purge-bars` / `--regime-aware`
+- Backtests (`BacktestEngine`, `run_backtest.py`, `run_walkforward.py`): `--use-hmm` / `--use-markov` applies the full `ROEEConfig` path row-by-row
+- `scripts/calibrate_regime_models.py` runs a weekly champion/challenger tournament; promotes the higher-Sharpe winner to `data/processed/live_regime_model.json`
 
-Example usage:
+### Example commands
 
 ```bash
+# --- Kronos (default-on) ---
 python scripts/run_forecast_pipeline.py --use-hmm --hmm-states 6
+python scripts/run_forecast_pipeline.py --use-hmm --no-kronos          # disable Kronos overlay
+python scripts/run_kronos_pipeline.py --symbol SPY --sample-count 20   # standalone Kronos
+
+# --- HMM / Markov ---
 python scripts/run_forecast_pipeline.py --use-markov --markov-states 3
 python scripts/run_forecast_pipeline.py --probabilistic --model-path models/probabilistic_forecast.json
+
+# --- ROEE ---
 python scripts/run_roee_pipeline.py --use-hmm --hmm-states 6
 python scripts/run_roee_pipeline.py --use-markov --markov-states 3 --dynamic-sizing
 python scripts/run_roee_pipeline.py --probabilistic --dynamic-sizing
+
+# --- Walk-forward / backtest ---
 python scripts/run_walkforward.py --use-markov --probabilistic --dynamic-sizing --purge-bars 5 --regime-aware
 python scripts/run_backtest.py --use-hmm --probabilistic --dynamic-sizing --hmm-states 6
+
+# --- Training ---
 python scripts/train_probabilistic_model.py --symbol SPY --out models/probabilistic_forecast.json
 ```
 
 Batch ROEE labelling (does not run the backtest engine) remains in `apply_roee_policy` in `src/rlm/roee/pipeline.py`.
 
-See `configs/default.yaml` for a reference of tunable parameters.
+See `configs/default.yaml` for all tunable parameters.
+
+---
 
 ## Data providers: IBKR stocks, Massive options
 
 Recommended split:
 
-- **Stocks (OHLCV bars):** Interactive Brokers via `rlm.data.ibkr_stocks.fetch_historical_stock_bars` — same columns as Massive bars (`timestamp`, `open`, `high`, `low`, `close`, `volume`, `vwap`). Requires [TWS or IB Gateway](https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/) with API sockets enabled. Install: `pip install -e ".[ibkr]"`. Configure optional `.env` keys: `IBKR_HOST` (default `127.0.0.1`), `IBKR_PORT` (paper TWS `7497`, live `7496`; Gateway paper `4002`, live `4001`), `IBKR_CLIENT_ID` (default `1`). Smoke: `python scripts/fetch_ibkr.py SPY --duration "5 D" --bar-size "1 day"`.
-- **Options (chains, snapshots, Greeks):** Massive only — `massive_option_chain_from_client`, `option_chain_snapshot`, etc. Do not duplicate option chain plumbing on IB unless you explicitly need it later.
-- **Options (bulk history for research/backtests):** [Massive Flat Files](https://massive.com/docs/flat-files/quickstart) — gzip CSV over an S3-compatible endpoint (`MASSIVE_S3_*` credentials in `.env`, not the REST key alone). Use `scripts/ingest_massive_flatfiles_options.py` to land Parquet under `data/options/{SYM}/flatfiles/...`. Keep REST + `fetch_massive_*.py` for incremental pulls, contract lookup, and narrow windows.
+- **Stocks (OHLCV bars):** Interactive Brokers via `rlm.data.ibkr_stocks.fetch_historical_stock_bars`. Requires [TWS or IB Gateway](https://www.interactivebrokers.com/campus/ibkr-api-page/twsapi-doc/) with API sockets enabled. Install: `pip install -e ".[ibkr]"`. Configure optional `.env` keys: `IBKR_HOST` (default `127.0.0.1`), `IBKR_PORT` (paper TWS `7497`, live `7496`; Gateway paper `4002`, live `4001`), `IBKR_CLIENT_ID` (default `1`). Smoke: `python scripts/fetch_ibkr.py SPY --duration "5 D" --bar-size "1 day"`.
+- **Options (chains, snapshots, Greeks):** Massive only — `massive_option_chain_from_client`, `option_chain_snapshot`, etc.
+- **Options (bulk history for research/backtests):** [Massive Flat Files](https://massive.com/docs/flat-files/quickstart) — gzip CSV over an S3-compatible endpoint (`MASSIVE_S3_*` credentials in `.env`). Use `scripts/ingest_massive_flatfiles_options.py` to land Parquet under `data/options/{SYM}/flatfiles/...`.
 
-RLM does **not** use Massive for stocks; all equity OHLCV comes from **IBKR** (or demo/synthetic paths). Low-level `MassiveClient` still exposes stock endpoints for ad-hoc scripts, but pipelines and smoke checks treat Massive as **options-only**.
+RLM does **not** use Massive for stocks; all equity OHLCV comes from **IBKR** (or demo/synthetic paths).
 
 ### Data lake (repeatable Parquet pulls)
 
@@ -71,101 +267,121 @@ data/options/{SYM}/bars_1m/*.parquet
 data/options/{SYM}/trades/*.parquet
 data/options/{SYM}/quotes/*.parquet
 data/options/{SYM}/flatfiles/{trades|quotes|day_aggs|minute_aggs}/{YYYY-MM-DD}.parquet
+data/microstructure/underlying/{SYM}/1s/*.parquet
+data/microstructure/options/{SYM}/greeks_snapshots/*.parquet
+data/microstructure/options/{SYM}/derived/{gex_surface|iv_surface}/*.parquet
 ```
 
-Install: `pip install -e ".[ibkr,datalake]"` ( **`pyarrow`** for Parquet). For flat-file ingestion add **`flatfiles`** (`boto3` + `pyarrow`). `MassiveClient` adds `option_contracts_reference`, `option_aggs_range`, `option_trades`, `option_quotes`.
+Install: `pip install -e ".[ibkr,datalake]"` (`pyarrow` for Parquet). For flat-file ingestion add `flatfiles` (`boto3` + `pyarrow`). For microstructure: `pip install -e ".[microstructure]"`.
 
 | Step | Script |
 |------|--------|
-| 1 IBKR stocks | `python scripts/fetch_ibkr_stock_parquet.py SPY --duration "2 Y" --bar-size "1 day" --interval 1d` and `--interval 1m` for intraday |
+| 1 IBKR stocks | `python scripts/fetch_ibkr_stock_parquet.py SPY --duration "2 Y" --bar-size "1 day" --interval 1d` |
 | 2 Massive contracts | `python scripts/fetch_massive_contracts.py --underlying SPY` |
-| 3 Option bars | `python scripts/fetch_massive_option_bars.py --option-ticker O:... --underlying-path SPY --from YYYY-MM-DD --to YYYY-MM-DD --timespan day` |
-| 4 Quotes / trades | `fetch_massive_option_quotes.py` / `fetch_massive_option_trades.py` (narrow time windows) |
-| 5 Options flat files (bulk) | `python scripts/ingest_massive_flatfiles_options.py --dataset trades --underlying SPY --from-date 2025-06-01 --to-date 2025-06-01` (add `--dry-run` to print S3 keys; confirm prefixes in dashboard if objects 404) |
-| Flat files S3 check | `python scripts/diagnose_massive_flatfiles_s3.py` — if **ListObjects** works but **GetObject** returns **403**, your signing/URL layout is usually fine; ask [Massive](https://massive.com/docs/flat-files/quickstart) support to enable **object read** for your flat-file key (same class of issue seen with Polygon flat files and third-party S3 SDKs). |
-| All-in-one | `python scripts/run_data_lake_pipeline.py --symbols SPY,QQQ` (optional `--option-tickers O:... --fetch-quotes --fetch-trades`) |
+| 3 Option bars | `python scripts/fetch_massive_option_bars.py --option-ticker O:... --underlying-path SPY --from YYYY-MM-DD --to YYYY-MM-DD` |
+| 4 Quotes / trades | `fetch_massive_option_quotes.py` / `fetch_massive_option_trades.py` |
+| 5 Options flat files (bulk) | `python scripts/ingest_massive_flatfiles_options.py --dataset trades --underlying SPY --from-date 2025-06-01 --to-date 2025-06-01` |
+| 6 Microstructure collectors | `python scripts/run_microstructure_collectors.py --symbol SPY --interval 5` |
+| 7 Build GEX & IV surfaces | `python scripts/build_microstructure_surfaces.py --symbol SPY` |
+| Flat files S3 check | `python scripts/diagnose_massive_flatfiles_s3.py` |
+| All-in-one | `python scripts/run_data_lake_pipeline.py --symbols SPY,QQQ` |
 
-**Rule:** underlyings and stock history → **IBKR**; broad historical options tape/aggs → **Massive Flat Files**; contract metadata, targeted option aggs/trades/quotes → **Massive REST**. Strategy code should read **local Parquet** (or your CSV pipeline) — not live APIs during backtests.
+**Rule:** underlyings and stock history → **IBKR**; broad historical options tape/aggs → **Massive Flat Files**; contract metadata, targeted aggs/trades/quotes → **Massive REST**; real-time Greeks/GEX/IV → **microstructure collectors**. Strategy code reads **local Parquet** — not live APIs during backtests.
 
-Optional **ib_insync** reference: `pip install -e ".[ib-insync]"` and `python scripts/examples/ib_insync_fetch_stock_example.py` (standalone; core RLM uses **ibapi**).
+Optional **ib_insync** reference: `pip install -e ".[ib-insync]"` and `python scripts/examples/ib_insync_fetch_stock_example.py`.
 
-**Live / paper option combos (IBKR):** `rlm.execution` resolves each leg with `reqContractDetails`, builds a **BAG**, and calls `placeOrder`. CLI: `python scripts/ibkr_place_roee_combo.py --spec combo.json` (default `transmit=False` — confirm or transmit in TWS). Live ports **7496** / **4001** require `--acknowledge-live`. Export a spec from a matched chain: `python scripts/run_decision_with_chain.py ... --write-ibkr-spec data/processed/ibkr_combo_spy.json`. **Universe scan (market open):** `python scripts/analyze_universe_live.py` loops `LIQUID_UNIVERSE` (Mag 7 + SPY + QQQ) with IBKR daily history → factors → forecast → `select_trade` on the latest bar (abstract σ-legs only).
+**Live / paper option combos (IBKR):** `rlm.execution` resolves each leg with `reqContractDetails`, builds a **BAG**, and calls `placeOrder`. CLI: `python scripts/ibkr_place_roee_combo.py --spec combo.json` (default `transmit=False`). Live ports **7496** / **4001** require `--acknowledge-live`. Export a spec: `python scripts/run_decision_with_chain.py ... --write-ibkr-spec data/processed/ibkr_combo_spy.json`.
 
-**Universe + real options + risk plan + monitor:** `python scripts/run_universe_options_pipeline.py` → writes `data/processed/universe_trade_plans.json` (matched Massive quotes, entry debit, take-profit / hard-stop / trailing levels, `ibkr_combo_spec`). Then `python scripts/monitor_active_trade_plans.py --plans data/processed/universe_trade_plans.json --interval 120` polls Massive mids and prints `ACTION: TAKE_PROFIT|HARD_STOP|TRAILING_STOP` (does not auto-close at IBKR by default).
+**Universe scan (market open):** `python scripts/analyze_universe_live.py` loops `LIQUID_UNIVERSE` (Mag 7 + SPY + QQQ) with IBKR daily history → factors → forecast → `select_trade` on the latest bar.
 
-**Single command (pipeline + one monitor pass):** from repo root, `python scripts/run_everything.py`. Continuous monitoring: `python scripts/run_everything.py --follow --interval 120`.
+**Universe + real options + risk plan + monitor:** `python scripts/run_universe_options_pipeline.py` → writes `data/processed/universe_trade_plans.json`. Then `python scripts/monitor_active_trade_plans.py --plans data/processed/universe_trade_plans.json --interval 120` polls Massive mids and prints `ACTION: TAKE_PROFIT|HARD_STOP|TRAILING_STOP`.
 
-**Full paper stack** (scan → plan → IBKR limit opens → Massive monitor → IBKR market closes on exit signals): set `IBKR_PORT=7497` (or `4002`), then `python scripts/run_everything.py --full-paper --interval 120`. Equivalent: `--paper-trade --paper-close --follow`. Dry runs: `--paper-dry-run` / `--paper-close-dry-run`.
+**Single command (pipeline + one monitor pass):** `python scripts/run_everything.py`. Continuous: `python scripts/run_everything.py --follow --interval 120`.
+
+**Full paper stack:** set `IBKR_PORT=7497` (or `4002`), then `python scripts/run_everything.py --full-paper --interval 120`.
 
 ### Local file layout (wired defaults)
 
-All CLIs resolve paths from the **repository root** and use **`--symbol`** (default `SPY`) for `data/raw/bars_{SYMBOL}.csv` and `data/raw/option_chain_{SYMBOL}.csv` unless you pass `--bars` / `--chain` / `--out`.
+All CLIs resolve paths from the **repository root** and use `--symbol` (default `SPY`) for `data/raw/bars_{SYMBOL}.csv` and `data/raw/option_chain_{SYMBOL}.csv` unless you pass `--bars` / `--chain` / `--out`.
 
 | Step | Command |
 |------|---------|
 | Equity history (IBKR) | `python scripts/build_rolling_backtest_dataset.py --fetch-ibkr --symbol SPY --start 2022-01-01` → `bars_SPY.csv`; synthetic chain + manifest |
 | Demo (no IBKR) | `python scripts/build_rolling_backtest_dataset.py --demo` |
-| Append real option snapshot (Massive) | `python scripts/append_option_snapshot.py --symbol SPY --as-of YYYY-MM-DD --replace-same-day` → merges into `option_chain_SPY.csv` |
-| Factors / forecast / ROEE | `python scripts/build_features.py`, `run_forecast_pipeline.py`, `run_roee_pipeline.py` — they **merge** `option_chain_{SYMBOL}.csv` into bars (dealer GEX/skew/term structure, ATM bid–ask) and attach **^VIX / ^VVIX** via yfinance when online. Use `--no-vix` to skip macro. |
+| Append real option snapshot | `python scripts/append_option_snapshot.py --symbol SPY --as-of YYYY-MM-DD --replace-same-day` |
+| Factors / forecast / ROEE | `python scripts/build_features.py`, `run_forecast_pipeline.py`, `run_roee_pipeline.py` — merge `option_chain_{SYMBOL}.csv` into bars, attach **^VIX / ^VVIX** via yfinance. Use `--no-vix` to skip macro. |
 | Single backtest | `python scripts/run_backtest.py` (writes `data/processed/backtest_equity_{SYMBOL}.csv`) |
-| 5m backtest (e.g. 3 months) | `python scripts/run_backtest_5m.py --demo --months 3 --symbol SPY --no-vix` (synthetic 5m RTH bars + chain); with TWS: `--fetch-ibkr --months 3`. Writes `data/processed/backtest_equity_{SYM}_5m.csv` |
-| Walk-forward | `python scripts/run_walkforward.py` (writes `walkforward_*_{UNDERLYING}.csv`; `--underlying` defaults to `--symbol`) |
-| Tune forecast params | `python scripts/optimize_forecast_params.py --symbol SPY --trials 80 --objective composite` → prints top runs and writes `data/processed/forecast_param_search.json` |
-| Weekly regime tournament | `python scripts/calibrate_regime_models.py --symbol SPY --trials 24 --no-vix` or `scripts/weekly_regime_model_tournament.sh --symbol SPY --trials 24 --no-vix` → writes `regime_model_calibration.json` and promotes `live_regime_model.json` |
+| 5m backtest | `python scripts/run_backtest_5m.py --demo --months 3 --symbol SPY --no-vix` |
+| Walk-forward | `python scripts/run_walkforward.py` (writes `walkforward_*_{UNDERLYING}.csv`) |
+| Tune forecast params | `python scripts/optimize_forecast_params.py --symbol SPY --trials 80 --objective composite` |
+| Weekly regime tournament | `python scripts/calibrate_regime_models.py --symbol SPY --trials 24 --no-vix` or `scripts/weekly_regime_model_tournament.sh` |
+
+---
 
 ## Multi-timeframe (MTF) workflow
 
-All major pipelines now support:
+All major pipelines support:
 
-- `--mtf` to enable higher-timeframe factor augmentation via `MultiTimeframeEngine`.
-- `--higher-tfs` to set comma-separated higher timeframe rules (default: `1W,1M`).
+- `--mtf` — enable higher-timeframe factor augmentation via `MultiTimeframeEngine`
+- `--higher-tfs` — comma-separated HTF rules (default: `1W,1M`)
 
-Supported scripts:
-
-- `scripts/calibrate_regime_models.py`
-- `scripts/run_forecast_pipeline.py`
-- `scripts/run_backtest.py`
-- `scripts/run_walkforward.py`
-- `scripts/run_data_lake_pipeline.py` (prints HTF pre-compute guidance for downstream runs)
+Supported scripts: `calibrate_regime_models.py`, `run_forecast_pipeline.py`, `run_backtest.py`, `run_walkforward.py`, `run_data_lake_pipeline.py`.
 
 ### End-to-end MTF flow
 
 ```bash
-# 1) Build/update local bars + chain as usual
+# 1) Build/update local bars + chain
 python3 scripts/build_rolling_backtest_dataset.py --fetch-ibkr --symbol SPY --start 2022-01-01
 
 # 2) Pre-compute and validate HTF factor overlays
 python3 scripts/run_forecast_pipeline.py --symbol SPY --mtf --higher-tfs 1W,1M --no-vix
 
-# 3) Run a single backtest with HTF overlays
+# 3) Single backtest with HTF overlays
 python3 scripts/run_backtest.py --symbol SPY --mtf --higher-tfs 1W,1M --no-vix
 
-# 4) Run walk-forward with the same HTF specification
+# 4) Walk-forward with HTF
 python3 scripts/run_walkforward.py --symbol SPY --mtf --higher-tfs 1W,1M
 
-# 5) Weekly regime calibration with HTF overlays
+# 5) Weekly regime calibration with HTF
 python3 scripts/calibrate_regime_models.py --symbol SPY --trials 24 --mtf --higher-tfs 1W,1M --no-vix
 ```
 
-### HTF pre-compute instructions
+Keep `--higher-tfs` consistent across scripts in the same experiment to avoid train/eval drift.
 
-When `--mtf` is present, pipelines print explicit pre-compute instructions so you can warm and verify higher-timeframe factor columns before heavy calibration/walk-forward jobs. Keep `--higher-tfs` consistent across scripts in the same experiment to avoid train/eval drift.
+---
+
+## Installation summary
+
+```bash
+# Core
+pip install -e "."
+
+# With IBKR connectivity
+pip install -e ".[ibkr]"
+
+# With Parquet data lake
+pip install -e ".[ibkr,datalake]"
+
+# With Kronos foundation model (requires PyTorch)
+pip install -e ".[kronos]"
+
+# With microstructure layer (DuckDB, PyArrow)
+pip install -e ".[microstructure]"
+
+# Full production stack
+pip install -e ".[kronos,microstructure,ibkr,datalake]"
+```
+
+Copy `.env.example` to `.env` and set `MASSIVE_API_KEY` (and optionally `IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID`). Do not commit `.env`.
+
+---
 
 ## Massive API
 
 Python client: `rlm.data.massive.MassiveClient` ([REST quickstart](https://massive.com/docs/rest/quickstart), [flat files quickstart](https://massive.com/docs/flat-files/quickstart), full index: [llms.txt](https://massive.com/docs/llms.txt)).
 
-1. Copy `.env.example` to `.env` and set `MASSIVE_API_KEY` (do not commit `.env`).
-2. Smoke tests (options):
-   - `python scripts/fetch_massive.py SPY --endpoint option-snapshot`
-   - Full connectivity: `python scripts/super_ping_data.py` (Massive **options** REST + OPRA S3 probe, IBKR equity, optional yfinance)
+Smoke tests: `python scripts/fetch_massive.py SPY --endpoint option-snapshot`. Full connectivity: `python scripts/super_ping_data.py`.
 
-Equity bars: `python scripts/fetch_ibkr.py SPY` (see **Data providers**). For Massive, use `client.get("/v2/...")` or `client.get("/v3/...")` on **options** paths; helpers include `option_chain_snapshot`, `option_contracts_reference`, `option_aggs_range`, `get_by_url` for paginated `next_url`. Stock helpers (`stock_aggs_range`, `stock_trades`, …) exist on the client but are **not** part of RLM’s intended data split.
+**RLM option chain:** Map snapshot JSON with `massive_option_snapshot_to_normalized_chain` or fetch all pages via `massive_option_chain_from_client` / `collect_option_snapshot_pages`. Greeks and IV from the snapshot merge as `delta`, `gamma`, `theta`, `vega`, `iv`.
 
-**RLM option chain:** Map snapshot JSON with `massive_option_snapshot_to_normalized_chain` or fetch all pages via `massive_option_chain_from_client` / `collect_option_snapshot_pages` in `rlm.data.massive_option_chain`. Greeks and implied volatility from the snapshot are merged into the normalized frame as `delta`, `gamma`, `theta`, `vega`, and `iv` when present.
-
-**Equity bars in RLM:** Use IBKR (`rlm.data.ibkr_stocks`) — see **Data providers** above.
-
-**Optional (not RLM default):** `rlm.data.massive_stocks` maps Massive stock aggs to bars; order-flow helpers (`stock_trades`, `aggregate_trade_flow_to_bars`, …) target Massive equity ticks. RLM’s split is **IBKR for stocks, Massive for options**; use those modules only if you deliberately pull equity from Massive.
-
-**Liquid watchlist:** `LIQUID_UNIVERSE` in `rlm.data.liquidity_universe` (Magnificent 7 + SPY + QQQ) for batch pulls; `LIQUID_STOCK_UNIVERSE_10` adds `LIQUID_STOCK_EXTRAS` when you need ten single-names.
+**Liquid watchlist:** `LIQUID_UNIVERSE` in `rlm.data.liquidity_universe` (Mag 7 + SPY + QQQ); `LIQUID_STOCK_UNIVERSE_10` adds `LIQUID_STOCK_EXTRAS` when you need ten single-names.
