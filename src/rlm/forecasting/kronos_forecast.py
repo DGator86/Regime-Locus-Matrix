@@ -527,7 +527,7 @@ class KronosBlendPipeline:
     Usage (standalone)::
 
         from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
-        from rlm.forecasting.engines import HybridForecastPipeline
+        from rlm.forecasting.engine import HybridForecastPipeline
 
         base = HybridForecastPipeline(hmm_config=HMMConfig(n_states=6))
         pipeline = KronosBlendPipeline(base, weight=0.35)

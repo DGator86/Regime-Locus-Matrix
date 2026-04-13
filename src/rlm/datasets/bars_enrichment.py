@@ -1,4 +1,4 @@
-"""Backward-compatibility re-export. Canonical location: rlm.data.bars_enrichment."""
+"""Backward-compatibility re-export. Canonical location: rlm.data.bars_enrichment.  (PR #41)"""
 
 from rlm.data.bars_enrichment import (
     enrich_bars_from_option_chain,

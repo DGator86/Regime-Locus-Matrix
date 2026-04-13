@@ -1,4 +1,4 @@
-"""Backward-compatibility re-export. Canonical location: rlm.features.scoring."""
+"""Backward-compatibility re-export. Canonical location: rlm.features.scoring.  (PR #41)"""
 
 from rlm.features.scoring.state_matrix import classify_state_matrix, make_regime_key, regime_is_tradeable
 from rlm.features.scoring.thresholds import (

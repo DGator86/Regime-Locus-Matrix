@@ -10,7 +10,7 @@ from rlm.features.factors.pipeline import FactorPipeline
 from rlm.features.factors.multi_timeframe import MultiTimeframeEngine
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.engines import (
+from rlm.forecasting.engine import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,

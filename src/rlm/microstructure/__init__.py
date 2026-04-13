@@ -1,4 +1,4 @@
-"""Backward-compatibility re-export. Canonical location: rlm.data.microstructure."""
+"""Backward-compatibility re-export. Canonical location: rlm.data.microstructure.  (PR #41)"""
 
 from rlm.data.microstructure import (
     MicrostructureDB,

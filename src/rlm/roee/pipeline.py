@@ -1,4 +1,4 @@
-"""Backward-compatibility re-export. Canonical location: rlm.roee.engine."""
+"""Backward-compatibility re-export. Canonical location: rlm.roee.engine.  (PR #41)"""
 
 from rlm.roee.engine import ROEEConfig, apply_roee_policy
 

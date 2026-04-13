@@ -1,4 +1,4 @@
-"""Backward-compatibility re-export. Canonical location: rlm.forecasting.models.kronos."""
+"""Backward-compatibility re-export. Canonical location: rlm.forecasting.models.kronos.  (PR #41)"""
 
 from rlm.forecasting.models.kronos import (
     KronosConfig,

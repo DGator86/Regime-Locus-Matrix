@@ -12,7 +12,7 @@ import pandas as pd
 from rlm.backtest.engine import BacktestEngine
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.engines import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline
+from rlm.forecasting.engine import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline
 from rlm.roee.engine import ROEEConfig
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig

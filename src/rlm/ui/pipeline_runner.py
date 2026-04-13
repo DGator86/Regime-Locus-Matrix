@@ -10,7 +10,7 @@ import pandas as pd
 from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.live_model import LiveRegimeModelConfig
-from rlm.forecasting.engines import (
+from rlm.forecasting.engine import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,

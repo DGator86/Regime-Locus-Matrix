@@ -45,7 +45,7 @@ from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.engines import (
+from rlm.forecasting.engine import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,

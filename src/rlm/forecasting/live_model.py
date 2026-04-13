@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.engines import (
+from rlm.forecasting.engine import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,

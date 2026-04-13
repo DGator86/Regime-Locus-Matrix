@@ -1,6 +1,6 @@
-"""Backward-compatibility re-export. Canonical location: rlm.forecasting.engines."""
+"""Backward-compatibility re-export. Canonical location: rlm.forecasting.engine.  (PR #41)"""
 
-from rlm.forecasting.engines import (
+from rlm.forecasting.engine import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridKronosForecastPipeline,
