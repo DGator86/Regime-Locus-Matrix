@@ -183,7 +183,6 @@ def _run_once(
     if args.mtf:
         print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
 
-    equity_df, trades_df, summary_df = run_walkforward(
     return run_walkforward(
         bars=bars,
         option_chain=chain,
