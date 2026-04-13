@@ -45,7 +45,7 @@ from rlm.forecasting.distribution import estimate_distribution
 from rlm.types.forecast import ForecastConfig
 
 if TYPE_CHECKING:
-    from rlm.forecasting.kronos.kronos import KronosPredictor
+    from rlm.forecasting.models.kronos.model.kronos import KronosPredictor
 
 
 @dataclass(frozen=True)
@@ -188,7 +188,7 @@ class KronosForecastPipeline:
         if self._predictor is not None:
             return self._predictor
         try:
-            from rlm.forecasting.kronos.kronos import (
+            from rlm.forecasting.models.kronos.model.kronos import (
                 Kronos,
                 KronosPredictor,
                 KronosTokenizer,
@@ -527,7 +527,7 @@ class KronosBlendPipeline:
     Usage (standalone)::
 
         from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
-        from rlm.forecasting.pipeline import HybridForecastPipeline
+        from rlm.forecasting.engines import HybridForecastPipeline
 
         base = HybridForecastPipeline(hmm_config=HMMConfig(n_states=6))
         pipeline = KronosBlendPipeline(base, weight=0.35)

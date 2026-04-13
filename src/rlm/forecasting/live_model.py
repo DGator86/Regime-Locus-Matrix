@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.pipeline import (
+from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
 )
-from rlm.roee.pipeline import ROEEConfig
+from rlm.roee.engine import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
 RegimeModelName = Literal["forecast", "hmm", "markov"]

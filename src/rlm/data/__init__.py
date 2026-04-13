@@ -1,4 +1,7 @@
-"""Data utilities for option chains and related market datasets."""
+"""Data utilities: option chains, market datasets, bar enrichment, and microstructure.
+
+Merged from former top-level packages: data, datasets (bar enrichment), microstructure.
+"""
 
 from rlm.data.liquidity_universe import (
     CORE_LIQUID_ETFS,

@@ -24,9 +24,9 @@ from rlm.roee.exits import (
     should_exit_for_regime_flip,
     should_exit_for_zone_breach,
 )
-from rlm.roee.pipeline import ROEEConfig
+from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 # Alias for tests and external monkeypatching (backtests call this once per bar).
 decide_trade_for_bar = select_trade_for_row

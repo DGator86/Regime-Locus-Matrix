@@ -1,5 +1,5 @@
-"""Hyperparameter search helpers for forecast / backtest tuning."""
+"""Backward-compatibility re-export. Canonical location: rlm.features.optimization."""
 
-from rlm.optimization.tuning import evaluate_forecast_backtest, random_search_forecast_params
+from rlm.features.optimization.tuning import evaluate_forecast_backtest, random_search_forecast_params
 
 __all__ = ["evaluate_forecast_backtest", "random_search_forecast_params"]
