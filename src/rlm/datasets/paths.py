@@ -43,3 +43,40 @@ def backtest_equity_filename(symbol: str = DEFAULT_SYMBOL) -> str:
 
 def backtest_trades_filename(symbol: str = DEFAULT_SYMBOL) -> str:
     return f"backtest_trades_{symbol.upper()}.csv"
+
+
+# ---------------------------------------------------------------------------
+# Microstructure lake paths
+# ---------------------------------------------------------------------------
+
+_MICRO_ROOT = "data/microstructure"
+
+
+def rel_micro_underlying_dir(symbol: str) -> str:
+    """data/microstructure/underlying/{SYMBOL}/1s/"""
+    return f"{_MICRO_ROOT}/underlying/{symbol.upper()}/1s"
+
+
+def rel_micro_greeks_snapshots_dir(symbol: str) -> str:
+    """data/microstructure/options/{SYMBOL}/greeks_snapshots/"""
+    return f"{_MICRO_ROOT}/options/{symbol.upper()}/greeks_snapshots"
+
+
+def rel_micro_gex_surface_dir(symbol: str) -> str:
+    """data/microstructure/options/{SYMBOL}/derived/gex_surface/"""
+    return f"{_MICRO_ROOT}/options/{symbol.upper()}/derived/gex_surface"
+
+
+def rel_micro_iv_surface_dir(symbol: str) -> str:
+    """data/microstructure/options/{SYMBOL}/derived/iv_surface/"""
+    return f"{_MICRO_ROOT}/options/{symbol.upper()}/derived/iv_surface"
+
+
+def rel_micro_gex_parquet(symbol: str, date: str) -> str:
+    """data/microstructure/options/{SYMBOL}/derived/gex_surface/{SYMBOL}_{date}.parquet"""
+    return f"{rel_micro_gex_surface_dir(symbol)}/{symbol.upper()}_{date}.parquet"
+
+
+def rel_micro_iv_parquet(symbol: str, date: str) -> str:
+    """data/microstructure/options/{SYMBOL}/derived/iv_surface/{SYMBOL}_{date}.parquet"""
+    return f"{rel_micro_iv_surface_dir(symbol)}/{symbol.upper()}_{date}.parquet"
