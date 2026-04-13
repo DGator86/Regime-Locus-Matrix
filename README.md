@@ -39,6 +39,34 @@ A production-oriented, options-native quantitative engine. RLM ingests equity OH
 
 **Design principle:** Kronos is a pure sensor — one scalar return forecast plus a regime-agreement score. It never fuses with the HMM; the regime layer gates it with a binary pass/fail. ROEE is the single decision layer.
 
+## FullRLMPipeline — one-line entry point
+
+`FullRLMPipeline` (`src/rlm/pipeline.py`) is the single orchestrator that wires the entire flow above into one composable object:
+
+```python
+import pandas as pd
+from rlm.pipeline import FullRLMPipeline, FullRLMConfig
+from rlm.roee.pipeline import ROEEConfig
+
+# Defaults: HMM(6) + Kronos overlay + ROEE
+bars = pd.read_csv("data/raw/bars_SPY.csv", parse_dates=["timestamp"])
+result = FullRLMPipeline().run(bars)
+print(result.policy_df[["roee_action", "roee_strategy", "roee_size_fraction"]].tail())
+
+# Custom config — dynamic Kelly sizing + backtest
+cfg = FullRLMConfig(
+    regime_model="hmm",
+    hmm_states=6,
+    use_kronos=True,
+    roee_config=ROEEConfig(use_dynamic_sizing=True, max_kelly_fraction=0.2),
+    run_backtest=True,
+)
+result = FullRLMPipeline(cfg).run(bars, option_chain_df=chain)
+print(result.backtest_metrics)
+```
+
+`PipelineResult` bundles `factors_df`, `forecast_df`, `policy_df`, and optionally `backtest_trades`, `backtest_equity`, `backtest_metrics`.
+
 ---
 
 ## Kronos Foundation Model
@@ -347,6 +375,33 @@ python3 scripts/calibrate_regime_models.py --symbol SPY --trials 24 --mtf --high
 ```
 
 Keep `--higher-tfs` consistent across scripts in the same experiment to avoid train/eval drift.
+
+---
+
+## Regime-stratified Kronos fine-tuning
+
+`notebooks/regime_stratified_kronos_finetune.ipynb` walks through:
+
+1. Loading bars from CSV or the MicrostructureDB DuckDB lake
+2. Running `FactorPipeline` + `HybridForecastPipeline` to annotate HMM regime states
+3. Splitting the bar series by `hmm_state` and fine-tuning one Kronos checkpoint per stratum
+4. Comparing per-stratum validation losses
+5. Exporting `regime_metadata.json` (consumed by the HF upload script)
+
+Checkpoints are saved to `data/models/kronos/{SYMBOL}/regime_{state}/`.
+
+```bash
+# Run the notebook non-interactively
+jupyter nbconvert --to notebook --execute \
+    notebooks/regime_stratified_kronos_finetune.ipynb
+
+# Upload to Hugging Face (dry-run first)
+python scripts/upload_kronos_checkpoints_hf.py \
+    --repo-id your-org/kronos-rlm-spy --symbol SPY --dry-run
+
+python scripts/upload_kronos_checkpoints_hf.py \
+    --repo-id your-org/kronos-rlm-spy --symbol SPY --private
+```
 
 ---
 
