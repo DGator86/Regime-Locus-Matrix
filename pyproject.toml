@@ -75,6 +75,13 @@ kronos = [
     "safetensors>=0.6.0",
     "tqdm>=4.66.0",
 ]
+# Microstructure layer: real-time Greeks, GEX surface, IV surface, DuckDB lake.
+# Install: pip install -e ".[microstructure]"
+# Combine with ib-insync for live collection: pip install -e ".[microstructure,ib-insync]"
+microstructure = [
+    "duckdb>=0.10.0",
+    "pyarrow>=14.0.0",
+]
 
 [tool.black]
 line-length = 100
