@@ -1,16 +1,11 @@
-"""Kronos foundation-model integration for RLM.
+"""Backward-compatibility re-export. Canonical location: rlm.forecasting.models.kronos."""
 
-Public API:
-    KronosConfig           -- pydantic config loaded from configs/default.yaml
-    RLMKronosPredictor     -- bar-format wrapper with caching + multi-sample paths
-    KronosRegimeConfidence -- regime agreement / confidence engine
-    KronosForecastPipeline -- drop-in ForecastPipeline producing mu/sigma/bands
-"""
-
-from rlm.kronos.config import KronosConfig
-from rlm.kronos.forecast import KronosForecastPipeline
-from rlm.kronos.predictor import RLMKronosPredictor
-from rlm.kronos.regime_confidence import KronosRegimeConfidence
+from rlm.forecasting.models.kronos import (
+    KronosConfig,
+    KronosForecastPipeline,
+    KronosRegimeConfidence,
+    RLMKronosPredictor,
+)
 
 __all__ = [
     "KronosConfig",

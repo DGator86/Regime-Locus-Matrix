@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from rlm.standardization.transforms import sigma_floor
+from rlm.features.standardization.transforms import sigma_floor
 from rlm.types.forecast import ForecastConfig
 
 

@@ -7,7 +7,7 @@ from rlm.forecasting.kronos_forecast import (
     KronosForecastPipeline,
     apply_kronos_blend,
 )
-from rlm.forecasting.pipeline import (
+from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridKronosForecastPipeline,
