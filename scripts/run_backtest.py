@@ -186,6 +186,19 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help='JSON dict of regime multipliers, e.g. {"bear|high|thin|short_gamma":1.5}',
     )
+    # Kronos foundation-model blend
+    parser.add_argument(
+        "--use-kronos",
+        action="store_true",
+        help="Blend Kronos foundation-model return forecasts into the backtest feature set.",
+    )
+    parser.add_argument("--kronos-weight", type=float, default=0.35,
+                        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    parser.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
+    parser.add_argument("--kronos-stride", type=int, default=1,
+                        help="Run Kronos every N bars; fill-forward in between (default 1).")
+    parser.add_argument("--kronos-samples", type=int, default=5,
+                        help="MC samples for Kronos uncertainty (default 5).")
     return parser.parse_args()
 
 
@@ -229,20 +242,13 @@ def _build_features(
     hmm_states = int(round(tuned.get("hmm_states", args.hmm_states)))
     markov_states = int(round(tuned.get("markov_states", args.markov_states)))
 
-    bars = prepare_bars_for_factors(bars, chain, underlying=sym, attach_vix=not args.no_vix)
+    bars = prepare_bars_for_factors(bars, chain, underlying=args.symbol, attach_vix=not args.no_vix)
 
     features = FactorPipeline().run(bars)
     if args.mtf:
         higher_tfs = parse_higher_tfs(args.higher_tfs)
         features = MultiTimeframeEngine(higher_tfs=higher_tfs).augment_factors(bars, features)
         print(format_precompute_instructions(symbol=sym, higher_tfs=higher_tfs))
-    fc = ForecastConfig(
-        drift_gamma_alpha=0.65,
-        sigma_floor=1e-4,
-        direction_neutral_threshold=0.3,
-    features = FactorPipeline().run(
-        prepare_bars_for_factors(bars, chain, underlying=args.symbol, attach_vix=not args.no_vix)
-    )
 
     if args.use_hmm and args.probabilistic:
         return HybridProbabilisticForecastPipeline(
@@ -281,7 +287,19 @@ def _build_features(
             vol_window=100,
             model_path=args.model_path,
         ).run(features)
-    return ForecastPipeline(config=fc, move_window=100, vol_window=100).run(features)
+    result = ForecastPipeline(config=fc, move_window=100, vol_window=100).run(features)
+    if getattr(args, "use_kronos", False):
+        from rlm.forecasting.kronos_forecast import KronosConfig, apply_kronos_blend
+        result = apply_kronos_blend(
+            result,
+            config=KronosConfig(
+                model_name=getattr(args, "kronos_model", "NeoQuasar/Kronos-small"),
+                stride=getattr(args, "kronos_stride", 1),
+                sample_count=getattr(args, "kronos_samples", 5),
+            ),
+            weight=getattr(args, "kronos_weight", 0.35),
+        )
+    return result
 
 
 def main() -> None:

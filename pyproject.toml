@@ -73,6 +73,23 @@ ui = [
     "streamlit-option-menu>=0.3.6",
     "kaleido>=0.2.1",
 ]
+# Kronos foundation-model forecast layer (see src/rlm/forecasting/kronos_forecast.py).
+# Vendored Kronos source lives in src/rlm/forecasting/kronos/.
+# Install: pip install -e ".[kronos]"
+kronos = [
+    "torch>=2.0.0",
+    "einops>=0.8.0",
+    "huggingface-hub>=0.33.0",
+    "safetensors>=0.6.0",
+    "tqdm>=4.66.0",
+]
+# Microstructure layer: real-time Greeks, GEX surface, IV surface, DuckDB lake.
+# Install: pip install -e ".[microstructure]"
+# Combine with ib-insync for live collection: pip install -e ".[microstructure,ib-insync]"
+microstructure = [
+    "duckdb>=0.10.0",
+    "pyarrow>=14.0.0",
+]
 
 [tool.black]
 line-length = 100

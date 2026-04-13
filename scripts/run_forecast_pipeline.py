@@ -276,6 +276,8 @@ def main() -> None:
         out_cols.extend(["mtf_state", "mtf_state_label", "mtf_confidence"])
     if args.use_markov:
         out_cols.extend(["markov_state", "markov_state_label"])
+    if args.use_kronos:
+        out_cols.extend(["kronos_forecast_return", "kronos_forecast_lower", "kronos_forecast_upper"])
 
     out_path = ROOT / out_rel
     out_path.parent.mkdir(parents=True, exist_ok=True)
