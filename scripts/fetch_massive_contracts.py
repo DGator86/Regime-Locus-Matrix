@@ -24,8 +24,7 @@ try:
 except ImportError:
     pass
 
-from rlm.data.massive import MassiveClient
-from rlm.datasets.massive_options_parquet import fetch_option_contracts_to_parquet
+from rlm.ingestion.writers import write_massive_option_contracts_parquet
 
 
 def main() -> int:
@@ -46,10 +45,8 @@ def main() -> int:
     if args.strike_price is not None:
         params["strike_price"] = args.strike_price
 
-    client = MassiveClient()
     try:
-        out = fetch_option_contracts_to_parquet(
-            client,
+        out = write_massive_option_contracts_parquet(
             args.underlying,
             out_path=Path(args.out) if args.out else None,
             repo_root=ROOT,

@@ -24,8 +24,7 @@ try:
 except ImportError:
     pass
 
-from rlm.data.massive import MassiveClient
-from rlm.datasets.massive_options_parquet import fetch_option_trades_to_parquet
+from rlm.ingestion.writers import write_massive_option_trades_parquet
 
 
 def main() -> int:
@@ -38,10 +37,8 @@ def main() -> int:
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
-    client = MassiveClient()
     try:
-        out = fetch_option_trades_to_parquet(
-            client,
+        out = write_massive_option_trades_parquet(
             args.option_ticker,
             underlying_for_path=args.underlying_path,
             ts_gte=args.timestamp_gte,

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.datasets.ibkr_stock_parquet import fetch_stock_to_parquet
+from rlm.ingestion.writers import write_ibkr_stock_parquet
 
 
 def main() -> int:
@@ -48,7 +48,7 @@ def main() -> int:
         slug = args.duration.replace(" ", "").lower()
 
     try:
-        path = fetch_stock_to_parquet(
+        path = write_ibkr_stock_parquet(
             args.symbol,
             duration=args.duration,
             bar_size=args.bar_size,
