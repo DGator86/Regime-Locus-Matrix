@@ -36,26 +36,27 @@ Custom config::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
 from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
     HybridProbabilisticForecastPipeline,
 )
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig, apply_roee_policy
-from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -111,6 +112,10 @@ class FullRLMConfig:
     symbol: str = "SPY"
     attach_vix: bool = True
     """Attach ^VIX / ^VVIX via yfinance (requires internet access)."""
+
+    # ---- Nightly overlay ----------------------------------------------------
+    nightly_hyperparams_path: str | None = None
+    nightly_hyperparams: dict[str, float | int | bool] = field(default_factory=dict)
 
     # ---- Backtest (optional) ------------------------------------------------
     run_backtest: bool = False
@@ -184,6 +189,24 @@ class FullRLMPipeline:
     def __init__(self, config: FullRLMConfig | None = None) -> None:
         self.config: FullRLMConfig = config or FullRLMConfig()
 
+        if self.config.nightly_hyperparams_path:
+            nightly_path = Path(self.config.nightly_hyperparams_path)
+            if nightly_path.exists():
+                nightly = json.loads(nightly_path.read_text(encoding="utf-8"))
+                if isinstance(nightly, dict):
+                    self.config.nightly_hyperparams.update(nightly)
+
+        nightly = self.config.nightly_hyperparams
+        roee_overrides: dict[str, float | int | bool] = {}
+        for key, value in nightly.items():
+            if hasattr(self.config, key):
+                setattr(self.config, key, value)
+            elif hasattr(self.config.roee_config, key):
+                roee_overrides[key] = value
+
+        if roee_overrides:
+            self.config.roee_config = replace(self.config.roee_config, **roee_overrides)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -228,10 +251,9 @@ class FullRLMPipeline:
                 MultiTimeframeEngine,
                 parse_higher_tfs,
             )
+
             higher_tfs = parse_higher_tfs(",".join(cfg.higher_tfs))
-            factors_df = MultiTimeframeEngine(
-                higher_tfs=higher_tfs
-            ).augment_factors(df, factors_df)
+            factors_df = MultiTimeframeEngine(higher_tfs=higher_tfs).augment_factors(df, factors_df)
 
         # 4. Forecast pipeline (HMM / Markov / plain / probabilistic)
         forecast_df = self._run_forecast(factors_df)
@@ -240,6 +262,7 @@ class FullRLMPipeline:
         #    to replicate --no-kronos CLI behaviour)
         if cfg.use_kronos:
             from rlm.forecasting.models.kronos import KronosRegimeConfidence
+
             forecast_df = KronosRegimeConfidence().annotate(forecast_df)
 
         # 6. State matrix classification → ROEE policy
@@ -259,9 +282,7 @@ class FullRLMPipeline:
         # 7. Optional BacktestEngine (requires option_chain_df)
         if cfg.run_backtest:
             if option_chain_df is None:
-                raise ValueError(
-                    "run_backtest=True requires option_chain_df to be supplied."
-                )
+                raise ValueError("run_backtest=True requires option_chain_df to be supplied.")
             result = self._run_backtest(result, option_chain_df)
 
         return result
