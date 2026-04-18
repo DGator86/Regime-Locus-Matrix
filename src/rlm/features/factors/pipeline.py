@@ -23,6 +23,7 @@ from rlm.features.factors.multi_timeframe_liquidity import MultiTimeframeLiquidi
 from rlm.features.factors.order_flow import OrderFlowFactors
 from rlm.features.factors.support_resistance import SupportResistanceFactors
 from rlm.features.factors.volatility import VolatilityFactors
+from rlm.features.scoring.coordinate_mapper import add_market_coordinate_columns
 from rlm.types.factors import FactorSpec
 from rlm.utils.parallel import parallel_map
 
@@ -124,4 +125,4 @@ class FactorPipeline:
             ],
             axis=1,
         )
-        return out
+        return add_market_coordinate_columns(out)
