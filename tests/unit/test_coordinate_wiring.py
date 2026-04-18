@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -15,10 +14,20 @@ from rlm.types.coordinates import MarketCoordinate
 # ---------------------------------------------------------------------------
 
 _COORD_OUT_COLS = [
-    "M_D", "M_V", "M_L", "M_G",
-    "M_trend_strength", "M_dealer_control", "M_alignment", "M_delta_neutral",
-    "M_lat_D", "M_lat_V", "M_lat_L", "M_lat_G",
+    "M_D",
+    "M_V",
+    "M_L",
+    "M_G",
+    "M_trend_strength",
+    "M_dealer_control",
+    "M_alignment",
+    "M_delta_neutral",
+    "M_lat_D",
+    "M_lat_V",
+    "M_lat_L",
+    "M_lat_G",
     "M_R_trans",
+    "M_regime",
 ]
 
 
@@ -256,28 +265,30 @@ def test_R_trans_same_state_is_zero() -> None:
 
 def test_R_trans_one_axis_change() -> None:
     # M_D moves from 5 (s=0) to 8 (s=0.6): ΔD = 3 → R_trans = 3
-    df = pd.DataFrame({
-        "S_D": [0.0, 0.6],
-        "S_V": [0.0, 0.0],
-        "S_L": [0.0, 0.0],
-        "S_G": [0.0, 0.0],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [0.0, 0.6],
+            "S_V": [0.0, 0.0],
+            "S_L": [0.0, 0.0],
+            "S_G": [0.0, 0.0],
+        }
+    )
     out = add_market_coordinate_columns(df)
     assert out["M_R_trans"].iloc[1] == pytest.approx(3.0)
 
 
 def test_R_trans_two_axis_change() -> None:
     # ΔD = 3, ΔV = 4 → R_trans = 5 (3-4-5 right triangle)
-    s_d_1 = 0.6   # M_D = 8
-    s_v_1 = -0.2  # M_V = 4, so ΔV from 5 to 4... let me compute
     # t=0: M_D=5, M_V=5
     # t=1: M_D=8 (s=0.6), M_V=9 (s=0.8)  → ΔD=3, ΔV=4 → R=5
-    df = pd.DataFrame({
-        "S_D": [0.0, 0.6],
-        "S_V": [0.0, 0.8],
-        "S_L": [0.0, 0.0],
-        "S_G": [0.0, 0.0],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [0.0, 0.6],
+            "S_V": [0.0, 0.8],
+            "S_L": [0.0, 0.0],
+            "S_G": [0.0, 0.0],
+        }
+    )
     out = add_market_coordinate_columns(df)
     assert out["M_R_trans"].iloc[1] == pytest.approx(5.0)
 
@@ -288,12 +299,14 @@ def test_R_trans_two_axis_change() -> None:
 
 
 def test_nan_scores_produce_nan_coordinates() -> None:
-    df = pd.DataFrame({
-        "S_D": [float("nan")],
-        "S_V": [0.0],
-        "S_L": [0.0],
-        "S_G": [0.0],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [float("nan")],
+            "S_V": [0.0],
+            "S_L": [0.0],
+            "S_G": [0.0],
+        }
+    )
     out = add_market_coordinate_columns(df)
     assert math.isnan(out["M_D"].iloc[0])
     assert math.isnan(out["M_delta_neutral"].iloc[0])
@@ -305,24 +318,28 @@ def test_nan_scores_produce_nan_coordinates() -> None:
 
 
 def test_classify_state_matrix_includes_coordinate_columns() -> None:
-    df = pd.DataFrame({
-        "S_D": [0.8, -0.8, 0.0],
-        "S_V": [-0.5, 0.7, 0.0],
-        "S_L": [0.6, -0.2, 0.0],
-        "S_G": [0.7, -0.8, 0.0],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [0.8, -0.8, 0.0],
+            "S_V": [-0.5, 0.7, 0.0],
+            "S_L": [0.6, -0.2, 0.0],
+            "S_G": [0.7, -0.8, 0.0],
+        }
+    )
     out = classify_state_matrix(df)
     for col in _COORD_OUT_COLS:
         assert col in out.columns, f"classify_state_matrix missing column: {col}"
 
 
 def test_classify_state_matrix_coordinate_values_match_mapper() -> None:
-    df = pd.DataFrame({
-        "S_D": [0.6],
-        "S_V": [0.0],
-        "S_L": [0.0],
-        "S_G": [-0.6],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [0.6],
+            "S_V": [0.0],
+            "S_L": [0.0],
+            "S_G": [-0.6],
+        }
+    )
     out = classify_state_matrix(df)
     assert out["M_D"].iloc[0] == pytest.approx(8.0)
     assert out["M_G"].iloc[0] == pytest.approx(2.0)
@@ -330,12 +347,14 @@ def test_classify_state_matrix_coordinate_values_match_mapper() -> None:
 
 
 def test_classify_state_matrix_still_produces_regime_columns() -> None:
-    df = pd.DataFrame({
-        "S_D": [0.8],
-        "S_V": [0.5],
-        "S_L": [0.6],
-        "S_G": [0.7],
-    })
+    df = pd.DataFrame(
+        {
+            "S_D": [0.8],
+            "S_V": [0.5],
+            "S_L": [0.6],
+            "S_G": [0.7],
+        }
+    )
     out = classify_state_matrix(df)
     assert out["direction_regime"].iloc[0] == "bull"
     assert "regime_key" in out.columns
@@ -361,11 +380,9 @@ def test_from_scores_matches_dataframe_mapper() -> None:
     assert out["M_trend_strength"].iloc[0] == pytest.approx(m.trend_strength)
     assert out["M_dealer_control"].iloc[0] == pytest.approx(m.dealer_control_magnitude)
     assert out["M_alignment"].iloc[0] == pytest.approx(m.direction_dealer_alignment)
-    assert out["M_delta_neutral"].iloc[0] == pytest.approx(
-        m.weighted_distance_from_neutral()
-    )
-    i, j, k, l = m.lattice_index()
+    assert out["M_delta_neutral"].iloc[0] == pytest.approx(m.weighted_distance_from_neutral())
+    i, j, k, lat_g = m.lattice_index()
     assert int(out["M_lat_D"].iloc[0]) == i
     assert int(out["M_lat_V"].iloc[0]) == j
     assert int(out["M_lat_L"].iloc[0]) == k
-    assert int(out["M_lat_G"].iloc[0]) == l
+    assert int(out["M_lat_G"].iloc[0]) == lat_g
