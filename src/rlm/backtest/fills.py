@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rlm.backtest.slippage import SlippageConfig, compute_leg_slippage
 
@@ -8,7 +8,7 @@ from rlm.backtest.slippage import SlippageConfig, compute_leg_slippage
 @dataclass(frozen=True)
 class FillConfig:
     contract_multiplier: int = 100
-    slippage: SlippageConfig = SlippageConfig()
+    slippage: SlippageConfig = field(default_factory=SlippageConfig)
 
 
 def entry_fill_price(
@@ -17,14 +17,17 @@ def entry_fill_price(
     bid: float,
     ask: float,
     config: FillConfig | None = None,
+    realized_vol: float | None = None,
 ) -> float:
     """
     Returns option premium per contract for entry.
     Long pays ask + slippage.
     Short receives bid - slippage.
+
+    ``realized_vol`` enables volatility-scaled slippage when provided.
     """
     cfg = config or FillConfig()
-    slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage)
+    slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage, realized_vol=realized_vol)
 
     if side == "long":
         return max(ask + slip, 0.0)
@@ -40,14 +43,17 @@ def exit_fill_price(
     bid: float,
     ask: float,
     config: FillConfig | None = None,
+    realized_vol: float | None = None,
 ) -> float:
     """
     Returns option premium per contract for exit.
     Long exits by selling at bid - slippage.
     Short exits by buying back at ask + slippage.
+
+    ``realized_vol`` enables volatility-scaled slippage when provided.
     """
     cfg = config or FillConfig()
-    slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage)
+    slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage, realized_vol=realized_vol)
 
     if side == "long":
         return max(bid - slip, 0.0)

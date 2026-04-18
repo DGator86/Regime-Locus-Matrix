@@ -54,7 +54,7 @@ from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.pipeline import HybridKronosForecastPipeline
+from rlm.forecasting.engines import HybridKronosForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
 

@@ -40,6 +40,20 @@ def compute_profit_factor(trade_pnls: pd.Series) -> float:
     return float(gross_profit / gross_loss)
 
 
+def compute_expectancy(trade_pnls: pd.Series) -> float:
+    """Win-rate × avg-win − loss-rate × avg-loss, in PnL units."""
+    t = trade_pnls.dropna()
+    if len(t) == 0:
+        return np.nan
+    wins = t[t > 0]
+    losses = t[t < 0]
+    win_rate = len(wins) / len(t)
+    loss_rate = 1.0 - win_rate
+    avg_win = float(wins.mean()) if len(wins) > 0 else 0.0
+    avg_loss = float(losses.mean()) if len(losses) > 0 else 0.0
+    return float(win_rate * avg_win + loss_rate * avg_loss)
+
+
 def summarize_backtest(
     equity_frame: pd.DataFrame,
     trades_frame: pd.DataFrame,
@@ -63,5 +77,70 @@ def summarize_backtest(
         out["profit_factor"] = compute_profit_factor(trades_frame["pnl"])
         out["avg_trade_pnl"] = float(trades_frame["pnl"].mean())
         out["avg_trade_pnl_pct"] = float(trades_frame["pnl_pct"].mean()) if "pnl_pct" in trades_frame.columns else np.nan
+        out["expectancy"] = compute_expectancy(trades_frame["pnl"])
 
     return out
+
+
+def summarize_by_regime(
+    trades_frame: pd.DataFrame,
+    regime_col: str = "regime_key",
+) -> dict[str, dict[str, float]]:
+    """
+    Per-regime performance breakdown.
+
+    Returns a dict keyed by regime_key. Each value contains:
+        win_rate, avg_return, trade_count, expectancy,
+        profit_factor, sharpe (annualised, 252-trade basis).
+
+    Use this to identify regimes with negative expectancy and gate them off.
+    """
+    if trades_frame.empty or regime_col not in trades_frame.columns:
+        return {}
+
+    result: dict[str, dict[str, float]] = {}
+    pnl_col = "pnl" if "pnl" in trades_frame.columns else None
+    pnl_pct_col = "pnl_pct" if "pnl_pct" in trades_frame.columns else None
+
+    if pnl_col is None:
+        return {}
+
+    for regime, group in trades_frame.groupby(regime_col):
+        pnl = group[pnl_col]
+        stats: dict[str, float] = {
+            "trade_count": float(len(pnl)),
+            "win_rate": compute_win_rate(pnl),
+            "avg_return": float(pnl.mean()),
+            "expectancy": compute_expectancy(pnl),
+            "profit_factor": compute_profit_factor(pnl),
+            "max_drawdown": float(pnl.cumsum().sub(pnl.cumsum().cummax()).min()) if len(pnl) > 1 else np.nan,
+        }
+        if pnl_pct_col is not None:
+            pnl_pct = group[pnl_pct_col]
+            # Treat each trade-pct as one "period" for a rough per-trade Sharpe.
+            stats["sharpe"] = compute_sharpe(pnl_pct, periods_per_year=252)
+            stats["avg_return_pct"] = float(pnl_pct.mean())
+        result[str(regime)] = stats
+
+    return result
+
+
+def gate_regimes_by_expectancy(
+    regime_stats: dict[str, dict[str, float]],
+    expectancy_floor: float = 0.0,
+) -> set[str]:
+    """
+    Return the set of regime keys whose expectancy is below the floor.
+
+    Callers should skip trades when the current regime_key is in this set:
+
+        bad_regimes = gate_regimes_by_expectancy(summarize_by_regime(trades))
+        if regime_key in bad_regimes:
+            skip_trade()
+    """
+    return {
+        regime
+        for regime, stats in regime_stats.items()
+        if np.isfinite(stats.get("expectancy", np.nan))
+        and stats["expectancy"] < expectancy_floor
+    }

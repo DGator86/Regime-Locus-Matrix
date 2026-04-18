@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
-from rlm.forecasting.pipeline import HybridForecastPipeline
+from rlm.forecasting.engines import HybridForecastPipeline
 from rlm.scoring.state_matrix import classify_state_matrix
 
 

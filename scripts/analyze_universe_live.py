@@ -35,7 +35,7 @@ from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
 from rlm.factors.pipeline import FactorPipeline
-from rlm.forecasting.pipeline import ForecastPipeline
+from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix

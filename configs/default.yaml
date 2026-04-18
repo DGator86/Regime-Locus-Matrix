@@ -1,3 +1,7 @@
+# Configuration schema version. Increment when fields are added or removed.
+# Backtest runs log this value for full reproducibility tracing.
+config_version: "1.0"
+
 # Example defaults for backtest / walk-forward (reference only; wire in your own runner if needed).
 backtest:
   initial_capital: 100000

@@ -50,7 +50,7 @@ from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
-from rlm.forecasting.pipeline import ForecastPipeline
+from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
     estimate_entry_cost_from_matched_legs,
     estimate_mark_value_from_matched_legs,

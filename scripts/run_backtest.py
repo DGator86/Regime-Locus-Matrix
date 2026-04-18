@@ -35,7 +35,7 @@ from rlm.factors.pipeline import FactorPipeline
 from rlm.factors.multi_timeframe import MultiTimeframeEngine, format_precompute_instructions, parse_higher_tfs
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.pipeline import (
+from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
