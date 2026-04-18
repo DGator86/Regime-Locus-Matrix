@@ -37,7 +37,7 @@ from rlm.forecasting.live_model import (
     save_live_regime_model,
 )
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
-from rlm.forecasting.pipeline import ForecastPipeline
+from rlm.forecasting.engines import ForecastPipeline
 from rlm.optimization.tuning import (
     ForecastParamSample,
     generate_forecast_param_samples,
