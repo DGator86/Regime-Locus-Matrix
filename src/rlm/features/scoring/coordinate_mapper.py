@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
+
 _SCORE_COLS = ("S_D", "S_V", "S_L", "S_G")
 _COORD_COLS = ("M_D", "M_V", "M_L", "M_G")
 
@@ -19,6 +21,12 @@ def _lat_bin(series: pd.Series, low: float, high: float) -> pd.Series:
         index=series.index,
         dtype="Int64",
     )
+
+
+def add_regime_column(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["M_regime"] = out.apply(classify_regime_from_coordinates, axis=1)
+    return out
 
 
 def add_market_coordinate_columns(
@@ -66,9 +74,7 @@ def add_market_coordinate_columns(
     """
     missing = [c for c in _SCORE_COLS if c not in df.columns]
     if missing:
-        raise ValueError(
-            f"add_market_coordinate_columns: missing score columns {missing}"
-        )
+        raise ValueError(f"add_market_coordinate_columns: missing score columns {missing}")
 
     out = df.copy()
 
@@ -86,10 +92,7 @@ def add_market_coordinate_columns(
     out["M_dealer_control"] = g_centered.abs()
     out["M_alignment"] = d_centered * g_centered
     out["M_delta_neutral"] = np.sqrt(
-        d_centered**2
-        + (out["M_V"] - 5.0) ** 2
-        + (out["M_L"] - 5.0) ** 2
-        + g_centered**2
+        d_centered**2 + (out["M_V"] - 5.0) ** 2 + (out["M_L"] - 5.0) ** 2 + g_centered**2
     )
 
     # ---- Lattice index ----------------------------------------------------
@@ -106,5 +109,7 @@ def add_market_coordinate_columns(
         + (out["M_L"] - prev["M_L"]) ** 2
         + (out["M_G"] - prev["M_G"]) ** 2
     )
+
+    out = add_regime_column(out)
 
     return out

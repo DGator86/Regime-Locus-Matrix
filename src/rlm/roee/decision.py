@@ -6,6 +6,8 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
+from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
+from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
 from rlm.roee.policy import select_trade
 from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
@@ -23,6 +25,23 @@ _SELECT_TRADE_ROW_COLUMNS = (
     "liquidity_regime",
     "dealer_flow_regime",
     "regime_key",
+)
+_COORDINATE_CONFIDENCE_COLUMNS = (
+    "M_alignment",
+    "M_trend_strength",
+    "M_delta_neutral",
+    "M_R_trans",
+)
+_COORDINATE_LOG_FIELDS = (
+    "M_D",
+    "M_V",
+    "M_L",
+    "M_G",
+    "M_alignment",
+    "M_trend_strength",
+    "M_delta_neutral",
+    "M_R_trans",
+    "M_regime",
 )
 
 
@@ -63,22 +82,28 @@ def compute_regime_modulators(
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
-    
+
     Parameters:
         row (pd.Series): Input data row containing regime probabilities and optional Kronos fields.
         confidence_threshold (float): Minimum composite confidence required to allow a trade.
         sizing_multiplier (float): Base multiplier applied when computing the size factor.
-        transition_penalty (float): Penalty applied to sizing proportional to transition risk (1 - confidence).
-        kronos_confidence_weight (float): Weight applied to Kronos agreement when blending with HMM/Markov confidence.
-        hmm_confidence_weight (float): Weight applied to HMM/Markov confidence when blending with Kronos agreement.
-        kronos_transition_penalty (float): Additional multiplicative penalty applied to composite confidence when a Kronos transition flag is present.
-    
+        transition_penalty (float): Penalty applied to sizing proportional
+            to transition risk (1 - confidence).
+        kronos_confidence_weight (float): Weight applied to Kronos agreement
+            when blending with HMM/Markov confidence.
+        hmm_confidence_weight (float): Weight applied to HMM/Markov confidence
+            when blending with Kronos agreement.
+        kronos_transition_penalty (float): Additional multiplicative penalty
+            applied to composite confidence when a Kronos transition flag
+            is present.
+
     Returns:
         dict[str, float | bool | str]: A dictionary with:
             - "confidence": composite confidence used for gating and sizing (float).
             - "size_mult": computed size multiplier (float, >= 0.0).
             - "trade": `true` if composite confidence >= confidence_threshold, `false` otherwise.
-            - "model": source label for the confidence ("hmm", "markov", "kronos", or appended with "+kronos").
+            - "model": source label for the confidence ("hmm", "markov",
+              "kronos", or appended with "+kronos").
     """
     probs, model_name = _extract_regime_probabilities(row)
 
@@ -107,7 +132,7 @@ def compute_regime_modulators(
         return {"confidence": 1.0, "size_mult": 1.0, "trade": True, "model": model_name}
 
     if kronos_trans:
-        composite *= (1.0 - kronos_transition_penalty)
+        composite *= 1.0 - kronos_transition_penalty
 
     trans_risk = 1.0 - composite
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
@@ -163,6 +188,18 @@ def resolve_latent_regime_from_row(row: pd.Series) -> dict[str, str | float | No
         }
 
     return {"label": None, "confidence": None, "source": None}
+
+
+def _has_coordinate_columns(row: pd.Series) -> bool:
+    return all(
+        col in row.index and pd.notna(row.get(col)) for col in _COORDINATE_CONFIDENCE_COLUMNS
+    )
+
+
+def _resolve_coordinate_regime(row: pd.Series) -> str:
+    if "M_regime" in row.index and pd.notna(row.get("M_regime")):
+        return str(row["M_regime"])
+    return classify_regime_from_coordinates(row)
 
 
 def select_trade_for_row(
@@ -235,6 +272,23 @@ def select_trade_for_row(
         )
 
     latent_regime = resolve_latent_regime_from_row(row)
+    coordinate_router_strategy: str | None = None
+
+    if all(col in row.index for col in ("M_D", "M_V", "M_L", "M_G", "M_delta_neutral")):
+        regime_row = row.to_dict()
+        regime_row["M_regime"] = _resolve_coordinate_regime(row)
+        coordinate_router_strategy = select_strategy_from_coordinates(regime_row)
+        if coordinate_router_strategy == "no_trade":
+            return TradeDecision(
+                action="skip",
+                strategy_name="coordinate_router_no_trade",
+                regime_key=str(row.get("regime_key", "")),
+                rationale="Coordinate regime filter blocked trade.",
+                metadata={
+                    "coordinate_strategy": coordinate_router_strategy,
+                    "M_regime": regime_row["M_regime"],
+                },
+            )
 
     if use_hmm:
         mod = compute_regime_modulators(
@@ -249,9 +303,11 @@ def select_trade_for_row(
                 action="skip",
                 strategy_name=f"{regime_model}_gate" if regime_model != "none" else "regime_gate",
                 regime_key=str(row.get("regime_key", "")),
-                rationale=f"{regime_model.upper()} confidence below threshold"
-                if regime_model != "none"
-                else "Regime confidence below threshold",
+                rationale=(
+                    f"{regime_model.upper()} confidence below threshold"
+                    if regime_model != "none"
+                    else "Regime confidence below threshold"
+                ),
                 metadata={
                     "regime_model": regime_model,
                     "regime_confidence": mod["confidence"],
@@ -340,6 +396,21 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if coordinate_router_strategy is not None:
+            meta["coordinate_strategy"] = coordinate_router_strategy
+        for field in _COORDINATE_LOG_FIELDS:
+            if field in row.index and pd.notna(row.get(field)):
+                meta[field] = row[field]
+        if _has_coordinate_columns(row):
+            coord_conf = 1.0
+            coord_conf *= 1.0 + (_finite_float(row.get("M_alignment"), 0.0) / 25.0)
+            coord_conf *= 1.0 + (_finite_float(row.get("M_trend_strength"), 0.0) / 5.0)
+            coord_conf *= 1.0 - (_finite_float(row.get("M_delta_neutral"), 0.0) / 10.0)
+            if _finite_float(row.get("M_R_trans"), 0.0) > 5.0:
+                coord_conf *= 0.5
+            coord_conf = max(coord_conf, 0.0)
+            meta["coordinate_confidence_multiplier"] = float(coord_conf)
+            base_sf = base_sf * float(coord_conf)
         if latent_regime["source"] is not None:
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(
@@ -363,13 +434,40 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        if coordinate_router_strategy is not None:
+            meta["coordinate_strategy"] = coordinate_router_strategy
+        for field in _COORDINATE_LOG_FIELDS:
+            if field in row.index and pd.notna(row.get(field)):
+                meta[field] = row[field]
         if latent_regime["source"] is not None:
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(decision, metadata=meta)
 
-    if decision.action == "enter" and latent_regime["source"] is not None:
+    if decision.action == "enter":
         meta = dict(decision.metadata)
-        meta["kelly_latent_regime_source"] = str(latent_regime["source"])
+        if latent_regime["source"] is not None:
+            meta["kelly_latent_regime_source"] = str(latent_regime["source"])
+        if coordinate_router_strategy is not None:
+            meta["coordinate_strategy"] = coordinate_router_strategy
+        for field in _COORDINATE_LOG_FIELDS:
+            if field in row.index and pd.notna(row.get(field)):
+                meta[field] = row[field]
+        if _has_coordinate_columns(row):
+            coord_conf = 1.0
+            coord_conf *= 1.0 + (_finite_float(row.get("M_alignment"), 0.0) / 25.0)
+            coord_conf *= 1.0 + (_finite_float(row.get("M_trend_strength"), 0.0) / 5.0)
+            coord_conf *= 1.0 - (_finite_float(row.get("M_delta_neutral"), 0.0) / 10.0)
+            if _finite_float(row.get("M_R_trans"), 0.0) > 5.0:
+                coord_conf *= 0.5
+            coord_conf = max(coord_conf, 0.0)
+            meta["coordinate_confidence_multiplier"] = float(coord_conf)
+            return replace(
+                decision,
+                size_fraction=quantize_fraction(
+                    float(decision.size_fraction or 0.0) * float(coord_conf)
+                ),
+                metadata=meta,
+            )
         return replace(decision, metadata=meta)
 
     return decision
