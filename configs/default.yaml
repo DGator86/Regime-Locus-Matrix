@@ -100,6 +100,21 @@ roee_hmm:
   high_vol_kelly_multiplier: 0.5
   transition_kelly_multiplier: 0.75
   calm_trend_kelly_multiplier: 1.25
+  # Set true to bypass the overlay engine and measure pure core-engine edge.
+  core_only: false
+
+kill_switch:
+  enabled: false
+  max_drawdown: -0.15          # Halt when equity drops 15% from high-water mark.
+  anomaly_vol_multiplier: 3.0  # Halt when realized vol > 3x baseline.
+  consecutive_loss_limit: 5    # Halt after 5 consecutive losing trades.
+
+degradation:
+  window: 30                   # Rolling trade window for degradation metrics.
+  expectancy_floor: 0.0        # Alert when rolling expectancy < 0.
+  winrate_floor: 0.30          # Alert when rolling win rate < 30%.
+  drawdown_floor: -0.15        # Alert when rolling drawdown < -15%.
+  min_trades: 10               # Minimum trades before alerts fire.
 
 # Kronos foundation model -- regime confidence, forecasting, and factor generation.
 kronos:

@@ -389,6 +389,9 @@ def select_trade(
     calm_trend_kelly_multiplier: float = 1.25,
     vault_uncertainty_threshold: float | None = 0.03,
     vault_size_multiplier: float = 0.5,
+    # Set True to bypass the overlay engine and run core engine only.
+    # Use this to measure baseline edge before assessing overlay contribution.
+    core_only: bool = False,
     # Overlay signals — passed to Mode B only
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
@@ -465,7 +468,10 @@ def select_trade(
         vault_size_multiplier=vault_size_multiplier,
     )
 
-    # Mode B — Overlay Engine (only runs when core says "enter")
+    # Mode B — Overlay Engine (only runs when core says "enter" and core_only=False)
+    if core_only:
+        return decision
+
     decision = apply_overlay_engine(
         decision,
         direction_regime=direction_regime,

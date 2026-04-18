@@ -186,6 +186,7 @@ def select_trade_for_row(
     regime_train_sample_count: int | None = None,
     min_regime_train_samples: int | None = None,
     regime_purge_bars: int = 0,
+    core_only: bool = False,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -322,6 +323,7 @@ def select_trade_for_row(
         vault_uncertainty_threshold=vault_uncertainty_threshold,
         vault_size_multiplier=vault_size_multiplier,
         short_dte=short_dte,
+        core_only=core_only,
     )
 
     if use_hmm and decision.action == "enter":

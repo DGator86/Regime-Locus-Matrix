@@ -29,6 +29,9 @@ class ROEEConfig:
     kronos_confidence_weight: float = 0.4
     hmm_confidence_weight: float = 0.6
     kronos_transition_penalty: float = 0.3
+    # When True, bypass the overlay engine entirely. Use this to measure pure
+    # core-engine edge before assessing overlay contribution.
+    core_only: bool = False
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:

@@ -6,7 +6,13 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from rlm.backtest.degradation import (
+    DegradationThresholds,
+    check_degradation,
+    compute_rolling_metrics,
+)
 from rlm.backtest.fills import FillConfig
+from rlm.backtest.kill_switch import KillSwitch
 from rlm.backtest.lifecycle import (
     ExpiryLiquidationPolicy,
     LifecycleConfig,
@@ -73,9 +79,13 @@ class BacktestEngine:
         fill_config: FillConfig | None = None,
         lifecycle_config: LifecycleConfig | None = None,
         roee_config: ROEEConfig | None = None,
+        kill_switch: KillSwitch | None = None,
+        degradation_thresholds: DegradationThresholds | None = None,
     ) -> None:
         self.lifecycle_config = lifecycle_config or LifecycleConfig()
         self.roee_config = roee_config
+        self.kill_switch = kill_switch
+        self.degradation_thresholds = degradation_thresholds
         self.portfolio = Portfolio(
             initial_capital=initial_capital,
             contract_multiplier=contract_multiplier,
@@ -126,6 +136,10 @@ class BacktestEngine:
         for tkey, grp in ch.groupby("timestamp", sort=False):
             chain_by_ts[pd.Timestamp(tkey)] = grp.copy()
 
+        # Initialise kill switch high-water mark before the first bar.
+        if self.kill_switch is not None:
+            self.kill_switch.reset(initial_equity=self.portfolio.equity())
+
         for bar_index, (ts, row) in enumerate(features.iterrows()):
             traded_this_bar = False
             row_chain = chain_by_ts.get(pd.Timestamp(ts), pd.DataFrame()).copy()
@@ -137,6 +151,17 @@ class BacktestEngine:
                 )
 
             self._process_exits(ts, row, bar_index)
+
+            # Kill switch: continue processing exits but block new entries.
+            current_equity = self.portfolio.equity()
+            realized_vol = float(row.get("realized_vol", np.nan))
+            realized_vol_for_ks = realized_vol if np.isfinite(realized_vol) else None
+            if self.kill_switch is not None and self.kill_switch.should_halt(
+                current_equity=current_equity,
+                realized_vol=realized_vol_for_ks,
+            ):
+                self.portfolio.mark_equity(ts)
+                continue
 
             if row_chain.empty:
                 self.portfolio.mark_equity(ts)
@@ -161,6 +186,7 @@ class BacktestEngine:
                 regime_train_sample_count=int(row.get("regime_train_sample_count", 0) or 0),
                 min_regime_train_samples=rc.min_regime_train_samples,
                 regime_purge_bars=rc.purge_bars,
+                core_only=rc.core_only,
             )
 
             if decision.action == "enter" and not (
@@ -195,7 +221,16 @@ class BacktestEngine:
 
         from rlm.backtest.metrics import summarize_backtest
 
+        from rlm.backtest.metrics import summarize_backtest, summarize_by_regime
+
         summary = summarize_backtest(equity_frame, trades_frame)
+        summary["regime_breakdown"] = summarize_by_regime(trades_frame)
+
+        # Kill switch status in summary.
+        if self.kill_switch is not None:
+            summary["kill_switch_halted"] = self.kill_switch.halted
+            summary["kill_switch_reason"] = self.kill_switch.halt_reason
+
         diagnostics = self._build_robustness_diagnostics(
             equity_frame=equity_frame,
             trades_frame=trades_frame,
@@ -235,6 +270,21 @@ class BacktestEngine:
         gap_risk: GapRiskStressConfig | None,
     ) -> dict[str, Any]:
         out: dict[str, Any] = {}
+
+        # Rolling degradation analysis over last 30 trades.
+        if not trades_frame.empty and "pnl" in trades_frame.columns:
+            rolling = compute_rolling_metrics(trades_frame, window=30)
+            alert = check_degradation(rolling, self.degradation_thresholds)
+            out["degradation"] = {
+                "degraded": alert.degraded,
+                "recommended_action": alert.recommended_action,
+                "reasons": alert.reasons,
+                "rolling_expectancy": alert.rolling_expectancy,
+                "rolling_winrate": alert.rolling_winrate,
+                "rolling_drawdown": alert.rolling_drawdown,
+                "trade_count": alert.trade_count,
+            }
+
         if monte_carlo is not None and not trades_frame.empty and "pnl" in trades_frame.columns:
             out["monte_carlo"] = self._monte_carlo_by_regime(
                 trades_frame=trades_frame,
