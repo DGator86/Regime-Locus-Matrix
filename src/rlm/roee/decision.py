@@ -8,7 +8,7 @@ import pandas as pd
 
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
 from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
-from rlm.roee.policy import select_trade
+from rlm.roee.policy import select_trade, select_trade_from_strategy_name
 from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
 from rlm.types.options import TradeDecision
@@ -202,6 +202,11 @@ def _resolve_coordinate_regime(row: pd.Series) -> str:
     return classify_regime_from_coordinates(row)
 
 
+def _has_coordinate_router_inputs(row: pd.Series) -> bool:
+    required = ("M_D", "M_V", "M_L", "M_G", "M_delta_neutral", "M_R_trans")
+    return all(col in row.index and pd.notna(row.get(col)) for col in required)
+
+
 def select_trade_for_row(
     row: pd.Series,
     *,
@@ -273,11 +278,15 @@ def select_trade_for_row(
 
     latent_regime = resolve_latent_regime_from_row(row)
     coordinate_router_strategy: str | None = None
+    coordinate_regime: str | None = None
+    strategy_source = "legacy_regime_map"
 
-    if all(col in row.index for col in ("M_D", "M_V", "M_L", "M_G", "M_delta_neutral")):
+    if _has_coordinate_router_inputs(row):
         regime_row = row.to_dict()
         regime_row["M_regime"] = _resolve_coordinate_regime(row)
+        coordinate_regime = str(regime_row["M_regime"])
         coordinate_router_strategy = select_strategy_from_coordinates(regime_row)
+        strategy_source = "coordinate_router"
         if coordinate_router_strategy == "no_trade":
             return TradeDecision(
                 action="skip",
@@ -285,6 +294,7 @@ def select_trade_for_row(
                 regime_key=str(row.get("regime_key", "")),
                 rationale="Coordinate regime filter blocked trade.",
                 metadata={
+                    "strategy_source": strategy_source,
                     "coordinate_strategy": coordinate_router_strategy,
                     "M_regime": regime_row["M_regime"],
                 },
@@ -319,7 +329,7 @@ def select_trade_for_row(
                 },
             )
 
-    decision = select_trade(
+    trade_kwargs = dict(
         current_price=float(row["close"]),
         sigma=float(row["sigma"]),
         s_d=_finite_float(row["S_D"], 0.0),
@@ -379,6 +389,13 @@ def select_trade_for_row(
         vault_size_multiplier=vault_size_multiplier,
         short_dte=short_dte,
     )
+    if coordinate_router_strategy is not None:
+        decision = select_trade_from_strategy_name(
+            strategy_name=coordinate_router_strategy,
+            **trade_kwargs,
+        )
+    else:
+        decision = select_trade(**trade_kwargs)
 
     if use_hmm and decision.action == "enter":
         mod = compute_regime_modulators(
@@ -396,8 +413,11 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        meta["strategy_source"] = strategy_source
         if coordinate_router_strategy is not None:
             meta["coordinate_strategy"] = coordinate_router_strategy
+        if coordinate_regime is not None:
+            meta["M_regime"] = coordinate_regime
         for field in _COORDINATE_LOG_FIELDS:
             if field in row.index and pd.notna(row.get(field)):
                 meta[field] = row[field]
@@ -434,8 +454,11 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        meta["strategy_source"] = strategy_source
         if coordinate_router_strategy is not None:
             meta["coordinate_strategy"] = coordinate_router_strategy
+        if coordinate_regime is not None:
+            meta["M_regime"] = coordinate_regime
         for field in _COORDINATE_LOG_FIELDS:
             if field in row.index and pd.notna(row.get(field)):
                 meta[field] = row[field]
@@ -447,8 +470,11 @@ def select_trade_for_row(
         meta = dict(decision.metadata)
         if latent_regime["source"] is not None:
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
+        meta["strategy_source"] = strategy_source
         if coordinate_router_strategy is not None:
             meta["coordinate_strategy"] = coordinate_router_strategy
+        if coordinate_regime is not None:
+            meta["M_regime"] = coordinate_regime
         for field in _COORDINATE_LOG_FIELDS:
             if field in row.index and pd.notna(row.get(field)):
                 meta[field] = row[field]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from rlm.roee.risk import (
     is_tradeable_environment,
@@ -18,7 +19,7 @@ from rlm.roee.sizing import (
 )
 from rlm.roee.strategy_map import get_strategy_for_regime
 from rlm.roee.strike_selection import build_legs_from_candidate
-from rlm.types.options import TradeDecision
+from rlm.types.options import TradeCandidate, TradeDecision
 
 # Maximum number of overlay signals that may modify size on a single bar.
 # More than 3 creates combinatorial overfitting risk.
@@ -30,6 +31,127 @@ MAX_OVERLAY_SIGNALS = 3
 # Regime classification + confidence gating + base sizing only.
 # No pattern overlays. This is the baseline truth model.
 # ---------------------------------------------------------------------------
+
+def resolve_strategy_name(
+    *,
+    direction_regime: str,
+    volatility_regime: str,
+    liquidity_regime: str,
+    dealer_flow_regime: str,
+    short_dte: bool,
+) -> str:
+    candidate = get_strategy_for_regime(
+        direction=direction_regime,
+        volatility=volatility_regime,
+        liquidity=liquidity_regime,
+        dealer_flow=dealer_flow_regime,
+        short_dte=short_dte,
+    )
+    return candidate.strategy_name
+
+
+def build_candidate_from_strategy_name(
+    strategy_name: str,
+    *,
+    direction_regime: str,
+    volatility_regime: str,
+    liquidity_regime: str,
+    dealer_flow_regime: str,
+    short_dte: bool,
+) -> TradeCandidate:
+    regime_key = f"{direction_regime}|{volatility_regime}|{liquidity_regime}|{dealer_flow_regime}"
+
+    if strategy_name == "bull_call_spread":
+        return TradeCandidate(
+            strategy_name="bull_call_spread",
+            regime_key=regime_key,
+            rationale="Coordinate router selected bullish debit call spread.",
+            target_dte_min=14,
+            target_dte_max=35,
+            target_profit_pct=0.45,
+            max_risk_pct=0.02,
+            long_sigma=0.5,
+            short_sigma=1.5,
+            defined_risk=True,
+        )
+    if strategy_name == "bear_put_spread":
+        return TradeCandidate(
+            strategy_name="bear_put_spread",
+            regime_key=regime_key,
+            rationale="Coordinate router selected bearish debit put spread.",
+            target_dte_min=14,
+            target_dte_max=35,
+            target_profit_pct=0.45,
+            max_risk_pct=0.02,
+            long_sigma=-0.5,
+            short_sigma=-1.5,
+            defined_risk=True,
+        )
+    if strategy_name == "iron_condor":
+        return TradeCandidate(
+            strategy_name="iron_condor",
+            regime_key=regime_key,
+            rationale="Coordinate router selected range-bound iron condor structure.",
+            target_dte_min=20,
+            target_dte_max=45,
+            target_profit_pct=0.40,
+            max_risk_pct=0.02,
+            wings_sigma_low=1.0,
+            wings_sigma_high=1.5,
+            defined_risk=True,
+        )
+    if strategy_name == "debit_spread":
+        option_type = "call" if direction_regime == "bull" else "put"
+        long_sigma = 0.5 if option_type == "call" else -0.5
+        short_sigma = 1.5 if option_type == "call" else -1.5
+        return TradeCandidate(
+            strategy_name=f"debit_spread_{option_type}",
+            regime_key=regime_key,
+            rationale="Coordinate router selected directional debit spread.",
+            target_dte_min=14,
+            target_dte_max=35,
+            target_profit_pct=0.45,
+            max_risk_pct=0.02,
+            long_sigma=long_sigma,
+            short_sigma=short_sigma,
+            defined_risk=True,
+        )
+    if strategy_name == "calendar_spread":
+        return TradeCandidate(
+            strategy_name="calendar_spread",
+            regime_key=regime_key,
+            rationale="Coordinate router selected calendar spread for transition regime.",
+            target_dte_min=20,
+            target_dte_max=45,
+            target_profit_pct=0.35,
+            max_risk_pct=0.015,
+            long_sigma=0.0,
+            short_sigma=0.0,
+            defined_risk=True,
+        )
+    if strategy_name == "no_trade":
+        return TradeCandidate(
+            strategy_name="no_trade_or_micro_position",
+            regime_key=regime_key,
+            rationale="Coordinate router selected no trade.",
+            target_dte_min=14,
+            target_dte_max=21,
+            target_profit_pct=0.25,
+            max_risk_pct=0.005,
+            defined_risk=True,
+        )
+
+    legacy_candidate = get_strategy_for_regime(
+        direction=direction_regime,
+        volatility=volatility_regime,
+        liquidity=liquidity_regime,
+        dealer_flow=dealer_flow_regime,
+        short_dte=short_dte,
+    )
+    if strategy_name == legacy_candidate.strategy_name:
+        return legacy_candidate
+    return replace(legacy_candidate, strategy_name=strategy_name)
+
 
 def _core_trade_decision(
     *,
@@ -68,11 +190,84 @@ def _core_trade_decision(
     Returns the raw TradeDecision plus sizing metadata so the overlay engine
     can read and extend them without recomputing.
     """
-    candidate = get_strategy_for_regime(
-        direction=direction_regime,
-        volatility=volatility_regime,
-        liquidity=liquidity_regime,
-        dealer_flow=dealer_flow_regime,
+    strategy_name = resolve_strategy_name(
+        direction_regime=direction_regime,
+        volatility_regime=volatility_regime,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
+        short_dte=short_dte,
+    )
+    return _core_trade_decision_from_strategy_name(
+        strategy_name=strategy_name,
+        current_price=current_price,
+        sigma=sigma,
+        s_d=s_d,
+        s_v=s_v,
+        s_l=s_l,
+        s_g=s_g,
+        direction_regime=direction_regime,
+        volatility_regime=volatility_regime,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
+        regime_key=regime_key,
+        strike_increment=strike_increment,
+        short_dte=short_dte,
+        forecast_return=forecast_return,
+        forecast_uncertainty=forecast_uncertainty,
+        realized_vol=realized_vol,
+        use_dynamic_sizing=use_dynamic_sizing,
+        vol_target=vol_target,
+        max_kelly_fraction=max_kelly_fraction,
+        max_capital_fraction=max_capital_fraction,
+        regime_adjusted_kelly=regime_adjusted_kelly,
+        regime_state_label=regime_state_label,
+        regime_state_confidence=regime_state_confidence,
+        high_vol_kelly_multiplier=high_vol_kelly_multiplier,
+        transition_kelly_multiplier=transition_kelly_multiplier,
+        calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
+        vault_uncertainty_threshold=vault_uncertainty_threshold,
+        vault_size_multiplier=vault_size_multiplier,
+    )
+
+
+def _core_trade_decision_from_strategy_name(
+    *,
+    strategy_name: str,
+    current_price: float,
+    sigma: float,
+    s_d: float,
+    s_v: float,
+    s_l: float,
+    s_g: float,
+    direction_regime: str,
+    volatility_regime: str,
+    liquidity_regime: str,
+    dealer_flow_regime: str,
+    regime_key: str,
+    strike_increment: float,
+    short_dte: bool,
+    forecast_return: float | None,
+    forecast_uncertainty: float | None,
+    realized_vol: float | None,
+    use_dynamic_sizing: bool,
+    vol_target: float,
+    max_kelly_fraction: float,
+    max_capital_fraction: float,
+    regime_adjusted_kelly: bool,
+    regime_state_label: str | None,
+    regime_state_confidence: float | None,
+    high_vol_kelly_multiplier: float,
+    transition_kelly_multiplier: float,
+    calm_trend_kelly_multiplier: float,
+    vault_uncertainty_threshold: float | None,
+    vault_size_multiplier: float,
+) -> tuple[TradeDecision, dict]:
+    candidate = build_candidate_from_strategy_name(
+        strategy_name,
+        direction_regime=direction_regime,
+        volatility_regime=volatility_regime,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
         short_dte=short_dte,
     )
 
@@ -355,6 +550,121 @@ def apply_overlay_engine(
 # Public entry point — thin coordinator
 # ---------------------------------------------------------------------------
 
+def select_trade_from_strategy_name(
+    *,
+    strategy_name: str,
+    current_price: float,
+    sigma: float,
+    s_d: float,
+    s_v: float,
+    s_l: float,
+    s_g: float,
+    direction_regime: str,
+    volatility_regime: str,
+    liquidity_regime: str,
+    dealer_flow_regime: str,
+    regime_key: str,
+    bid_ask_spread_pct: float | None = None,
+    has_major_event: bool = False,
+    volume_ratio: float | None = None,
+    regime_transition: bool = False,
+    strike_increment: float = 1.0,
+    short_dte: bool = False,
+    forecast_return: float | None = None,
+    forecast_uncertainty: float | None = None,
+    realized_vol: float | None = None,
+    use_dynamic_sizing: bool = False,
+    vol_target: float = 0.15,
+    max_kelly_fraction: float = 0.25,
+    max_capital_fraction: float = 0.5,
+    regime_adjusted_kelly: bool = True,
+    regime_state_label: str | None = None,
+    regime_state_confidence: float | None = None,
+    high_vol_kelly_multiplier: float = 0.5,
+    transition_kelly_multiplier: float = 0.75,
+    calm_trend_kelly_multiplier: float = 1.25,
+    vault_uncertainty_threshold: float | None = 0.03,
+    vault_size_multiplier: float = 0.5,
+    # Overlay signals — passed to Mode B only
+    mtf_confluence_score: float | None = None,
+    mtf_confluence_liquidity_sweep_confirmed: float | None = None,
+    pool_confluence_score: float | None = None,
+    orderflow_confluence_score: float | None = None,
+    bullish_liquidity_pool_nearby: bool = False,
+    bearish_liquidity_pool_nearby: bool = False,
+    fvg_alignment_score: float | None = None,
+    order_block_alignment_score: float | None = None,
+    bullish_candle_pattern_score: float | None = None,
+    bearish_candle_pattern_score: float | None = None,
+    support_resistance_alignment_score: float | None = None,
+) -> TradeDecision:
+    if not math.isfinite(current_price) or current_price <= 0:
+        return TradeDecision(action="skip", rationale="Invalid current price.")
+
+    if not math.isfinite(sigma) or sigma <= 0:
+        return TradeDecision(action="skip", rationale="Invalid sigma.")
+
+    env_ok, env_reason = is_tradeable_environment(
+        has_major_event=has_major_event,
+        bid_ask_spread_pct=bid_ask_spread_pct,
+        volume_ratio=volume_ratio,
+        regime_transition=regime_transition,
+    )
+    if not env_ok:
+        return TradeDecision(action="skip", rationale=env_reason)
+
+    decision, _ = _core_trade_decision_from_strategy_name(
+        strategy_name=strategy_name,
+        current_price=current_price,
+        sigma=sigma,
+        s_d=s_d,
+        s_v=s_v,
+        s_l=s_l,
+        s_g=s_g,
+        direction_regime=direction_regime,
+        volatility_regime=volatility_regime,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
+        regime_key=regime_key,
+        strike_increment=strike_increment,
+        short_dte=short_dte,
+        forecast_return=forecast_return,
+        forecast_uncertainty=forecast_uncertainty,
+        realized_vol=realized_vol,
+        use_dynamic_sizing=use_dynamic_sizing,
+        vol_target=vol_target,
+        max_kelly_fraction=max_kelly_fraction,
+        max_capital_fraction=max_capital_fraction,
+        regime_adjusted_kelly=regime_adjusted_kelly,
+        regime_state_label=regime_state_label,
+        regime_state_confidence=regime_state_confidence,
+        high_vol_kelly_multiplier=high_vol_kelly_multiplier,
+        transition_kelly_multiplier=transition_kelly_multiplier,
+        calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
+        vault_uncertainty_threshold=vault_uncertainty_threshold,
+        vault_size_multiplier=vault_size_multiplier,
+    )
+
+    decision = apply_overlay_engine(
+        decision,
+        direction_regime=direction_regime,
+        regime_state_label=regime_state_label,
+        mtf_confluence_score=mtf_confluence_score,
+        mtf_confluence_liquidity_sweep_confirmed=mtf_confluence_liquidity_sweep_confirmed,
+        pool_confluence_score=pool_confluence_score,
+        orderflow_confluence_score=orderflow_confluence_score,
+        bullish_liquidity_pool_nearby=bullish_liquidity_pool_nearby,
+        bearish_liquidity_pool_nearby=bearish_liquidity_pool_nearby,
+        fvg_alignment_score=fvg_alignment_score,
+        order_block_alignment_score=order_block_alignment_score,
+        bullish_candle_pattern_score=bullish_candle_pattern_score,
+        bearish_candle_pattern_score=bearish_candle_pattern_score,
+        support_resistance_alignment_score=support_resistance_alignment_score,
+    )
+
+    return decision
+
+
 def select_trade(
     *,
     current_price: float,
@@ -417,24 +727,15 @@ def select_trade(
     regime_transition:
         True when the regime model flags an active state transition.
     """
-    if not math.isfinite(current_price) or current_price <= 0:
-        return TradeDecision(action="skip", rationale="Invalid current price.")
-
-    if not math.isfinite(sigma) or sigma <= 0:
-        return TradeDecision(action="skip", rationale="Invalid sigma.")
-
-    # Unified no-trade-zone gate (P2.5)
-    env_ok, env_reason = is_tradeable_environment(
-        has_major_event=has_major_event,
-        bid_ask_spread_pct=bid_ask_spread_pct,
-        volume_ratio=volume_ratio,
-        regime_transition=regime_transition,
+    strategy_name = resolve_strategy_name(
+        direction_regime=direction_regime,
+        volatility_regime=volatility_regime,
+        liquidity_regime=liquidity_regime,
+        dealer_flow_regime=dealer_flow_regime,
+        short_dte=short_dte,
     )
-    if not env_ok:
-        return TradeDecision(action="skip", rationale=env_reason)
-
-    # Mode A — Core Engine
-    decision, _ = _core_trade_decision(
+    return select_trade_from_strategy_name(
+        strategy_name=strategy_name,
         current_price=current_price,
         sigma=sigma,
         s_d=s_d,
@@ -446,6 +747,10 @@ def select_trade(
         liquidity_regime=liquidity_regime,
         dealer_flow_regime=dealer_flow_regime,
         regime_key=regime_key,
+        bid_ask_spread_pct=bid_ask_spread_pct,
+        has_major_event=has_major_event,
+        volume_ratio=volume_ratio,
+        regime_transition=regime_transition,
         strike_increment=strike_increment,
         short_dte=short_dte,
         forecast_return=forecast_return,
@@ -463,13 +768,6 @@ def select_trade(
         calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
         vault_uncertainty_threshold=vault_uncertainty_threshold,
         vault_size_multiplier=vault_size_multiplier,
-    )
-
-    # Mode B — Overlay Engine (only runs when core says "enter")
-    decision = apply_overlay_engine(
-        decision,
-        direction_regime=direction_regime,
-        regime_state_label=regime_state_label,
         mtf_confluence_score=mtf_confluence_score,
         mtf_confluence_liquidity_sweep_confirmed=mtf_confluence_liquidity_sweep_confirmed,
         pool_confluence_score=pool_confluence_score,
@@ -482,5 +780,3 @@ def select_trade(
         bearish_candle_pattern_score=bearish_candle_pattern_score,
         support_resistance_alignment_score=support_resistance_alignment_score,
     )
-
-    return decision
