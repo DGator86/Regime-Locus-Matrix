@@ -6,6 +6,8 @@ from typing import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from rlm.training.artifacts import RegimeModelArtifact
+
 RegimeLabel = str
 
 REGIME_LABELS: tuple[RegimeLabel, ...] = (
@@ -160,6 +162,29 @@ class RegimeModel:
         probs = self.predict_proba(X)
         argmax = probs.argmax(axis=1)
         return [self.labels[idx] for idx in argmax]
+
+    @classmethod
+    def from_artifact(cls, artifact: RegimeModelArtifact) -> "RegimeModel":
+        model = cls(labels=artifact.labels)
+        model._weights = np.asarray(artifact.weights, dtype=float)
+        return model
+
+    def to_artifact(
+        self,
+        *,
+        trained_at: str,
+        training_rows: int,
+        source_symbols: list[str],
+        feature_names: list[str],
+    ) -> RegimeModelArtifact:
+        return RegimeModelArtifact(
+            labels=list(self.labels),
+            weights=self._weights.tolist(),
+            feature_names=feature_names,
+            trained_at=trained_at,
+            training_rows=training_rows,
+            source_symbols=source_symbols,
+        )
 
     def _to_feature_matrix(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
         if isinstance(X, pd.DataFrame):

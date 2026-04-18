@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.features.scoring.regime_model import row_to_feature_view
+from rlm.training.artifacts import StrategyValueModelArtifact
 
 STRATEGY_NAMES: tuple[str, ...] = (
     "bull_call_spread",
@@ -72,6 +73,29 @@ class StrategyValueModel:
         scores = (x_row @ self._coef)[0]
         return StrategyScores(
             scores={self.strategies[i]: float(scores[i]) for i in range(len(self.strategies))}
+        )
+
+    @classmethod
+    def from_artifact(cls, artifact: StrategyValueModelArtifact) -> "StrategyValueModel":
+        model = cls(strategies=artifact.strategies)
+        model._coef = np.asarray(artifact.coefficients, dtype=float)
+        return model
+
+    def to_artifact(
+        self,
+        *,
+        trained_at: str,
+        training_rows: int,
+        source_symbols: list[str],
+        feature_names: list[str],
+    ) -> StrategyValueModelArtifact:
+        return StrategyValueModelArtifact(
+            strategies=list(self.strategies),
+            coefficients=self._coef.tolist(),
+            feature_names=feature_names,
+            trained_at=trained_at,
+            training_rows=training_rows,
+            source_symbols=source_symbols,
         )
 
     def _to_target_matrix(self, Y: pd.DataFrame | np.ndarray) -> np.ndarray:
