@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from rlm.features.scoring.coordinate_mapper import add_market_coordinate_columns
 from rlm.features.scoring.thresholds import (
     classify_dealer_flow,
     classify_direction,
@@ -49,6 +50,8 @@ def classify_state_matrix(df: pd.DataFrame) -> pd.DataFrame:
         ),
         axis=1,
     )
+
+    out = add_market_coordinate_columns(out)
 
     return out
 

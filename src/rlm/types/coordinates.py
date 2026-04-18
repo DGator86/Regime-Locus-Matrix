@@ -180,6 +180,32 @@ class MarketCoordinate:
         """Return M_0 = (5, 5, 5, 5), the neutral point of the state space."""
         return MarketCoordinate(D=5.0, V=5.0, L=5.0, G=5.0)
 
+    @classmethod
+    def from_scores(
+        cls,
+        s_d: float,
+        s_v: float,
+        s_l: float,
+        s_g: float,
+    ) -> MarketCoordinate | None:
+        """
+        Construct from tanh-bounded composite factor scores s ∈ [-1, 1].
+
+        The linear map  X = clip(5 + 5·s, 0, 10)  sends:
+            s = −1  →  X = 0   (extreme bearish / compressed / illiquid / destabilising)
+            s =  0  →  X = 5   (neutral)
+            s = +1  →  X = 10  (extreme bullish / expanding / liquid / stabilising)
+
+        Returns None if any score is non-finite (e.g. NaN from warmup bars).
+        """
+        if any(not math.isfinite(v) for v in (s_d, s_v, s_l, s_g)):
+            return None
+
+        def _sc(s: float) -> float:
+            return max(0.0, min(10.0, 5.0 + 5.0 * s))
+
+        return cls(D=_sc(s_d), V=_sc(s_v), L=_sc(s_l), G=_sc(s_g))
+
     def __repr__(self) -> str:
         return (
             f"MarketCoordinate(D={self.D:.3f}, V={self.V:.3f}, "
