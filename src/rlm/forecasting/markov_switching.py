@@ -37,10 +37,43 @@ class RLMMarkovSwitching:
         returns = close.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
         return returns.astype(float)
 
+    @staticmethod
+    def _prepare_features(df: pd.DataFrame) -> pd.DataFrame | None:
+        """Build optional exogenous features for regime conditioning."""
+
+        features = pd.DataFrame(index=df.index)
+
+        if "auction_state" in df.columns:
+            auction = (
+                df["auction_state"]
+                .astype("string")
+                .fillna("balance")
+                .str.lower()
+                .replace({"imbalance-up": "imbalance_up", "imbalance-down": "imbalance_down"})
+            )
+            dummies = pd.get_dummies(auction, prefix="auction_state")
+            for name in (
+                "auction_state_balance",
+                "auction_state_imbalance_up",
+                "auction_state_imbalance_down",
+            ):
+                features[name] = dummies.get(name, 0.0).astype(float)
+
+        if "effort_result_divergence" in df.columns:
+            features["effort_result_divergence"] = pd.to_numeric(
+                df["effort_result_divergence"], errors="coerce"
+            ).fillna(0.0)
+
+        if features.empty:
+            return None
+        return features.astype(float)
+
     def fit(self, df_train: pd.DataFrame, verbose: bool = True) -> "RLMMarkovSwitching":
         endog = self.prepare_endog(df_train)
+        exog = self._prepare_features(df_train)
         model = MarkovRegression(
             endog=endog,
+            exog=exog,
             k_regimes=self.config.n_states,
             trend=self.config.trend,
             switching_variance=self.config.switching_variance,
@@ -72,8 +105,10 @@ class RLMMarkovSwitching:
         if self.fit_result is None:
             raise RuntimeError("Markov-switching model is not fitted")
         endog = self.prepare_endog(df)
+        exog = self._prepare_features(df)
         model = MarkovRegression(
             endog=endog,
+            exog=exog,
             k_regimes=self.config.n_states,
             trend=self.config.trend,
             switching_variance=self.config.switching_variance,

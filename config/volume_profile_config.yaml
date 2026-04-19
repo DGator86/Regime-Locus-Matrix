@@ -1,0 +1,15 @@
+price_precision: 400
+value_area_percent: 0.70
+core_value_area_percent: 0.40
+sessions:
+  rth:
+    start: "09:30"
+    end: "16:00"
+    timezone: "America/New_York"
+  eth:
+    start: "18:00"
+    end: "09:30"
+    timezone: "America/New_York"
+node_threshold_std: 1.0
+enable_80_percent_rule: true
+enable_core_value_model: true
