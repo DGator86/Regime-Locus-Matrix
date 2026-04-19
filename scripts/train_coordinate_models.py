@@ -9,7 +9,12 @@ import numpy as np
 import pandas as pd
 
 from rlm.roee.strategy_value_model import STRATEGY_NAMES
-from rlm.training.artifact_registry import active_version_tag, candidate_dir, make_version_tag
+from rlm.training.artifact_registry import (
+    active_version_tag,
+    candidate_dir,
+    make_version_tag,
+    rollback_to_previous,
+)
 from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
 from rlm.training.data_refresh import count_new_rows_since, load_symbol_feature_frames
 from rlm.training.datasets import (
@@ -128,7 +133,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train coordinate regime and strategy value models"
     )
-    parser.add_argument("--symbols", required=True, help="Comma-separated symbols, e.g. SPY,QQQ")
+    parser.add_argument("--symbols", help="Comma-separated symbols, e.g. SPY,QQQ")
     parser.add_argument("--start", default=None, help="Optional start date filter (inclusive)")
     parser.add_argument("--end", default=None, help="Optional end date filter (inclusive)")
     parser.add_argument("--horizon", type=int, default=20)
@@ -157,11 +162,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--refresh-policy-json", default=None)
     parser.add_argument("--promote-on-pass", action="store_true")
     parser.add_argument("--keep-candidate-on-fail", action="store_true")
+    parser.add_argument("--rollback-to-previous", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.rollback_to_previous:
+        registry = rollback_to_previous(Path(args.out_dir))
+        print("Rollback complete:")
+        print(json.dumps(asdict(registry), indent=2))
+        return
+    if not args.symbols:
+        raise ValueError("--symbols is required unless --rollback-to-previous is provided")
+
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     df = _load_input_frame(symbols, Path(args.data_dir))
 
@@ -435,6 +449,7 @@ def main() -> None:
                     candidate_value_path=cand_value_path,
                     promote_on_pass=args.promote_on_pass,
                     keep_candidate_on_fail=args.keep_candidate_on_fail,
+                    candidate_health_snapshot=post_health_snapshot,
                 )
                 print(json.dumps(asdict(outcome), indent=2))
     print(f"Saved regime artifact: {regime_path}")

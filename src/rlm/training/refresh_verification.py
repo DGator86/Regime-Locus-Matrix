@@ -15,6 +15,8 @@ def verify_candidate_promotion(
     *,
     baseline_summary: dict[str, float],
     candidate_summary: dict[str, float],
+    candidate_health_snapshot: dict[str, float | bool] | None = None,
+    require_candidate_not_stale: bool = True,
     min_selected_realized_improvement: float = 0.0,
     min_flip_improvement: float = -0.05,
 ) -> RefreshVerification:
@@ -30,4 +32,7 @@ def verify_candidate_promotion(
         return RefreshVerification(False, "selected_realized_regressed", sri, fri)
     if fri < min_flip_improvement:
         return RefreshVerification(False, "flip_rate_worsened_too_much", sri, fri)
+    if require_candidate_not_stale and candidate_health_snapshot is not None:
+        if bool(candidate_health_snapshot.get("is_stale", False)):
+            return RefreshVerification(False, "post_refresh_health_stale", sri, fri)
     return RefreshVerification(True, "candidate_promoted", sri, fri)

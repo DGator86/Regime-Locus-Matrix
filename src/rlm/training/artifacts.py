@@ -79,3 +79,10 @@ def load_regime_model_artifact(path: str | Path) -> RegimeModelArtifact:
 def load_strategy_value_model_artifact(path: str | Path) -> StrategyValueModelArtifact:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     return StrategyValueModelArtifact(**payload)
+
+
+def update_artifact_promotion_status(path: str | Path, promotion_status: str) -> None:
+    artifact_path = Path(path)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["promotion_status"] = promotion_status
+    artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
