@@ -9,6 +9,7 @@ import pandas as pd
 
 from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
 from rlm.training.datasets import build_regime_training_frame, build_strategy_value_training_frame
+from rlm.training.feature_ablation import run_temporal_ablation, summarize_ablation
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
     compute_strategy_metrics,
@@ -16,6 +17,8 @@ from rlm.training.train_coordinate_models import (
     train_regime_model,
     train_strategy_value_model,
 )
+from rlm.training.validation_matrix import run_validation_matrix, summarize_validation_matrix
+from rlm.training.validation_report import save_validation_report
 
 
 def _load_input_frame(symbols: list[str], data_dir: Path) -> pd.DataFrame:
@@ -43,6 +46,20 @@ def _split(df: pd.DataFrame, train_split: float) -> tuple[pd.DataFrame, pd.DataF
     return df.iloc[:cut].reset_index(drop=True), df.iloc[cut:].reset_index(drop=True)
 
 
+def _load_validation_frames(symbols_csv: str, data_dir: Path) -> dict[str, pd.DataFrame]:
+    symbols = [s.strip() for s in symbols_csv.split(",") if s.strip()]
+    out: dict[str, pd.DataFrame] = {}
+    for symbol in symbols:
+        path = data_dir / f"features_{symbol}.csv"
+        if not path.exists():
+            continue
+        frame = pd.read_csv(path)
+        if "symbol" not in frame.columns:
+            frame["symbol"] = symbol
+        out[symbol] = frame
+    return out
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train coordinate regime and strategy value models"
@@ -65,6 +82,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoothing-alpha", type=float, default=0.25)
     parser.add_argument("--simulator-version", default=None)
     parser.add_argument("--execution-model-version", default=None)
+    parser.add_argument("--validation-matrix", action="store_true")
+    parser.add_argument("--validation-symbols", default=None)
+    parser.add_argument("--validation-windows-json", default=None)
+    parser.add_argument("--save-validation-report", default=None)
+    parser.add_argument("--enable-persistence-controls", action="store_true")
+    parser.add_argument("--run-ablation", action="store_true")
     return parser.parse_args()
 
 
@@ -118,6 +141,38 @@ def main() -> None:
         )
         benchmark_summary = summarize_benchmark_results(benchmark_results)
 
+    validation_results = None
+    validation_summary = None
+    if args.validation_matrix:
+        if not args.validation_symbols or not args.validation_windows_json:
+            raise ValueError(
+                "validation_matrix requires --validation-symbols and --validation-windows-json"
+            )
+        frames = _load_validation_frames(args.validation_symbols, Path(args.data_dir))
+        windows = json.loads(Path(args.validation_windows_json).read_text(encoding="utf-8"))
+        validation_results = run_validation_matrix(
+            frames,
+            windows=windows,
+            horizon=args.horizon,
+            sequence_window=args.sequence_window or 5,
+            smoothing_alpha=args.smoothing_alpha,
+            train_split=args.train_split,
+        )
+        validation_summary = summarize_validation_matrix(validation_results)
+        if args.save_validation_report:
+            save_validation_report(validation_results, args.save_validation_report)
+
+    ablation_summary = None
+    if args.run_ablation:
+        ablation_results = run_temporal_ablation(
+            df,
+            horizon=args.horizon,
+            sequence_window=args.sequence_window or 5,
+            smoothing_alpha=args.smoothing_alpha,
+            train_split=args.train_split,
+        )
+        ablation_summary = summarize_ablation(ablation_results)
+
     training_start = str(df["timestamp"].iloc[0]) if "timestamp" in df.columns and len(df) else None
     training_end = str(df["timestamp"].iloc[-1]) if "timestamp" in df.columns and len(df) else None
     regime_path, value_path = save_model_artifacts(
@@ -140,6 +195,8 @@ def main() -> None:
         sequence_window=sequence_window,
         smoothing_alpha=args.smoothing_alpha if args.temporal else None,
         temporal_model=args.temporal,
+        validation_matrix_summary=validation_summary,
+        feature_ablation_summary=ablation_summary,
     )
 
     if args.save_benchmark_json and benchmark_results is not None:
@@ -154,6 +211,12 @@ def main() -> None:
     if benchmark_results is not None:
         print("Benchmark metrics:")
         print(json.dumps(benchmark_results, indent=2))
+    if validation_summary is not None:
+        print("Validation matrix summary:")
+        print(json.dumps(validation_summary, indent=2))
+    if ablation_summary is not None:
+        print("Temporal ablation summary:")
+        print(json.dumps(ablation_summary, indent=2))
     print(f"Saved regime artifact: {regime_path}")
     print(f"Saved strategy artifact: {value_path}")
 

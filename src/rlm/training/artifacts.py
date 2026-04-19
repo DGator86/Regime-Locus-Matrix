@@ -26,6 +26,8 @@ class RegimeModelArtifact:
     sequence_window: int | None = None
     smoothing_alpha: float | None = None
     temporal_model: bool = False
+    validation_matrix_summary: dict[str, float] | None = None
+    feature_ablation_summary: dict[str, float] | None = None
 
 
 @dataclass
@@ -49,6 +51,8 @@ class StrategyValueModelArtifact:
     sequence_window: int | None = None
     smoothing_alpha: float | None = None
     temporal_model: bool = False
+    validation_matrix_summary: dict[str, float] | None = None
+    feature_ablation_summary: dict[str, float] | None = None
 
 
 def save_artifact(
