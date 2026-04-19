@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from rlm.roee.strategy_value_model import STRATEGY_NAMES
@@ -20,6 +21,7 @@ from rlm.training.retrain_trigger import should_trigger_retrain
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
     compute_strategy_metrics,
+    load_model_artifacts,
     save_model_artifacts,
     train_regime_model,
     train_strategy_value_model,
@@ -65,6 +67,34 @@ def _load_validation_frames(symbols_csv: str, data_dir: Path) -> dict[str, pd.Da
             frame["symbol"] = symbol
         out[symbol] = frame
     return out
+
+
+def _resolve_health_reference_trained_at(out_dir: Path) -> str:
+    """
+    Use the most recent persisted artifact timestamp as the age anchor for health checks.
+    """
+    try:
+        regime_artifact, value_artifact = load_model_artifacts(out_dir)
+        return max(str(regime_artifact.trained_at), str(value_artifact.trained_at))
+    except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
+        return pd.Timestamp.utcnow().isoformat()
+
+
+def _selected_strategy_series(
+    realized_matrix: np.ndarray,
+    predicted_matrix: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    if realized_matrix.ndim != 2 or predicted_matrix.ndim != 2:
+        raise ValueError("realized_matrix and predicted_matrix must be 2D arrays")
+    if realized_matrix.shape != predicted_matrix.shape:
+        raise ValueError("realized_matrix and predicted_matrix must have matching shape")
+    if realized_matrix.size == 0:
+        return np.array([], dtype=float), np.array([], dtype=float)
+    selected_idx = predicted_matrix.argmax(axis=1)
+    rows = np.arange(realized_matrix.shape[0])
+    realized_selected = realized_matrix[rows, selected_idx]
+    predicted_selected = predicted_matrix[rows, selected_idx]
+    return realized_selected, predicted_selected
 
 
 def parse_args() -> argparse.Namespace:
@@ -185,16 +215,18 @@ def main() -> None:
     training_start = str(df["timestamp"].iloc[0]) if "timestamp" in df.columns and len(df) else None
     training_end = str(df["timestamp"].iloc[-1]) if "timestamp" in df.columns and len(df) else None
     model_health_snapshot = None
+    health = None
     if args.evaluate_health:
         train_regime_probs = regime_model.predict_proba(regime_train)
         live_regime_probs = regime_model.predict_proba(regime_val)
         x_train = regime_train.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float)
         x_live = regime_val.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float)
-        value_pred = value_model.predict_expected_values(value_val)
-        realized = value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float).max(axis=1)
-        predicted = value_pred.max(axis=1)
+        value_pred_matrix = value_model.predict_expected_values(value_val)
+        realized_matrix = value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float)
+        realized, predicted = _selected_strategy_series(realized_matrix, value_pred_matrix)
+        health_trained_at = _resolve_health_reference_trained_at(Path(args.out_dir))
         health = evaluate_model_health(
-            trained_at=pd.Timestamp.utcnow().isoformat(),
+            trained_at=health_trained_at,
             X_train=x_train,
             X_live=x_live,
             train_regime_probs=train_regime_probs,
@@ -256,9 +288,36 @@ def main() -> None:
     if model_health_snapshot is not None:
         print("Model health:")
         print(json.dumps(model_health_snapshot, indent=2))
-        if args.auto_retrain and should_trigger_retrain(health):
+        if args.auto_retrain and health is not None and should_trigger_retrain(health):
             print("Triggering retrain...")
-            print("Auto-retrain trigger fired; rerun training pipeline with refreshed data.")
+            refreshed_regime = train_regime_model(regime_df)
+            refreshed_value = train_strategy_value_model(value_df)
+            refreshed_regime_path, refreshed_value_path = save_model_artifacts(
+                refreshed_regime,
+                refreshed_value,
+                regime_training_rows=len(regime_df),
+                value_training_rows=len(value_df),
+                source_symbols=symbols,
+                out_dir=Path(args.out_dir),
+                target_mode=args.target_mode,
+                label_mode=args.label_mode,
+                horizon=args.horizon,
+                training_start=training_start,
+                training_end=training_end,
+                benchmark_summary=benchmark_summary,
+                simulator_version=args.simulator_version,
+                execution_model_version=args.execution_model_version,
+                train_split=args.train_split,
+                validation_rows=len(value_val),
+                sequence_window=sequence_window,
+                smoothing_alpha=args.smoothing_alpha if args.temporal else None,
+                temporal_model=args.temporal,
+                validation_matrix_summary=validation_summary,
+                feature_ablation_summary=ablation_summary,
+                model_health_snapshot=model_health_snapshot,
+            )
+            print(f"Auto-retrain completed. Saved regime artifact: {refreshed_regime_path}")
+            print(f"Auto-retrain completed. Saved strategy artifact: {refreshed_value_path}")
     print(f"Saved regime artifact: {regime_path}")
     print(f"Saved strategy artifact: {value_path}")
 
