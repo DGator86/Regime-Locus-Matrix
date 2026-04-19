@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Literal, Mapping
 
@@ -8,6 +9,8 @@ import numpy as np
 from rlm.features.scoring.regime_model import REGIME_LABELS
 from rlm.features.scoring.regime_model import RegimeModel
 from rlm.training.artifacts import load_regime_model_artifact
+
+logger = logging.getLogger(__name__)
 
 RegimeLabel = Literal[
     "trend_up_stable",
@@ -20,12 +23,25 @@ RegimeLabel = Literal[
     "no_trade",
 ]
 
+
+def _has_valid_metadata(artifact) -> bool:
+    return (
+        isinstance(getattr(artifact, "label_mode", None), str)
+        and isinstance(getattr(artifact, "target_mode", None), str)
+        and isinstance(getattr(artifact, "horizon", None), int)
+        and artifact.horizon > 0
+    )
+
+
 def load_trained_regime_model_or_bootstrap(
     path: str | Path = "artifacts/models/regime_model.json",
 ) -> RegimeModel:
     artifact_path = Path(path)
     if artifact_path.exists():
-        return RegimeModel.from_artifact(load_regime_model_artifact(artifact_path))
+        artifact = load_regime_model_artifact(artifact_path)
+        if _has_valid_metadata(artifact):
+            return RegimeModel.from_artifact(artifact)
+        logger.warning("Regime artifact metadata missing/malformed at %s; using bootstrap", artifact_path)
     return RegimeModel.with_bootstrap_coefficients()
 
 
