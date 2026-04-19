@@ -101,6 +101,10 @@ def save_model_artifacts(
     training_start: str | None = None,
     training_end: str | None = None,
     benchmark_summary: dict[str, float] | None = None,
+    simulator_version: str | None = None,
+    execution_model_version: str | None = None,
+    train_split: float | None = None,
+    validation_rows: int | None = None,
 ) -> tuple[Path, Path]:
     out_dir_path = Path(out_dir)
     trained_at = datetime.now(UTC).isoformat()
@@ -116,6 +120,10 @@ def save_model_artifacts(
         training_start=training_start,
         training_end=training_end,
         benchmark_summary=benchmark_summary,
+        simulator_version=simulator_version,
+        execution_model_version=execution_model_version,
+        train_split=train_split,
+        validation_rows=validation_rows,
     )
     value_artifact = value_model.to_artifact(
         trained_at=trained_at,
@@ -128,6 +136,10 @@ def save_model_artifacts(
         training_start=training_start,
         training_end=training_end,
         benchmark_summary=benchmark_summary,
+        simulator_version=simulator_version,
+        execution_model_version=execution_model_version,
+        train_split=train_split,
+        validation_rows=validation_rows,
     )
 
     regime_path = out_dir_path / REGIME_ARTIFACT_PATH.name
@@ -206,7 +218,9 @@ def compute_strategy_metrics(
     X = val_df.loc[:, REQUIRED_COORD_COLUMNS]
     Y = val_df.loc[:, STRATEGY_NAMES].to_numpy(dtype=float)
     pred = model.predict_expected_values(X)
-    mse = {name: float(np.mean((pred[:, i] - Y[:, i]) ** 2)) for i, name in enumerate(STRATEGY_NAMES)}
+    mse = {
+        name: float(np.mean((pred[:, i] - Y[:, i]) ** 2)) for i, name in enumerate(STRATEGY_NAMES)
+    }
 
     predicted_best = pred.argmax(axis=1)
     realized_best = Y.argmax(axis=1)
@@ -224,7 +238,9 @@ def compute_strategy_metrics(
     pred_rank = np.argsort(np.argsort(pred, axis=1), axis=1)
     real_rank = np.argsort(np.argsort(Y, axis=1), axis=1)
     if len(Y):
-        corr = float(np.mean([np.corrcoef(pred_rank[i], real_rank[i])[0, 1] for i in range(len(Y))]))
+        corr = float(
+            np.mean([np.corrcoef(pred_rank[i], real_rank[i])[0, 1] for i in range(len(Y))])
+        )
     else:
         corr = 0.0
 

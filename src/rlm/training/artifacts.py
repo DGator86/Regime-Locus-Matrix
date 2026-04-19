@@ -19,6 +19,10 @@ class RegimeModelArtifact:
     training_start: str | None = None
     training_end: str | None = None
     benchmark_summary: dict[str, float] | None = None
+    simulator_version: str | None = None
+    execution_model_version: str | None = None
+    train_split: float | None = None
+    validation_rows: int | None = None
 
 
 @dataclass
@@ -35,9 +39,15 @@ class StrategyValueModelArtifact:
     training_start: str | None = None
     training_end: str | None = None
     benchmark_summary: dict[str, float] | None = None
+    simulator_version: str | None = None
+    execution_model_version: str | None = None
+    train_split: float | None = None
+    validation_rows: int | None = None
 
 
-def save_artifact(path: str | Path, artifact: RegimeModelArtifact | StrategyValueModelArtifact) -> None:
+def save_artifact(
+    path: str | Path, artifact: RegimeModelArtifact | StrategyValueModelArtifact
+) -> None:
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(asdict(artifact), indent=2), encoding="utf-8")
