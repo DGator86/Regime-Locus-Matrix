@@ -9,6 +9,7 @@ from rlm.features.scoring.coordinate_regime_bootstrap import (
 )
 from rlm.roee.strategy_value_model import STRATEGY_NAMES
 from rlm.training.regime_targets import derive_outcome_regime_label
+from rlm.training.sequence_features import add_sequence_features
 from rlm.training.strategy_targets_v1 import simulate_strategy_target_row_v1
 from rlm.training.strategy_targets_v2 import simulate_strategy_target_row_v2
 
@@ -42,6 +43,7 @@ def build_regime_training_frame(
     *,
     label_mode: str = "bootstrap",
     horizon: int = 20,
+    sequence_window: int | None = None,
 ) -> pd.DataFrame:
     _validate_required_columns(df, REQUIRED_COORD_COLUMNS)
     cols = [c for c in _OPTIONAL_METADATA_COLUMNS if c in df.columns] + list(REQUIRED_COORD_COLUMNS)
@@ -49,7 +51,10 @@ def build_regime_training_frame(
 
     if label_mode == "bootstrap":
         out["regime_label"] = out.apply(bootstrap_regime_label_from_coordinates, axis=1)
-        return out.dropna(subset=list(REQUIRED_COORD_COLUMNS)).reset_index(drop=True)
+        out = out.dropna(subset=list(REQUIRED_COORD_COLUMNS)).reset_index(drop=True)
+        if sequence_window is not None:
+            out = add_sequence_features(out, window=sequence_window)
+        return out
 
     if label_mode != "outcome":
         raise ValueError("label_mode must be one of: bootstrap, outcome")
@@ -62,7 +67,10 @@ def build_regime_training_frame(
     usable = out.iloc[: len(target_rows)].copy()
     targets_df = pd.DataFrame(target_rows, index=usable.index)
     usable["regime_label"] = targets_df.apply(derive_outcome_regime_label, axis=1)
-    return usable.dropna(subset=list(REQUIRED_COORD_COLUMNS)).reset_index(drop=True)
+    usable = usable.dropna(subset=list(REQUIRED_COORD_COLUMNS)).reset_index(drop=True)
+    if sequence_window is not None:
+        usable = add_sequence_features(usable, window=sequence_window)
+    return usable
 
 
 def build_strategy_value_training_frame(
@@ -71,6 +79,7 @@ def build_strategy_value_training_frame(
     *,
     target_mode: str = "v2",
     use_path_exits: bool = True,
+    sequence_window: int | None = None,
 ) -> pd.DataFrame:
     _validate_required_columns(df, REQUIRED_COORD_COLUMNS)
     if "close" not in df.columns:
@@ -91,6 +100,8 @@ def build_strategy_value_training_frame(
     for col in STRATEGY_NAMES:
         out[col] = targets_df.get(col, 0.0)
     out["no_trade"] = 0.0
+    if sequence_window is not None:
+        out = add_sequence_features(out, window=sequence_window)
     return out.reset_index(drop=True)
 
 

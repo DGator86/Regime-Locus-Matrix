@@ -139,29 +139,54 @@ class RegimeModel:
         l2: float = 1e-4,
     ) -> "RegimeModel":
         X_mat = self._to_feature_matrix(X)
-        if X_mat.shape[0] != len(y):
-            raise ValueError("X and y must contain the same number of rows.")
-        y_idx = np.array([self._label_to_idx[str(label)] for label in y], dtype=int)
-        one_hot = np.eye(len(self.labels), dtype=float)[y_idx]
-
-        self._weights = np.zeros((len(self.labels), X_mat.shape[1]), dtype=float)
-        n = float(X_mat.shape[0])
-        for _ in range(max(epochs, 1)):
-            logits = X_mat @ self._weights.T
-            probs = _softmax(logits)
-            grad = ((probs - one_hot).T @ X_mat) / n + l2 * self._weights
-            self._weights -= learning_rate * grad
-        return self
+        return self.fit_design_matrix(
+            X_mat,
+            y,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            l2=l2,
+        )
 
     def predict_proba(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
         X_mat = self._to_feature_matrix(X)
-        logits = X_mat @ self._weights.T
-        return _softmax(logits)
+        return self.predict_proba_design_matrix(X_mat)
 
     def predict(self, X: pd.DataFrame | np.ndarray) -> list[str]:
         probs = self.predict_proba(X)
         argmax = probs.argmax(axis=1)
         return [self.labels[idx] for idx in argmax]
+
+    def fit_design_matrix(
+        self,
+        X_design: np.ndarray,
+        y: Sequence[str],
+        *,
+        learning_rate: float = 0.05,
+        epochs: int = 400,
+        l2: float = 1e-4,
+    ) -> "RegimeModel":
+        arr = np.asarray(X_design, dtype=float)
+        if arr.ndim != 2:
+            raise ValueError("X_design must be 2D")
+        if arr.shape[0] != len(y):
+            raise ValueError("X_design and y length mismatch")
+        y_idx = np.array([self._label_to_idx[str(label)] for label in y], dtype=int)
+        one_hot = np.eye(len(self.labels), dtype=float)[y_idx]
+        self._weights = np.zeros((len(self.labels), arr.shape[1]), dtype=float)
+        n = float(arr.shape[0])
+        for _ in range(max(epochs, 1)):
+            logits = arr @ self._weights.T
+            probs = _softmax(logits)
+            grad = ((probs - one_hot).T @ arr) / n + l2 * self._weights
+            self._weights -= learning_rate * grad
+        return self
+
+    def predict_proba_design_matrix(self, X_design: np.ndarray) -> np.ndarray:
+        arr = np.asarray(X_design, dtype=float)
+        if arr.ndim != 2:
+            raise ValueError("X_design must be 2D")
+        logits = arr @ self._weights.T
+        return _softmax(logits)
 
     @classmethod
     def from_artifact(cls, artifact: RegimeModelArtifact) -> "RegimeModel":
@@ -186,6 +211,9 @@ class RegimeModel:
         execution_model_version: str | None = None,
         train_split: float | None = None,
         validation_rows: int | None = None,
+        sequence_window: int | None = None,
+        smoothing_alpha: float | None = None,
+        temporal_model: bool = False,
     ) -> RegimeModelArtifact:
         return RegimeModelArtifact(
             labels=list(self.labels),
@@ -204,6 +232,9 @@ class RegimeModel:
             execution_model_version=execution_model_version,
             train_split=train_split,
             validation_rows=validation_rows,
+            sequence_window=sequence_window,
+            smoothing_alpha=smoothing_alpha,
+            temporal_model=temporal_model,
         )
 
     def _to_feature_matrix(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:

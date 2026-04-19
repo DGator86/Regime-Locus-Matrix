@@ -60,6 +60,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--save-benchmark-json", default=None)
     parser.add_argument("--use-path-exits", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--temporal", action="store_true")
+    parser.add_argument("--sequence-window", type=int, default=None)
+    parser.add_argument("--smoothing-alpha", type=float, default=0.25)
     parser.add_argument("--simulator-version", default=None)
     parser.add_argument("--execution-model-version", default=None)
     return parser.parse_args()
@@ -78,12 +81,19 @@ def main() -> None:
             df = df.loc[ts <= pd.Timestamp(args.end, tz="UTC")]
         df = df.reset_index(drop=True)
 
-    regime_df = build_regime_training_frame(df, label_mode=args.label_mode, horizon=args.horizon)
+    sequence_window = args.sequence_window if args.temporal else None
+    regime_df = build_regime_training_frame(
+        df,
+        label_mode=args.label_mode,
+        horizon=args.horizon,
+        sequence_window=sequence_window,
+    )
     value_df = build_strategy_value_training_frame(
         df,
         horizon=args.horizon,
         target_mode=args.target_mode,
         use_path_exits=args.use_path_exits,
+        sequence_window=sequence_window,
     )
 
     regime_train, regime_val = _split(regime_df, args.train_split)
@@ -103,6 +113,8 @@ def main() -> None:
             horizon=args.horizon,
             train_split=args.train_split,
             use_path_exits=args.use_path_exits,
+            sequence_window=sequence_window,
+            smoothing_alpha=args.smoothing_alpha,
         )
         benchmark_summary = summarize_benchmark_results(benchmark_results)
 
@@ -125,6 +137,9 @@ def main() -> None:
         execution_model_version=args.execution_model_version,
         train_split=args.train_split,
         validation_rows=len(value_val),
+        sequence_window=sequence_window,
+        smoothing_alpha=args.smoothing_alpha if args.temporal else None,
+        temporal_model=args.temporal,
     )
 
     if args.save_benchmark_json and benchmark_results is not None:
