@@ -29,6 +29,9 @@ class RegimeModelArtifact:
     validation_matrix_summary: dict[str, float] | None = None
     feature_ablation_summary: dict[str, float] | None = None
     model_health_snapshot: dict[str, float | bool] | None = None
+    refresh_parent_version: str | None = None
+    refresh_reason: str | None = None
+    promotion_status: str | None = None
 
 
 @dataclass
@@ -55,6 +58,9 @@ class StrategyValueModelArtifact:
     validation_matrix_summary: dict[str, float] | None = None
     feature_ablation_summary: dict[str, float] | None = None
     model_health_snapshot: dict[str, float | bool] | None = None
+    refresh_parent_version: str | None = None
+    refresh_reason: str | None = None
+    promotion_status: str | None = None
 
 
 def save_artifact(

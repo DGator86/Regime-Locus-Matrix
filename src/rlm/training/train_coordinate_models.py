@@ -111,6 +111,9 @@ def save_model_artifacts(
     validation_matrix_summary: dict[str, float] | None = None,
     feature_ablation_summary: dict[str, float] | None = None,
     model_health_snapshot: dict[str, float | bool] | None = None,
+    refresh_parent_version: str | None = None,
+    refresh_reason: str | None = None,
+    promotion_status: str | None = None,
 ) -> tuple[Path, Path]:
     out_dir_path = Path(out_dir)
     trained_at = datetime.now(UTC).isoformat()
@@ -136,6 +139,9 @@ def save_model_artifacts(
         validation_matrix_summary=validation_matrix_summary,
         feature_ablation_summary=feature_ablation_summary,
         model_health_snapshot=model_health_snapshot,
+        refresh_parent_version=refresh_parent_version,
+        refresh_reason=refresh_reason,
+        promotion_status=promotion_status,
     )
     value_artifact = value_model.to_artifact(
         trained_at=trained_at,
@@ -158,6 +164,9 @@ def save_model_artifacts(
         validation_matrix_summary=validation_matrix_summary,
         feature_ablation_summary=feature_ablation_summary,
         model_health_snapshot=model_health_snapshot,
+        refresh_parent_version=refresh_parent_version,
+        refresh_reason=refresh_reason,
+        promotion_status=promotion_status,
     )
 
     regime_path = out_dir_path / REGIME_ARTIFACT_PATH.name

@@ -6,8 +6,8 @@ from typing import Literal, Mapping
 
 import numpy as np
 
-from rlm.features.scoring.regime_model import REGIME_LABELS
-from rlm.features.scoring.regime_model import RegimeModel
+from rlm.features.scoring.regime_model import REGIME_LABELS, RegimeModel
+from rlm.training.artifact_registry import load_registry
 from rlm.training.artifacts import load_regime_model_artifact
 
 logger = logging.getLogger(__name__)
@@ -33,15 +33,27 @@ def _has_valid_metadata(artifact) -> bool:
     )
 
 
+def _resolve_active_regime_artifact(base_dir: str | Path = "artifacts/models") -> Path | None:
+    reg = load_registry(base_dir)
+    if reg.active_regime_path:
+        path = Path(reg.active_regime_path)
+        if path.exists():
+            return path
+    fallback = Path(base_dir) / "regime_model.json"
+    return fallback if fallback.exists() else None
+
+
 def load_trained_regime_model_or_bootstrap(
-    path: str | Path = "artifacts/models/regime_model.json",
+    path: str | Path | None = None,
 ) -> RegimeModel:
-    artifact_path = Path(path)
-    if artifact_path.exists():
+    artifact_path = Path(path) if path is not None else _resolve_active_regime_artifact()
+    if artifact_path is not None and artifact_path.exists():
         artifact = load_regime_model_artifact(artifact_path)
         if _has_valid_metadata(artifact):
             return RegimeModel.from_artifact(artifact)
-        logger.warning("Regime artifact metadata missing/malformed at %s; using bootstrap", artifact_path)
+        logger.warning(
+            "Regime artifact metadata missing/malformed at %s; using bootstrap", artifact_path
+        )
     return RegimeModel.with_bootstrap_coefficients()
 
 
