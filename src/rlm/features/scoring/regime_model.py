@@ -182,6 +182,10 @@ class RegimeModel:
         training_start: str | None = None,
         training_end: str | None = None,
         benchmark_summary: dict[str, float] | None = None,
+        simulator_version: str | None = None,
+        execution_model_version: str | None = None,
+        train_split: float | None = None,
+        validation_rows: int | None = None,
     ) -> RegimeModelArtifact:
         return RegimeModelArtifact(
             labels=list(self.labels),
@@ -196,6 +200,10 @@ class RegimeModel:
             training_start=training_start,
             training_end=training_end,
             benchmark_summary=benchmark_summary,
+            simulator_version=simulator_version,
+            execution_model_version=execution_model_version,
+            train_split=train_split,
+            validation_rows=validation_rows,
         )
 
     def _to_feature_matrix(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:

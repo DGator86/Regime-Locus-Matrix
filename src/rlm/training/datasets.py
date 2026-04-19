@@ -70,6 +70,7 @@ def build_strategy_value_training_frame(
     horizon: int,
     *,
     target_mode: str = "v2",
+    use_path_exits: bool = True,
 ) -> pd.DataFrame:
     _validate_required_columns(df, REQUIRED_COORD_COLUMNS)
     if "close" not in df.columns:
@@ -82,7 +83,9 @@ def build_strategy_value_training_frame(
     cols = [c for c in _OPTIONAL_METADATA_COLUMNS if c in df.columns] + list(REQUIRED_COORD_COLUMNS)
     base = df.loc[:, cols].copy().reset_index(drop=True)
 
-    target_rows = _build_target_rows(base, horizon=horizon, target_mode=target_mode)
+    target_rows = _build_target_rows(
+        base, horizon=horizon, target_mode=target_mode, use_path_exits=use_path_exits
+    )
     out = base.iloc[: len(target_rows)].copy()
     targets_df = pd.DataFrame(target_rows, index=out.index)
     for col in STRATEGY_NAMES:
@@ -91,7 +94,13 @@ def build_strategy_value_training_frame(
     return out.reset_index(drop=True)
 
 
-def _build_target_rows(base: pd.DataFrame, *, horizon: int, target_mode: str) -> list[dict[str, float]]:
+def _build_target_rows(
+    base: pd.DataFrame,
+    *,
+    horizon: int,
+    target_mode: str,
+    use_path_exits: bool = True,
+) -> list[dict[str, float]]:
     target_rows: list[dict[str, float]] = []
     last_train_idx = max(len(base) - horizon, 0)
     for idx, row in base.iloc[:last_train_idx].iterrows():
@@ -104,7 +113,7 @@ def _build_target_rows(base: pd.DataFrame, *, horizon: int, target_mode: str) ->
                 forward_df,
                 strike_increment=5.0,
                 horizon=horizon,
-                use_path_exits=True,
+                use_path_exits=use_path_exits,
             )
         target_rows.append(target)
     return target_rows

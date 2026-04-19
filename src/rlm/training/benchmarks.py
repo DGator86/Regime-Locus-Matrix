@@ -21,11 +21,18 @@ def benchmark_coordinate_models(
     df: pd.DataFrame,
     horizon: int,
     train_split: float = 0.8,
+    *,
+    use_path_exits: bool = True,
 ) -> dict[str, dict[str, float | dict[str, float]]]:
     if not 0.0 < train_split < 1.0:
         raise ValueError("train_split must be in (0,1)")
 
-    eval_frame = build_strategy_value_training_frame(df, horizon=horizon, target_mode="v2")
+    eval_frame = build_strategy_value_training_frame(
+        df,
+        horizon=horizon,
+        target_mode="v2",
+        use_path_exits=use_path_exits,
+    )
     if len(eval_frame) < 5:
         raise ValueError("Not enough rows for benchmark")
 
@@ -34,7 +41,9 @@ def benchmark_coordinate_models(
     val_eval = eval_frame.iloc[cut:].reset_index(drop=True)
     x_val = val_eval.loc[:, REQUIRED_COORD_COLUMNS]
     y_val = val_eval.loc[:, StrategyValueModel().strategies].to_numpy(dtype=float)
-    teacher_labels = [bootstrap_regime_label_from_coordinates(r) for r in x_val.to_dict(orient="records")]
+    teacher_labels = [
+        bootstrap_regime_label_from_coordinates(r) for r in x_val.to_dict(orient="records")
+    ]
 
     results: dict[str, dict[str, float | dict[str, float]]] = {}
 
@@ -53,14 +62,24 @@ def benchmark_coordinate_models(
             "regime_accuracy_vs_teacher": regime_acc_teacher,
             "strategy_mse": float(np.mean(list(strategy_metrics.mse_per_strategy.values()))),
             "rank_correlation": float(strategy_metrics.rank_correlation),
-            "no_trade_frequency": float(np.mean(pred_best == no_trade_idx)) if len(pred_best) else 0.0,
-            "average_selected_edge": float(np.mean(selected - y_val.mean(axis=1))) if len(selected) else 0.0,
+            "no_trade_frequency": (
+                float(np.mean(pred_best == no_trade_idx)) if len(pred_best) else 0.0
+            ),
+            "average_selected_edge": (
+                float(np.mean(selected - y_val.mean(axis=1))) if len(selected) else 0.0
+            ),
             "drawdown_proxy": float(np.min(np.cumsum(selected))) if len(selected) else 0.0,
             "strategy_mse_per_strategy": strategy_metrics.mse_per_strategy,
         }
 
-    baseline_regime = train_regime_model(build_regime_training_frame(train_base, label_mode="bootstrap"))
-    evaluate("baseline_a_bootstrap_fixed", baseline_regime, StrategyValueModel.with_bootstrap_coefficients())
+    baseline_regime = train_regime_model(
+        build_regime_training_frame(train_base, label_mode="bootstrap")
+    )
+    evaluate(
+        "baseline_a_bootstrap_fixed",
+        baseline_regime,
+        StrategyValueModel.with_bootstrap_coefficients(),
+    )
 
     b_regime = train_regime_model(build_regime_training_frame(train_base, label_mode="bootstrap"))
     b_value = train_strategy_value_model(
@@ -70,7 +89,12 @@ def benchmark_coordinate_models(
 
     c_regime = train_regime_model(build_regime_training_frame(train_base, label_mode="bootstrap"))
     c_value = train_strategy_value_model(
-        build_strategy_value_training_frame(train_base, horizon=horizon, target_mode="v2")
+        build_strategy_value_training_frame(
+            train_base,
+            horizon=horizon,
+            target_mode="v2",
+            use_path_exits=use_path_exits,
+        )
     )
     evaluate("candidate_c_pr51_targets", c_regime, c_value)
 
@@ -78,8 +102,32 @@ def benchmark_coordinate_models(
         build_regime_training_frame(train_base, label_mode="outcome", horizon=horizon)
     )
     d_value = train_strategy_value_model(
-        build_strategy_value_training_frame(train_base, horizon=horizon, target_mode="v2")
+        build_strategy_value_training_frame(
+            train_base,
+            horizon=horizon,
+            target_mode="v2",
+            use_path_exits=use_path_exits,
+        )
     )
     evaluate("candidate_d_pr51_full", d_regime, d_value)
 
     return results
+
+
+def summarize_benchmark_results(
+    results: dict[str, dict[str, float | dict[str, float]]],
+) -> dict[str, float]:
+    baseline = results["baseline_b_pr50"]
+    candidate = results["candidate_d_pr51_full"]
+    return {
+        "selected_realized_avg_improvement": float(
+            candidate["selected_realized_average"] - baseline["selected_realized_average"]
+        ),
+        "top1_hit_rate_improvement": float(candidate["top1_hit_rate"] - baseline["top1_hit_rate"]),
+        "rank_correlation_improvement": float(
+            candidate["rank_correlation"] - baseline["rank_correlation"]
+        ),
+        "drawdown_proxy_improvement": float(
+            candidate["drawdown_proxy"] - baseline["drawdown_proxy"]
+        ),
+    }

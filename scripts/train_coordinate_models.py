@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rlm.training.benchmarks import benchmark_coordinate_models
+from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
 from rlm.training.datasets import build_regime_training_frame, build_strategy_value_training_frame
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
@@ -44,7 +44,9 @@ def _split(df: pd.DataFrame, train_split: float) -> tuple[pd.DataFrame, pd.DataF
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train coordinate regime and strategy value models")
+    parser = argparse.ArgumentParser(
+        description="Train coordinate regime and strategy value models"
+    )
     parser.add_argument("--symbols", required=True, help="Comma-separated symbols, e.g. SPY,QQQ")
     parser.add_argument("--start", default=None, help="Optional start date filter (inclusive)")
     parser.add_argument("--end", default=None, help="Optional end date filter (inclusive)")
@@ -57,6 +59,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-mode", choices=["v1", "v2"], default="v2")
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--save-benchmark-json", default=None)
+    parser.add_argument("--use-path-exits", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--simulator-version", default=None)
+    parser.add_argument("--execution-model-version", default=None)
     return parser.parse_args()
 
 
@@ -74,7 +79,12 @@ def main() -> None:
         df = df.reset_index(drop=True)
 
     regime_df = build_regime_training_frame(df, label_mode=args.label_mode, horizon=args.horizon)
-    value_df = build_strategy_value_training_frame(df, horizon=args.horizon, target_mode=args.target_mode)
+    value_df = build_strategy_value_training_frame(
+        df,
+        horizon=args.horizon,
+        target_mode=args.target_mode,
+        use_path_exits=args.use_path_exits,
+    )
 
     regime_train, regime_val = _split(regime_df, args.train_split)
     value_train, value_val = _split(value_df, 1.0 - args.val_split)
@@ -88,10 +98,13 @@ def main() -> None:
     benchmark_results = None
     benchmark_summary = None
     if args.benchmark:
-        benchmark_results = benchmark_coordinate_models(df, horizon=args.horizon, train_split=args.train_split)
-        baseline = benchmark_results["baseline_b_pr50"]["selected_realized_average"]
-        improved = benchmark_results["candidate_d_pr51_full"]["selected_realized_average"]
-        benchmark_summary = {"selected_realized_avg_improvement": float(improved - baseline)}
+        benchmark_results = benchmark_coordinate_models(
+            df,
+            horizon=args.horizon,
+            train_split=args.train_split,
+            use_path_exits=args.use_path_exits,
+        )
+        benchmark_summary = summarize_benchmark_results(benchmark_results)
 
     training_start = str(df["timestamp"].iloc[0]) if "timestamp" in df.columns and len(df) else None
     training_end = str(df["timestamp"].iloc[-1]) if "timestamp" in df.columns and len(df) else None
@@ -108,6 +121,10 @@ def main() -> None:
         training_start=training_start,
         training_end=training_end,
         benchmark_summary=benchmark_summary,
+        simulator_version=args.simulator_version,
+        execution_model_version=args.execution_model_version,
+        train_split=args.train_split,
+        validation_rows=len(value_val),
     )
 
     if args.save_benchmark_json and benchmark_results is not None:

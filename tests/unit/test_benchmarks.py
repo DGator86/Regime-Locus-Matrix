@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from rlm.training.benchmarks import benchmark_coordinate_models
+from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
 
 
 def _synthetic_df(n: int = 90) -> pd.DataFrame:
@@ -50,3 +50,16 @@ def test_benchmark_runner_returns_expected_structure() -> None:
     }
     for model_name in expected_models:
         assert expected_metrics.issubset(out[model_name].keys())
+
+
+def test_summarize_benchmark_results_has_stable_improvement_keys() -> None:
+    summary = summarize_benchmark_results(
+        benchmark_coordinate_models(_synthetic_df(), horizon=5, train_split=0.7)
+    )
+    assert set(summary) == {
+        "selected_realized_avg_improvement",
+        "top1_hit_rate_improvement",
+        "rank_correlation_improvement",
+        "drawdown_proxy_improvement",
+    }
+    assert all(isinstance(v, float) for v in summary.values())
