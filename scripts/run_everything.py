@@ -47,7 +47,9 @@ def _run(cmd: list[str]) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument(
         "--out",
         default="data/processed/universe_trade_plans.json",
@@ -57,6 +59,11 @@ def main() -> int:
         "--pipeline-args",
         default="",
         help="Extra args for run_universe_options_pipeline.py (quoted), e.g. '--top 3 --no-vix'",
+    )
+    ap.add_argument(
+        "--use-vp-gating",
+        action="store_true",
+        help="Enable volume-profile / 80%%-rule gating in downstream pipeline decisions.",
     )
     ap.add_argument(
         "--follow",
@@ -75,15 +82,21 @@ def main() -> int:
         default=argparse.SUPPRESS,
         help="Re-run universe pipeline every N seconds in the background when --follow (default: 0, or 300 with --master)",
     )
-    ap.add_argument("--skip-monitor", action="store_true", help="Only run the universe options pipeline")
-    ap.add_argument("--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)")
+    ap.add_argument(
+        "--skip-monitor", action="store_true", help="Only run the universe options pipeline"
+    )
+    ap.add_argument(
+        "--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)"
+    )
     ap.add_argument(
         "--paper-trade",
         action="store_true",
         help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
     )
     ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
-    ap.add_argument("--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)")
+    ap.add_argument(
+        "--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)"
+    )
     ap.add_argument(
         "--paper-close",
         action="store_true",
@@ -175,6 +188,8 @@ def main() -> int:
         cmd = [py, str(ROOT / "scripts" / "run_universe_options_pipeline.py"), "--out", plans]
         if args.pipeline_args.strip():
             cmd.extend(shlex.split(args.pipeline_args))
+        if args.use_vp_gating and "--use-vp-gating" not in cmd:
+            cmd.append("--use-vp-gating")
         return cmd
 
     def paper_cmd() -> list[str]:
@@ -215,7 +230,9 @@ def main() -> int:
     if args.paper_trade:
         rc = _run(paper_cmd())
         if rc != 0:
-            print(f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True)
+            print(
+                f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True
+            )
 
     if args.with_equity:
         # Run equity book in a background thread so it doesn't block the monitor
@@ -223,6 +240,7 @@ def main() -> int:
             rc = _run(equity_cmd())
             if rc != 0:
                 print(f"[warn] equity trade step exited with code {rc}", flush=True)
+
         et = threading.Thread(target=_run_equity, name="equity-trade", daemon=True)
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue

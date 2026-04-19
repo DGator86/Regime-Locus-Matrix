@@ -245,6 +245,12 @@ def select_trade_for_row(
     min_regime_train_samples: int | None = None,
     regime_purge_bars: int = 0,
     use_persistence_controls: bool = False,
+    use_volume_profile_gating: bool = False,
+    wyckoff_threshold: float = 0.7,
+    balance_haircut: float = 0.5,
+    eighty_percent_boost: float = 0.2,
+    hybrid_strength_scaling: bool = True,
+    gex_confluence_enabled: bool = True,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -432,6 +438,36 @@ def select_trade_for_row(
         vault_uncertainty_threshold=vault_uncertainty_threshold,
         vault_size_multiplier=vault_size_multiplier,
         short_dte=short_dte,
+        use_volume_profile_gating=use_volume_profile_gating,
+        effort_result_divergence=(
+            _finite_float(row.get("vp_effort_result_score"), default=np.nan)
+            if pd.notna(row.get("vp_effort_result_score"))
+            else None
+        ),
+        auction_state=(
+            str(row.get("vp_auction_state")) if pd.notna(row.get("vp_auction_state")) else None
+        ),
+        eighty_percent_rule_signal=bool(row.get("vp_eighty_percent_signal", False)),
+        cumulative_wyckoff_score=(
+            _finite_float(row.get("cumulative_wyckoff_score"), default=np.nan)
+            if pd.notna(row.get("cumulative_wyckoff_score"))
+            else None
+        ),
+        wyckoff_threshold=wyckoff_threshold,
+        balance_haircut=balance_haircut,
+        eighty_percent_boost=eighty_percent_boost,
+        hybrid_strength_scaling=hybrid_strength_scaling,
+        hybrid_strength=(
+            _finite_float(row.get("vp_hybrid_strength_max"), default=np.nan)
+            if pd.notna(row.get("vp_hybrid_strength_max"))
+            else None
+        ),
+        gex_confluence_enabled=gex_confluence_enabled,
+        gex_confluence_poc=(
+            _finite_float(row.get("vp_gex_confluence_poc"), default=np.nan)
+            if pd.notna(row.get("vp_gex_confluence_poc"))
+            else None
+        ),
     )
     if coordinate_router_strategy is not None:
         decision = select_trade_from_strategy_name(

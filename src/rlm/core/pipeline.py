@@ -44,6 +44,7 @@ from typing import Literal
 import pandas as pd
 
 from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.config.rlm_config import VolumeProfileConfig
 from rlm.factors.cumulative_wyckoff_factors import CumulativeWyckoffFactors
 from rlm.factors.hybrid_confluence_factors import HybridConfluenceFactors
 from rlm.factors.microstructure_vp_factors import MicrostructureVPFactors
@@ -59,6 +60,8 @@ from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig, apply_roee_policy
+from rlm.volume_profile.hybrid_confluence import hybrid_support_resistance
+from rlm.volume_profile.trade_models import eighty_percent_rule
 from rlm.types.forecast import ForecastConfig
 
 # ---------------------------------------------------------------------------
@@ -119,6 +122,7 @@ class FullRLMConfig:
     use_cumulative_wyckoff: bool = False
     use_hybrid_confluence: bool = False
     session_type: str = "equity"
+    volume_profile: VolumeProfileConfig = field(default_factory=VolumeProfileConfig)
 
     # ---- Nightly overlay ----------------------------------------------------
     nightly_hyperparams_path: str | None = None
@@ -130,6 +134,7 @@ class FullRLMConfig:
     initial_capital: float = 100_000.0
     contract_multiplier: int = 100
     quantity_per_trade: int = 1
+    use_vp_gating: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +174,7 @@ class PipelineResult:
     backtest_equity: pd.DataFrame | None = None
     backtest_metrics: dict[str, float] | None = None
     vp_metrics: pd.DataFrame | None = None
+    vp_signals: dict[str, object] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +247,7 @@ class FullRLMPipeline:
         PipelineResult
         """
         cfg = self.config
+        vp_cfg = cfg.volume_profile
 
         # 1. Enrich bars with option-chain aggregates and macro series
         df = prepare_bars_for_factors(
@@ -254,17 +261,37 @@ class FullRLMPipeline:
         factors_df = FactorPipeline().run(df)
 
         vp_metrics: pd.DataFrame | None = None
-        if cfg.use_intraday_vp and cfg.session_type == "equity":
+        use_intraday_vp = cfg.use_intraday_vp or (vp_cfg.enabled and vp_cfg.intraday_enabled)
+        use_wyckoff = cfg.use_cumulative_wyckoff or (vp_cfg.enabled and vp_cfg.wyckoff_enabled)
+        use_confluence = cfg.use_hybrid_confluence or (vp_cfg.enabled and vp_cfg.confluence_enabled)
+        session_type = vp_cfg.session_type if vp_cfg.enabled else cfg.session_type
+
+        if use_intraday_vp and session_type == "equity":
             vp_metrics = MicrostructureVPFactors(symbol=cfg.symbol).compute(factors_df)
             factors_df = pd.concat([factors_df, vp_metrics], axis=1)
-        if cfg.use_cumulative_wyckoff:
+        if use_wyckoff:
             factors_df = pd.concat(
                 [factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1
             )
-        if cfg.use_hybrid_confluence:
+        if use_confluence:
             factors_df = pd.concat(
                 [factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1
             )
+        if {"open", "vp_va_low", "vp_va_high", "vp_poc"}.issubset(factors_df.columns):
+            ep_signal = factors_df.apply(
+                lambda row: bool(
+                    eighty_percent_rule(
+                        float(row["open"]),
+                        {
+                            "value_area_low": row["vp_va_low"],
+                            "value_area_high": row["vp_va_high"],
+                            "poc": row["vp_poc"],
+                        },
+                    ).get("signal", False)
+                ),
+                axis=1,
+            )
+            factors_df["vp_eighty_percent_signal"] = ep_signal.astype(bool)
 
         # 3. Optional multi-timeframe factor augmentation
         if cfg.mtf:
@@ -291,14 +318,20 @@ class FullRLMPipeline:
         policy_df = apply_roee_policy(
             state_df,
             strike_increment=cfg.strike_increment,
-            config=cfg.roee_config,
+            config=replace(
+                cfg.roee_config,
+                vp_gating_enabled=cfg.roee_config.vp_gating_enabled or vp_cfg.gating_enabled,
+            ),
         )
+
+        vp_signals = self._extract_latest_vp_signals(factors_df, cfg.symbol, use_confluence)
 
         result = PipelineResult(
             factors_df=factors_df,
             forecast_df=forecast_df,
             policy_df=policy_df,
             vp_metrics=vp_metrics,
+            vp_signals=vp_signals,
         )
 
         # 7. Optional BacktestEngine (requires option_chain_df)
@@ -348,16 +381,28 @@ class FullRLMPipeline:
             ).run(factors_df)
 
         if cfg.regime_model == "markov" and cfg.probabilistic:
+            vp_cfg = cfg.volume_profile
             return HybridMarkovForecastPipeline(
                 **kw,
-                markov_config=MarkovSwitchingConfig(n_states=cfg.markov_states),
+                markov_config=MarkovSwitchingConfig(
+                    n_states=cfg.markov_states,
+                    use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
+                    use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
+                    use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
+                ),
                 model_path=cfg.probabilistic_model_path,
             ).run(factors_df)
 
         if cfg.regime_model == "markov":
+            vp_cfg = cfg.volume_profile
             return HybridMarkovForecastPipeline(
                 **kw,
-                markov_config=MarkovSwitchingConfig(n_states=cfg.markov_states),
+                markov_config=MarkovSwitchingConfig(
+                    n_states=cfg.markov_states,
+                    use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
+                    use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
+                    use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
+                ),
             ).run(factors_df)
 
         if cfg.probabilistic:
@@ -374,7 +419,7 @@ class FullRLMPipeline:
         result: PipelineResult,
         option_chain_df: pd.DataFrame,
     ) -> PipelineResult:
-        from rlm.backtest.engine import BacktestEngine
+        from rlm.backtest.engine import BacktestConfig, BacktestEngine
 
         cfg = self.config
         engine = BacktestEngine(
@@ -384,6 +429,9 @@ class FullRLMPipeline:
             underlying_symbol=cfg.symbol,
             quantity_per_trade=cfg.quantity_per_trade,
             roee_config=cfg.roee_config,
+            config=BacktestConfig(
+                use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled
+            ),
         )
         trades_df, equity_df, metrics = engine.run(result.policy_df, option_chain_df)
         return PipelineResult(
@@ -394,4 +442,41 @@ class FullRLMPipeline:
             backtest_equity=equity_df,
             backtest_metrics=metrics,
             vp_metrics=result.vp_metrics,
+            vp_signals=result.vp_signals,
         )
+
+    @staticmethod
+    def _extract_latest_vp_signals(
+        factor_df: pd.DataFrame, symbol: str, use_hybrid_confluence: bool
+    ) -> dict[str, object]:
+        if factor_df.empty:
+            return {}
+        last = factor_df.iloc[-1]
+        signals: dict[str, object] = {
+            "auction_state": last.get("vp_auction_state"),
+            "effort_result_divergence": last.get("vp_effort_result_score"),
+            "cumulative_wyckoff_score": last.get("cumulative_wyckoff_score"),
+            "eighty_percent_signal": bool(last.get("vp_eighty_percent_signal", False)),
+            "hybrid_strength": last.get("vp_hybrid_strength_max"),
+            "gex_confluence_poc": last.get("vp_gex_confluence_poc"),
+        }
+        if (
+            use_hybrid_confluence
+            and {"timestamp", "vp_poc", "vp_va_high", "vp_va_low"}.issubset(factor_df.columns)
+            and pd.notna(last.get("timestamp"))
+        ):
+            ts = pd.Timestamp(last["timestamp"]).to_pydatetime()
+            levels = hybrid_support_resistance(
+                symbol,
+                ts,
+                {
+                    "poc": last.get("vp_poc"),
+                    "value_area_high": last.get("vp_va_high"),
+                    "value_area_low": last.get("vp_va_low"),
+                    "hvn_levels": [],
+                    "lvn_levels": [],
+                },
+            )
+            if not levels.empty:
+                signals["hybrid_strength"] = float(levels["strength_score"].max())
+        return signals

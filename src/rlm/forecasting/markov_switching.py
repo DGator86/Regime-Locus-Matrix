@@ -21,6 +21,9 @@ class MarkovSwitchingConfig(BaseModel):
     switching_variance: bool = True
     trend: str = "c"
     model_path: Path | None = None
+    use_intraday_vp_features: bool = False
+    use_wyckoff_features: bool = False
+    use_confluence_features: bool = False
 
 
 class RLMMarkovSwitching:
@@ -37,8 +40,7 @@ class RLMMarkovSwitching:
         returns = close.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
         return returns.astype(float)
 
-    @staticmethod
-    def _prepare_features(df: pd.DataFrame) -> pd.DataFrame | None:
+    def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame | None:
         """Build optional exogenous features for regime conditioning."""
 
         features = pd.DataFrame(index=df.index)
@@ -63,6 +65,34 @@ class RLMMarkovSwitching:
             features["effort_result_divergence"] = pd.to_numeric(
                 df["effort_result_divergence"], errors="coerce"
             ).fillna(0.0)
+
+        if self.config.use_intraday_vp_features:
+            if {"close", "vp_poc"}.issubset(df.columns):
+                close = pd.to_numeric(df["close"], errors="coerce")
+                vp_poc = pd.to_numeric(df["vp_poc"], errors="coerce")
+                denom = close.replace(0.0, np.nan)
+                features["vp_poc_distance"] = ((close - vp_poc) / denom).fillna(0.0)
+            if {"close", "vp_va_low", "vp_va_high"}.issubset(df.columns):
+                close = pd.to_numeric(df["close"], errors="coerce")
+                va_low = pd.to_numeric(df["vp_va_low"], errors="coerce")
+                va_high = pd.to_numeric(df["vp_va_high"], errors="coerce")
+                va_range = (va_high - va_low).replace(0.0, np.nan)
+                features["vp_va_position"] = ((close - va_low) / va_range).fillna(0.0)
+
+        if self.config.use_wyckoff_features and "cumulative_wyckoff_score" in df.columns:
+            features["cumulative_wyckoff_score"] = pd.to_numeric(
+                df["cumulative_wyckoff_score"], errors="coerce"
+            ).fillna(0.0)
+
+        if self.config.use_confluence_features:
+            if "vp_hybrid_strength_max" in df.columns:
+                features["vp_hybrid_strength_max"] = pd.to_numeric(
+                    df["vp_hybrid_strength_max"], errors="coerce"
+                ).fillna(0.0)
+            if "vp_gex_confluence_poc" in df.columns:
+                features["vp_gex_confluence_poc"] = pd.to_numeric(
+                    df["vp_gex_confluence_poc"], errors="coerce"
+                ).fillna(0.0)
 
         if features.empty:
             return None

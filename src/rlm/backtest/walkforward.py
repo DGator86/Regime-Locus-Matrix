@@ -44,6 +44,7 @@ class WalkForwardConfig:
     regime_boundary_aware_purge: bool = True
     regime_aware: bool = False
     min_regime_train_samples: int = 20
+    log_vp_metrics: bool = True
 
 
 def _build_walkforward_windows(
@@ -343,6 +344,46 @@ def run_walkforward(
             "regime_safety_passed": bool(oos_features["regime_safety_ok"].all()),
             **regime_meta,
         }
+        if cfg.log_vp_metrics:
+            balance_ratio = (
+                float(
+                    (oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean()
+                )
+                if "vp_auction_state" in oos_features.columns and len(oos_features) > 0
+                else float("nan")
+            )
+            summary_row.update(
+                {
+                    "avg_auction_state_balance_ratio": balance_ratio,
+                    "avg_wyckoff_divergence": (
+                        float(
+                            pd.to_numeric(
+                                oos_features["cumulative_wyckoff_score"], errors="coerce"
+                            ).mean()
+                        )
+                        if "cumulative_wyckoff_score" in oos_features.columns
+                        else float("nan")
+                    ),
+                    "avg_hybrid_strength": (
+                        float(
+                            pd.to_numeric(
+                                oos_features["vp_hybrid_strength_max"], errors="coerce"
+                            ).mean()
+                        )
+                        if "vp_hybrid_strength_max" in oos_features.columns
+                        else float("nan")
+                    ),
+                    "eighty_percent_rule_hit_rate": (
+                        float(
+                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce")
+                            .fillna(0.0)
+                            .mean()
+                        )
+                        if "vp_eighty_percent_signal" in oos_features.columns
+                        else float("nan")
+                    ),
+                }
+            )
         summary_row.update(summary)
         window_summaries.append(summary_row)
 
