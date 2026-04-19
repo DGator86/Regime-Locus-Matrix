@@ -88,6 +88,12 @@ class StrategyValueModel:
         training_rows: int,
         source_symbols: list[str],
         feature_names: list[str],
+        target_mode: str | None = None,
+        label_mode: str | None = None,
+        horizon: int | None = None,
+        training_start: str | None = None,
+        training_end: str | None = None,
+        benchmark_summary: dict[str, float] | None = None,
     ) -> StrategyValueModelArtifact:
         return StrategyValueModelArtifact(
             strategies=list(self.strategies),
@@ -96,6 +102,12 @@ class StrategyValueModel:
             trained_at=trained_at,
             training_rows=training_rows,
             source_symbols=source_symbols,
+            target_mode=target_mode,
+            label_mode=label_mode,
+            horizon=horizon,
+            training_start=training_start,
+            training_end=training_end,
+            benchmark_summary=benchmark_summary,
         )
 
     def _to_target_matrix(self, Y: pd.DataFrame | np.ndarray) -> np.ndarray:

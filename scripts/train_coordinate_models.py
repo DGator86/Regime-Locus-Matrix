@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
 
+from rlm.training.benchmarks import benchmark_coordinate_models
 from rlm.training.datasets import build_regime_training_frame, build_strategy_value_training_frame
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
@@ -50,6 +53,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-split", type=float, default=0.8)
     parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--data-dir", default="data/processed")
+    parser.add_argument("--label-mode", choices=["bootstrap", "outcome"], default="bootstrap")
+    parser.add_argument("--target-mode", choices=["v1", "v2"], default="v2")
+    parser.add_argument("--benchmark", action="store_true")
+    parser.add_argument("--save-benchmark-json", default=None)
     return parser.parse_args()
 
 
@@ -66,8 +73,8 @@ def main() -> None:
             df = df.loc[ts <= pd.Timestamp(args.end, tz="UTC")]
         df = df.reset_index(drop=True)
 
-    regime_df = build_regime_training_frame(df)
-    value_df = build_strategy_value_training_frame(df, horizon=args.horizon)
+    regime_df = build_regime_training_frame(df, label_mode=args.label_mode, horizon=args.horizon)
+    value_df = build_strategy_value_training_frame(df, horizon=args.horizon, target_mode=args.target_mode)
 
     regime_train, regime_val = _split(regime_df, args.train_split)
     value_train, value_val = _split(value_df, 1.0 - args.val_split)
@@ -78,6 +85,16 @@ def main() -> None:
     regime_metrics = compute_regime_metrics(regime_model, regime_train, regime_val)
     strategy_metrics = compute_strategy_metrics(value_model, value_val)
 
+    benchmark_results = None
+    benchmark_summary = None
+    if args.benchmark:
+        benchmark_results = benchmark_coordinate_models(df, horizon=args.horizon, train_split=args.train_split)
+        baseline = benchmark_results["baseline_b_pr50"]["selected_realized_average"]
+        improved = benchmark_results["candidate_d_pr51_full"]["selected_realized_average"]
+        benchmark_summary = {"selected_realized_avg_improvement": float(improved - baseline)}
+
+    training_start = str(df["timestamp"].iloc[0]) if "timestamp" in df.columns and len(df) else None
+    training_end = str(df["timestamp"].iloc[-1]) if "timestamp" in df.columns and len(df) else None
     regime_path, value_path = save_model_artifacts(
         regime_model,
         value_model,
@@ -85,12 +102,26 @@ def main() -> None:
         value_training_rows=len(value_train),
         source_symbols=symbols,
         out_dir=Path(args.out_dir),
+        target_mode=args.target_mode,
+        label_mode=args.label_mode,
+        horizon=args.horizon,
+        training_start=training_start,
+        training_end=training_end,
+        benchmark_summary=benchmark_summary,
     )
 
+    if args.save_benchmark_json and benchmark_results is not None:
+        out = Path(args.save_benchmark_json)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(benchmark_results, indent=2), encoding="utf-8")
+
     print("Regime metrics:")
-    print(regime_metrics)
+    print(asdict(regime_metrics))
     print("Strategy metrics:")
-    print(strategy_metrics)
+    print(asdict(strategy_metrics))
+    if benchmark_results is not None:
+        print("Benchmark metrics:")
+        print(json.dumps(benchmark_results, indent=2))
     print(f"Saved regime artifact: {regime_path}")
     print(f"Saved strategy artifact: {value_path}")
 

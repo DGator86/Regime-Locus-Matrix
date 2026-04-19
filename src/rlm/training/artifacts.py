@@ -13,6 +13,12 @@ class RegimeModelArtifact:
     trained_at: str
     training_rows: int
     source_symbols: list[str]
+    target_mode: str | None = None
+    label_mode: str | None = None
+    horizon: int | None = None
+    training_start: str | None = None
+    training_end: str | None = None
+    benchmark_summary: dict[str, float] | None = None
 
 
 @dataclass
@@ -23,6 +29,12 @@ class StrategyValueModelArtifact:
     trained_at: str
     training_rows: int
     source_symbols: list[str]
+    target_mode: str | None = None
+    label_mode: str | None = None
+    horizon: int | None = None
+    training_start: str | None = None
+    training_end: str | None = None
+    benchmark_summary: dict[str, float] | None = None
 
 
 def save_artifact(path: str | Path, artifact: RegimeModelArtifact | StrategyValueModelArtifact) -> None:

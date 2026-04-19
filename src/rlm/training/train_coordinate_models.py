@@ -95,6 +95,12 @@ def save_model_artifacts(
     value_training_rows: int,
     source_symbols: list[str],
     out_dir: str | Path = ARTIFACT_DIR,
+    target_mode: str = "unknown",
+    label_mode: str = "unknown",
+    horizon: int = 0,
+    training_start: str | None = None,
+    training_end: str | None = None,
+    benchmark_summary: dict[str, float] | None = None,
 ) -> tuple[Path, Path]:
     out_dir_path = Path(out_dir)
     trained_at = datetime.now(UTC).isoformat()
@@ -104,12 +110,24 @@ def save_model_artifacts(
         training_rows=regime_training_rows,
         source_symbols=source_symbols,
         feature_names=REGIME_FEATURE_NAMES,
+        target_mode=target_mode,
+        label_mode=label_mode,
+        horizon=horizon,
+        training_start=training_start,
+        training_end=training_end,
+        benchmark_summary=benchmark_summary,
     )
     value_artifact = value_model.to_artifact(
         trained_at=trained_at,
         training_rows=value_training_rows,
         source_symbols=source_symbols,
         feature_names=STRATEGY_FEATURE_NAMES,
+        target_mode=target_mode,
+        label_mode=label_mode,
+        horizon=horizon,
+        training_start=training_start,
+        training_end=training_end,
+        benchmark_summary=benchmark_summary,
     )
 
     regime_path = out_dir_path / REGIME_ARTIFACT_PATH.name
