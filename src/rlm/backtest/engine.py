@@ -61,6 +61,16 @@ class HyperOptConfig:
     metric: str = "sharpe"
 
 
+@dataclass(frozen=True)
+class BacktestConfig:
+    use_vp_gating: bool = False
+    wyckoff_threshold: float = 0.7
+    balance_haircut: float = 0.5
+    eighty_percent_boost: float = 0.2
+    hybrid_strength_scaling: bool = True
+    gex_confluence_enabled: bool = True
+
+
 class BacktestEngine:
     def __init__(
         self,
@@ -73,6 +83,7 @@ class BacktestEngine:
         fill_config: FillConfig | None = None,
         lifecycle_config: LifecycleConfig | None = None,
         roee_config: ROEEConfig | None = None,
+        config: BacktestConfig | None = None,
     ) -> None:
         self.lifecycle_config = lifecycle_config or LifecycleConfig()
         self.roee_config = roee_config
@@ -85,6 +96,7 @@ class BacktestEngine:
         self.underlying_symbol = underlying_symbol
         self.quantity_per_trade = quantity_per_trade
         self.fill_config = fill_config or FillConfig(contract_multiplier=contract_multiplier)
+        self.config = config or BacktestConfig()
 
     def run(
         self,
@@ -161,6 +173,12 @@ class BacktestEngine:
                 regime_train_sample_count=int(row.get("regime_train_sample_count", 0) or 0),
                 min_regime_train_samples=rc.min_regime_train_samples,
                 regime_purge_bars=rc.purge_bars,
+                use_volume_profile_gating=self.config.use_vp_gating or rc.vp_gating_enabled,
+                wyckoff_threshold=self.config.wyckoff_threshold,
+                balance_haircut=self.config.balance_haircut,
+                eighty_percent_boost=self.config.eighty_percent_boost,
+                hybrid_strength_scaling=self.config.hybrid_strength_scaling,
+                gex_confluence_enabled=self.config.gex_confluence_enabled,
             )
 
             if decision.action == "enter" and not (

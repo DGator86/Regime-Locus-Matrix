@@ -602,6 +602,14 @@ def select_trade_from_strategy_name(
     effort_result_divergence: float | None = None,
     auction_state: str | None = None,
     eighty_percent_rule_signal: bool = False,
+    cumulative_wyckoff_score: float | None = None,
+    wyckoff_threshold: float = 0.7,
+    balance_haircut: float = 0.5,
+    eighty_percent_boost: float = 0.2,
+    hybrid_strength_scaling: bool = True,
+    hybrid_strength: float | None = None,
+    gex_confluence_enabled: bool = True,
+    gex_confluence_poc: float | None = None,
     # Overlay signals — passed to Mode B only
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
@@ -681,7 +689,15 @@ def select_trade_from_strategy_name(
         elif direction_regime == "bear":
             forecast_sign = -1
 
-        if (forecast_sign > 0 and divergence < 0) or (forecast_sign < 0 and divergence > 0):
+        wyckoff_score = (
+            float(cumulative_wyckoff_score)
+            if cumulative_wyckoff_score is not None
+            and math.isfinite(float(cumulative_wyckoff_score))
+            else abs(divergence)
+        )
+        if wyckoff_score >= float(wyckoff_threshold) and (
+            (forecast_sign > 0 and divergence < 0) or (forecast_sign < 0 and divergence > 0)
+        ):
             return TradeDecision(
                 action="skip",
                 strategy_name=decision.strategy_name,
@@ -693,13 +709,40 @@ def select_trade_from_strategy_name(
 
         size_fraction = float(decision.size_fraction or 0.0)
         if str(auction_state or "").lower() == "balance" and forecast_sign != 0:
-            size_fraction = quantize_fraction(size_fraction * 0.5)
-            vp_meta["vp_balance_size_reduction"] = 0.5
+            size_fraction = quantize_fraction(size_fraction * float(balance_haircut))
+            vp_meta["vp_balance_size_reduction"] = float(balance_haircut)
 
-        confidence_boost = 0.2 if eighty_percent_rule_signal else 0.0
+        confidence_boost = float(eighty_percent_boost) if eighty_percent_rule_signal else 0.0
         vp_meta["vp_80_percent_rule_signal"] = bool(eighty_percent_rule_signal)
         vp_meta["vp_confidence_boost"] = confidence_boost
         vp_meta["vp_gated"] = False
+
+        if (
+            hybrid_strength_scaling
+            and hybrid_strength is not None
+            and math.isfinite(float(hybrid_strength))
+        ):
+            hs = float(min(max(float(hybrid_strength), 0.5), 1.5))
+            size_fraction = quantize_fraction(size_fraction * hs)
+            vp_meta["vp_hybrid_strength_multiplier"] = hs
+
+        if (
+            gex_confluence_enabled
+            and gex_confluence_poc is not None
+            and math.isfinite(float(gex_confluence_poc))
+        ):
+            gex_sign = (
+                1 if float(gex_confluence_poc) > 0 else (-1 if float(gex_confluence_poc) < 0 else 0)
+            )
+            trade_sign = forecast_sign
+            aligned = (gex_sign > 0 and trade_sign == 0) or (gex_sign < 0 and trade_sign != 0)
+            vp_meta["vp_gex_confluence_poc"] = float(gex_confluence_poc)
+            vp_meta["vp_gex_style"] = (
+                "mean_reversion" if gex_sign > 0 else ("momentum" if gex_sign < 0 else "neutral")
+            )
+            if not aligned and gex_sign != 0:
+                size_fraction = quantize_fraction(size_fraction * 0.75)
+                vp_meta["vp_gex_misalignment_haircut"] = 0.75
 
         if confidence_boost > 0:
             base_conf = float(vp_meta.get("confidence", 0.0) or 0.0)
@@ -765,6 +808,14 @@ def select_trade(
     effort_result_divergence: float | None = None,
     auction_state: str | None = None,
     eighty_percent_rule_signal: bool = False,
+    cumulative_wyckoff_score: float | None = None,
+    wyckoff_threshold: float = 0.7,
+    balance_haircut: float = 0.5,
+    eighty_percent_boost: float = 0.2,
+    hybrid_strength_scaling: bool = True,
+    hybrid_strength: float | None = None,
+    gex_confluence_enabled: bool = True,
+    gex_confluence_poc: float | None = None,
     # Overlay signals — passed to Mode B only
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
@@ -838,6 +889,14 @@ def select_trade(
         effort_result_divergence=effort_result_divergence,
         auction_state=auction_state,
         eighty_percent_rule_signal=eighty_percent_rule_signal,
+        cumulative_wyckoff_score=cumulative_wyckoff_score,
+        wyckoff_threshold=wyckoff_threshold,
+        balance_haircut=balance_haircut,
+        eighty_percent_boost=eighty_percent_boost,
+        hybrid_strength_scaling=hybrid_strength_scaling,
+        hybrid_strength=hybrid_strength,
+        gex_confluence_enabled=gex_confluence_enabled,
+        gex_confluence_poc=gex_confluence_poc,
         mtf_confluence_score=mtf_confluence_score,
         mtf_confluence_liquidity_sweep_confirmed=mtf_confluence_liquidity_sweep_confirmed,
         pool_confluence_score=pool_confluence_score,

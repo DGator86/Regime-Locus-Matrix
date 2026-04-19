@@ -29,17 +29,23 @@ class ROEEConfig:
     kronos_confidence_weight: float = 0.4
     hmm_confidence_weight: float = 0.6
     kronos_transition_penalty: float = 0.3
+    vp_gating_enabled: bool = False
+    wyckoff_threshold: float = 0.7
+    balance_haircut: float = 0.5
+    eighty_percent_boost: float = 0.2
+    hybrid_strength_scaling: bool = True
+    gex_confluence_enabled: bool = True
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
     """
     Builds the HMM/regime modulator settings for a single row using the provided ROEE configuration.
-    
+
     Parameters:
         row (pd.Series): Input row containing regime signals and features used to compute modulators.
         config (ROEEConfig): ROEE configuration containing confidence thresholds, sizing and transition penalties,
             and weighting parameters for HMM/Kronos.
-    
+
     Returns:
         dict[str, float | bool | str]: A modulator dictionary including at least:
             - 'confidence' (float): regime confidence score.
@@ -234,6 +240,47 @@ def apply_roee_policy(
             calm_trend_kelly_multiplier=cfg.calm_trend_kelly_multiplier,
             vault_uncertainty_threshold=cfg.vault_uncertainty_threshold,
             vault_size_multiplier=cfg.vault_size_multiplier,
+            use_volume_profile_gating=cfg.vp_gating_enabled,
+            effort_result_divergence=(
+                float(row["vp_effort_result_score"])
+                if "vp_effort_result_score" in out.columns
+                and pd.notna(row.get("vp_effort_result_score"))
+                else None
+            ),
+            auction_state=(
+                str(row["vp_auction_state"])
+                if "vp_auction_state" in out.columns and pd.notna(row.get("vp_auction_state"))
+                else None
+            ),
+            eighty_percent_rule_signal=(
+                bool(row["vp_eighty_percent_signal"])
+                if "vp_eighty_percent_signal" in out.columns
+                and pd.notna(row.get("vp_eighty_percent_signal"))
+                else False
+            ),
+            cumulative_wyckoff_score=(
+                float(row["cumulative_wyckoff_score"])
+                if "cumulative_wyckoff_score" in out.columns
+                and pd.notna(row.get("cumulative_wyckoff_score"))
+                else None
+            ),
+            wyckoff_threshold=cfg.wyckoff_threshold,
+            balance_haircut=cfg.balance_haircut,
+            eighty_percent_boost=cfg.eighty_percent_boost,
+            hybrid_strength_scaling=cfg.hybrid_strength_scaling,
+            hybrid_strength=(
+                float(row["vp_hybrid_strength_max"])
+                if "vp_hybrid_strength_max" in out.columns
+                and pd.notna(row.get("vp_hybrid_strength_max"))
+                else None
+            ),
+            gex_confluence_enabled=cfg.gex_confluence_enabled,
+            gex_confluence_poc=(
+                float(row["vp_gex_confluence_poc"])
+                if "vp_gex_confluence_poc" in out.columns
+                and pd.notna(row.get("vp_gex_confluence_poc"))
+                else None
+            ),
         )
 
         actions.append(decision.action)
