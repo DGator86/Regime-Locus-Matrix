@@ -212,6 +212,17 @@ def _has_coordinate_router_inputs(row: pd.Series) -> bool:
     return all(col in row.index and pd.notna(row.get(col)) for col in required)
 
 
+def _model_health_confidence_multiplier(row: pd.Series) -> float:
+    model_health = row.get("model_health", None)
+    if not isinstance(model_health, dict):
+        return 1.0
+    if bool(model_health.get("is_stale", False)):
+        return 0.5
+    if _finite_float(model_health.get("feature_drift_score", 0.0), 0.0) > 1.0:
+        return 0.75
+    return 1.0
+
+
 def select_trade_for_row(
     row: pd.Series,
     *,
@@ -466,12 +477,17 @@ def select_trade_for_row(
             coord_conf = max(coord_conf, 0.0)
             meta["coordinate_confidence_multiplier"] = float(coord_conf)
             base_sf = base_sf * float(coord_conf)
+        health_mult = _model_health_confidence_multiplier(row)
+        meta["model_health_confidence_multiplier"] = float(health_mult)
         if latent_regime["source"] is not None:
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(
             decision,
             size_fraction=quantize_fraction(
-                base_sf * float(mod["size_mult"]) * float(persistence_size_mult)
+                base_sf
+                * float(mod["size_mult"])
+                * float(persistence_size_mult)
+                * float(health_mult)
             ),
             metadata=meta,
         )
@@ -507,6 +523,8 @@ def select_trade_for_row(
 
     if decision.action == "enter":
         meta = dict(decision.metadata)
+        health_mult = _model_health_confidence_multiplier(row)
+        meta["model_health_confidence_multiplier"] = float(health_mult)
         if latent_regime["source"] is not None:
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         meta["strategy_source"] = strategy_source
@@ -532,13 +550,16 @@ def select_trade_for_row(
                     float(decision.size_fraction or 0.0)
                     * float(coord_conf)
                     * float(persistence_size_mult)
+                    * float(health_mult)
                 ),
                 metadata=meta,
             )
         return replace(
             decision,
             size_fraction=quantize_fraction(
-                float(decision.size_fraction or 0.0) * float(persistence_size_mult)
+                float(decision.size_fraction or 0.0)
+                * float(persistence_size_mult)
+                * float(health_mult)
             ),
             metadata=meta,
         )
