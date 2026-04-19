@@ -54,3 +54,11 @@ def test_regime_labels_generated_for_valid_rows() -> None:
     regime = build_regime_training_frame(_base_df())
     assert regime["regime_label"].notna().all()
     assert regime["regime_label"].str.len().gt(0).all()
+
+
+def test_dataset_builders_can_include_sequence_features() -> None:
+    df = _base_df()
+    regime = build_regime_training_frame(df, sequence_window=5)
+    value = build_strategy_value_training_frame(df, horizon=5, sequence_window=5)
+    assert "M_D_mean_5" in regime.columns
+    assert "M_alignment_std_5" in value.columns

@@ -23,6 +23,9 @@ class RegimeModelArtifact:
     execution_model_version: str | None = None
     train_split: float | None = None
     validation_rows: int | None = None
+    sequence_window: int | None = None
+    smoothing_alpha: float | None = None
+    temporal_model: bool = False
 
 
 @dataclass
@@ -43,6 +46,9 @@ class StrategyValueModelArtifact:
     execution_model_version: str | None = None
     train_split: float | None = None
     validation_rows: int | None = None
+    sequence_window: int | None = None
+    smoothing_alpha: float | None = None
+    temporal_model: bool = False
 
 
 def save_artifact(

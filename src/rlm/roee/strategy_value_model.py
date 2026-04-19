@@ -58,22 +58,40 @@ class StrategyValueModel:
     ) -> "StrategyValueModel":
         x_mat = self._to_design_matrix(X)
         y_mat = self._to_target_matrix(Y)
+        return self.fit_design_matrix(x_mat, y_mat, l2=l2)
+
+    def predict_expected_values(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
+        x_mat = self._to_design_matrix(X)
+        return self.predict_expected_values_design_matrix(x_mat)
+
+    def score_row(self, row: Mapping[str, float]) -> StrategyScores:
+        x_row = self._to_design_matrix(pd.DataFrame([row]))
+        scores = self.predict_expected_values_design_matrix(x_row)[0]
+        return StrategyScores(
+            scores={self.strategies[i]: float(scores[i]) for i in range(len(self.strategies))}
+        )
+
+    def fit_design_matrix(
+        self,
+        X_design: np.ndarray,
+        Y: np.ndarray,
+        l2: float = 1e-3,
+    ) -> "StrategyValueModel":
+        x_mat = np.asarray(X_design, dtype=float)
+        y_mat = np.asarray(Y, dtype=float)
+        if x_mat.ndim != 2 or y_mat.ndim != 2:
+            raise ValueError("X_design and Y must be 2D")
         if x_mat.shape[0] != y_mat.shape[0]:
-            raise ValueError("X and Y must contain the same number of rows.")
+            raise ValueError("row mismatch between X_design and Y")
         eye = np.eye(x_mat.shape[1], dtype=float)
         self._coef = np.linalg.solve(x_mat.T @ x_mat + l2 * eye, x_mat.T @ y_mat)
         return self
 
-    def predict_expected_values(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
-        x_mat = self._to_design_matrix(X)
+    def predict_expected_values_design_matrix(self, X_design: np.ndarray) -> np.ndarray:
+        x_mat = np.asarray(X_design, dtype=float)
+        if x_mat.ndim != 2:
+            raise ValueError("X_design must be 2D")
         return x_mat @ self._coef
-
-    def score_row(self, row: Mapping[str, float]) -> StrategyScores:
-        x_row = self._to_design_matrix(pd.DataFrame([row]))
-        scores = (x_row @ self._coef)[0]
-        return StrategyScores(
-            scores={self.strategies[i]: float(scores[i]) for i in range(len(self.strategies))}
-        )
 
     @classmethod
     def from_artifact(cls, artifact: StrategyValueModelArtifact) -> "StrategyValueModel":
@@ -98,6 +116,9 @@ class StrategyValueModel:
         execution_model_version: str | None = None,
         train_split: float | None = None,
         validation_rows: int | None = None,
+        sequence_window: int | None = None,
+        smoothing_alpha: float | None = None,
+        temporal_model: bool = False,
     ) -> StrategyValueModelArtifact:
         return StrategyValueModelArtifact(
             strategies=list(self.strategies),
@@ -116,6 +137,9 @@ class StrategyValueModel:
             execution_model_version=execution_model_version,
             train_split=train_split,
             validation_rows=validation_rows,
+            sequence_window=sequence_window,
+            smoothing_alpha=smoothing_alpha,
+            temporal_model=temporal_model,
         )
 
     def _to_target_matrix(self, Y: pd.DataFrame | np.ndarray) -> np.ndarray:

@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 
 from rlm.features.scoring.coordinate_regime_bootstrap import bootstrap_regime_label_from_coordinates
+from rlm.features.scoring.regime_model_temporal import TemporalRegimeModel
+from rlm.features.scoring.regime_smoother import regime_flip_rate
 from rlm.roee.strategy_value_model import StrategyValueModel
+from rlm.roee.strategy_value_model_temporal import TemporalStrategyValueModel
 from rlm.training.datasets import (
     REQUIRED_COORD_COLUMNS,
     build_regime_training_frame,
@@ -23,6 +26,8 @@ def benchmark_coordinate_models(
     train_split: float = 0.8,
     *,
     use_path_exits: bool = True,
+    sequence_window: int | None = None,
+    smoothing_alpha: float = 0.25,
 ) -> dict[str, dict[str, float | dict[str, float]]]:
     if not 0.0 < train_split < 1.0:
         raise ValueError("train_split must be in (0,1)")
@@ -47,7 +52,7 @@ def benchmark_coordinate_models(
 
     results: dict[str, dict[str, float | dict[str, float]]] = {}
 
-    def evaluate(name: str, regime_model, value_model) -> None:
+    def evaluate(name: str, regime_model, value_model, *, temporal: bool = False) -> None:
         pred = value_model.predict_expected_values(x_val)
         pred_best = pred.argmax(axis=1)
         selected = y_val[np.arange(len(y_val)), pred_best]
@@ -70,6 +75,10 @@ def benchmark_coordinate_models(
             ),
             "drawdown_proxy": float(np.min(np.cumsum(selected))) if len(selected) else 0.0,
             "strategy_mse_per_strategy": strategy_metrics.mse_per_strategy,
+            "regime_flip_rate": float(regime_flip_rate(regime_pred)),
+            "smoothed_no_trade_frequency": (
+                float(np.mean(pred_best == no_trade_idx)) if temporal and len(pred_best) else 0.0
+            ),
         }
 
     baseline_regime = train_regime_model(
@@ -111,6 +120,54 @@ def benchmark_coordinate_models(
     )
     evaluate("candidate_d_pr51_full", d_regime, d_value)
 
+    if sequence_window is not None:
+        e_regime = train_regime_model(
+            build_regime_training_frame(
+                train_base,
+                label_mode="bootstrap",
+                sequence_window=sequence_window,
+            )
+        )
+        e_value = train_strategy_value_model(
+            build_strategy_value_training_frame(
+                train_base,
+                horizon=horizon,
+                target_mode="v2",
+                use_path_exits=use_path_exits,
+                sequence_window=sequence_window,
+            )
+        )
+        evaluate(
+            "candidate_e_pr53_temporal_bootstrap_labels",
+            TemporalRegimeModel(e_regime, window=sequence_window, smoothing_alpha=smoothing_alpha),
+            TemporalStrategyValueModel(e_value, window=sequence_window),
+            temporal=True,
+        )
+
+        f_regime = train_regime_model(
+            build_regime_training_frame(
+                train_base,
+                label_mode="outcome",
+                horizon=horizon,
+                sequence_window=sequence_window,
+            )
+        )
+        f_value = train_strategy_value_model(
+            build_strategy_value_training_frame(
+                train_base,
+                horizon=horizon,
+                target_mode="v2",
+                use_path_exits=use_path_exits,
+                sequence_window=sequence_window,
+            )
+        )
+        evaluate(
+            "candidate_f_pr53_temporal_full",
+            TemporalRegimeModel(f_regime, window=sequence_window, smoothing_alpha=smoothing_alpha),
+            TemporalStrategyValueModel(f_value, window=sequence_window),
+            temporal=True,
+        )
+
     return results
 
 
@@ -119,15 +176,35 @@ def summarize_benchmark_results(
 ) -> dict[str, float]:
     baseline = results["baseline_b_pr50"]
     candidate = results["candidate_d_pr51_full"]
+    if "candidate_f_pr53_temporal_full" not in results:
+        return {
+            "selected_realized_avg_improvement": float(
+                candidate["selected_realized_average"] - baseline["selected_realized_average"]
+            ),
+            "top1_hit_rate_improvement": float(
+                candidate["top1_hit_rate"] - baseline["top1_hit_rate"]
+            ),
+            "rank_correlation_improvement": float(
+                candidate["rank_correlation"] - baseline["rank_correlation"]
+            ),
+            "drawdown_proxy_improvement": float(
+                candidate["drawdown_proxy"] - baseline["drawdown_proxy"]
+            ),
+        }
+
+    row_only = results["candidate_d_pr51_full"]
+    temporal = results["candidate_f_pr53_temporal_full"]
     return {
-        "selected_realized_avg_improvement": float(
-            candidate["selected_realized_average"] - baseline["selected_realized_average"]
+        "selected_realized_avg_improvement_vs_pr51": float(
+            temporal["selected_realized_average"] - row_only["selected_realized_average"]
         ),
-        "top1_hit_rate_improvement": float(candidate["top1_hit_rate"] - baseline["top1_hit_rate"]),
-        "rank_correlation_improvement": float(
-            candidate["rank_correlation"] - baseline["rank_correlation"]
+        "top1_hit_rate_improvement_vs_pr51": float(
+            temporal["top1_hit_rate"] - row_only["top1_hit_rate"]
         ),
-        "drawdown_proxy_improvement": float(
-            candidate["drawdown_proxy"] - baseline["drawdown_proxy"]
+        "regime_flip_rate_improvement_vs_pr51": float(
+            row_only.get("regime_flip_rate", 0.0) - temporal.get("regime_flip_rate", 0.0)
+        ),
+        "drawdown_proxy_improvement_vs_pr51": float(
+            temporal["drawdown_proxy"] - row_only["drawdown_proxy"]
         ),
     }

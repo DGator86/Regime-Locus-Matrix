@@ -29,12 +29,19 @@ def _synthetic_df(n: int = 90) -> pd.DataFrame:
 
 
 def test_benchmark_runner_returns_expected_structure() -> None:
-    out = benchmark_coordinate_models(_synthetic_df(), horizon=5, train_split=0.7)
+    out = benchmark_coordinate_models(
+        _synthetic_df(),
+        horizon=5,
+        train_split=0.7,
+        sequence_window=5,
+    )
     expected_models = {
         "baseline_a_bootstrap_fixed",
         "baseline_b_pr50",
         "candidate_c_pr51_targets",
         "candidate_d_pr51_full",
+        "candidate_e_pr53_temporal_bootstrap_labels",
+        "candidate_f_pr53_temporal_full",
     }
     assert expected_models.issubset(out.keys())
 
@@ -45,6 +52,8 @@ def test_benchmark_runner_returns_expected_structure() -> None:
         "strategy_mse",
         "rank_correlation",
         "no_trade_frequency",
+        "smoothed_no_trade_frequency",
+        "regime_flip_rate",
         "average_selected_edge",
         "drawdown_proxy",
     }
@@ -54,12 +63,17 @@ def test_benchmark_runner_returns_expected_structure() -> None:
 
 def test_summarize_benchmark_results_has_stable_improvement_keys() -> None:
     summary = summarize_benchmark_results(
-        benchmark_coordinate_models(_synthetic_df(), horizon=5, train_split=0.7)
+        benchmark_coordinate_models(
+            _synthetic_df(),
+            horizon=5,
+            train_split=0.7,
+            sequence_window=5,
+        )
     )
     assert set(summary) == {
-        "selected_realized_avg_improvement",
-        "top1_hit_rate_improvement",
-        "rank_correlation_improvement",
-        "drawdown_proxy_improvement",
+        "selected_realized_avg_improvement_vs_pr51",
+        "top1_hit_rate_improvement_vs_pr51",
+        "regime_flip_rate_improvement_vs_pr51",
+        "drawdown_proxy_improvement_vs_pr51",
     }
     assert all(isinstance(v, float) for v in summary.values())

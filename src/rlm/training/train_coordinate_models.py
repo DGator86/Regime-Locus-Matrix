@@ -105,6 +105,9 @@ def save_model_artifacts(
     execution_model_version: str | None = None,
     train_split: float | None = None,
     validation_rows: int | None = None,
+    sequence_window: int | None = None,
+    smoothing_alpha: float | None = None,
+    temporal_model: bool = False,
 ) -> tuple[Path, Path]:
     out_dir_path = Path(out_dir)
     trained_at = datetime.now(UTC).isoformat()
@@ -124,6 +127,9 @@ def save_model_artifacts(
         execution_model_version=execution_model_version,
         train_split=train_split,
         validation_rows=validation_rows,
+        sequence_window=sequence_window,
+        smoothing_alpha=smoothing_alpha,
+        temporal_model=temporal_model,
     )
     value_artifact = value_model.to_artifact(
         trained_at=trained_at,
@@ -140,6 +146,9 @@ def save_model_artifacts(
         execution_model_version=execution_model_version,
         train_split=train_split,
         validation_rows=validation_rows,
+        sequence_window=sequence_window,
+        smoothing_alpha=smoothing_alpha,
+        temporal_model=temporal_model,
     )
 
     regime_path = out_dir_path / REGIME_ARTIFACT_PATH.name
