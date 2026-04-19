@@ -121,6 +121,7 @@ class StrategyValueModel:
         temporal_model: bool = False,
         validation_matrix_summary: dict[str, float] | None = None,
         feature_ablation_summary: dict[str, float] | None = None,
+        model_health_snapshot: dict[str, float | bool] | None = None,
     ) -> StrategyValueModelArtifact:
         return StrategyValueModelArtifact(
             strategies=list(self.strategies),
@@ -144,6 +145,7 @@ class StrategyValueModel:
             temporal_model=temporal_model,
             validation_matrix_summary=validation_matrix_summary,
             feature_ablation_summary=feature_ablation_summary,
+            model_health_snapshot=model_health_snapshot,
         )
 
     def _to_target_matrix(self, Y: pd.DataFrame | np.ndarray) -> np.ndarray:

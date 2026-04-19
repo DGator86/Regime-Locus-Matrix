@@ -125,3 +125,31 @@ def test_select_trade_for_row_uses_markov_state_for_regime_adjusted_kelly() -> N
     assert d.size_fraction == 0.0108
     assert d.metadata.get("kelly_latent_regime_source") == "markov"
     assert d.metadata.get("regime_state_label") == "bear|high_vol|high_liquidity|supportive_like"
+
+
+def test_select_trade_for_row_degrades_size_when_model_is_stale() -> None:
+    base_row = pd.Series(
+        {
+            "close": 5000.0,
+            "sigma": 0.01,
+            "S_D": 0.8,
+            "S_V": -0.5,
+            "S_L": 0.7,
+            "S_G": 0.8,
+            "direction_regime": "bull",
+            "volatility_regime": "low_vol",
+            "liquidity_regime": "high_liquidity",
+            "dealer_flow_regime": "supportive",
+            "regime_key": "bull|low_vol|high_liquidity|supportive",
+        }
+    )
+    stale_row = base_row.copy()
+    stale_row["model_health"] = {"is_stale": True}
+
+    baseline = select_trade_for_row(base_row, strike_increment=5.0)
+    stale = select_trade_for_row(stale_row, strike_increment=5.0)
+
+    assert baseline.action == "enter"
+    assert stale.action == "enter"
+    assert stale.size_fraction == round(float(baseline.size_fraction or 0.0) * 0.5, 10)
+    assert stale.metadata.get("model_health_confidence_multiplier") == 0.5

@@ -28,6 +28,7 @@ class RegimeModelArtifact:
     temporal_model: bool = False
     validation_matrix_summary: dict[str, float] | None = None
     feature_ablation_summary: dict[str, float] | None = None
+    model_health_snapshot: dict[str, float | bool] | None = None
 
 
 @dataclass
@@ -53,6 +54,7 @@ class StrategyValueModelArtifact:
     temporal_model: bool = False
     validation_matrix_summary: dict[str, float] | None = None
     feature_ablation_summary: dict[str, float] | None = None
+    model_health_snapshot: dict[str, float | bool] | None = None
 
 
 def save_artifact(

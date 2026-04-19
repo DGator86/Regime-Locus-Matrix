@@ -7,9 +7,16 @@ from pathlib import Path
 
 import pandas as pd
 
+from rlm.roee.strategy_value_model import STRATEGY_NAMES
 from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
-from rlm.training.datasets import build_regime_training_frame, build_strategy_value_training_frame
+from rlm.training.datasets import (
+    REQUIRED_COORD_COLUMNS,
+    build_regime_training_frame,
+    build_strategy_value_training_frame,
+)
 from rlm.training.feature_ablation import run_temporal_ablation, summarize_ablation
+from rlm.training.model_health import evaluate_model_health
+from rlm.training.retrain_trigger import should_trigger_retrain
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
     compute_strategy_metrics,
@@ -88,6 +95,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-validation-report", default=None)
     parser.add_argument("--enable-persistence-controls", action="store_true")
     parser.add_argument("--run-ablation", action="store_true")
+    parser.add_argument("--evaluate-health", action="store_true")
+    parser.add_argument("--auto-retrain", action="store_true")
     return parser.parse_args()
 
 
@@ -175,6 +184,32 @@ def main() -> None:
 
     training_start = str(df["timestamp"].iloc[0]) if "timestamp" in df.columns and len(df) else None
     training_end = str(df["timestamp"].iloc[-1]) if "timestamp" in df.columns and len(df) else None
+    model_health_snapshot = None
+    if args.evaluate_health:
+        train_regime_probs = regime_model.predict_proba(regime_train)
+        live_regime_probs = regime_model.predict_proba(regime_val)
+        x_train = regime_train.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float)
+        x_live = regime_val.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float)
+        value_pred = value_model.predict_expected_values(value_val)
+        realized = value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float).max(axis=1)
+        predicted = value_pred.max(axis=1)
+        health = evaluate_model_health(
+            trained_at=pd.Timestamp.utcnow().isoformat(),
+            X_train=x_train,
+            X_live=x_live,
+            train_regime_probs=train_regime_probs,
+            live_regime_probs=live_regime_probs,
+            realized_returns=realized,
+            predicted_values=predicted,
+        )
+        model_health_snapshot = {
+            "age_hours": float(health.age_hours),
+            "feature_drift_score": float(health.feature_drift_score),
+            "regime_drift_score": float(health.regime_drift_score),
+            "performance_decay": float(health.performance_decay),
+            "is_stale": bool(health.is_stale),
+        }
+
     regime_path, value_path = save_model_artifacts(
         regime_model,
         value_model,
@@ -197,6 +232,7 @@ def main() -> None:
         temporal_model=args.temporal,
         validation_matrix_summary=validation_summary,
         feature_ablation_summary=ablation_summary,
+        model_health_snapshot=model_health_snapshot,
     )
 
     if args.save_benchmark_json and benchmark_results is not None:
@@ -217,6 +253,12 @@ def main() -> None:
     if ablation_summary is not None:
         print("Temporal ablation summary:")
         print(json.dumps(ablation_summary, indent=2))
+    if model_health_snapshot is not None:
+        print("Model health:")
+        print(json.dumps(model_health_snapshot, indent=2))
+        if args.auto_retrain and should_trigger_retrain(health):
+            print("Triggering retrain...")
+            print("Auto-retrain trigger fired; rerun training pipeline with refreshed data.")
     print(f"Saved regime artifact: {regime_path}")
     print(f"Saved strategy artifact: {value_path}")
 

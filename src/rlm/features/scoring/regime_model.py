@@ -216,6 +216,7 @@ class RegimeModel:
         temporal_model: bool = False,
         validation_matrix_summary: dict[str, float] | None = None,
         feature_ablation_summary: dict[str, float] | None = None,
+        model_health_snapshot: dict[str, float | bool] | None = None,
     ) -> RegimeModelArtifact:
         return RegimeModelArtifact(
             labels=list(self.labels),
@@ -239,6 +240,7 @@ class RegimeModel:
             temporal_model=temporal_model,
             validation_matrix_summary=validation_matrix_summary,
             feature_ablation_summary=feature_ablation_summary,
+            model_health_snapshot=model_health_snapshot,
         )
 
     def _to_feature_matrix(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:

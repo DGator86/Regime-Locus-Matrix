@@ -50,3 +50,30 @@ def test_runtime_loader_falls_back_to_bootstrap_when_missing(tmp_path: Path) -> 
 
     assert isinstance(regime_model, RegimeModel)
     assert isinstance(value_model, StrategyValueModel)
+
+
+def test_model_artifact_persists_health_snapshot(tmp_path: Path) -> None:
+    regime_model = RegimeModel.with_bootstrap_coefficients()
+    value_model = StrategyValueModel.with_bootstrap_coefficients()
+    health_snapshot = {
+        "age_hours": 1.0,
+        "feature_drift_score": 0.2,
+        "regime_drift_score": 0.1,
+        "performance_decay": 0.3,
+        "is_stale": False,
+    }
+
+    regime_path, value_path = save_model_artifacts(
+        regime_model,
+        value_model,
+        regime_training_rows=10,
+        value_training_rows=12,
+        source_symbols=["SPY"],
+        out_dir=tmp_path,
+        model_health_snapshot=health_snapshot,
+    )
+
+    regime_artifact = load_regime_model_artifact(regime_path)
+    value_artifact = load_strategy_value_model_artifact(value_path)
+    assert regime_artifact.model_health_snapshot == health_snapshot
+    assert value_artifact.model_health_snapshot == health_snapshot
