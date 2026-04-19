@@ -21,15 +21,23 @@ from rlm.volume_profile.auction_metrics import (
     effort_result_divergence,
     value_area_migration,
 )
+from rlm.volume_profile.cumulative_wyckoff import cumulative_effort_result
+from rlm.volume_profile.fx_session_profiles import get_fx_session_profile
 from rlm.volume_profile.profile_calculator import calculate_volume_profile, identify_nodes
 
 
 class VolumeProfileFactors(BaseFactorCalculator):
     """Compute daily/session-oriented volume profile features."""
 
-    def __init__(self, rolling_window_days: int = 20, price_precision: int = 400) -> None:
+    def __init__(
+        self,
+        rolling_window_days: int = 20,
+        price_precision: int = 400,
+        session_type: str = "equity",
+    ) -> None:
         self.rolling_window_days = int(rolling_window_days)
         self.price_precision = int(price_precision)
+        self.session_type = str(session_type)
 
     def _session_dates(self, data: pd.DataFrame) -> Iterable[pd.Timestamp]:
         if "timestamp" in data.columns:
@@ -48,6 +56,7 @@ class VolumeProfileFactors(BaseFactorCalculator):
         out["vp_effort_result_score"] = 0.0
         out["vp_auction_state"] = "balance"
         out["vp_va_migration"] = "neutral"
+        out["cumulative_wyckoff_score"] = 0.0
 
         if not {"close", "volume"}.issubset(out.columns):
             return out
@@ -73,9 +82,26 @@ class VolumeProfileFactors(BaseFactorCalculator):
             if profile_input.empty:
                 continue
 
-            profile = calculate_volume_profile(profile_input, price_precision=self.price_precision)
+            if self.session_type == "fx":
+                profile = get_fx_session_profile(
+                    profile_input, "London", pd.Timestamp(session_date).to_pydatetime()
+                )
+            else:
+                profile = calculate_volume_profile(
+                    profile_input, price_precision=self.price_precision
+                )
             nodes = identify_nodes(profile["volume_profile_series"])
             effort_score = effort_result_divergence(session_df, profile)
+            cum_wyckoff = cumulative_effort_result(
+                pd.DataFrame(
+                    {
+                        "high": session_df.get("high", session_df["close"]),
+                        "low": session_df.get("low", session_df["close"]),
+                        "close": session_df["close"],
+                        "volume": session_df["volume"],
+                    }
+                )
+            )
 
             historical = profiles[-(self.rolling_window_days - 1) :] + [profile]
             migration = value_area_migration(historical)
@@ -90,6 +116,7 @@ class VolumeProfileFactors(BaseFactorCalculator):
             out.loc[idx, "vp_effort_result_score"] = float(effort_score)
             out.loc[idx, "vp_auction_state"] = state
             out.loc[idx, "vp_va_migration"] = migration
+            out.loc[idx, "cumulative_wyckoff_score"] = float(cum_wyckoff)
 
             profiles.append(profile)
 
@@ -103,5 +130,6 @@ class VolumeProfileFactors(BaseFactorCalculator):
                 "vp_effort_result_score",
                 "vp_auction_state",
                 "vp_va_migration",
+                "cumulative_wyckoff_score",
             ]
         ]

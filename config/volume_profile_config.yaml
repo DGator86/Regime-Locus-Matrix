@@ -13,3 +13,28 @@ sessions:
 node_threshold_std: 1.0
 enable_80_percent_rule: true
 enable_core_value_model: true
+
+# Intraday microstructure VP
+intraday_vp:
+  enabled: false
+  bar_size_seconds: 5
+  lookback_bars: 500
+  window_seconds: 300
+
+# Cumulative Wyckoff
+cumulative_wyckoff:
+  enabled: false
+  divergence_threshold: 0.8
+
+# Hybrid confluence
+hybrid_confluence:
+  enabled: false
+  gex_weight: 0.6
+  iv_skew_weight: 0.4
+
+# FX Sessions (in addition to equity RTH/ETH)
+fx_sessions:
+  Sydney: {start: "17:00", end: "02:00", timezone: "America/New_York"}
+  Tokyo: {start: "19:00", end: "04:00", timezone: "America/New_York"}
+  London: {start: "03:00", end: "12:00", timezone: "America/New_York"}
+  New_York: {start: "08:00", end: "17:00", timezone: "America/New_York"}

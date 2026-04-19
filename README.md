@@ -39,6 +39,26 @@ A production-oriented, options-native quantitative engine. RLM ingests equity OH
 
 **Design principle:** Kronos is a pure sensor — one scalar return forecast plus a regime-agreement score. It never fuses with the HMM; the regime layer gates it with a binary pass/fail. ROEE is the single decision layer.
 
+
+### Pipeline Mermaid (updated)
+
+```mermaid
+graph TD
+    A[Bars + Option Chain] --> B[FactorPipeline]
+    B --> B1[VolumeProfileFactors]
+    B --> B2[MicrostructureVPFactors
+(optional)]
+    B --> B3[CumulativeWyckoffFactors
+(optional)]
+    B --> B4[HybridConfluenceFactors
+(optional)]
+    B --> C[Forecast Layer
+HMM/Markov/Kronos]
+    C --> D[State Matrix]
+    D --> E[ROEE Policy + Sizing]
+    E --> F[Backtest/Live]
+```
+
 ## FullRLMPipeline — one-line entry point
 
 `FullRLMPipeline` (`src/rlm/pipeline.py`) is the single orchestrator that wires the entire flow above into one composable object:
@@ -440,3 +460,28 @@ Smoke tests: `python scripts/fetch_massive.py SPY --endpoint option-snapshot`. F
 **RLM option chain:** Map snapshot JSON with `massive_option_snapshot_to_normalized_chain` or fetch all pages via `massive_option_chain_from_client` / `collect_option_snapshot_pages`. Greeks and IV from the snapshot merge as `delta`, `gamma`, `theta`, `vega`, `iv`.
 
 **Liquid watchlist:** `LIQUID_UNIVERSE` in `rlm.data.liquidity_universe` (Mag 7 + SPY + QQQ); `LIQUID_STOCK_UNIVERSE_10` adds `LIQUID_STOCK_EXTRAS` when you need ten single-names.
+
+
+## Volume profile enhancements
+
+The volume profile stack now supports optional advanced modules:
+
+- **Intraday microstructure VP** (`use_intraday_vp=True`) computes rolling 5-second POC/VA signals.
+- **Cumulative Wyckoff** (`use_cumulative_wyckoff=True`) adds cumulative effort/result divergence.
+- **Hybrid confluence** (`use_hybrid_confluence=True`) blends VP levels with GEX and IV-surface context.
+- **FX sessions** (`session_type="fx"`) uses session-aware windows for Sydney/Tokyo/London/New York.
+
+Example:
+
+```python
+from rlm.pipeline import FullRLMConfig, FullRLMPipeline
+
+cfg = FullRLMConfig(
+    symbol="EURUSD",
+    session_type="fx",
+    use_intraday_vp=True,
+    use_cumulative_wyckoff=True,
+    use_hybrid_confluence=True,
+)
+result = FullRLMPipeline(cfg).run(bars)
+```

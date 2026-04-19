@@ -44,6 +44,9 @@ from typing import Literal
 import pandas as pd
 
 from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.factors.cumulative_wyckoff_factors import CumulativeWyckoffFactors
+from rlm.factors.hybrid_confluence_factors import HybridConfluenceFactors
+from rlm.factors.microstructure_vp_factors import MicrostructureVPFactors
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
@@ -112,6 +115,10 @@ class FullRLMConfig:
     symbol: str = "SPY"
     attach_vix: bool = True
     """Attach ^VIX / ^VVIX via yfinance (requires internet access)."""
+    use_intraday_vp: bool = False
+    use_cumulative_wyckoff: bool = False
+    use_hybrid_confluence: bool = False
+    session_type: str = "equity"
 
     # ---- Nightly overlay ----------------------------------------------------
     nightly_hyperparams_path: str | None = None
@@ -161,6 +168,7 @@ class PipelineResult:
     backtest_trades: pd.DataFrame | None = None
     backtest_equity: pd.DataFrame | None = None
     backtest_metrics: dict[str, float] | None = None
+    vp_metrics: pd.DataFrame | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +253,19 @@ class FullRLMPipeline:
         # 2. Factor pipeline (Kronos + liquidity + orderflow + dealer-flow)
         factors_df = FactorPipeline().run(df)
 
+        vp_metrics: pd.DataFrame | None = None
+        if cfg.use_intraday_vp and cfg.session_type == "equity":
+            vp_metrics = MicrostructureVPFactors(symbol=cfg.symbol).compute(factors_df)
+            factors_df = pd.concat([factors_df, vp_metrics], axis=1)
+        if cfg.use_cumulative_wyckoff:
+            factors_df = pd.concat(
+                [factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1
+            )
+        if cfg.use_hybrid_confluence:
+            factors_df = pd.concat(
+                [factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1
+            )
+
         # 3. Optional multi-timeframe factor augmentation
         if cfg.mtf:
             from rlm.features.factors.multi_timeframe import (
@@ -277,6 +298,7 @@ class FullRLMPipeline:
             factors_df=factors_df,
             forecast_df=forecast_df,
             policy_df=policy_df,
+            vp_metrics=vp_metrics,
         )
 
         # 7. Optional BacktestEngine (requires option_chain_df)
@@ -371,4 +393,5 @@ class FullRLMPipeline:
             backtest_trades=trades_df,
             backtest_equity=equity_df,
             backtest_metrics=metrics,
+            vp_metrics=result.vp_metrics,
         )
