@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 
 from rlm.roee.strategy_value_model import STRATEGY_NAMES
+from rlm.training.artifact_registry import active_version_tag, candidate_dir, make_version_tag
 from rlm.training.benchmarks import benchmark_coordinate_models, summarize_benchmark_results
+from rlm.training.data_refresh import count_new_rows_since, load_symbol_feature_frames
 from rlm.training.datasets import (
     REQUIRED_COORD_COLUMNS,
     build_regime_training_frame,
@@ -17,11 +19,15 @@ from rlm.training.datasets import (
 )
 from rlm.training.feature_ablation import run_temporal_ablation, summarize_ablation
 from rlm.training.model_health import evaluate_model_health
+from rlm.training.refresh_controller import run_refresh_cycle
+from rlm.training.refresh_policy import RefreshPolicy, evaluate_refresh_eligibility
 from rlm.training.retrain_trigger import should_trigger_retrain
 from rlm.training.train_coordinate_models import (
     compute_regime_metrics,
     compute_strategy_metrics,
     load_model_artifacts,
+    load_trained_regime_model_or_bootstrap,
+    load_trained_value_model_or_bootstrap,
     save_model_artifacts,
     train_regime_model,
     train_strategy_value_model,
@@ -44,6 +50,27 @@ def _load_input_frame(symbols: list[str], data_dir: Path) -> pd.DataFrame:
     if "timestamp" in out.columns:
         out = out.sort_values("timestamp").reset_index(drop=True)
     return out
+
+
+def _regime_flip_rate(model, regime_df: pd.DataFrame) -> float:
+    labels = np.array(model.predict(regime_df.loc[:, REQUIRED_COORD_COLUMNS]))
+    if labels.size <= 1:
+        return 0.0
+    return float(np.mean(labels[1:] != labels[:-1]))
+
+
+def _build_performance_summary(
+    regime_model, value_model, regime_val, value_val
+) -> dict[str, float]:
+    value_pred_matrix = value_model.predict_expected_values(value_val)
+    realized_matrix = value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float)
+    realized_selected, _ = _selected_strategy_series(realized_matrix, value_pred_matrix)
+    return {
+        "selected_realized_average": (
+            float(np.mean(realized_selected)) if realized_selected.size else 0.0
+        ),
+        "regime_flip_rate": _regime_flip_rate(regime_model, regime_val),
+    }
 
 
 def _split(df: pd.DataFrame, train_split: float) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -127,6 +154,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-ablation", action="store_true")
     parser.add_argument("--evaluate-health", action="store_true")
     parser.add_argument("--auto-retrain", action="store_true")
+    parser.add_argument("--refresh-policy-json", default=None)
+    parser.add_argument("--promote-on-pass", action="store_true")
+    parser.add_argument("--keep-candidate-on-fail", action="store_true")
     return parser.parse_args()
 
 
@@ -241,6 +271,7 @@ def main() -> None:
             "performance_decay": float(health.performance_decay),
             "is_stale": bool(health.is_stale),
         }
+    refresh_parent = active_version_tag(Path(args.out_dir))
 
     regime_path, value_path = save_model_artifacts(
         regime_model,
@@ -265,6 +296,8 @@ def main() -> None:
         validation_matrix_summary=validation_summary,
         feature_ablation_summary=ablation_summary,
         model_health_snapshot=model_health_snapshot,
+        refresh_parent_version=refresh_parent,
+        promotion_status="active",
     )
 
     if args.save_benchmark_json and benchmark_results is not None:
@@ -289,35 +322,121 @@ def main() -> None:
         print("Model health:")
         print(json.dumps(model_health_snapshot, indent=2))
         if args.auto_retrain and health is not None and should_trigger_retrain(health):
-            print("Triggering retrain...")
-            refreshed_regime = train_regime_model(regime_df)
-            refreshed_value = train_strategy_value_model(value_df)
-            refreshed_regime_path, refreshed_value_path = save_model_artifacts(
-                refreshed_regime,
-                refreshed_value,
-                regime_training_rows=len(regime_df),
-                value_training_rows=len(value_df),
-                source_symbols=symbols,
-                out_dir=Path(args.out_dir),
-                target_mode=args.target_mode,
-                label_mode=args.label_mode,
-                horizon=args.horizon,
-                training_start=training_start,
-                training_end=training_end,
-                benchmark_summary=benchmark_summary,
-                simulator_version=args.simulator_version,
-                execution_model_version=args.execution_model_version,
-                train_split=args.train_split,
-                validation_rows=len(value_val),
-                sequence_window=sequence_window,
-                smoothing_alpha=args.smoothing_alpha if args.temporal else None,
-                temporal_model=args.temporal,
-                validation_matrix_summary=validation_summary,
-                feature_ablation_summary=ablation_summary,
-                model_health_snapshot=model_health_snapshot,
+            latest_df = load_symbol_feature_frames(symbols, args.data_dir)
+            trained_at_ref = _resolve_health_reference_trained_at(Path(args.out_dir))
+            new_rows = count_new_rows_since(latest_df, trained_at_ref)
+            policy = RefreshPolicy()
+            if args.refresh_policy_json:
+                payload = json.loads(args.refresh_policy_json)
+                policy = RefreshPolicy(**payload)
+            eligibility = evaluate_refresh_eligibility(
+                trained_at=trained_at_ref,
+                new_rows_available=new_rows,
+                is_stale=health.is_stale,
+                policy=policy,
             )
-            print(f"Auto-retrain completed. Saved regime artifact: {refreshed_regime_path}")
-            print(f"Auto-retrain completed. Saved strategy artifact: {refreshed_value_path}")
+            if not eligibility.allowed:
+                print(f"Refresh skipped: {eligibility.reason}")
+            else:
+                refreshed_regime_df = build_regime_training_frame(
+                    latest_df,
+                    label_mode=args.label_mode,
+                    horizon=args.horizon,
+                    sequence_window=sequence_window,
+                )
+                refreshed_value_df = build_strategy_value_training_frame(
+                    latest_df,
+                    horizon=args.horizon,
+                    target_mode=args.target_mode,
+                    use_path_exits=args.use_path_exits,
+                    sequence_window=sequence_window,
+                )
+                _, refreshed_regime_val = _split(refreshed_regime_df, args.train_split)
+                _, refreshed_value_val = _split(refreshed_value_df, 1.0 - args.val_split)
+
+                baseline_regime = load_trained_regime_model_or_bootstrap()
+                baseline_value = load_trained_value_model_or_bootstrap()
+                baseline_summary = _build_performance_summary(
+                    baseline_regime,
+                    baseline_value,
+                    refreshed_regime_val,
+                    refreshed_value_val,
+                )
+
+                refreshed_regime = train_regime_model(refreshed_regime_df)
+                refreshed_value = train_strategy_value_model(refreshed_value_df)
+                candidate_summary = _build_performance_summary(
+                    refreshed_regime,
+                    refreshed_value,
+                    refreshed_regime_val,
+                    refreshed_value_val,
+                )
+                post_value_pred_matrix = refreshed_value.predict_expected_values(
+                    refreshed_value_val
+                )
+                realized_selected, predicted_selected = _selected_strategy_series(
+                    refreshed_value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float),
+                    post_value_pred_matrix,
+                )
+                post_health = evaluate_model_health(
+                    trained_at=pd.Timestamp.utcnow().isoformat(),
+                    X_train=refreshed_regime_df.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(
+                        dtype=float
+                    ),
+                    X_live=refreshed_regime_val.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(
+                        dtype=float
+                    ),
+                    train_regime_probs=refreshed_regime.predict_proba(refreshed_regime_df),
+                    live_regime_probs=refreshed_regime.predict_proba(refreshed_regime_val),
+                    realized_returns=realized_selected,
+                    predicted_values=predicted_selected,
+                )
+                post_health_snapshot = {
+                    "age_hours": float(post_health.age_hours),
+                    "feature_drift_score": float(post_health.feature_drift_score),
+                    "regime_drift_score": float(post_health.regime_drift_score),
+                    "performance_decay": float(post_health.performance_decay),
+                    "is_stale": bool(post_health.is_stale),
+                }
+                version_tag = make_version_tag()
+                cand_dir = candidate_dir(args.out_dir, version_tag)
+                cand_regime_path, cand_value_path = save_model_artifacts(
+                    refreshed_regime,
+                    refreshed_value,
+                    regime_training_rows=len(refreshed_regime_df),
+                    value_training_rows=len(refreshed_value_df),
+                    source_symbols=symbols,
+                    out_dir=cand_dir,
+                    target_mode=args.target_mode,
+                    label_mode=args.label_mode,
+                    horizon=args.horizon,
+                    training_start=training_start,
+                    training_end=training_end,
+                    benchmark_summary=benchmark_summary,
+                    simulator_version=args.simulator_version,
+                    execution_model_version=args.execution_model_version,
+                    train_split=args.train_split,
+                    validation_rows=len(refreshed_value_val),
+                    sequence_window=sequence_window,
+                    smoothing_alpha=args.smoothing_alpha if args.temporal else None,
+                    temporal_model=args.temporal,
+                    validation_matrix_summary=validation_summary,
+                    feature_ablation_summary=ablation_summary,
+                    model_health_snapshot=post_health_snapshot,
+                    refresh_parent_version=refresh_parent,
+                    refresh_reason="stale_model",
+                    promotion_status="candidate",
+                )
+                outcome = run_refresh_cycle(
+                    base_dir=Path(args.out_dir),
+                    baseline_summary=baseline_summary,
+                    candidate_summary=candidate_summary,
+                    candidate_regime_path=cand_regime_path,
+                    candidate_value_path=cand_value_path,
+                    promote_on_pass=args.promote_on_pass,
+                    keep_candidate_on_fail=args.keep_candidate_on_fail,
+                )
+                print(json.dumps(asdict(outcome), indent=2))
     print(f"Saved regime artifact: {regime_path}")
     print(f"Saved strategy artifact: {value_path}")
 

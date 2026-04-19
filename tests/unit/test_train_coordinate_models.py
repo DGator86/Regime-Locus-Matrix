@@ -5,9 +5,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from rlm.training.artifact_registry import load_registry
+from rlm.training.data_refresh import count_new_rows_since
 from rlm.training.datasets import build_regime_training_frame, build_strategy_value_training_frame
+from rlm.training.refresh_controller import run_refresh_cycle
+from rlm.training.refresh_policy import RefreshPolicy, evaluate_refresh_eligibility
 from rlm.training.train_coordinate_models import (
     load_model_artifacts,
+    save_model_artifacts,
     train_regime_model,
     train_strategy_value_model,
 )
@@ -72,7 +77,10 @@ def test_trained_model_artifacts_are_produced_and_loadable(tmp_path: Path) -> No
 def test_loaded_model_predicts_same_as_saved_model(tmp_path: Path) -> None:
     from rlm.features.scoring.regime_model import RegimeModel
     from rlm.roee.strategy_value_model import StrategyValueModel
-    from rlm.training.artifacts import load_regime_model_artifact, load_strategy_value_model_artifact
+    from rlm.training.artifacts import (
+        load_regime_model_artifact,
+        load_strategy_value_model_artifact,
+    )
     from rlm.training.train_coordinate_models import save_model_artifacts
 
     df = _synthetic_df(40)
@@ -100,3 +108,57 @@ def test_loaded_model_predicts_same_as_saved_model(tmp_path: Path) -> None:
         value_model.predict_expected_values(x_val),
         loaded_value.predict_expected_values(x_val),
     )
+
+
+def test_refresh_candidate_promotion_updates_registry(tmp_path: Path) -> None:
+    df = _synthetic_df(80)
+    df["timestamp"] = pd.date_range("2026-02-01", periods=len(df), freq="h", tz="UTC")
+    regime_df = build_regime_training_frame(df)
+    value_df = build_strategy_value_training_frame(df, horizon=5)
+
+    base_regime = train_regime_model(regime_df.iloc[:40].reset_index(drop=True))
+    base_value = train_strategy_value_model(value_df.iloc[:40].reset_index(drop=True))
+    save_model_artifacts(
+        base_regime,
+        base_value,
+        regime_training_rows=40,
+        value_training_rows=40,
+        source_symbols=["SPY"],
+        out_dir=tmp_path,
+    )
+
+    policy = RefreshPolicy(min_new_rows=10, cooldown_hours=0.0, require_stale=True)
+    eligibility = evaluate_refresh_eligibility(
+        trained_at="2026-02-01T00:00:00+00:00",
+        new_rows_available=count_new_rows_since(df, "2026-02-01T00:00:00+00:00"),
+        is_stale=True,
+        policy=policy,
+    )
+    assert eligibility.allowed is True
+
+    candidate_regime = train_regime_model(regime_df)
+    candidate_value = train_strategy_value_model(value_df)
+    cand_dir = tmp_path / "candidates" / "20260419T150502Z"
+    cand_regime_path, cand_value_path = save_model_artifacts(
+        candidate_regime,
+        candidate_value,
+        regime_training_rows=len(regime_df),
+        value_training_rows=len(value_df),
+        source_symbols=["SPY"],
+        out_dir=cand_dir,
+        promotion_status="candidate",
+    )
+
+    outcome = run_refresh_cycle(
+        base_dir=tmp_path,
+        baseline_summary={"selected_realized_average": 0.0, "regime_flip_rate": 0.4},
+        candidate_summary={"selected_realized_average": 0.2, "regime_flip_rate": 0.3},
+        candidate_regime_path=cand_regime_path,
+        candidate_value_path=cand_value_path,
+        promote_on_pass=True,
+        keep_candidate_on_fail=True,
+    )
+    assert outcome.promoted is True
+    registry = load_registry(tmp_path)
+    assert registry.active_regime_path == str(cand_regime_path)
+    assert registry.active_value_path == str(cand_value_path)
