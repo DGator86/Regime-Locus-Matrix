@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal, Mapping
 
 import numpy as np
 
-from rlm.features.scoring.regime_model import REGIME_LABELS, RegimeModel
+from rlm.features.scoring.regime_model import REGIME_LABELS
+from rlm.features.scoring.regime_model import RegimeModel
+from rlm.training.artifacts import load_regime_model_artifact
 
 RegimeLabel = Literal[
     "trend_up_stable",
@@ -17,7 +20,16 @@ RegimeLabel = Literal[
     "no_trade",
 ]
 
-_DEFAULT_REGIME_MODEL = RegimeModel.with_bootstrap_coefficients()
+def load_trained_regime_model_or_bootstrap(
+    path: str | Path = "artifacts/models/regime_model.json",
+) -> RegimeModel:
+    artifact_path = Path(path)
+    if artifact_path.exists():
+        return RegimeModel.from_artifact(load_regime_model_artifact(artifact_path))
+    return RegimeModel.with_bootstrap_coefficients()
+
+
+_DEFAULT_REGIME_MODEL = load_trained_regime_model_or_bootstrap()
 
 
 def score_regime_probabilities_from_coordinates(
