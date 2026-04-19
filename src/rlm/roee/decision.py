@@ -9,6 +9,11 @@ import pandas as pd
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
 from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
 from rlm.roee.policy import select_trade, select_trade_from_strategy_name
+from rlm.roee.regime_persistence import (
+    RegimePersistenceState,
+    persistence_size_multiplier,
+    persistence_trade_gate,
+)
 from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
 from rlm.types.options import TradeDecision
@@ -228,6 +233,7 @@ def select_trade_for_row(
     regime_train_sample_count: int | None = None,
     min_regime_train_samples: int | None = None,
     regime_purge_bars: int = 0,
+    use_persistence_controls: bool = False,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -299,6 +305,33 @@ def select_trade_for_row(
                     "M_regime": regime_row["M_regime"],
                 },
             )
+
+    persistence_size_mult = 1.0
+    enable_persistence_controls = use_persistence_controls or bool(
+        row.get("use_persistence_controls", False)
+    )
+    if enable_persistence_controls:
+        p_state = RegimePersistenceState(
+            regime=str(row.get("M_regime", "unknown")),
+            consecutive_bars=int(row.get("M_regime_consecutive", 1)),
+            dominant_probability=float(row.get("M_regime_prob", 0.5)),
+            flip_rate_recent=float(row.get("M_regime_flip_rate_recent", 0.0)),
+        )
+        if not persistence_trade_gate(p_state):
+            return TradeDecision(
+                action="skip",
+                strategy_name="persistence_block",
+                regime_key=str(row.get("regime_key", "")),
+                rationale="Regime persistence gate blocked trade.",
+                metadata={
+                    "strategy_source": "persistence_gate",
+                    "M_regime": p_state.regime,
+                    "M_regime_prob": p_state.dominant_probability,
+                    "M_regime_consecutive": p_state.consecutive_bars,
+                    "M_regime_flip_rate_recent": p_state.flip_rate_recent,
+                },
+            )
+        persistence_size_mult = persistence_size_multiplier(p_state)
 
     if use_hmm:
         mod = compute_regime_modulators(
@@ -413,6 +446,8 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        meta["persistence_size_mult"] = persistence_size_mult
+        meta["persistence_controls_enabled"] = enable_persistence_controls
         meta["strategy_source"] = strategy_source
         if coordinate_router_strategy is not None:
             meta["coordinate_strategy"] = coordinate_router_strategy
@@ -435,7 +470,9 @@ def select_trade_for_row(
             meta["kelly_latent_regime_source"] = str(latent_regime["source"])
         return replace(
             decision,
-            size_fraction=quantize_fraction(base_sf * float(mod["size_mult"])),
+            size_fraction=quantize_fraction(
+                base_sf * float(mod["size_mult"]) * float(persistence_size_mult)
+            ),
             metadata=meta,
         )
 
@@ -454,6 +491,8 @@ def select_trade_for_row(
         meta["hmm_confidence"] = mod["confidence"]
         meta["hmm_size_mult"] = mod["size_mult"]
         meta["hmm_trade_allowed"] = True
+        meta["persistence_size_mult"] = persistence_size_mult
+        meta["persistence_controls_enabled"] = enable_persistence_controls
         meta["strategy_source"] = strategy_source
         if coordinate_router_strategy is not None:
             meta["coordinate_strategy"] = coordinate_router_strategy
@@ -490,10 +529,18 @@ def select_trade_for_row(
             return replace(
                 decision,
                 size_fraction=quantize_fraction(
-                    float(decision.size_fraction or 0.0) * float(coord_conf)
+                    float(decision.size_fraction or 0.0)
+                    * float(coord_conf)
+                    * float(persistence_size_mult)
                 ),
                 metadata=meta,
             )
-        return replace(decision, metadata=meta)
+        return replace(
+            decision,
+            size_fraction=quantize_fraction(
+                float(decision.size_fraction or 0.0) * float(persistence_size_mult)
+            ),
+            metadata=meta,
+        )
 
     return decision

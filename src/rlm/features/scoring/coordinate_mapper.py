@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
+from rlm.features.scoring.regime_persistence_features import add_regime_persistence_columns
 
 _SCORE_COLS = ("S_D", "S_V", "S_L", "S_G")
 _COORD_COLS = ("M_D", "M_V", "M_L", "M_G")
@@ -111,5 +112,6 @@ def add_market_coordinate_columns(
     )
 
     out = add_regime_column(out)
+    out = add_regime_persistence_columns(out)
 
     return out

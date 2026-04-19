@@ -108,6 +108,8 @@ def save_model_artifacts(
     sequence_window: int | None = None,
     smoothing_alpha: float | None = None,
     temporal_model: bool = False,
+    validation_matrix_summary: dict[str, float] | None = None,
+    feature_ablation_summary: dict[str, float] | None = None,
 ) -> tuple[Path, Path]:
     out_dir_path = Path(out_dir)
     trained_at = datetime.now(UTC).isoformat()
@@ -130,6 +132,8 @@ def save_model_artifacts(
         sequence_window=sequence_window,
         smoothing_alpha=smoothing_alpha,
         temporal_model=temporal_model,
+        validation_matrix_summary=validation_matrix_summary,
+        feature_ablation_summary=feature_ablation_summary,
     )
     value_artifact = value_model.to_artifact(
         trained_at=trained_at,
@@ -149,6 +153,8 @@ def save_model_artifacts(
         sequence_window=sequence_window,
         smoothing_alpha=smoothing_alpha,
         temporal_model=temporal_model,
+        validation_matrix_summary=validation_matrix_summary,
+        feature_ablation_summary=feature_ablation_summary,
     )
 
     regime_path = out_dir_path / REGIME_ARTIFACT_PATH.name

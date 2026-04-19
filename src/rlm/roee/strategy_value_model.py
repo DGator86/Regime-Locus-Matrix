@@ -119,6 +119,8 @@ class StrategyValueModel:
         sequence_window: int | None = None,
         smoothing_alpha: float | None = None,
         temporal_model: bool = False,
+        validation_matrix_summary: dict[str, float] | None = None,
+        feature_ablation_summary: dict[str, float] | None = None,
     ) -> StrategyValueModelArtifact:
         return StrategyValueModelArtifact(
             strategies=list(self.strategies),
@@ -140,6 +142,8 @@ class StrategyValueModel:
             sequence_window=sequence_window,
             smoothing_alpha=smoothing_alpha,
             temporal_model=temporal_model,
+            validation_matrix_summary=validation_matrix_summary,
+            feature_ablation_summary=feature_ablation_summary,
         )
 
     def _to_target_matrix(self, Y: pd.DataFrame | np.ndarray) -> np.ndarray:
