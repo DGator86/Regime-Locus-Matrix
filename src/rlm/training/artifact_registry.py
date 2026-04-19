@@ -67,3 +67,18 @@ def promote_candidate(
     reg.last_refresh_at = datetime.now(timezone.utc).isoformat()
     save_registry(base_dir, reg)
     return reg
+
+
+def rollback_to_previous(base_dir: str | Path) -> ArtifactRegistry:
+    reg = load_registry(base_dir)
+    if not reg.previous_regime_path or not reg.previous_value_path:
+        raise ValueError("No previous artifact pointers available for rollback")
+    current_active_regime = reg.active_regime_path
+    current_active_value = reg.active_value_path
+    reg.active_regime_path = reg.previous_regime_path
+    reg.active_value_path = reg.previous_value_path
+    reg.previous_regime_path = current_active_regime
+    reg.previous_value_path = current_active_value
+    reg.last_refresh_at = datetime.now(timezone.utc).isoformat()
+    save_registry(base_dir, reg)
+    return reg

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rlm.training.artifact_registry import promote_candidate
+from rlm.training.artifacts import update_artifact_promotion_status
 from rlm.training.refresh_verification import verify_candidate_promotion
 
 
@@ -25,12 +26,16 @@ def run_refresh_cycle(
     candidate_value_path: Path,
     promote_on_pass: bool,
     keep_candidate_on_fail: bool,
+    candidate_health_snapshot: dict[str, float | bool] | None = None,
+    require_candidate_not_stale: bool = True,
     min_selected_realized_improvement: float = 0.0,
     min_flip_improvement: float = -0.05,
 ) -> RefreshOutcome:
     verification = verify_candidate_promotion(
         baseline_summary=baseline_summary,
         candidate_summary=candidate_summary,
+        candidate_health_snapshot=candidate_health_snapshot,
+        require_candidate_not_stale=require_candidate_not_stale,
         min_selected_realized_improvement=min_selected_realized_improvement,
         min_flip_improvement=min_flip_improvement,
     )
@@ -40,6 +45,8 @@ def run_refresh_cycle(
             candidate_regime_path=candidate_regime_path,
             candidate_value_path=candidate_value_path,
         )
+        update_artifact_promotion_status(candidate_regime_path, "active")
+        update_artifact_promotion_status(candidate_value_path, "active")
         return RefreshOutcome(
             triggered=True,
             promoted=True,
@@ -47,6 +54,9 @@ def run_refresh_cycle(
             candidate_regime_path=str(candidate_regime_path),
             candidate_value_path=str(candidate_value_path),
         )
+
+    update_artifact_promotion_status(candidate_regime_path, "rejected")
+    update_artifact_promotion_status(candidate_value_path, "rejected")
 
     if not keep_candidate_on_fail and not verification.promote:
         candidate_regime_path.unlink(missing_ok=True)
