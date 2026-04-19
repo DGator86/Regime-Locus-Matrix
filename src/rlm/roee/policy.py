@@ -32,6 +32,7 @@ MAX_OVERLAY_SIGNALS = 3
 # No pattern overlays. This is the baseline truth model.
 # ---------------------------------------------------------------------------
 
+
 def resolve_strategy_name(
     *,
     direction_regime: str,
@@ -272,23 +273,29 @@ def _core_trade_decision_from_strategy_name(
     )
 
     if candidate.strategy_name == "no_trade_or_micro_position":
-        return TradeDecision(
-            action="skip",
-            strategy_name=candidate.strategy_name,
-            regime_key=regime_key,
-            rationale=candidate.rationale,
-            candidate=candidate,
-        ), {}
+        return (
+            TradeDecision(
+                action="skip",
+                strategy_name=candidate.strategy_name,
+                regime_key=regime_key,
+                rationale=candidate.rationale,
+                candidate=candidate,
+            ),
+            {},
+        )
 
     require_defined_risk = should_require_defined_risk(s_l, s_g)
     if require_defined_risk and not candidate.defined_risk:
-        return TradeDecision(
-            action="skip",
-            strategy_name=candidate.strategy_name,
-            regime_key=regime_key,
-            rationale="Candidate rejected: defined-risk required.",
-            candidate=candidate,
-        ), {}
+        return (
+            TradeDecision(
+                action="skip",
+                strategy_name=candidate.strategy_name,
+                regime_key=regime_key,
+                rationale="Candidate rejected: defined-risk required.",
+                candidate=candidate,
+            ),
+            {},
+        )
 
     confidence = compute_confidence(s_d=s_d, s_v=s_v, s_l=s_l, s_g=s_g)
     size_fraction = compute_size_fraction(
@@ -383,13 +390,16 @@ def _core_trade_decision_from_strategy_name(
     sizing_meta["size_model"] = size_model
 
     if size_fraction <= 0:
-        return TradeDecision(
-            action="skip",
-            strategy_name=candidate.strategy_name,
-            regime_key=regime_key,
-            rationale="Position size reduced to zero by risk controls.",
-            candidate=candidate,
-        ), {}
+        return (
+            TradeDecision(
+                action="skip",
+                strategy_name=candidate.strategy_name,
+                regime_key=regime_key,
+                rationale="Position size reduced to zero by risk controls.",
+                candidate=candidate,
+            ),
+            {},
+        )
 
     legs = build_legs_from_candidate(
         candidate=candidate,
@@ -419,6 +429,7 @@ def _core_trade_decision_from_strategy_name(
 # NOT part of signal generation — purely adjusts size of an existing signal.
 # Hard cap: MAX_OVERLAY_SIGNALS active modifiers per trade.
 # ---------------------------------------------------------------------------
+
 
 def apply_overlay_engine(
     decision: TradeDecision,
@@ -543,12 +554,14 @@ def apply_overlay_engine(
     )
 
     from dataclasses import replace
+
     return replace(decision, size_fraction=size_fraction, metadata=meta)
 
 
 # ---------------------------------------------------------------------------
 # Public entry point — thin coordinator
 # ---------------------------------------------------------------------------
+
 
 def select_trade_from_strategy_name(
     *,
@@ -585,6 +598,10 @@ def select_trade_from_strategy_name(
     calm_trend_kelly_multiplier: float = 1.25,
     vault_uncertainty_threshold: float | None = 0.03,
     vault_size_multiplier: float = 0.5,
+    use_volume_profile_gating: bool = False,
+    effort_result_divergence: float | None = None,
+    auction_state: str | None = None,
+    eighty_percent_rule_signal: bool = False,
     # Overlay signals — passed to Mode B only
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
@@ -645,6 +662,51 @@ def select_trade_from_strategy_name(
         vault_size_multiplier=vault_size_multiplier,
     )
 
+    if use_volume_profile_gating and decision.action == "enter":
+        vp_meta = dict(decision.metadata)
+        divergence = (
+            float(effort_result_divergence)
+            if effort_result_divergence is not None
+            and math.isfinite(float(effort_result_divergence))
+            else 0.0
+        )
+
+        forecast_sign = 0
+        if forecast_return is not None and math.isfinite(float(forecast_return)):
+            forecast_sign = (
+                1 if float(forecast_return) > 0 else (-1 if float(forecast_return) < 0 else 0)
+            )
+        elif direction_regime == "bull":
+            forecast_sign = 1
+        elif direction_regime == "bear":
+            forecast_sign = -1
+
+        if (forecast_sign > 0 and divergence < 0) or (forecast_sign < 0 and divergence > 0):
+            return TradeDecision(
+                action="skip",
+                strategy_name=decision.strategy_name,
+                regime_key=decision.regime_key,
+                rationale="Volume-profile gate: absorption opposes forecast direction.",
+                candidate=decision.candidate,
+                metadata={**vp_meta, "vp_gated": True, "vp_gate_reason": "absorption_conflict"},
+            )
+
+        size_fraction = float(decision.size_fraction or 0.0)
+        if str(auction_state or "").lower() == "balance" and forecast_sign != 0:
+            size_fraction = quantize_fraction(size_fraction * 0.5)
+            vp_meta["vp_balance_size_reduction"] = 0.5
+
+        confidence_boost = 0.2 if eighty_percent_rule_signal else 0.0
+        vp_meta["vp_80_percent_rule_signal"] = bool(eighty_percent_rule_signal)
+        vp_meta["vp_confidence_boost"] = confidence_boost
+        vp_meta["vp_gated"] = False
+
+        if confidence_boost > 0:
+            base_conf = float(vp_meta.get("confidence", 0.0) or 0.0)
+            vp_meta["confidence"] = float(min(1.0, base_conf + confidence_boost))
+
+        decision = replace(decision, size_fraction=size_fraction, metadata=vp_meta)
+
     decision = apply_overlay_engine(
         decision,
         direction_regime=direction_regime,
@@ -699,6 +761,10 @@ def select_trade(
     calm_trend_kelly_multiplier: float = 1.25,
     vault_uncertainty_threshold: float | None = 0.03,
     vault_size_multiplier: float = 0.5,
+    use_volume_profile_gating: bool = False,
+    effort_result_divergence: float | None = None,
+    auction_state: str | None = None,
+    eighty_percent_rule_signal: bool = False,
     # Overlay signals — passed to Mode B only
     mtf_confluence_score: float | None = None,
     mtf_confluence_liquidity_sweep_confirmed: float | None = None,
@@ -768,6 +834,10 @@ def select_trade(
         calm_trend_kelly_multiplier=calm_trend_kelly_multiplier,
         vault_uncertainty_threshold=vault_uncertainty_threshold,
         vault_size_multiplier=vault_size_multiplier,
+        use_volume_profile_gating=use_volume_profile_gating,
+        effort_result_divergence=effort_result_divergence,
+        auction_state=auction_state,
+        eighty_percent_rule_signal=eighty_percent_rule_signal,
         mtf_confluence_score=mtf_confluence_score,
         mtf_confluence_liquidity_sweep_confirmed=mtf_confluence_liquidity_sweep_confirmed,
         pool_confluence_score=pool_confluence_score,

@@ -1,5 +1,6 @@
-"""Backward-compatibility re-export. Canonical location: rlm.features.factors."""
+"""Factor calculator utilities and integrations."""
 
+from rlm.factors.volume_profile_factors import VolumeProfileFactors
 from rlm.features.factors.pipeline import FactorPipeline
 
-__all__ = ["FactorPipeline"]
+__all__ = ["FactorPipeline", "VolumeProfileFactors"]
