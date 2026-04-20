@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from rlm.cli.common import add_data_root_arg, normalize_symbol
 from rlm.core.services.trade_service import TradeRequest, TradeService
 from rlm.utils.logging import get_logger
 
@@ -25,14 +26,15 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-kronos", action="store_true", help="Disable Kronos overlay")
     p.add_argument("--no-vix", action="store_true", help="Skip VIX/VVIX attachment")
     p.add_argument("--capital", type=float, default=100_000.0, help="Account capital")
+    add_data_root_arg(p)
     return p.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    sym = args.symbol.upper().strip()
+    sym = normalize_symbol(args.symbol)
 
-    log.info("Trade mode=%s symbol=%s", args.mode, sym)
+    log.info("trade start  symbol=%s mode=%s", sym, args.mode)
 
     req = TradeRequest(
         symbol=sym,
@@ -40,9 +42,11 @@ def main() -> None:
         use_kronos=not args.no_kronos,
         attach_vix=not args.no_vix,
         capital=args.capital,
+        data_root=args.data_root,
     )
 
     result = TradeService().run(req)
+
     if result.decision:
         print(f"\nTrade decision for {sym}:")
         print(f"  action:   {result.decision.get('roee_action')}")

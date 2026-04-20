@@ -1,9 +1,16 @@
-"""Thin wrapper — delegates to ``rlm backtest``.
+"""Legacy wrapper — backwards compatibility shim for ``rlm backtest``.
 
-Kept for backwards compatibility. New usage: ``rlm backtest [options]``
+Requires the package to be installed:
+
+    pip install -e .
+
+Preferred usage (works from any directory after install):
+
+    rlm backtest --symbol SPY [options]
+
+This wrapper will be removed in a future release.
 """
 
-import sys
 from rlm.cli.backtest import main
 
 if __name__ == "__main__":

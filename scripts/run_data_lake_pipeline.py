@@ -1,6 +1,14 @@
-"""Thin wrapper — delegates to ``rlm ingest``.
+"""Legacy wrapper — backwards compatibility shim for ``rlm ingest``.
 
-Kept for backwards compatibility. New usage: ``rlm ingest [options]``
+Requires the package to be installed:
+
+    pip install -e .
+
+Preferred usage (works from any directory after install):
+
+    rlm ingest --symbol SPY [options]
+
+This wrapper will be removed in a future release.
 """
 
 from rlm.cli.ingest import main

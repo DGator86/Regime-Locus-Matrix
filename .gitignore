@@ -60,6 +60,11 @@ checkpoints/
 !configs/*.json
 !configs/*.yaml
 
+# Versioned test fixtures and sample data are explicitly allowed.
+# Runtime outputs must live under ignored data/ or artifacts/ roots — never here.
+!tests/fixtures/**
+!sample_data/**
+
 # Streamlit
 .streamlit/secrets.toml
 

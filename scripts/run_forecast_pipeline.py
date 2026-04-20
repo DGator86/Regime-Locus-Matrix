@@ -1,9 +1,16 @@
-"""Thin wrapper — delegates to ``rlm forecast``.
+"""Legacy wrapper — backwards compatibility shim for ``rlm forecast``.
 
-Kept for backwards compatibility. New usage: ``rlm forecast [options]``
+Requires the package to be installed:
+
+    pip install -e .
+
+Preferred usage (works from any directory after install):
+
+    rlm forecast --symbol SPY [options]
+
+This wrapper will be removed in a future release.
 """
 
-import sys
 from rlm.cli.forecast import main
 
 if __name__ == "__main__":
