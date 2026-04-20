@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-from pathlib import Path
 from typing import Any
 
 from rlm.core.config import build_full_config, load_profile, merge_overrides
@@ -20,8 +18,6 @@ def validate_regime_flags(use_hmm: bool, use_markov: bool) -> str:
         raise SystemExit("Use either --use-hmm or --use-markov, not both.")
     if use_markov:
         return "markov"
-    if use_hmm:
-        return "hmm"
     return "hmm"
 
 
@@ -37,53 +33,12 @@ def add_pipeline_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_data_root_arg(parser: argparse.ArgumentParser) -> None:
-    """Add ``--data-root`` argument to *parser*."""
     parser.add_argument(
         "--data-root",
         default=None,
         metavar="DIR",
-        help=(
-            "Override data root directory (default: RLM_DATA_ROOT env var, "
-            "or ./data relative to current working directory)"
-        ),
+        help="Override data root directory (default: RLM_DATA_ROOT env var, else ./data)",
     )
-
-
-def build_pipeline_config_from_controls(
-    *,
-    symbol: str,
-    profile: str | None,
-    config_path: str | None,
-    use_kronos: bool,
-    attach_vix: bool,
-    initial_capital: float,
-) -> FullRLMConfig:
-    """Build ``FullRLMConfig`` from profile/config controls plus runtime overrides."""
-    cfg = FullRLMConfig(symbol=symbol)
-
-    if profile:
-        p = profile.lower().strip()
-        if p == "live":
-            cfg.use_kronos = True
-            cfg.attach_vix = True
-        elif p == "paper":
-            cfg.use_kronos = True
-            cfg.attach_vix = False
-        elif p == "dev":
-            cfg.use_kronos = False
-            cfg.attach_vix = False
-
-    if config_path:
-        payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
-        for key, value in payload.items():
-            if hasattr(cfg, key):
-                setattr(cfg, key, value)
-
-    cfg.use_kronos = bool(use_kronos)
-    cfg.attach_vix = bool(attach_vix)
-    cfg.initial_capital = float(initial_capital)
-    return cfg
-    parser.add_argument("--data-root", default=None, metavar="DIR")
 
 
 def add_backend_arg(parser: argparse.ArgumentParser) -> None:
@@ -97,7 +52,6 @@ def add_profile_args(parser: argparse.ArgumentParser) -> None:
 
 def _cli_overrides(args: argparse.Namespace, symbol: str) -> dict[str, Any]:
     overrides: dict[str, Any] = {"symbol": symbol}
-
     regime_model = validate_regime_flags(getattr(args, "use_hmm", False), getattr(args, "use_markov", False))
     if getattr(args, "use_hmm", False) or getattr(args, "use_markov", False):
         overrides["regime_model"] = regime_model
@@ -129,19 +83,14 @@ def build_pipeline_config(
     profile_dict: dict[str, Any] | None = None,
     explicit_overrides: dict[str, Any] | None = None,
 ) -> FullRLMConfig:
-    # defaults
     merged: dict[str, Any] = {}
-    # named profile
     if profile_dict:
         merged = merge_overrides(merged, profile_dict)
-    # explicit config path or --profile
     if getattr(args, "config", None):
         merged = merge_overrides(merged, load_profile(path=args.config))
     elif getattr(args, "profile", None):
         merged = merge_overrides(merged, load_profile(name=args.profile))
-    # explicit call-site overrides
     if explicit_overrides:
         merged = merge_overrides(merged, explicit_overrides)
-    # cli wins
     merged = merge_overrides(merged, _cli_overrides(args, symbol))
     return build_full_config(merged)

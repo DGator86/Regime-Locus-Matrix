@@ -16,3 +16,12 @@ def test_trade_execution_record_normalized():
     assert out[0].success is True
     assert out[0].order_id == "123"
     assert out[0].broker == "fake"
+
+
+def test_plan_mode_generates_non_broker_execution_record():
+    svc = TradeService(broker=_Broker())
+    req = TradeRequest(symbol="SPY", mode="plan")
+    out = svc.execute_decision(req, TradeDecision("hold", "none", 0.0, False, {}))
+    assert len(out) == 1
+    assert out[0].success is True
+    assert out[0].broker == "none"

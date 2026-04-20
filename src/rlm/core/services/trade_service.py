@@ -7,18 +7,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import pandas as pd
 
-from rlm.cli.common import build_pipeline_config_from_controls
+from rlm.core.config import build_pipeline_config
 from rlm.core.pipeline import FullRLMPipeline
 from rlm.data.paths import get_artifacts_dir
 from rlm.data.readers import load_bars, load_option_chain
 from rlm.execution.brokers import BrokerAdapter, IBKRBrokerAdapter
-from rlm.utils.logging import get_logger
-
-log = get_logger(__name__)
+from rlm.utils.run_id import generate_run_id
 
 
 @dataclass
@@ -51,30 +48,27 @@ class TradeDecision:
 
 @dataclass
 class TradeExecutionRecord:
-    mode: str
     success: bool
-    broker: str | None = None
-    order_id: str | None = None
-    message: str = ""
+    broker: str
+    order_id: str | None
+    message: str
     details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TradeArtifacts:
-    decision_json: Path | None = None
-    execution_json: Path | None = None
+    decision_path: Path | None = None
+    execution_path: Path | None = None
     manifest_path: Path | None = None
-    data_root: str | None = None  # maps to --data-root / RLM_DATA_ROOT
-    backend: str = "auto"
 
 
 @dataclass
 class TradeResult:
-    decision: TradeDecision | None = None
-    executions: list[TradeExecutionRecord] = field(default_factory=list)
-    artifacts: TradeArtifacts = field(default_factory=TradeArtifacts)
-    duration_s: float = 0.0
-    run_id: str | None = None
+    decision: TradeDecision
+    executions: list[TradeExecutionRecord]
+    artifacts: TradeArtifacts
+    duration_s: float
+    run_id: str
 
 
 class TradeService:
@@ -85,32 +79,30 @@ class TradeService:
 
     def run(self, req: TradeRequest) -> TradeResult:
         t0 = time.monotonic()
-        run_id = self._new_run_id(req.symbol)
-
+        run_id = generate_run_id("trade")
         decision = self.build_decision(req)
         executions = self.execute_decision(req, decision)
-        result = TradeResult(decision=decision, executions=executions, run_id=run_id)
-
-        if req.write_artifacts:
-            result.artifacts = self.write_outputs(req, result)
-        if bars_df is None:
-            bars_df = load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
-        if chain_df is None:
-            chain_df = load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
-
-        result.duration_s = time.monotonic() - t0
-        return result
+        artifacts = self.write_outputs(req, decision, executions, run_id)
+        return TradeResult(
+            decision=decision,
+            executions=executions,
+            artifacts=artifacts,
+            duration_s=time.monotonic() - t0,
+            run_id=run_id,
+        )
 
     def build_decision(self, req: TradeRequest) -> TradeDecision:
         bars_df = req.bars_df if req.bars_df is not None else load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
-        chain_df = req.option_chain_df if req.option_chain_df is not None else load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
+        chain_df = (
+            req.option_chain_df if req.option_chain_df is not None else load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
+        )
 
-        cfg = build_pipeline_config_from_controls(
+        cfg = build_pipeline_config(
             symbol=req.symbol,
-            profile=req.profile,
-            config_path=req.config_path,
             use_kronos=req.use_kronos,
             attach_vix=req.attach_vix,
+            profile=req.profile,
+            config_path=req.config_path,
             initial_capital=req.capital,
         )
         result = FullRLMPipeline(cfg).run(bars_df, chain_df)
@@ -131,9 +123,9 @@ class TradeService:
         if req.mode == "plan":
             return [
                 TradeExecutionRecord(
-                    mode=req.mode,
                     success=True,
-                    broker=None,
+                    broker="none",
+                    order_id=None,
                     message="Plan mode — no orders placed.",
                     details={"action": decision.action},
                 )
@@ -149,82 +141,98 @@ class TradeService:
         rsp = self._broker.submit_trade_decision(req.symbol, payload, paper=(req.mode == "paper"))
         return [
             TradeExecutionRecord(
-                mode=req.mode,
                 success=bool(rsp.get("success")),
-                broker=rsp.get("broker"),
-                order_id=rsp.get("order_id"),
+                broker=str(rsp.get("broker") or "unknown"),
+                order_id=None if rsp.get("order_id") is None else str(rsp.get("order_id")),
                 message=str(rsp.get("message", "")),
                 details=dict(rsp.get("details") or {}),
             )
         ]
 
-    def write_outputs(self, req: TradeRequest, result: TradeResult) -> TradeArtifacts:
-        out_dir = req.out_dir or (get_artifacts_dir(req.data_root) / "trade" / str(result.run_id))
+    def write_outputs(
+        self,
+        req: TradeRequest,
+        decision: TradeDecision,
+        executions: list[TradeExecutionRecord],
+        run_id: str,
+    ) -> TradeArtifacts:
+        if not req.write_artifacts:
+            return TradeArtifacts()
+
+        out_dir = req.out_dir or (get_artifacts_dir(req.data_root) / "trade" / run_id)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        decision_json = out_dir / "decision.json"
-        execution_json = out_dir / "execution.json"
-        manifest_path = out_dir / "manifest.json"
+        decision_path = out_dir / "decision.json"
+        execution_path = out_dir / "execution.json"
+        manifest_path = out_dir / "run_manifest.json"
 
-        decision_payload = {
-            "run_id": result.run_id,
-            "symbol": req.symbol,
-            "mode": req.mode,
-            "decision": None
-            if result.decision is None
-            else {
-                "action": result.decision.action,
-                "strategy": result.decision.strategy,
-                "size_fraction": result.decision.size_fraction,
-                "vault_triggered": result.decision.vault_triggered,
-                "raw": result.decision.raw,
-            },
-        }
-        decision_json.write_text(json.dumps(decision_payload, indent=2, default=str), encoding="utf-8")
-
-        execution_payload = {
-            "run_id": result.run_id,
-            "mode": req.mode,
-            "executions": [
+        decision_path.write_text(
+            json.dumps(
                 {
-                    "mode": x.mode,
-                    "success": x.success,
-                    "broker": x.broker,
-                    "order_id": x.order_id,
-                    "message": x.message,
-                    "details": x.details,
-                }
-                for x in result.executions
-            ],
-        }
-        execution_json.write_text(json.dumps(execution_payload, indent=2, default=str), encoding="utf-8")
+                    "run_id": run_id,
+                    "symbol": req.symbol,
+                    "decision": {
+                        "action": decision.action,
+                        "strategy": decision.strategy,
+                        "size_fraction": decision.size_fraction,
+                        "vault_triggered": decision.vault_triggered,
+                        "raw": decision.raw,
+                    },
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
 
-        manifest_payload = {
-            "run_id": result.run_id,
-            "command": "trade",
-            "symbol": req.symbol,
-            "backend": req.backend,
-            "profile": req.profile,
-            "config_path": req.config_path,
-            "artifacts": {
-                "decision_json": str(decision_json),
-                "execution_json": str(execution_json),
-            },
-        }
-        manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+        execution_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "mode": req.mode,
+                    "executions": [
+                        {
+                            "success": x.success,
+                            "broker": x.broker,
+                            "order_id": x.order_id,
+                            "message": x.message,
+                            "details": x.details,
+                        }
+                        for x in executions
+                    ],
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
 
-        return TradeArtifacts(decision_json=decision_json, execution_json=execution_json, manifest_path=manifest_path)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "command": "trade",
+                    "symbol": req.symbol,
+                    "backend": req.backend,
+                    "profile": req.profile,
+                    "config_path": req.config_path,
+                    "artifacts": {
+                        "decision_path": str(decision_path),
+                        "execution_path": str(execution_path),
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return TradeArtifacts(decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path)
 
     def summarize(self, result: TradeResult) -> dict[str, Any]:
         return {
             "run_id": result.run_id,
-            "action": None if result.decision is None else result.decision.action,
-            "strategy": None if result.decision is None else result.decision.strategy,
+            "action": result.decision.action,
+            "strategy": result.decision.strategy,
             "executions": len(result.executions),
             "success": all(x.success for x in result.executions) if result.executions else True,
+            "duration_s": result.duration_s,
         }
-
-    @staticmethod
-    def _new_run_id(symbol: str) -> str:
-        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        return f"{ts}_{symbol.upper()}_{uuid4().hex[:8]}"

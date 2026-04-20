@@ -4,15 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from rlm.execution.ibkr_combo_orders import (
-    IBKROptionLegSpec,
-    place_options_combo_market_order,
-    reverse_legs_for_close,
-    roee_side_to_ib_action,
-)
+from rlm.execution.brokers.base import BrokerAdapter
 
 
-class IBKRBrokerAdapter:
+class IBKRBrokerAdapter(BrokerAdapter):
     broker = "ibkr"
 
     def submit_trade_decision(self, symbol: str, decision: dict[str, Any], paper: bool) -> dict[str, Any]:
@@ -25,6 +20,13 @@ class IBKRBrokerAdapter:
                     "message": "hold action: no order submitted",
                     "details": {"paper": paper},
                 }
+
+            from rlm.execution.ibkr_combo_orders import (
+                IBKROptionLegSpec,
+                place_options_combo_market_order,
+                reverse_legs_for_close,
+                roee_side_to_ib_action,
+            )
 
             spec = decision.get("ibkr_combo_spec") or {}
             legs_payload = list(spec.get("legs") or [])
@@ -69,4 +71,3 @@ class IBKRBrokerAdapter:
                 "message": str(exc),
                 "details": {"paper": paper},
             }
-
