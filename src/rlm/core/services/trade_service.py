@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -99,17 +100,26 @@ class TradeService:
         )
 
     def build_decision(self, req: TradeRequest) -> TradeDecision:
-        bars_df = req.bars_df if req.bars_df is not None else load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
+        bars_df = (
+            req.bars_df
+            if req.bars_df is not None
+            else load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
+        )
         chain_df = (
-            req.option_chain_df if req.option_chain_df is not None else load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
+            req.option_chain_df
+            if req.option_chain_df is not None
+            else load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
         )
 
         cfg = build_pipeline_config(
             symbol=req.symbol,
-            use_kronos=req.use_kronos,
-            attach_vix=req.attach_vix,
             profile=req.profile,
             config_path=req.config_path,
+            overrides={
+                "use_kronos": req.use_kronos,
+                "attach_vix": req.attach_vix,
+                "initial_capital": req.capital,
+            },
             overrides={"initial_capital": req.capital},
         )
         result = FullRLMPipeline(cfg).run(bars_df, chain_df)
@@ -126,7 +136,9 @@ class TradeService:
             raw=last_row,
         )
 
-    def execute_decision(self, req: TradeRequest, decision: TradeDecision) -> list[TradeExecutionRecord]:
+    def execute_decision(
+        self, req: TradeRequest, decision: TradeDecision
+    ) -> list[TradeExecutionRecord]:
         if req.mode == "plan":
             return [
                 TradeExecutionRecord(
@@ -196,15 +208,11 @@ class TradeService:
         decision_path.write_text(
             json.dumps(
                 {
-                    "run_id": run_id,
                     "symbol": req.symbol,
-                    "decision": {
-                        "action": decision.action,
-                        "strategy": decision.strategy,
-                        "size_fraction": decision.size_fraction,
-                        "vault_triggered": decision.vault_triggered,
-                        "raw": decision.raw,
-                    },
+                    "action": decision.action,
+                    "strategy": decision.strategy,
+                    "size_fraction": decision.size_fraction,
+                    "vault_triggered": decision.vault_triggered,
                 },
                 indent=2,
                 default=str,
@@ -214,26 +222,50 @@ class TradeService:
 
         execution_path.write_text(
             json.dumps(
-                {
-                    "run_id": run_id,
-                    "mode": req.mode,
-                    "executions": [
-                        {
-                            "success": x.success,
-                            "broker": x.broker,
-                            "order_id": x.order_id,
-                            "message": x.message,
-                            "details": x.details,
-                        }
-                        for x in executions
-                    ],
-                },
+                [
+                    {
+                        "success": x.success,
+                        "broker": x.broker,
+                        "order_id": x.order_id,
+                        "message": x.message,
+                        "details": x.details,
+                    }
+                    for x in executions
+                ],
                 indent=2,
                 default=str,
             ),
             encoding="utf-8",
         )
 
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "command": "trade",
+                    "symbol": req.symbol,
+                    "backend": req.backend,
+                    "profile": req.profile,
+                    "config_summary": {
+                        "mode": req.mode,
+                        "use_kronos": req.use_kronos,
+                        "attach_vix": req.attach_vix,
+                        "capital": req.capital,
+                        "config_path": req.config_path,
+                    },
+                    "input_paths": {
+                        "bars": "inline" if req.bars_df is not None else "auto",
+                        "chain": "inline" if req.option_chain_df is not None else "auto",
+                    },
+                    "output_paths": {
+                        "decision_path": str(decision_path),
+                        "execution_path": str(execution_path),
+                        "manifest_path": str(manifest_path),
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                indent=2,
+                default=str,
         manifest_path = write_run_manifest(
             RunManifest(
                 run_id=run_id,
@@ -262,7 +294,9 @@ class TradeService:
             data_root=req.data_root,
             out_path=manifest_path,
         )
-        return TradeArtifacts(decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path)
+        return TradeArtifacts(
+            decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path
+        )
 
     def summarize(self, result: TradeResult) -> dict[str, Any]:
         return {

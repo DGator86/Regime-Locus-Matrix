@@ -42,8 +42,6 @@ def build_full_config(profile: dict[str, Any]) -> FullRLMConfig:
 def build_pipeline_config(
     *,
     symbol: str,
-    use_kronos: bool,
-    attach_vix: bool,
     profile: str | None = None,
     config_path: str | Path | None = None,
     initial_capital: float | None = None,
@@ -55,6 +53,7 @@ def build_pipeline_config(
     if config_path:
         merged = merge_overrides(merged, load_profile(path=config_path))
 
+    merged = merge_overrides(merged, {"symbol": symbol})
     merged = merge_overrides(
         merged,
         {

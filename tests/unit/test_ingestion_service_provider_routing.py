@@ -10,7 +10,9 @@ class _StubProvider:
         del symbol, start, end, interval
         from rlm.data.providers.base import ProviderBarsResult
 
-        return ProviderBarsResult(pd.DataFrame([{"timestamp": "2025-01-01", "open": 1.0}]), source="stub")
+        return ProviderBarsResult(
+            pd.DataFrame([{"timestamp": "2025-01-01", "open": 1.0}]), source="stub"
+        )
 
     def fetch_option_chain(self, *, symbol: str):
         del symbol
@@ -20,9 +22,13 @@ class _StubProvider:
 
 
 def test_ingestion_service_routes_provider(monkeypatch, tmp_path):
-    monkeypatch.setitem(IngestionService._PROVIDERS, "stub", _StubProvider)
+    monkeypatch.setattr(
+        "rlm.core.services.ingestion_service.resolve_provider", lambda _name: _StubProvider()
+    )
 
-    req = IngestionRequest(symbol="SPY", source="stub", fetch_options=True, data_root=str(tmp_path), backend="csv")
+    req = IngestionRequest(
+        symbol="SPY", source="stub", fetch_options=True, data_root=str(tmp_path), backend="csv"
+    )
     result = IngestionService().run(req)
 
     assert result.provider == "stub"
