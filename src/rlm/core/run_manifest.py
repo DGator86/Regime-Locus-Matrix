@@ -22,9 +22,17 @@ class RunManifest:
     metrics: dict[str, Any]
 
 
-def write_run_manifest(manifest: RunManifest, data_root: str | None = None) -> Path:
-    runs_dir = get_artifacts_dir(data_root) / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    path = runs_dir / f"{manifest.run_id}.json"
+def write_run_manifest(
+    manifest: RunManifest,
+    data_root: str | None = None,
+    out_path: Path | None = None,
+) -> Path:
+    if out_path is None:
+        runs_dir = get_artifacts_dir(data_root) / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        path = runs_dir / f"{manifest.run_id}.json"
+    else:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        path = out_path
     path.write_text(json.dumps(asdict(manifest), indent=2, sort_keys=True), encoding="utf-8")
     return path
