@@ -2,6 +2,58 @@
 
 A production-oriented, options-native quantitative engine. RLM ingests equity OHLCV from IBKR and options data from Massive into a Parquet/DuckDB lake, detects market regimes (HMM + Markov-switching), enriches signals with microstructure (GEX surfaces, IV surfaces, full Greeks), forecasts via the Kronos foundation model as a pure sensor, applies ROEE dynamic sizing and policy, and supports live/paper execution with continuous monitoring.
 
+---
+
+## Stable public interfaces
+
+### Python API
+
+```python
+from rlm.core.pipeline import FullRLMPipeline, FullRLMConfig, PipelineResult
+```
+
+| Class | Description |
+|-------|-------------|
+| `FullRLMPipeline` | End-to-end orchestrator: factors → regime → ROEE |
+| `FullRLMConfig` | Single config dataclass for the full pipeline |
+| `PipelineResult` | Output bundle: `factors_df`, `forecast_df`, `policy_df`, optional backtest fields |
+
+### CLI
+
+```bash
+pip install -e "."          # base install
+pip install -e ".[kronos]"  # + Kronos foundation model
+pip install -e ".[all]"     # everything
+
+rlm forecast --symbol SPY
+rlm backtest --symbol SPY --use-hmm
+rlm ingest   --symbol SPY --source yfinance
+rlm trade    --symbol SPY --mode plan
+rlm doctor
+```
+
+### Experimental / research (not part of the stable surface)
+
+- `notebooks/` — Jupyter research notebooks
+- `research/` — fine-tuning, training, and optimization scripts
+- `apps/` — Streamlit dashboards and terminals
+- `tools/diagnostics/` — provider-specific diagnostic utilities
+
+---
+
+## Install
+
+```bash
+git clone https://github.com/dgator86/regime-locus-matrix
+cd regime-locus-matrix
+pip install -e "."            # core (HMM + ROEE, no Kronos/torch)
+pip install -e ".[kronos]"    # + Kronos (requires torch ≥2.0)
+pip install -e ".[ui]"        # + Streamlit apps
+pip install -e ".[dev]"       # + test/lint tooling
+```
+
+---
+
 ## Architecture
 
 ```

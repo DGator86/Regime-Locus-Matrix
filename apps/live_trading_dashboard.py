@@ -256,7 +256,7 @@ def compute_regime_timeframes(
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
     from rlm.datasets.bars_enrichment import prepare_bars_for_factors
     from rlm.factors.pipeline import FactorPipeline
-    from rlm.forecasting.pipeline import ForecastPipeline
+    from rlm.forecasting.engines import ForecastPipeline
     from rlm.scoring.state_matrix import classify_state_matrix
 
     sym = symbol.strip().upper()
