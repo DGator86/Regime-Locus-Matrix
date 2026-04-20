@@ -6,75 +6,44 @@ authors = [{name = "Darrin Vogeli"}]
 requires-python = ">=3.10"
 
 dependencies = [
+    # Core numeric / statistical
     "numpy",
     "pandas",
     "scipy",
+    "statsmodels",
+    "numba",
+    # Config / serialization
     "pydantic",
     "pyyaml",
     "python-dotenv",
-    "statsmodels",
-    "numba",
+    # Regime models
+    "hmmlearn>=0.3.0",
+    # Hyperparameter optimization
+    "optuna>=3.6.0",
+    # Lightweight data fetch (demo / fallback)
     "yfinance",
     "pandas-datareader",
+    # Visualization (used in factor diagnostics)
     "matplotlib",
     "seaborn",
     "plotly",
     "tabulate",
     "jinja2",
-    "hmmlearn>=0.3.0",
-    "optuna>=3.6.0",
-    "torch>=2.0",
-    "einops>=0.8",
-    "huggingface-hub>=0.30",
-    "safetensors>=0.4",
 ]
 
+[project.scripts]
+rlm = "rlm.cli.main:main"
+
 [project.optional-dependencies]
+# Development tooling
 dev = [
     "pytest",
     "pytest-cov",
     "black",
     "ruff",
-    "mypy"
+    "mypy",
 ]
-# Optional later upgrades (kept out of core install).
-options_data = [
-    "polygon-api-client",
-    "yahooquery"
-]
-scaling = [
-    "polars",
-    "dask",
-    "pyarrow"
-]
-# HMM: hmmlearn is included in core dependencies above.
-# IBKR TWS API — equity history in ``rlm.data.ibkr_stocks``; option **combo orders** in ``rlm.execution``.
-ibkr = [
-    "ibapi"
-]
-# Parquet data lake + optional higher-level IB helpers (see scripts/fetch_ibkr_stock_parquet.py).
-datalake = [
-    "pyarrow",
-]
-# Massive Flat Files (S3 gzip CSV) → Parquet; see scripts/ingest_massive_flatfiles_options.py
-flatfiles = [
-    "boto3",
-    "pyarrow",
-]
-# Alternate IB stack (standalone example only): scripts/examples/ib_insync_fetch_stock_example.py
-ib-insync = [
-    "ib_insync",
-]
-# Streamlit terminal + Control Center: ``python -m streamlit run scripts/rlm_terminal.py``
-# Control Center: ``python -m streamlit run scripts/rlm_control_center/app.py``
-ui = [
-    "streamlit>=1.33.0",
-    "streamlit-aggrid>=1.0.0",
-    "streamlit-option-menu>=0.3.6",
-    "kaleido>=0.2.1",
-]
-# Kronos foundation-model forecast layer (see src/rlm/forecasting/kronos_forecast.py).
-# Vendored Kronos source lives in src/rlm/forecasting/kronos/.
+# Kronos foundation-model forecast layer
 # Install: pip install -e ".[kronos]"
 kronos = [
     "torch>=2.0.0",
@@ -83,12 +52,63 @@ kronos = [
     "safetensors>=0.6.0",
     "tqdm>=4.66.0",
 ]
-# Microstructure layer: real-time Greeks, GEX surface, IV surface, DuckDB lake.
+# Microstructure layer: Greeks, GEX/IV surfaces, DuckDB lake
 # Install: pip install -e ".[microstructure]"
-# Combine with ib-insync for live collection: pip install -e ".[microstructure,ib-insync]"
 microstructure = [
     "duckdb>=0.10.0",
     "pyarrow>=14.0.0",
+]
+# Streamlit apps (terminal, control center, dashboards)
+ui = [
+    "streamlit>=1.33.0",
+    "streamlit-aggrid>=1.0.0",
+    "streamlit-option-menu>=0.3.6",
+    "kaleido>=0.2.1",
+]
+# IBKR TWS API — equity history + combo order execution
+ibkr = [
+    "ibapi",
+]
+# Massive Flat Files (S3 gzip CSV → Parquet)
+flatfiles = [
+    "boto3",
+    "pyarrow",
+]
+# Parquet data lake helpers
+datalake = [
+    "pyarrow",
+]
+# Options data providers
+options_data = [
+    "polygon-api-client",
+    "yahooquery",
+]
+# Alternate IB stack (examples only)
+ib-insync = [
+    "ib_insync",
+]
+# Scaling / large-dataset processing
+scaling = [
+    "polars",
+    "dask",
+    "pyarrow",
+]
+# Full install — everything except ibkr (requires manual ibapi install)
+all = [
+    "torch>=2.0.0",
+    "einops>=0.8.0",
+    "huggingface-hub>=0.33.0",
+    "safetensors>=0.6.0",
+    "tqdm>=4.66.0",
+    "duckdb>=0.10.0",
+    "pyarrow>=14.0.0",
+    "streamlit>=1.33.0",
+    "streamlit-aggrid>=1.0.0",
+    "streamlit-option-menu>=0.3.6",
+    "kaleido>=0.2.1",
+    "boto3",
+    "polygon-api-client",
+    "yahooquery",
 ]
 
 [tool.black]

@@ -1,12 +1,76 @@
+# Python
 __pycache__/
 *.py[cod]
-src/regime_locus_matrix.egg-info/
-.env
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Local data lake (IBKR + Massive Parquet pulls; large / non-reproducible)
+# Installed package metadata
+src/regime_locus_matrix.egg-info/
+src/*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# Logs / temp
+logs/
+*.log
+tmp/
+temp/
+.cache/
+
+# Data artifacts
 data/stocks/
 data/options/
 
-# Bare (no-symbol) backtest output — incomplete placeholder artifact; symbol-specific
-# files (backtest_equity_{SYMBOL}.csv) are the canonical outputs.
+# Bare (no-symbol) backtest output — symbol-specific files are canonical
 data/processed/backtest_equity.csv
+
+# Keep gitkeep sentinels; ignore everything else under data/ subdirs
+data/**
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Model / experiment artifacts
+artifacts/
+models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Common generated formats
+*.parquet
+*.feather
+*.csv
+*.json
+!configs/*.json
+!configs/*.yaml
+
+# Versioned test fixtures and sample data are explicitly allowed.
+# Runtime outputs must live under ignored data/ or artifacts/ roots — never here.
+!tests/fixtures/**
+!sample_data/**
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Backup junk
+_rebase_abort_backup/
+
+# IDE
+.cursor/
+*.code-workspace

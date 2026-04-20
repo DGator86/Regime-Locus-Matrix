@@ -2,6 +2,131 @@
 
 A production-oriented, options-native quantitative engine. RLM ingests equity OHLCV from IBKR and options data from Massive into a Parquet/DuckDB lake, detects market regimes (HMM + Markov-switching), enriches signals with microstructure (GEX surfaces, IV surfaces, full Greeks), forecasts via the Kronos foundation model as a pure sensor, applies ROEE dynamic sizing and policy, and supports live/paper execution with continuous monitoring.
 
+---
+
+## Stable public interfaces
+
+### Python API
+
+```python
+from rlm.core.pipeline import FullRLMPipeline, FullRLMConfig, PipelineResult
+```
+
+| Class | Description |
+|-------|-------------|
+| `FullRLMPipeline` | End-to-end orchestrator: factors → regime → ROEE |
+| `FullRLMConfig` | Single config dataclass for the full pipeline |
+| `PipelineResult` | Output bundle: `factors_df`, `forecast_df`, `policy_df`, optional backtest fields |
+
+### CLI
+
+```bash
+pip install -e "."          # base install
+pip install -e ".[kronos]"  # + Kronos foundation model
+pip install -e ".[all]"     # everything
+
+rlm forecast --symbol SPY
+rlm backtest --symbol SPY --use-hmm
+rlm ingest   --symbol SPY --source yfinance
+rlm trade    --symbol SPY --mode plan
+rlm doctor
+```
+
+### Experimental / research (not part of the stable surface)
+
+- `notebooks/` — Jupyter research notebooks
+- `research/` — fine-tuning, training, and optimization scripts
+- `apps/` — Streamlit dashboards and terminals
+- `tools/diagnostics/` — provider-specific diagnostic utilities
+
+---
+
+## Install
+
+```bash
+git clone https://github.com/dgator86/regime-locus-matrix
+cd regime-locus-matrix
+
+pip install -e "."            # base: HMM + ROEE, factors, yfinance — no torch
+pip install -e ".[kronos]"    # + Kronos foundation model (requires torch ≥2.0)
+pip install -e ".[microstructure]" # + DuckDB lake + Greeks surfaces
+pip install -e ".[ui]"        # + Streamlit apps
+pip install -e ".[ibkr]"      # + IBKR TWS API (manual ibapi install required)
+pip install -e ".[flatfiles]" # + Massive S3 flat-file ingest (boto3)
+pip install -e ".[all]"       # everything except ibkr
+pip install -e ".[dev]"       # + test / lint tooling
+```
+
+**What base can do without extras:**  
+HMM and Markov-switching regime detection, ROEE policy, factor pipeline, backtesting, yfinance data fetch, full CLI.
+
+**What requires extras:**  
+Kronos overlay (`[kronos]`), DuckDB lake (`[microstructure]`), Streamlit dashboards (`[ui]`), IBKR execution (`[ibkr]`), Massive options feed (`[flatfiles]`).
+
+---
+
+## Runtime paths
+
+The CLI resolves data paths without crawling the repository filesystem. It is safe to run from any working directory after install.
+
+**Resolution order:**
+
+1. Explicit `--bars` / `--chain` / `--out` argument
+2. `--data-root DIR` argument (applies to all path defaults for that invocation)
+3. `RLM_DATA_ROOT` environment variable
+4. `./data/` relative to the current working directory
+
+**Quick examples:**
+
+```bash
+# Default — reads from ./data/raw/bars_SPY.csv, writes to ./data/processed/
+rlm forecast --symbol SPY
+
+# Point at a different data root
+rlm forecast --symbol SPY --data-root /mnt/lake
+
+# Set globally via env var
+export RLM_DATA_ROOT=/mnt/lake
+rlm forecast --symbol SPY
+rlm backtest --symbol SPY
+
+# Explicit file paths override everything
+rlm forecast --symbol SPY --bars /data/equities/spy_daily.csv
+```
+
+**Log verbosity:**
+
+```bash
+RLM_LOG_LEVEL=DEBUG rlm forecast --symbol SPY   # verbose
+RLM_LOG_JSON=1 rlm forecast --symbol SPY        # newline-delimited JSON logs
+```
+
+---
+
+## Legacy scripts
+
+The scripts in `scripts/` that previously ran pipelines directly are now thin
+wrappers that delegate to the `rlm` CLI.
+
+**These wrappers require the package to be installed:**
+
+```bash
+pip install -e .
+```
+
+They are supported for backwards compatibility and will be removed in a future
+release.  Preferred usage for all pipelines is the `rlm` CLI:
+
+| Old script | New command |
+|------------|-------------|
+| `scripts/run_forecast_pipeline.py` | `rlm forecast` |
+| `scripts/run_backtest.py` | `rlm backtest` |
+| `scripts/run_roee_pipeline.py` | `rlm forecast` |
+| `scripts/run_walkforward.py` | `rlm backtest --walkforward` |
+| `scripts/run_data_lake_pipeline.py` | `rlm ingest` |
+
+---
+
 ## Architecture
 
 ```
