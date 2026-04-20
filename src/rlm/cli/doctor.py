@@ -20,6 +20,11 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Show detail for every check")
+    p.add_argument("--provider", choices=["yfinance", "ibkr", "massive"], default=None)
+    p.add_argument("--backend", choices=["auto", "csv", "lake"], default="auto")
+    p.add_argument("--symbol", default="SPY")
+    p.add_argument("--mode", choices=["plan", "paper", "live"], default="plan")
+    p.add_argument("--strict", action="store_true")
     add_data_root_arg(p)
     return p.parse_args()
 
@@ -28,7 +33,15 @@ def main() -> None:
     args = _parse_args()
     log.info("doctor start  data_root=%s", args.data_root or "(default)")
 
-    report = DiagnosticsService().run(verbose=args.verbose, data_root=args.data_root)
+    report = DiagnosticsService().run(
+        verbose=args.verbose,
+        data_root=args.data_root,
+        provider=args.provider,
+        backend=args.backend,
+        symbol=args.symbol,
+        mode=args.mode,
+        strict=args.strict,
+    )
 
     status_icon = {True: "[OK]  ", False: "[FAIL]", None: "[SKIP]"}
 

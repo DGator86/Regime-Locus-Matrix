@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
-from rlm.data.paths import get_raw_data_dir
+from rlm.data.paths import get_artifacts_dir, get_raw_data_dir
+from rlm.data.providers import IBKRProvider, MassiveProvider, MarketDataProvider, YFinanceProvider
 from rlm.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -22,7 +26,11 @@ class IngestionRequest:
     end: str | None = None
     interval: str = "1d"
     fetch_options: bool = False
-    data_root: str | None = None  # maps to --data-root / RLM_DATA_ROOT
+    data_root: str | None = None
+    backend: str = "auto"
+    profile: str | None = None
+    config_path: str | None = None
+    write_manifest: bool = True
 
 
 @dataclass
@@ -32,83 +40,188 @@ class IngestionResult:
     chain_path: Path | None = None
     chain_count: int = 0
     duration_s: float = 0.0
+    backend: str = "csv"
+    provider: str = ""
+    run_id: str | None = None
+    manifest_path: Path | None = None
+    metadata_path: Path | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class IngestionService:
-    """Fetch and normalize market data, writing results to the Parquet/CSV lake.
+    """Fetch and normalize market data via provider adapters and backend writers."""
 
-    Provider routing:
-    - ``yfinance``: equity bars via yfinance (no credentials required)
-    - ``ibkr``: equity bars via IBKR TWS (requires ibapi + running TWS)
-    - ``massive``: flat-file options from Massive (requires boto3 + S3 creds)
-
-    Data root resolution is delegated to ``rlm.data.paths.get_raw_data_dir``.
-    """
+    _PROVIDERS: dict[str, type[MarketDataProvider]] = {
+        "yfinance": YFinanceProvider,
+        "ibkr": IBKRProvider,
+        "massive": MassiveProvider,
+    }
 
     def run(self, req: IngestionRequest) -> IngestionResult:
         t0 = time.monotonic()
-        raw_dir = get_raw_data_dir(req.data_root)
-        raw_dir.mkdir(parents=True, exist_ok=True)
+        run_id = self._new_run_id(req.symbol)
+        provider = self._select_provider(req.source)
+        backend = self._resolve_backend(req.backend)
 
         log.info(
-            "ingest start  symbol=%s source=%s interval=%s dest=%s",
-            req.symbol, req.source, req.interval, raw_dir,
+            "ingest start symbol=%s source=%s backend=%s interval=%s",
+            req.symbol,
+            req.source,
+            backend,
+            req.interval,
         )
 
-        if req.source == "yfinance":
-            result = self._fetch_yfinance(req, raw_dir)
-        elif req.source == "ibkr":
-            result = self._fetch_ibkr(req, raw_dir)
-        elif req.source == "massive":
-            result = self._fetch_massive(req, raw_dir)
-        else:
-            raise ValueError(f"Unknown ingestion source: {req.source!r}")
-
-        result.duration_s = time.monotonic() - t0
-        log.info(
-            "ingest done  symbol=%s bars=%d path=%s duration=%.1fs",
-            req.symbol, result.bars_count, result.bars_path, result.duration_s,
-        )
-        return result
-
-    def _fetch_yfinance(self, req: IngestionRequest, raw_dir: Path) -> IngestionResult:
-        import pandas as pd
-        import yfinance as yf
-
-        log.info("yfinance fetch  symbol=%s interval=%s start=%s end=%s", req.symbol, req.interval, req.start, req.end)
-        ticker = yf.Ticker(req.symbol)
-        df = ticker.history(
-            start=req.start,
-            end=req.end,
-            interval=req.interval,
-            auto_adjust=True,
-        )
-        if df.empty:
-            raise RuntimeError(f"yfinance returned no data for {req.symbol}")
-
-        df.index.name = "timestamp"
-        df.columns = [c.lower() for c in df.columns]
-
-        out_path = raw_dir / f"bars_{req.symbol}.csv"
-        df.to_csv(out_path)
-        log.info("yfinance wrote  rows=%d path=%s", len(df), out_path)
-
-        return IngestionResult(bars_path=out_path, bars_count=len(df))
-
-    def _fetch_ibkr(self, req: IngestionRequest, raw_dir: Path) -> IngestionResult:
-        from rlm.data.ibkr_stocks import fetch_ibkr_bars
-
-        log.info("ibkr fetch  symbol=%s", req.symbol)
-        df, out_path_str = fetch_ibkr_bars(
+        bars = provider.fetch_bars(
             symbol=req.symbol,
             start=req.start,
             end=req.end,
-            bar_size=req.interval,
+            interval=req.interval,
         )
-        return IngestionResult(bars_path=Path(out_path_str), bars_count=len(df))
+        bars_path = self._write_frame(
+            bars.bars_df,
+            kind="bars",
+            symbol=req.symbol,
+            data_root=req.data_root,
+            backend=backend,
+        )
 
-    def _fetch_massive(self, req: IngestionRequest, raw_dir: Path) -> IngestionResult:
-        raise NotImplementedError(
-            "Massive flat-file ingestion: use scripts/fetch_massive.py for now.\n"
-            "Full rlm ingest --source massive support coming in a future release."
+        chain_path: Path | None = None
+        chain_count = 0
+        chain_meta: dict[str, Any] = {}
+        if req.fetch_options:
+            chain = provider.fetch_option_chain(symbol=req.symbol)
+            chain_meta = chain.metadata
+            if chain.chain_df is not None and not chain.chain_df.empty:
+                chain_count = len(chain.chain_df)
+                chain_path = self._write_frame(
+                    chain.chain_df,
+                    kind="chain",
+                    symbol=req.symbol,
+                    data_root=req.data_root,
+                    backend=backend,
+                )
+
+        metadata = {
+            "source": req.source,
+            "backend": backend,
+            "symbol": req.symbol,
+            "bars": bars.metadata,
+            "chain": chain_meta,
+            "profile": req.profile,
+            "config_path": req.config_path,
+        }
+
+        metadata_path: Path | None = None
+        manifest_path: Path | None = None
+        if req.write_manifest:
+            metadata_path = self._write_ingest_metadata(req, run_id, metadata, bars_path, chain_path)
+            manifest_path = self._write_manifest(req, run_id, bars_path, chain_path, metadata_path)
+
+        result = IngestionResult(
+            bars_path=bars_path,
+            bars_count=len(bars.bars_df),
+            chain_path=chain_path,
+            chain_count=chain_count,
+            duration_s=time.monotonic() - t0,
+            backend=backend,
+            provider=req.source,
+            run_id=run_id,
+            manifest_path=manifest_path,
+            metadata_path=metadata_path,
+            metadata=metadata,
         )
+        log.info("ingest done symbol=%s bars=%d backend=%s", req.symbol, result.bars_count, backend)
+        return result
+
+    def _select_provider(self, source: str) -> MarketDataProvider:
+        key = source.lower().strip()
+        if key not in self._PROVIDERS:
+            raise ValueError(f"Unknown ingestion source: {source!r}")
+        return self._PROVIDERS[key]()
+
+    @staticmethod
+    def _resolve_backend(backend: str) -> str:
+        key = backend.lower().strip()
+        if key not in {"auto", "csv", "lake"}:
+            raise ValueError(f"Unsupported backend: {backend!r}")
+        return "lake" if key == "auto" else key
+
+    def _write_frame(
+        self,
+        df,
+        *,
+        kind: str,
+        symbol: str,
+        data_root: str | None,
+        backend: str,
+    ) -> Path:
+        raw_dir = get_raw_data_dir(data_root)
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        sym = symbol.upper()
+
+        if backend == "lake":
+            if kind == "bars":
+                out_path = raw_dir / "lake" / "bars" / f"{sym}.parquet"
+            else:
+                out_path = raw_dir / "lake" / "chains" / f"{sym}.parquet"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(out_path, index=False)
+            return out_path
+
+        out_path = raw_dir / (f"bars_{sym}.csv" if kind == "bars" else f"option_chain_{sym}.csv")
+        df.to_csv(out_path, index=False)
+        return out_path
+
+    def _write_ingest_metadata(
+        self,
+        req: IngestionRequest,
+        run_id: str,
+        metadata: dict[str, Any],
+        bars_path: Path,
+        chain_path: Path | None,
+    ) -> Path:
+        artifact_dir = get_artifacts_dir(req.data_root) / "ingest" / run_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        out = artifact_dir / "metadata.json"
+        payload = {
+            "run_id": run_id,
+            "symbol": req.symbol,
+            "source": req.source,
+            "backend": req.backend,
+            "bars_path": str(bars_path),
+            "chain_path": str(chain_path) if chain_path else None,
+            "metadata": metadata,
+        }
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return out
+
+    def _write_manifest(
+        self,
+        req: IngestionRequest,
+        run_id: str,
+        bars_path: Path,
+        chain_path: Path | None,
+        metadata_path: Path | None,
+    ) -> Path:
+        artifact_dir = get_artifacts_dir(req.data_root) / "ingest" / run_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        out = artifact_dir / "manifest.json"
+        payload = {
+            "run_id": run_id,
+            "command": "ingest",
+            "symbol": req.symbol,
+            "source": req.source,
+            "backend": req.backend,
+            "artifacts": {
+                "bars_path": str(bars_path),
+                "chain_path": str(chain_path) if chain_path else None,
+                "metadata_path": str(metadata_path) if metadata_path else None,
+            },
+        }
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return out
+
+    @staticmethod
+    def _new_run_id(symbol: str) -> str:
+        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        return f"{ts}_{symbol.upper()}_{uuid4().hex[:8]}"

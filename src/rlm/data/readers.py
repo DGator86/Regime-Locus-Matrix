@@ -34,6 +34,7 @@ def load_bars(
     symbol: str,
     bars_path: str | Path | None = None,
     data_root: str | Path | None = None,
+    backend: str = "auto",
 ) -> pd.DataFrame:
     """Load OHLCV bars for *symbol*, returning a DataFrame indexed by timestamp.
 
@@ -52,7 +53,7 @@ def load_bars(
     FileNotFoundError
         When the resolved file does not exist.
     """
-    path = _resolve_bars_path(symbol, bars_path, data_root)
+    path = _resolve_bars_path(symbol, bars_path, data_root, backend=backend)
     if not path.is_file():
         raise FileNotFoundError(
             f"Bars file not found: {path}\n"
@@ -61,7 +62,12 @@ def load_bars(
         )
 
     log.info("load_bars: %s (%s)", symbol, path)
-    df = pd.read_csv(path, parse_dates=["timestamp"])
+    if path.suffix == ".parquet":
+        df = pd.read_parquet(path)
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+    else:
+        df = pd.read_csv(path, parse_dates=["timestamp"])
     df = df.sort_values("timestamp")
 
     if "timestamp" in df.columns:
@@ -74,6 +80,7 @@ def load_option_chain(
     symbol: str,
     chain_path: str | Path | None = None,
     data_root: str | Path | None = None,
+    backend: str = "auto",
 ) -> pd.DataFrame | None:
     """Load an option chain snapshot for *symbol*, or return ``None`` if absent.
 
@@ -86,7 +93,7 @@ def load_option_chain(
     data_root:
         Override the data root directory.
     """
-    path = _resolve_chain_path(symbol, chain_path, data_root)
+    path = _resolve_chain_path(symbol, chain_path, data_root, backend=backend)
     if path is None or not path.is_file():
         log.debug("load_option_chain: no chain file for %s (looked at %s)", symbol, path)
         return None
@@ -94,6 +101,12 @@ def load_option_chain(
     log.info("load_option_chain: %s (%s)", symbol, path)
     date_cols = [c for c in ["timestamp", "expiry"] if True]
     try:
+        if path.suffix == ".parquet":
+            out = pd.read_parquet(path)
+            for c in date_cols:
+                if c in out.columns:
+                    out[c] = pd.to_datetime(out[c])
+            return out
         return pd.read_csv(path, parse_dates=date_cols)
     except Exception as exc:
         log.warning("load_option_chain: failed to parse %s: %s", path, exc)
@@ -108,18 +121,39 @@ def _resolve_bars_path(
     symbol: str,
     bars_path: str | Path | None,
     data_root: str | Path | None,
+    *,
+    backend: str,
 ) -> Path:
     if bars_path is not None:
         return Path(bars_path).expanduser().resolve()
-    return get_raw_data_dir(data_root) / f"bars_{symbol.upper()}.csv"
+    raw = get_raw_data_dir(data_root)
+    sym = symbol.upper()
+    parquet = raw / "lake" / "bars" / f"{sym}.parquet"
+    csv = raw / f"bars_{sym}.csv"
+    selected = backend.lower()
+    if selected == "lake":
+        return parquet
+    if selected == "csv":
+        return csv
+    return parquet if parquet.exists() else csv
 
 
 def _resolve_chain_path(
     symbol: str,
     chain_path: str | Path | None,
     data_root: str | Path | None,
+    *,
+    backend: str,
 ) -> Path | None:
     if chain_path is not None:
         return Path(chain_path).expanduser().resolve()
-    candidate = get_raw_data_dir(data_root) / f"option_chain_{symbol.upper()}.csv"
-    return candidate
+    raw = get_raw_data_dir(data_root)
+    sym = symbol.upper()
+    parquet = raw / "lake" / "chains" / f"{sym}.parquet"
+    csv = raw / f"option_chain_{sym}.csv"
+    selected = backend.lower()
+    if selected == "lake":
+        return parquet
+    if selected == "csv":
+        return csv
+    return parquet if parquet.exists() else csv

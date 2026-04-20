@@ -27,6 +27,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
     p.add_argument("--interval", default="1d", help="Bar interval (default: 1d)")
     p.add_argument("--no-options", action="store_true", help="Skip option chain fetch")
+    p.add_argument("--backend", choices=["auto", "csv", "lake"], default="auto")
+    p.add_argument("--profile", default=None, help="Runtime profile name")
+    p.add_argument("--config", default=None, help="Path to config JSON")
+    p.add_argument("--write-manifest", action=argparse.BooleanOptionalAction, default=True)
     add_data_root_arg(p)
     return p.parse_args()
 
@@ -45,6 +49,10 @@ def main() -> None:
         interval=args.interval,
         fetch_options=not args.no_options,
         data_root=args.data_root,
+        backend=args.backend,
+        profile=args.profile,
+        config_path=args.config,
+        write_manifest=args.write_manifest,
     )
 
     result = IngestionService().run(req)
@@ -52,3 +60,5 @@ def main() -> None:
     print(f"Wrote {result.bars_count} bars → {result.bars_path}")
     if result.chain_path:
         print(f"Wrote {result.chain_count} chain rows → {result.chain_path}")
+    if result.manifest_path:
+        print(f"Manifest: {result.manifest_path}")

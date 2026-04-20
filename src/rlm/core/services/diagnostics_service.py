@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from rlm.data.paths import get_data_root, get_processed_data_dir
+from rlm.data.paths import get_data_root
 from rlm.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -43,6 +43,11 @@ class DiagnosticsService:
         self,
         verbose: bool = False,
         data_root: str | None = None,
+        provider: str | None = None,
+        backend: str = "auto",
+        symbol: str = "SPY",
+        mode: str = "plan",
+        strict: bool = False,
     ) -> DiagnosticsReport:
         report = DiagnosticsReport()
         report.checks += self._check_python()
@@ -52,7 +57,9 @@ class DiagnosticsService:
         report.checks += self._check_env_vars()
         report.checks += self._check_filesystem(data_root)
         report.checks += self._check_config()
-        report.checks += self._check_providers()
+        report.checks += self._check_providers(provider)
+        report.checks += self._check_ingest_readiness(provider=provider or "yfinance", backend=backend, data_root=data_root)
+        report.checks += self._check_trade_readiness(symbol=symbol, backend=backend, mode=mode, data_root=data_root, strict=strict)
         return report
 
     # ------------------------------------------------------------------
@@ -246,50 +253,113 @@ class DiagnosticsService:
     # Providers
     # ------------------------------------------------------------------
 
-    def _check_providers(self) -> list[CheckResult]:
+    def _check_providers(self, selected_provider: str | None = None) -> list[CheckResult]:
         results: list[CheckResult] = []
 
-        # yfinance — lightweight live check
-        try:
-            import yfinance as yf
-            info = yf.Ticker("SPY").fast_info
-            _ = info.last_price
-            results.append(CheckResult(name="provider: yfinance (live)", passed=True))
-        except Exception as exc:
-            results.append(CheckResult(
-                name="provider: yfinance (live)",
-                passed=False,
-                detail=f"Network error or rate-limited: {exc}",
-            ))
+        if selected_provider in (None, "yfinance"):
+            try:
+                import yfinance as yf
+                info = yf.Ticker("SPY").fast_info
+                _ = info.last_price
+                results.append(CheckResult(name="provider: yfinance (live)", passed=True))
+            except Exception as exc:
+                results.append(CheckResult(
+                    name="provider: yfinance (live)",
+                    passed=False,
+                    detail=f"Network error or rate-limited: {exc}",
+                ))
 
         # IBKR — import-only (connection requires live TWS)
-        try:
-            import ibapi  # noqa: F401
-            results.append(CheckResult(
-                name="provider: ibkr (ibapi importable)",
-                passed=True,
-                detail="Connection requires running TWS or IB Gateway",
-            ))
-        except ImportError:
-            results.append(CheckResult(
-                name="provider: ibkr (ibapi importable)",
-                passed=None,
-                detail="ibapi not installed — pip install ibapi",
-            ))
+        if selected_provider in (None, "ibkr"):
+            try:
+                import ibapi  # noqa: F401
+                results.append(CheckResult(
+                    name="provider: ibkr (ibapi importable)",
+                    passed=True,
+                    detail="Connection requires running TWS or IB Gateway",
+                ))
+            except ImportError:
+                results.append(CheckResult(
+                    name="provider: ibkr (ibapi importable)",
+                    passed=None,
+                    detail="ibapi not installed — pip install ibapi",
+                ))
 
         # Massive / boto3 — import-only
-        try:
-            import boto3  # noqa: F401
-            results.append(CheckResult(
-                name="provider: massive (boto3 importable)",
-                passed=True,
-                detail="S3 credentials must be set separately (AWS_* env vars)",
-            ))
-        except ImportError:
-            results.append(CheckResult(
-                name="provider: massive (boto3 importable)",
-                passed=None,
-                detail="boto3 not installed — pip install -e '.[flatfiles]'",
-            ))
+        if selected_provider in (None, "massive"):
+            try:
+                import boto3  # noqa: F401
+                results.append(CheckResult(
+                    name="provider: massive (boto3 importable)",
+                    passed=True,
+                    detail="S3 credentials must be set separately (AWS_* env vars)",
+                ))
+            except ImportError:
+                results.append(CheckResult(
+                    name="provider: massive (boto3 importable)",
+                    passed=None,
+                    detail="boto3 not installed — pip install -e '.[flatfiles]'",
+                ))
 
         return results
+
+    def _check_ingest_readiness(self, *, provider: str, backend: str, data_root: str | None) -> list[CheckResult]:
+        checks: list[CheckResult] = []
+        checks.append(CheckResult(
+            name=f"ingest: provider={provider}",
+            passed=provider in {"yfinance", "ibkr", "massive"},
+            detail="supported: yfinance, ibkr, massive",
+        ))
+        checks.append(CheckResult(
+            name=f"ingest: backend={backend}",
+            passed=backend in {"auto", "csv", "lake"},
+            detail="supported: auto, csv, lake",
+        ))
+        root = get_data_root(data_root)
+        checks.append(CheckResult(
+            name="ingest: artifacts dir writable",
+            passed=os.access(root / "artifacts", os.W_OK) if (root / "artifacts").exists() else True,
+            detail=str(root / "artifacts"),
+        ))
+        return checks
+
+    def _check_trade_readiness(
+        self,
+        *,
+        symbol: str,
+        backend: str,
+        mode: str,
+        data_root: str | None,
+        strict: bool,
+    ) -> list[CheckResult]:
+        from rlm.data.readers import _resolve_bars_path
+
+        checks: list[CheckResult] = []
+        bars_path = _resolve_bars_path(symbol, None, data_root, backend=backend)
+        checks.append(CheckResult(
+            name=f"trade: bars available ({symbol})",
+            passed=bars_path.exists(),
+            detail=str(bars_path),
+        ))
+        try:
+            import rlm.execution.brokers.ibkr_broker  # noqa: F401
+            broker_ok = True
+        except Exception as exc:
+            broker_ok = False
+            broker_detail = str(exc)
+        else:
+            broker_detail = "IBKR broker adapter import OK"
+        checks.append(CheckResult(name="trade: broker adapter import", passed=broker_ok, detail=broker_detail))
+
+        if mode in {"paper", "live"}:
+            checks.append(CheckResult(
+                name=f"trade: mode={mode} prerequisites",
+                passed=True if not strict else broker_ok,
+                detail="strict mode requires broker adapter import",
+            ))
+        checks.append(CheckResult(
+            name="trade: option-chain availability",
+            passed=None,
+            detail="warning-only: some strategies may require option-chain data",
+        ))
+        return checks
