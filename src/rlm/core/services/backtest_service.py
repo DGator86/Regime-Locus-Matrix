@@ -10,6 +10,7 @@ import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
 from rlm.utils.logging import get_logger
+from rlm.utils.timing import timed_stage
 
 log = get_logger(__name__)
 
@@ -62,7 +63,8 @@ class BacktestService:
             len(req.bars_df), cfg.initial_capital,
         )
 
-        result = FullRLMPipeline(cfg).run(req.bars_df, req.option_chain_df)
+        with timed_stage(log, "backtest_pipeline", symbol=req.symbol):
+            result = FullRLMPipeline(cfg).run(req.bars_df, req.option_chain_df)
 
         if req.walkforward and result.policy_df is not None:
             result = self._run_walkforward(req, cfg, result)

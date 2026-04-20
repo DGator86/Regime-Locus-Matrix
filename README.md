@@ -610,3 +610,27 @@ cfg = FullRLMConfig(
 )
 result = FullRLMPipeline(cfg).run(bars)
 ```
+
+## Runtime backends
+
+Use `--backend {auto,csv,lake}` on `forecast`, `backtest`, `trade`, `ingest`, and `doctor`.
+
+## Profiles and config files
+
+Use `--profile <name>` (from `configs/profiles/`) or `--config <path.yaml>`.
+CLI args override config/profile values.
+
+## Run manifests
+
+Each major command writes a run manifest to:
+`<data-root>/artifacts/runs/<run_id>.json`.
+
+## Doctor CI mode
+
+Use:
+
+```bash
+rlm doctor --json --strict --backend lake --symbol SPY
+```
+
+for machine-readable deployment checks.
