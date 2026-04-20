@@ -79,6 +79,57 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
+def get_run_logger(
+    name: str,
+    run_id: str | None = None,
+    command: str | None = None,
+    symbol: str | None = None,
+    **context: object,
+) -> logging.Logger:
+    """Return a logger pre-tagged with run-level context fields.
+
+    The returned logger is a child of the standard ``get_logger(name)`` logger
+    so it inherits formatting and level settings.  All ``info``/``debug``/etc
+    calls automatically prepend the context prefix.
+
+    Parameters
+    ----------
+    name:
+        Module ``__name__``.
+    run_id:
+        Unique run identifier from ``new_run_id()``.
+    command:
+        CLI command name (e.g. ``"forecast"``).
+    symbol:
+        Ticker symbol.
+    **context:
+        Additional key=value pairs to prepend to every message.
+    """
+    base = get_logger(name)
+
+    # Build a prefix from the context fields
+    parts: list[str] = []
+    if run_id:
+        parts.append(f"run={run_id}")
+    if command:
+        parts.append(f"cmd={command}")
+    if symbol:
+        parts.append(f"sym={symbol}")
+    for k, v in context.items():
+        parts.append(f"{k}={v}")
+
+    if not parts:
+        return base
+
+    prefix = "  ".join(parts)
+
+    class _PrefixAdapter(logging.LoggerAdapter):
+        def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:
+            return f"{prefix}  {msg}", kwargs
+
+    return _PrefixAdapter(base, {})  # type: ignore[return-value]
+
+
 @contextmanager
 def log_stage(
     logger: logging.Logger,

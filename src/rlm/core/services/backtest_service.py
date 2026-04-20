@@ -9,7 +9,9 @@ from pathlib import Path
 import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
+from rlm.core.run_manifest import RunManifest, build_config_summary, new_run_id, now_utc
 from rlm.utils.logging import get_logger
+from rlm.utils.timing import timed_stage
 
 log = get_logger(__name__)
 
@@ -26,6 +28,10 @@ class BacktestRequest:
     write_outputs: bool = True
     out_dir: Path | None = None
     initial_capital: float | None = None
+    run_id: str = field(default_factory=new_run_id)
+    data_root: str | None = None
+    backend: str = "auto"
+    profile: str | None = None
 
 
 @dataclass
@@ -48,7 +54,6 @@ class BacktestService:
 
     def run(self, req: BacktestRequest) -> PipelineResult:
         cfg = req.config or FullRLMConfig(symbol=req.symbol)
-        t0 = time.monotonic()
 
         # Guarantee backtest is on, and apply capital override if supplied
         overrides: dict = {"run_backtest": True}
@@ -56,22 +61,16 @@ class BacktestService:
             overrides["initial_capital"] = req.initial_capital
         cfg = replace(cfg, **overrides)
 
-        log.info(
-            "backtest start  symbol=%s regime=%s kronos=%s walkforward=%s bars=%d capital=%.0f",
-            req.symbol, cfg.regime_model, cfg.use_kronos, req.walkforward,
-            len(req.bars_df), cfg.initial_capital,
-        )
+        with timed_stage(
+            log, "backtest",
+            run_id=req.run_id, symbol=req.symbol,
+            regime=cfg.regime_model, walkforward=req.walkforward,
+            capital=int(cfg.initial_capital),
+        ):
+            result = FullRLMPipeline(cfg).run(req.bars_df, req.option_chain_df)
+            if req.walkforward and result.policy_df is not None:
+                result = self._run_walkforward(req, cfg, result)
 
-        result = FullRLMPipeline(cfg).run(req.bars_df, req.option_chain_df)
-
-        if req.walkforward and result.policy_df is not None:
-            result = self._run_walkforward(req, cfg, result)
-
-        log.info(
-            "backtest done  symbol=%s duration=%.1fs metrics=%s",
-            req.symbol, time.monotonic() - t0,
-            result.backtest_metrics,
-        )
         return result
 
     def write_outputs(
@@ -98,6 +97,26 @@ class BacktestService:
             log.info("backtest output  equity=%s rows=%d", arts.equity_csv, arts.equity_rows)
 
         arts.duration_s = time.monotonic() - t0
+
+        # Write manifest
+        cfg = req.config or FullRLMConfig(symbol=req.symbol)
+        manifest = RunManifest(
+            run_id=req.run_id,
+            command="backtest",
+            symbol=req.symbol,
+            timestamp_utc=now_utc(),
+            config_summary=build_config_summary(cfg),
+            output_paths={
+                "trades_csv": str(arts.trades_csv) if arts.trades_csv else "",
+                "equity_csv": str(arts.equity_csv) if arts.equity_csv else "",
+            },
+            metrics=self.summarize(result),
+            backend=req.backend,
+            profile=req.profile,
+            success=True,
+            duration_s=arts.duration_s,
+        )
+        manifest.write(req.data_root)
         return arts
 
     def summarize(self, result: PipelineResult) -> dict:

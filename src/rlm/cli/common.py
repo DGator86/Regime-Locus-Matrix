@@ -82,3 +82,32 @@ def add_data_root_arg(parser: argparse.ArgumentParser) -> None:
             "or ./data relative to current working directory)"
         ),
     )
+
+
+def add_backend_arg(parser: argparse.ArgumentParser) -> None:
+    """Add ``--backend`` data source selector to *parser*."""
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "csv", "lake"],
+        default="auto",
+        help=(
+            "Data backend: auto (prefer lake, fall back to csv), "
+            "csv (force CSV), lake (force Parquet). Default: auto"
+        ),
+    )
+
+
+def add_profile_args(parser: argparse.ArgumentParser) -> None:
+    """Add ``--profile`` and ``--config`` arguments to *parser*."""
+    parser.add_argument(
+        "--profile",
+        default=None,
+        metavar="NAME",
+        help="Named config profile (e.g. default, forecast, backtest, live)",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="Path to a YAML config file (overrides profile defaults)",
+    )

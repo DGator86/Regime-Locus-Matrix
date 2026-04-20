@@ -43,6 +43,10 @@ class DiagnosticsService:
         self,
         verbose: bool = False,
         data_root: str | None = None,
+        backend: str = "auto",
+        profile: str | None = None,
+        config_path: str | None = None,
+        symbol: str | None = None,
     ) -> DiagnosticsReport:
         report = DiagnosticsReport()
         report.checks += self._check_python()
@@ -51,8 +55,12 @@ class DiagnosticsService:
         report.checks += self._check_optional_deps()
         report.checks += self._check_env_vars()
         report.checks += self._check_filesystem(data_root)
+        report.checks += self._check_backend(backend, data_root)
         report.checks += self._check_config()
+        report.checks += self._check_profile(profile, config_path)
         report.checks += self._check_providers()
+        if symbol:
+            report.checks += self._check_symbol_data(symbol, data_root, backend)
         return report
 
     # ------------------------------------------------------------------
@@ -226,6 +234,64 @@ class DiagnosticsService:
         return results
 
     # ------------------------------------------------------------------
+    # Backend
+    # ------------------------------------------------------------------
+
+    def _check_backend(self, backend: str, data_root: str | None) -> list[CheckResult]:
+        results: list[CheckResult] = []
+        root = get_data_root(data_root)
+
+        if backend in ("lake", "auto"):
+            try:
+                import pyarrow  # noqa: F401
+                results.append(CheckResult(name=f"backend: lake (pyarrow importable)", passed=True))
+            except ImportError:
+                severity = False if backend == "lake" else None
+                results.append(CheckResult(
+                    name="backend: lake (pyarrow importable)",
+                    passed=severity,
+                    detail="pyarrow not installed — pip install -e '.[datalake]'",
+                ))
+
+        if backend in ("lake", "auto"):
+            lake_dir = root / "lake"
+            results.append(CheckResult(
+                name=f"backend: lake dir ({lake_dir.name}/)",
+                passed=True if lake_dir.is_dir() else None,
+                detail="" if lake_dir.is_dir() else f"No lake directory at {lake_dir} — will fall back to CSV",
+            ))
+
+        results.append(CheckResult(
+            name=f"backend: resolved={backend}",
+            passed=True,
+        ))
+        return results
+
+    # ------------------------------------------------------------------
+    # Config profile
+    # ------------------------------------------------------------------
+
+    def _check_profile(self, profile: str | None, config_path: str | None) -> list[CheckResult]:
+        results: list[CheckResult] = []
+
+        if profile is None and config_path is None:
+            results.append(CheckResult(name="profile: (none — using defaults)", passed=True))
+            return results
+
+        try:
+            from rlm.core.config import load_profile
+            load_profile(name=profile, path=config_path)
+            label = f"profile:{profile}" if profile else f"config:{config_path}"
+            results.append(CheckResult(name=f"profile: {label} loads OK", passed=True))
+        except Exception as exc:
+            results.append(CheckResult(
+                name=f"profile: {profile or config_path}",
+                passed=False,
+                detail=str(exc),
+            ))
+        return results
+
+    # ------------------------------------------------------------------
     # Config construction
     # ------------------------------------------------------------------
 
@@ -241,6 +307,43 @@ class DiagnosticsService:
                 passed=False,
                 detail=str(exc),
             )]
+
+    # ------------------------------------------------------------------
+    # Symbol-level preflight
+    # ------------------------------------------------------------------
+
+    def _check_symbol_data(
+        self, symbol: str, data_root: str | None, backend: str
+    ) -> list[CheckResult]:
+        from rlm.data.paths import get_raw_data_dir
+
+        results: list[CheckResult] = []
+        sym = symbol.upper()
+        raw_dir = get_raw_data_dir(data_root)
+
+        bars_csv = raw_dir / f"bars_{sym}.csv"
+        results.append(CheckResult(
+            name=f"symbol {sym}: bars CSV",
+            passed=bars_csv.is_file(),
+            detail="" if bars_csv.is_file() else f"Not found: {bars_csv}\nRun: rlm ingest --symbol {sym}",
+        ))
+
+        chain_csv = raw_dir / f"option_chain_{sym}.csv"
+        results.append(CheckResult(
+            name=f"symbol {sym}: option chain CSV",
+            passed=True if chain_csv.is_file() else None,
+            detail="" if chain_csv.is_file() else f"No chain file at {chain_csv} (optional)",
+        ))
+
+        if backend in ("lake", "auto"):
+            lake_bars = get_data_root(data_root) / "lake" / sym
+            results.append(CheckResult(
+                name=f"symbol {sym}: lake dir",
+                passed=True if lake_bars.is_dir() else None,
+                detail="" if lake_bars.is_dir() else f"No lake dir for {sym} at {lake_bars}",
+            ))
+
+        return results
 
     # ------------------------------------------------------------------
     # Providers

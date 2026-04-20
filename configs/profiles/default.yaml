@@ -1,0 +1,21 @@
+# RLM default profile — balanced settings for general use
+# Inherits all values from configs/default.yaml; overrides listed here.
+
+profile: default
+
+regime:
+  model: hmm
+  hmm_states: 6
+
+forecast:
+  drift_gamma_alpha: 0.65
+  move_window: 100
+  vol_window: 100
+
+kronos:
+  enabled: true
+  device: "cpu"
+
+roee_hmm:
+  use_dynamic_sizing: false
+  max_kelly_fraction: 0.25

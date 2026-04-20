@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rlm.cli.common import add_data_root_arg, add_pipeline_args, build_pipeline_config, normalize_symbol
+from rlm.cli.common import add_backend_arg, add_data_root_arg, add_pipeline_args, add_profile_args, build_pipeline_config, normalize_symbol
 from rlm.cli.io import resolve_bars_path, resolve_chain_path, resolve_output_path
 from rlm.core.services.backtest_service import BacktestRequest, BacktestService
 from rlm.data.paths import get_processed_data_dir
@@ -31,6 +31,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--out-dir", default=None, help="Output directory (default: <data-root>/processed/)")
     add_pipeline_args(p)
     add_data_root_arg(p)
+    add_backend_arg(p)
+    add_profile_args(p)
     return p.parse_args()
 
 
@@ -42,17 +44,17 @@ def main() -> None:
     chain_df: pd.DataFrame | None = None
 
     if args.synthetic:
-        from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
+        from rlm.data.synthetic import synthetic_bars_demo, synthetic_option_chain_from_bars
         bars_df = synthetic_bars_demo(end=pd.Timestamp.today(), periods=220)
         chain_df = synthetic_option_chain_from_bars(bars_df)
         log.info("backtest using synthetic data  symbol=%s bars=%d", sym, len(bars_df))
     else:
         bars_path = resolve_bars_path(sym, args.bars, args.data_root)
         log.info("backtest start  symbol=%s bars=%s", sym, bars_path)
-        bars_df = load_bars(sym, bars_path=bars_path)
+        bars_df = load_bars(sym, bars_path=bars_path, backend=args.backend)
 
         chain_path = resolve_chain_path(sym, args.chain, args.data_root)
-        chain_df = load_option_chain(sym, chain_path=chain_path) if chain_path else None
+        chain_df = load_option_chain(sym, chain_path=chain_path, backend=args.backend) if chain_path else None
 
     out_dir = (
         Path(args.out_dir).expanduser().resolve()

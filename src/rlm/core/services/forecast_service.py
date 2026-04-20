@@ -9,7 +9,9 @@ from pathlib import Path
 import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
+from rlm.core.run_manifest import RunManifest, build_config_summary, new_run_id, now_utc
 from rlm.utils.logging import get_logger
+from rlm.utils.timing import timed_stage
 
 log = get_logger(__name__)
 
@@ -39,6 +41,11 @@ class ForecastRequest:
     out_path: Path | None = None
     write_output: bool = True
     tail_rows: int = 10
+    # Run tracking
+    run_id: str = field(default_factory=new_run_id)
+    data_root: str | None = None
+    backend: str = "auto"
+    profile: str | None = None
 
 
 @dataclass
@@ -60,44 +67,55 @@ class ForecastService:
 
     def run(self, req: ForecastRequest) -> PipelineResult:
         cfg = req.config or FullRLMConfig(symbol=req.symbol)
-        t0 = time.monotonic()
+
+        with timed_stage(
+            log, "forecast",
+            run_id=req.run_id, symbol=req.symbol,
+            regime=cfg.regime_model, kronos=cfg.use_kronos,
+        ):
+            pipeline = FullRLMPipeline(cfg)
+            result = pipeline.run(req.bars_df, req.option_chain_df)
 
         log.info(
-            "forecast start  symbol=%s regime=%s kronos=%s backtest=%s bars=%d",
-            req.symbol, cfg.regime_model, cfg.use_kronos, cfg.run_backtest,
-            len(req.bars_df),
-        )
-
-        pipeline = FullRLMPipeline(cfg)
-        result = pipeline.run(req.bars_df, req.option_chain_df)
-
-        log.info(
-            "forecast done  symbol=%s factors=%d forecast=%d policy=%d duration=%.1fs",
-            req.symbol,
-            len(result.factors_df),
-            len(result.forecast_df),
-            len(result.policy_df),
-            time.monotonic() - t0,
+            "forecast rows  run_id=%s factors=%d forecast=%d policy=%d",
+            req.run_id, len(result.factors_df), len(result.forecast_df), len(result.policy_df),
         )
         return result
 
     def write_outputs(
         self, req: ForecastRequest, result: PipelineResult
     ) -> ForecastArtifacts:
-        """Write forecast CSV and return artifact metadata."""
-        if not req.write_output or req.out_path is None:
-            return ForecastArtifacts()
+        """Write forecast CSV and manifest, return artifact metadata."""
+        arts = ForecastArtifacts()
 
-        t0 = time.monotonic()
-        req.out_path.parent.mkdir(parents=True, exist_ok=True)
-        result.forecast_df.to_csv(req.out_path)
+        if req.write_output and req.out_path is not None:
+            t0 = time.monotonic()
+            req.out_path.parent.mkdir(parents=True, exist_ok=True)
+            result.forecast_df.to_csv(req.out_path)
+            arts = ForecastArtifacts(
+                forecast_csv=req.out_path,
+                rows_written=len(result.forecast_df),
+                duration_s=time.monotonic() - t0,
+            )
+            log.info("forecast csv  run_id=%s path=%s rows=%d", req.run_id, arts.forecast_csv, arts.rows_written)
 
-        arts = ForecastArtifacts(
-            forecast_csv=req.out_path,
-            rows_written=len(result.forecast_df),
-            duration_s=time.monotonic() - t0,
+        # Always write manifest
+        cfg = req.config or FullRLMConfig(symbol=req.symbol)
+        manifest = RunManifest(
+            run_id=req.run_id,
+            command="forecast",
+            symbol=req.symbol,
+            timestamp_utc=now_utc(),
+            config_summary=build_config_summary(cfg),
+            input_paths={"bars": str(req.bars_df.index[0]) + "…" if not req.bars_df.empty else ""},
+            output_paths={"forecast_csv": str(arts.forecast_csv) if arts.forecast_csv else ""},
+            metrics=self.summarize(result),
+            backend=req.backend,
+            profile=req.profile,
+            success=True,
+            duration_s=arts.duration_s,
         )
-        log.info("forecast output  path=%s rows=%d", arts.forecast_csv, arts.rows_written)
+        manifest.write(req.data_root)
         return arts
 
     def summarize(self, result: PipelineResult) -> dict:

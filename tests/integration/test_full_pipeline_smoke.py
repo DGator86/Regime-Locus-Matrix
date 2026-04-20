@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
-from rlm.datasets.backtest_data import synthetic_bars_demo
+from rlm.data.synthetic import synthetic_bars_demo
 
 
 # ---------------------------------------------------------------------------
