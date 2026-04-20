@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from datetime import datetime, timezone
 
 from rlm.cli.common import add_backend_arg, add_data_root_arg, add_profile_args, normalize_symbol
@@ -13,6 +14,25 @@ from rlm.utils.run_id import generate_run_id
 
 
 def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="rlm trade",
+        description="Generate and optionally execute live/paper trade plans.",
+    )
+    p.add_argument("--symbol", required=True, help="Ticker symbol (e.g. SPY)")
+    p.add_argument(
+        "--mode",
+        choices=["plan", "paper", "live"],
+        default="plan",
+        help="Execution mode: plan (print only), paper (IBKR paper), live (IBKR live)",
+    )
+    p.add_argument("--no-kronos", action="store_true", help="Disable Kronos overlay")
+    p.add_argument("--no-vix", action="store_true", help="Skip VIX/VVIX attachment")
+    p.add_argument("--capital", type=float, default=100_000.0, help="Account capital")
+    p.add_argument("--backend", choices=["auto", "csv", "lake"], default="auto")
+    p.add_argument("--profile", default=None, help="Runtime profile name")
+    p.add_argument("--config", default=None, help="Path to config JSON")
+    p.add_argument("--out-dir", default=None, help="Artifact output directory")
+    p.add_argument("--write-artifacts", action=argparse.BooleanOptionalAction, default=True)
     p = argparse.ArgumentParser(prog="rlm trade", description="Generate and optionally execute live/paper trade plans.")
     p.add_argument("--symbol", required=True)
     p.add_argument("--mode", choices=["plan", "paper", "live"], default="plan")
@@ -31,11 +51,36 @@ def main() -> None:
     run_id = generate_run_id("trade")
     log = get_run_logger(__name__, run_id=run_id, command="trade", symbol=sym, backend=args.backend, profile=args.profile)
 
+    log.info("trade start  symbol=%s mode=%s", sym, args.mode)
+
+    req = TradeRequest(
+        symbol=sym,
+        mode=args.mode,
+        use_kronos=not args.no_kronos,
+        attach_vix=not args.no_vix,
+        capital=args.capital,
+        data_root=args.data_root,
+        backend=args.backend,
+        profile=args.profile,
+        config_path=args.config,
+        out_dir=None if args.out_dir is None else Path(args.out_dir).expanduser().resolve(),
+        write_artifacts=args.write_artifacts,
+    )
+
     req = TradeRequest(symbol=sym, mode=args.mode, use_kronos=not args.no_kronos, attach_vix=not args.no_vix, capital=args.capital, data_root=args.data_root, backend=args.backend)
     result = TradeService().run(req)
 
     if result.decision:
         print(f"\nTrade decision for {sym}:")
+        print(f"  action:   {result.decision.action}")
+        print(f"  strategy: {result.decision.strategy}")
+        print(f"  size:     {result.decision.size_fraction}")
+    if result.executions:
+        print("\nExecution log:")
+        for entry in result.executions:
+            print(f"  mode={entry.mode} success={entry.success} broker={entry.broker} message={entry.message}")
+    if result.artifacts.manifest_path:
+        print(f"\nArtifacts: {result.artifacts.manifest_path.parent}")
         print(f"  action:   {result.decision.get('roee_action')}")
         print(f"  strategy: {result.decision.get('roee_strategy')}")
         print(f"  size:     {result.decision.get('roee_size_fraction')}")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from typing import Any
 
 from rlm.core.config import build_full_config, load_profile, merge_overrides
@@ -35,6 +37,52 @@ def add_pipeline_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_data_root_arg(parser: argparse.ArgumentParser) -> None:
+    """Add ``--data-root`` argument to *parser*."""
+    parser.add_argument(
+        "--data-root",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Override data root directory (default: RLM_DATA_ROOT env var, "
+            "or ./data relative to current working directory)"
+        ),
+    )
+
+
+def build_pipeline_config_from_controls(
+    *,
+    symbol: str,
+    profile: str | None,
+    config_path: str | None,
+    use_kronos: bool,
+    attach_vix: bool,
+    initial_capital: float,
+) -> FullRLMConfig:
+    """Build ``FullRLMConfig`` from profile/config controls plus runtime overrides."""
+    cfg = FullRLMConfig(symbol=symbol)
+
+    if profile:
+        p = profile.lower().strip()
+        if p == "live":
+            cfg.use_kronos = True
+            cfg.attach_vix = True
+        elif p == "paper":
+            cfg.use_kronos = True
+            cfg.attach_vix = False
+        elif p == "dev":
+            cfg.use_kronos = False
+            cfg.attach_vix = False
+
+    if config_path:
+        payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        for key, value in payload.items():
+            if hasattr(cfg, key):
+                setattr(cfg, key, value)
+
+    cfg.use_kronos = bool(use_kronos)
+    cfg.attach_vix = bool(attach_vix)
+    cfg.initial_capital = float(initial_capital)
+    return cfg
     parser.add_argument("--data-root", default=None, metavar="DIR")
 
 

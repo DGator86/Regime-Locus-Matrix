@@ -27,9 +27,9 @@ pip install -e ".[all]"     # everything
 
 rlm forecast --symbol SPY
 rlm backtest --symbol SPY --use-hmm
-rlm ingest   --symbol SPY --source yfinance
-rlm trade    --symbol SPY --mode plan
-rlm doctor
+rlm ingest   --symbol SPY --source yfinance --backend auto
+rlm trade    --symbol SPY --mode plan --backend auto
+rlm doctor   --symbol SPY --backend auto
 ```
 
 ### Experimental / research (not part of the stable surface)
@@ -102,6 +102,13 @@ RLM_LOG_JSON=1 rlm forecast --symbol SPY        # newline-delimited JSON logs
 ```
 
 ---
+
+
+### Ingest / trade operational controls
+
+- `rlm ingest` supports `--backend {auto,csv,lake}`, `--profile`, `--config`, and `--write-manifest/--no-write-manifest`.
+- `rlm trade` supports `--backend {auto,csv,lake}`, `--profile`, `--config`, `--out-dir`, and `--write-artifacts/--no-write-artifacts`.
+- Both commands now write run artifacts under `data/artifacts/` by default.
 
 ## Legacy scripts
 
