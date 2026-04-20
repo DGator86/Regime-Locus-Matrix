@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ import pandas as pd
 
 from rlm.data.paths import get_artifacts_dir, get_raw_data_dir
 from rlm.data.providers import resolve_provider
+from rlm.data.providers import IBKRProvider, MarketDataProvider, YFinanceProvider
+from rlm.core.run_manifest import RunManifest, write_run_manifest
 from rlm.utils.run_id import generate_run_id
 
 
@@ -94,6 +97,16 @@ class IngestionService:
             )
             manifest_path = self._write_manifest(
                 req, run_id, bars_path, chain_path, metadata_path, backend
+            metadata_path = self._write_ingest_metadata(req, run_id, metadata, bars_path, chain_path)
+            manifest_path = self._write_manifest(
+                req,
+                run_id,
+                bars_path,
+                chain_path,
+                metadata_path,
+                backend,
+                bars_count=len(bars.bars_df),
+                chain_count=chain_count,
             )
 
         return IngestionResult(
@@ -182,6 +195,8 @@ class IngestionService:
         chain_path: Path | None,
         metadata_path: Path | None,
         backend: str,
+        bars_count: int,
+        chain_count: int,
     ) -> Path:
         artifact_dir = get_artifacts_dir(req.data_root) / "ingest" / run_id
         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -209,9 +224,23 @@ class IngestionService:
                         "metadata_path": str(metadata_path) if metadata_path else None,
                     },
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+        return write_run_manifest(
+            RunManifest(
+                run_id=run_id,
+                command="ingest",
+                symbol=req.symbol,
+                timestamp_utc=datetime.now(tz=UTC).isoformat(),
+                backend=backend,
+                profile=req.profile,
+                config_summary={"config_path": req.config_path, "source": req.source, "interval": req.interval},
+                input_paths={"start": req.start or "", "end": req.end or ""},
+                output_paths={
+                    "bars_path": str(bars_path),
+                    "chain_path": str(chain_path) if chain_path else "",
+                    "metadata_path": str(metadata_path) if metadata_path else "",
                 },
-                indent=2,
+                metrics={"bars_count": bars_count, "chain_count": chain_count, "chain_requested": req.fetch_options},
             ),
-            encoding="utf-8",
+            data_root=req.data_root,
+            out_path=out,
         )
-        return out

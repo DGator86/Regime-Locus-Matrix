@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,11 @@ import pandas as pd
 
 from rlm.core.config import build_pipeline_config
 from rlm.core.pipeline import FullRLMPipeline
+from rlm.core.run_manifest import RunManifest, write_run_manifest
 from rlm.data.paths import get_artifacts_dir
 from rlm.data.readers import load_bars, load_option_chain
 from rlm.execution.brokers import BrokerAdapter, IBKRBrokerAdapter
+from rlm.utils.logging import get_run_logger
 from rlm.utils.run_id import generate_run_id
 
 
@@ -81,8 +84,12 @@ class TradeService:
     def run(self, req: TradeRequest) -> TradeResult:
         t0 = time.monotonic()
         run_id = generate_run_id("trade")
+        logger = get_run_logger(__name__, run_id, command="trade", symbol=req.symbol, backend=req.backend, profile=req.profile)
+        logger.info("building trade decision")
         decision = self.build_decision(req)
+        logger.info("executing trade decision", extra={"stage": "execution"})
         executions = self.execute_decision(req, decision)
+        logger.info("writing trade artifacts", extra={"stage": "artifacts"})
         artifacts = self.write_outputs(req, decision, executions, run_id)
         return TradeResult(
             decision=decision,
@@ -113,6 +120,7 @@ class TradeService:
                 "attach_vix": req.attach_vix,
                 "initial_capital": req.capital,
             },
+            overrides={"initial_capital": req.capital},
         )
         result = FullRLMPipeline(cfg).run(bars_df, chain_df)
 
@@ -149,14 +157,34 @@ class TradeService:
             "vault_triggered": decision.vault_triggered,
             **decision.raw,
         }
-        rsp = self._broker.submit_trade_decision(req.symbol, payload, paper=(req.mode == "paper"))
-        return [
+        try:
+            rsp = self._broker.submit_trade_decision(req.symbol, payload, paper=(req.mode == "paper"))
+            records = [
+                TradeExecutionRecord(
+                    success=bool(rsp.get("success")),
+                    broker=str(rsp.get("broker") or "unknown"),
+                    order_id=None if rsp.get("order_id") is None else str(rsp.get("order_id")),
+                    message=str(rsp.get("message", "")),
+                    details=dict(rsp.get("details") or {}),
+                )
+            ]
+        except Exception as exc:
+            records = [
+                TradeExecutionRecord(
+                    success=False,
+                    broker=getattr(self._broker, "broker", "unknown"),
+                    order_id=None,
+                    message=str(exc),
+                    details={"mode": req.mode},
+                )
+            ]
+        return records or [
             TradeExecutionRecord(
-                success=bool(rsp.get("success")),
-                broker=str(rsp.get("broker") or "unknown"),
-                order_id=None if rsp.get("order_id") is None else str(rsp.get("order_id")),
-                message=str(rsp.get("message", "")),
-                details=dict(rsp.get("details") or {}),
+                success=False,
+                broker="unknown",
+                order_id=None,
+                message="No execution record produced.",
+                details={},
             )
         ]
 
@@ -238,8 +266,33 @@ class TradeService:
                 },
                 indent=2,
                 default=str,
+        manifest_path = write_run_manifest(
+            RunManifest(
+                run_id=run_id,
+                command="trade",
+                symbol=req.symbol,
+                timestamp_utc=datetime.now(tz=UTC).isoformat(),
+                backend=req.backend,
+                profile=req.profile,
+                config_summary={
+                    "config_path": req.config_path,
+                    "use_kronos": req.use_kronos,
+                    "attach_vix": req.attach_vix,
+                    "capital": req.capital,
+                },
+                input_paths={},
+                output_paths={
+                    "decision_path": str(decision_path),
+                    "execution_path": str(execution_path),
+                    "manifest_path": str(manifest_path),
+                },
+                metrics={
+                    "executions_total": len(executions),
+                    "executions_success": sum(1 for x in executions if x.success),
+                },
             ),
-            encoding="utf-8",
+            data_root=req.data_root,
+            out_path=manifest_path,
         )
         return TradeArtifacts(
             decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path

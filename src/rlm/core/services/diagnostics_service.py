@@ -29,6 +29,11 @@ class DiagnosticsReport:
     def all_passed(self) -> bool:
         return all(c.passed is not False for c in self.checks)
 
+    def is_passing(self, *, strict: bool = False) -> bool:
+        if strict:
+            return all(c.passed is True for c in self.checks)
+        return self.all_passed
+
     def to_dict(self) -> dict[str, Any]:
         return {"all_passed": self.all_passed, "checks": [asdict(c) for c in self.checks]}
 
@@ -161,6 +166,29 @@ class DiagnosticsService:
                 passed=backend in {"auto", "csv", "lake"},
                 detail="supported: auto, csv, lake",
             ),
+        provider_valid = provider in {"yfinance", "ibkr"}
+        provider_dep_ok: bool | None = None
+        provider_dep_detail = ""
+        if provider == "yfinance":
+            try:
+                import yfinance  # noqa: F401
+
+                provider_dep_ok = True
+            except Exception as exc:
+                provider_dep_ok = False
+                provider_dep_detail = str(exc)
+        elif provider == "ibkr":
+            try:
+                import ibapi  # noqa: F401
+
+                provider_dep_ok = True
+            except Exception as exc:
+                provider_dep_ok = False
+                provider_dep_detail = str(exc)
+        return [
+            CheckResult(name=f"ingest: provider={provider}", passed=provider_valid, detail="supported: yfinance, ibkr"),
+            CheckResult(name=f"ingest: deps for {provider}", passed=provider_dep_ok if provider_valid else False, detail=provider_dep_detail),
+            CheckResult(name=f"ingest: backend={backend}", passed=backend in {"auto", "csv", "lake"}, detail="supported: auto, csv, lake"),
             CheckResult(
                 name="ingest: artifacts dir writable",
                 passed=(
@@ -238,6 +266,17 @@ class DiagnosticsService:
                     name=f"trade: mode={mode} prerequisites",
                     passed=True if not strict else (broker_ok and deps_ok),
                     detail="strict mode requires broker adapter and deps",
+                ib_dep_ok: bool | None = True
+                ib_dep_detail = ""
+            except Exception as exc:
+                ib_dep_ok = False
+                ib_dep_detail = str(exc)
+            checks.append(CheckResult(name="trade: ibkr dependency import", passed=ib_dep_ok, detail=ib_dep_detail))
+            checks.append(
+                CheckResult(
+                    name=f"trade: mode={mode} prerequisites",
+                    passed=(broker_ok and ib_dep_ok) if strict else True,
+                    detail="strict mode requires broker adapter import",
                 )
             )
         return checks
