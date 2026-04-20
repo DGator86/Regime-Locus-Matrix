@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from rlm.core.config import build_pipeline_config
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
 from rlm.utils.logging import get_logger
 from rlm.utils.timing import timed_stage
@@ -16,15 +17,32 @@ log = get_logger(__name__)
 
 # Columns surfaced to the user by default
 _OUTPUT_COLUMNS = [
-    "close", "S_D", "S_V", "S_L", "S_G",
-    "b_m", "b_sigma", "mu", "sigma",
-    "mean_price", "lower_1s", "upper_1s", "lower_2s", "upper_2s",
-    "realized_vol", "forecast_source",
-    "hmm_state", "hmm_state_label",
-    "markov_state", "markov_state_label",
-    "kronos_confidence", "kronos_regime_agreement",
-    "kronos_predicted_regime", "kronos_transition_flag",
-    "kronos_forecast_return", "kronos_forecast_vol",
+    "close",
+    "S_D",
+    "S_V",
+    "S_L",
+    "S_G",
+    "b_m",
+    "b_sigma",
+    "mu",
+    "sigma",
+    "mean_price",
+    "lower_1s",
+    "upper_1s",
+    "lower_2s",
+    "upper_2s",
+    "realized_vol",
+    "forecast_source",
+    "hmm_state",
+    "hmm_state_label",
+    "markov_state",
+    "markov_state_label",
+    "kronos_confidence",
+    "kronos_regime_agreement",
+    "kronos_predicted_regime",
+    "kronos_transition_flag",
+    "kronos_forecast_return",
+    "kronos_forecast_vol",
 ]
 
 
@@ -60,12 +78,15 @@ class ForecastService:
     """
 
     def run(self, req: ForecastRequest) -> PipelineResult:
-        cfg = req.config or FullRLMConfig(symbol=req.symbol)
+        cfg = req.config or build_pipeline_config(symbol=req.symbol, overrides={})
         t0 = time.monotonic()
 
         log.info(
             "forecast start  symbol=%s regime=%s kronos=%s backtest=%s bars=%d",
-            req.symbol, cfg.regime_model, cfg.use_kronos, cfg.run_backtest,
+            req.symbol,
+            cfg.regime_model,
+            cfg.use_kronos,
+            cfg.run_backtest,
             len(req.bars_df),
         )
 
@@ -83,9 +104,7 @@ class ForecastService:
         )
         return result
 
-    def write_outputs(
-        self, req: ForecastRequest, result: PipelineResult
-    ) -> ForecastArtifacts:
+    def write_outputs(self, req: ForecastRequest, result: PipelineResult) -> ForecastArtifacts:
         """Write forecast CSV and return artifact metadata."""
         if not req.write_output or req.out_path is None:
             return ForecastArtifacts()
@@ -115,7 +134,9 @@ class ForecastService:
             "rows": len(result.forecast_df),
             "action": last_policy.get("roee_action") if last_policy is not None else None,
             "strategy": last_policy.get("roee_strategy") if last_policy is not None else None,
-            "size_fraction": last_policy.get("roee_size_fraction") if last_policy is not None else None,
+            "size_fraction": (
+                last_policy.get("roee_size_fraction") if last_policy is not None else None
+            ),
         }
         if result.backtest_metrics:
             summary["backtest"] = result.backtest_metrics

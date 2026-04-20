@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from rlm.core.config import build_pipeline_config
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
 from rlm.utils.logging import get_logger
 from rlm.utils.timing import timed_stage
@@ -48,7 +49,7 @@ class BacktestService:
     """
 
     def run(self, req: BacktestRequest) -> PipelineResult:
-        cfg = req.config or FullRLMConfig(symbol=req.symbol)
+        cfg = req.config or build_pipeline_config(symbol=req.symbol, overrides={})
         t0 = time.monotonic()
 
         # Guarantee backtest is on, and apply capital override if supplied
@@ -59,8 +60,12 @@ class BacktestService:
 
         log.info(
             "backtest start  symbol=%s regime=%s kronos=%s walkforward=%s bars=%d capital=%.0f",
-            req.symbol, cfg.regime_model, cfg.use_kronos, req.walkforward,
-            len(req.bars_df), cfg.initial_capital,
+            req.symbol,
+            cfg.regime_model,
+            cfg.use_kronos,
+            req.walkforward,
+            len(req.bars_df),
+            cfg.initial_capital,
         )
 
         with timed_stage(log, "backtest_pipeline", symbol=req.symbol):
@@ -71,14 +76,13 @@ class BacktestService:
 
         log.info(
             "backtest done  symbol=%s duration=%.1fs metrics=%s",
-            req.symbol, time.monotonic() - t0,
+            req.symbol,
+            time.monotonic() - t0,
             result.backtest_metrics,
         )
         return result
 
-    def write_outputs(
-        self, req: BacktestRequest, result: PipelineResult
-    ) -> BacktestArtifacts:
+    def write_outputs(self, req: BacktestRequest, result: PipelineResult) -> BacktestArtifacts:
         """Write trades and equity curve CSVs, return artifact metadata."""
         if not req.write_outputs or req.out_dir is None:
             return BacktestArtifacts()
@@ -125,7 +129,8 @@ class BacktestService:
             wf_result = engine.run(req.bars_df, req.option_chain_df)
             log.info(
                 "walkforward done  symbol=%s windows=%d",
-                req.symbol, len(wf_result.window_results),
+                req.symbol,
+                len(wf_result.window_results),
             )
         except Exception as exc:
             log.warning("walkforward failed  symbol=%s error=%s", req.symbol, exc)
