@@ -1,0 +1,6 @@
+regime_model: hmm
+hmm_states: 6
+use_kronos: true
+attach_vix: true
+run_backtest: false
+initial_capital: 100000.0

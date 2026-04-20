@@ -26,6 +26,7 @@ class TradeRequest:
     bars_df: pd.DataFrame | None = None
     option_chain_df: pd.DataFrame | None = None
     data_root: str | None = None  # maps to --data-root / RLM_DATA_ROOT
+    backend: str = "auto"
 
 
 @dataclass
@@ -52,9 +53,9 @@ class TradeService:
         chain_df = req.option_chain_df
 
         if bars_df is None:
-            bars_df = load_bars(req.symbol, data_root=req.data_root)
+            bars_df = load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
         if chain_df is None:
-            chain_df = load_option_chain(req.symbol, data_root=req.data_root)
+            chain_df = load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
 
         cfg = FullRLMConfig(
             symbol=req.symbol,
