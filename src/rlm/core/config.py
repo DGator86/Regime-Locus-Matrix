@@ -47,6 +47,7 @@ def build_pipeline_config(
     profile: str | None = None,
     config_path: str | Path | None = None,
     initial_capital: float | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> FullRLMConfig:
     merged: dict[str, Any] = {}
     if profile:
@@ -64,4 +65,6 @@ def build_pipeline_config(
     )
     if initial_capital is not None:
         merged["initial_capital"] = float(initial_capital)
+    if overrides:
+        merged = merge_overrides(merged, overrides)
     return build_full_config(merged)

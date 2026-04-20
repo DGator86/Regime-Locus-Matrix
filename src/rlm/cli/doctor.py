@@ -48,5 +48,7 @@ def main() -> None:
             if check.detail and (args.verbose or check.passed is False):
                 print(f"         {check.detail}")
 
-    if (args.strict and not report.all_passed) or (not args.strict and not report.all_passed and not args.json):
+    if (args.strict and not report.is_passing(strict=True)) or (
+        not args.strict and not report.is_passing(strict=False) and not args.json
+    ):
         raise SystemExit(1)
