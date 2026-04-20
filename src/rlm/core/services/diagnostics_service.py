@@ -1,28 +1,28 @@
-"""DiagnosticsService — preflight environment, dependency, filesystem, and provider checks.
-
-``rlm doctor`` is the authoritative pre-launch health check.  This service
-runs a battery of checks and returns a structured report that the CLI renders
-and interprets (non-zero exit on any FAIL).
-"""
+"""DiagnosticsService — CI/ops oriented runtime checks."""
 
 from __future__ import annotations
 
 import importlib
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from rlm.data.paths import get_data_root
 from rlm.utils.logging import get_logger
 
 log = get_logger(__name__)
+from rlm.core.config import load_profile
+from rlm.data.backend import DataBackend
+from rlm.data.lake.readers import lake_has_bars
+from rlm.data.paths import get_data_root, get_processed_data_dir
 
 
 @dataclass
 class CheckResult:
     name: str
-    passed: bool | None  # True=OK  False=FAIL  None=SKIP (optional, not fatal)
+    passed: bool | None
     detail: str = ""
 
 
@@ -32,13 +32,13 @@ class DiagnosticsReport:
 
     @property
     def all_passed(self) -> bool:
-        """True when no check has ``passed=False``."""
         return all(c.passed is not False for c in self.checks)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"all_passed": self.all_passed, "checks": [asdict(c) for c in self.checks]}
 
 
 class DiagnosticsService:
-    """Run a full pre-launch diagnostics battery."""
-
     def run(
         self,
         verbose: bool = False,
@@ -48,195 +48,50 @@ class DiagnosticsService:
         symbol: str = "SPY",
         mode: str = "plan",
         strict: bool = False,
+        backend: str = "auto",
+        profile: str | None = None,
+        config_path: str | None = None,
+        symbol: str | None = None,
     ) -> DiagnosticsReport:
         report = DiagnosticsReport()
         report.checks += self._check_python()
         report.checks += self._check_package_importable()
         report.checks += self._check_core_deps()
-        report.checks += self._check_optional_deps()
-        report.checks += self._check_env_vars()
         report.checks += self._check_filesystem(data_root)
         report.checks += self._check_config()
         report.checks += self._check_providers(provider)
         report.checks += self._check_ingest_readiness(provider=provider or "yfinance", backend=backend, data_root=data_root)
         report.checks += self._check_trade_readiness(symbol=symbol, backend=backend, mode=mode, data_root=data_root, strict=strict)
+        report.checks += self._check_profile(profile, config_path)
+        report.checks += self._check_backend(backend, data_root, symbol)
         return report
-
-    # ------------------------------------------------------------------
-    # Python version
-    # ------------------------------------------------------------------
 
     def _check_python(self) -> list[CheckResult]:
         v = sys.version_info
-        ok = v >= (3, 10)
-        return [CheckResult(
-            name=f"Python {v.major}.{v.minor}.{v.micro}",
-            passed=ok,
-            detail="" if ok else "Python 3.10+ required",
-        )]
-
-    # ------------------------------------------------------------------
-    # Package importability
-    # ------------------------------------------------------------------
+        return [CheckResult(name=f"Python {v.major}.{v.minor}.{v.micro}", passed=v >= (3, 10))]
 
     def _check_package_importable(self) -> list[CheckResult]:
         try:
             import rlm  # noqa: F401
             return [CheckResult(name="package: rlm importable", passed=True)]
         except ImportError as exc:
-            return [CheckResult(
-                name="package: rlm importable",
-                passed=False,
-                detail=f"{exc} — run: pip install -e .",
-            )]
-
-    # ------------------------------------------------------------------
-    # Core dependencies
-    # ------------------------------------------------------------------
+            return [CheckResult(name="package: rlm importable", passed=False, detail=str(exc))]
 
     def _check_core_deps(self) -> list[CheckResult]:
-        required = [
-            "numpy", "pandas", "scipy", "statsmodels",
-            "hmmlearn", "optuna", "pydantic",
-            "yfinance", "matplotlib",
-        ]
-        results = []
+        required = ["numpy", "pandas", "pyyaml"]
+        out = []
         for pkg in required:
             try:
                 importlib.import_module(pkg)
-                results.append(CheckResult(name=f"dep: {pkg}", passed=True))
+                out.append(CheckResult(name=f"dep: {pkg}", passed=True))
             except ImportError as exc:
-                results.append(CheckResult(name=f"dep: {pkg}", passed=False, detail=str(exc)))
-        return results
-
-    # ------------------------------------------------------------------
-    # Optional extras
-    # ------------------------------------------------------------------
-
-    def _check_optional_deps(self) -> list[CheckResult]:
-        optional: dict[str, tuple[str, str]] = {
-            "torch":      ("kronos",       "pip install -e '.[kronos]'"),
-            "duckdb":     ("microstructure", "pip install -e '.[microstructure]'"),
-            "streamlit":  ("ui",           "pip install -e '.[ui]'"),
-            "ibapi":      ("ibkr",         "pip install ibapi  # manual install"),
-            "boto3":      ("flatfiles",    "pip install -e '.[flatfiles]'"),
-            "pyarrow":    ("datalake",     "pip install -e '.[datalake]'"),
-        }
-        results = []
-        for pkg, (extra, install_hint) in optional.items():
-            try:
-                importlib.import_module(pkg)
-                results.append(CheckResult(name=f"opt [{extra}]: {pkg}", passed=True))
-            except ImportError:
-                results.append(CheckResult(
-                    name=f"opt [{extra}]: {pkg}",
-                    passed=None,  # SKIP — optional, not fatal
-                    detail=f"Not installed. {install_hint}",
-                ))
-        return results
-
-    # ------------------------------------------------------------------
-    # Environment variables
-    # ------------------------------------------------------------------
-
-    def _check_env_vars(self) -> list[CheckResult]:
-        results: list[CheckResult] = []
-
-        data_root_env = os.environ.get("RLM_DATA_ROOT", "")
-        if data_root_env:
-            p = Path(data_root_env)
-            exists = p.is_dir()
-            results.append(CheckResult(
-                name=f"env: RLM_DATA_ROOT={data_root_env}",
-                passed=exists,
-                detail="" if exists else f"Directory does not exist: {p}",
-            ))
-        else:
-            results.append(CheckResult(
-                name="env: RLM_DATA_ROOT",
-                passed=None,
-                detail="Not set — will default to ./data relative to cwd",
-            ))
-
-        log_level = os.environ.get("RLM_LOG_LEVEL", "")
-        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        if log_level and log_level.upper() not in valid_levels:
-            results.append(CheckResult(
-                name=f"env: RLM_LOG_LEVEL={log_level}",
-                passed=False,
-                detail=f"Invalid level; valid: {', '.join(sorted(valid_levels))}",
-            ))
-        else:
-            results.append(CheckResult(
-                name=f"env: RLM_LOG_LEVEL={log_level or 'INFO (default)'}",
-                passed=True,
-            ))
-
-        return results
-
-    # ------------------------------------------------------------------
-    # Filesystem
-    # ------------------------------------------------------------------
+                out.append(CheckResult(name=f"dep: {pkg}", passed=False, detail=str(exc)))
+        return out
 
     def _check_filesystem(self, data_root: str | None) -> list[CheckResult]:
-        results: list[CheckResult] = []
         root = get_data_root(data_root)
-
-        results.append(CheckResult(
-            name=f"fs: data root = {root}",
-            passed=True,
-            detail="Resolved from --data-root / RLM_DATA_ROOT / cwd/data",
-        ))
-
-        raw_dir = root / "raw"
-        results.append(CheckResult(
-            name="fs: data/raw/",
-            passed=raw_dir.is_dir(),
-            detail=(
-                "" if raw_dir.is_dir()
-                else f"Missing: {raw_dir}\n         Run: rlm ingest --symbol SPY"
-            ),
-        ))
-
-        processed_dir = root / "processed"
-        if not processed_dir.exists():
-            try:
-                processed_dir.mkdir(parents=True, exist_ok=True)
-                writable = True
-            except OSError:
-                writable = False
-        else:
-            writable = os.access(processed_dir, os.W_OK)
-
-        results.append(CheckResult(
-            name="fs: data/processed/ (writable)",
-            passed=writable,
-            detail="" if writable else f"Not writable: {processed_dir}",
-        ))
-
-        models_dir = root / "models"
-        if not models_dir.exists():
-            try:
-                models_dir.mkdir(parents=True, exist_ok=True)
-                m_writable = True
-            except OSError:
-                m_writable = False
-        else:
-            m_writable = os.access(models_dir, os.W_OK)
-
-        results.append(CheckResult(
-            name="fs: data/models/ (writable)",
-            passed=None if not models_dir.exists() else m_writable,
-            detail="" if m_writable else f"Not writable: {models_dir}",
-        ))
-
-        return results
-
-    # ------------------------------------------------------------------
-    # Config construction
-    # ------------------------------------------------------------------
-
-    def _check_config(self) -> list[CheckResult]:
+        processed = get_processed_data_dir(data_root)
+        artifacts = root / "artifacts"
         try:
             from rlm.core.pipeline import FullRLMConfig
             cfg = FullRLMConfig()
@@ -362,4 +217,46 @@ class DiagnosticsService:
             passed=None,
             detail="warning-only: some strategies may require option-chain data",
         ))
+            artifacts.mkdir(parents=True, exist_ok=True)
+            writable_artifacts = os.access(artifacts, os.W_OK)
+        except OSError:
+            writable_artifacts = False
+        return [
+            CheckResult(name=f"fs: data root = {root}", passed=True),
+            CheckResult(name="fs: processed writable", passed=os.access(processed, os.W_OK), detail=str(processed)),
+            CheckResult(name="fs: artifacts writable", passed=writable_artifacts, detail=str(artifacts)),
+        ]
+
+    def _check_profile(self, profile: str | None, config_path: str | None) -> list[CheckResult]:
+        try:
+            if config_path:
+                load_profile(path=config_path)
+                return [CheckResult(name="config: explicit config valid", passed=True)]
+            if profile:
+                load_profile(name=profile)
+                return [CheckResult(name=f"config: profile '{profile}' valid", passed=True)]
+            return [CheckResult(name="config: profile/config", passed=True, detail="default runtime")]
+        except Exception as exc:
+            return [CheckResult(name="config: profile/config", passed=False, detail=str(exc))]
+
+    def _check_backend(self, backend: str, data_root: str | None, symbol: str | None) -> list[CheckResult]:
+        try:
+            b = DataBackend.coerce(backend)
+        except ValueError as exc:
+            return [CheckResult(name="backend: value", passed=False, detail=str(exc))]
+
+        checks = [CheckResult(name=f"backend: {b.value}", passed=True)]
+        if symbol:
+            sym = symbol.upper()
+            raw_csv = get_data_root(data_root) / "raw" / f"bars_{sym}.csv"
+            has_csv = raw_csv.is_file()
+            has_lake = lake_has_bars(sym, data_root=data_root)
+            ok = has_lake if b == DataBackend.LAKE else (has_csv if b == DataBackend.CSV else (has_lake or has_csv))
+            checks.append(
+                CheckResult(
+                    name=f"symbol data: {sym}",
+                    passed=ok,
+                    detail=f"lake={has_lake} csv={has_csv}",
+                )
+            )
         return checks

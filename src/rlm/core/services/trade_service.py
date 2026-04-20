@@ -64,6 +64,8 @@ class TradeArtifacts:
     decision_json: Path | None = None
     execution_json: Path | None = None
     manifest_path: Path | None = None
+    data_root: str | None = None  # maps to --data-root / RLM_DATA_ROOT
+    backend: str = "auto"
 
 
 @dataclass
@@ -91,6 +93,10 @@ class TradeService:
 
         if req.write_artifacts:
             result.artifacts = self.write_outputs(req, result)
+        if bars_df is None:
+            bars_df = load_bars(req.symbol, data_root=req.data_root, backend=req.backend)
+        if chain_df is None:
+            chain_df = load_option_chain(req.symbol, data_root=req.data_root, backend=req.backend)
 
         result.duration_s = time.monotonic() - t0
         return result

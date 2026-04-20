@@ -1,4 +1,4 @@
-"""Storage-only data lake helpers (paths + parquet I/O)."""
+"""Lake utilities and storage helpers."""
 
 from __future__ import annotations
 
@@ -6,23 +6,28 @@ import re
 from datetime import date
 from pathlib import Path
 
-import pandas as pd
+from .metadata import (
+    lake_bars_path,
+    lake_option_chain_path,
+    lake_root,
+    lake_symbol_dir,
+)
+from .writers import save_parquet
 
 
+# Backward compatible path helpers used by ingestion code.
 def data_lake_root(repo_root: Path | None = None) -> Path:
     if repo_root is None:
-        repo_root = Path(__file__).resolve().parents[3]
+        repo_root = Path.cwd()
     return repo_root / "data"
 
 
 def stock_1d_dir(symbol: str, *, root: Path | None = None) -> Path:
-    sym = _safe_sym(symbol)
-    return data_lake_root(root) / "stocks" / sym / "1d"
+    return data_lake_root(root) / "stocks" / _safe_sym(symbol) / "1d"
 
 
 def stock_1m_dir(symbol: str, *, root: Path | None = None) -> Path:
-    sym = _safe_sym(symbol)
-    return data_lake_root(root) / "stocks" / sym / "1m"
+    return data_lake_root(root) / "stocks" / _safe_sym(symbol) / "1m"
 
 
 def stock_1d_parquet(symbol: str, *, duration_slug: str, root: Path | None = None) -> Path:
@@ -36,8 +41,7 @@ def stock_1m_parquet(symbol: str, *, duration_slug: str, root: Path | None = Non
 
 
 def options_underlying_dir(symbol: str, *, root: Path | None = None) -> Path:
-    sym = _safe_sym(symbol)
-    return data_lake_root(root) / "options" / sym
+    return data_lake_root(root) / "options" / _safe_sym(symbol)
 
 
 def options_contracts_dir(symbol: str, *, root: Path | None = None) -> Path:
@@ -73,17 +77,28 @@ def option_ticker_file_slug(option_ticker: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", t)
 
 
-def save_parquet(df: pd.DataFrame, path: Path, *, index: bool = False) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        df.to_parquet(path, index=index)
-    except ImportError as e:
-        raise ImportError(
-            "Parquet output requires pyarrow. Install: pip install pyarrow "
-            "or pip install 'regime-locus-matrix[datalake]'"
-        ) from e
-
-
 def _safe_sym(symbol: str) -> str:
     return str(symbol).strip().upper()
+
+
+__all__ = [
+    "lake_root",
+    "lake_symbol_dir",
+    "lake_bars_path",
+    "lake_option_chain_path",
+    "save_parquet",
+    "data_lake_root",
+    "stock_1d_dir",
+    "stock_1m_dir",
+    "stock_1d_parquet",
+    "stock_1m_parquet",
+    "options_underlying_dir",
+    "options_contracts_dir",
+    "options_bars_1d_dir",
+    "options_bars_1m_dir",
+    "options_trades_dir",
+    "options_quotes_dir",
+    "options_flatfiles_dataset_dir",
+    "options_flatfile_daily_parquet",
+    "option_ticker_file_slug",
+]

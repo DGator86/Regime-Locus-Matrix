@@ -10,6 +10,7 @@ import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
 from rlm.utils.logging import get_logger
+from rlm.utils.timing import timed_stage
 
 log = get_logger(__name__)
 
@@ -69,7 +70,8 @@ class ForecastService:
         )
 
         pipeline = FullRLMPipeline(cfg)
-        result = pipeline.run(req.bars_df, req.option_chain_df)
+        with timed_stage(log, "forecast_pipeline", symbol=req.symbol):
+            result = pipeline.run(req.bars_df, req.option_chain_df)
 
         log.info(
             "forecast done  symbol=%s factors=%d forecast=%d policy=%d duration=%.1fs",
