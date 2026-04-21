@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -198,29 +197,6 @@ class IngestionService:
         artifact_dir = get_artifacts_dir(req.data_root) / "ingest" / run_id
         artifact_dir.mkdir(parents=True, exist_ok=True)
         out = artifact_dir / "run_manifest.json"
-        out.write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "command": "ingest",
-                    "symbol": req.symbol,
-                    "backend": backend,
-                    "profile": req.profile,
-                    "config_summary": {
-                        "source": req.source,
-                        "interval": req.interval,
-                        "fetch_options": req.fetch_options,
-                    },
-                    "input_paths": {
-                        "start": req.start,
-                        "end": req.end,
-                    },
-                    "output_paths": {
-                        "bars_path": str(bars_path),
-                        "chain_path": str(chain_path) if chain_path else None,
-                        "metadata_path": str(metadata_path) if metadata_path else None,
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
         return write_run_manifest(
             RunManifest(
                 run_id=run_id,
