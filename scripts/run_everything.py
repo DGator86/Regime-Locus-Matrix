@@ -18,8 +18,10 @@ Examples::
     python scripts/run_everything.py --master --with-equity              # options + equities book
     python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR orders
 
-**Master mode** (``--master``): full paper stack — continuous monitor, **60s** mark polls,
-**300s** (5 min) universe rescans, paper open + paper MKT close. Override timing with
+**Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
+rescans, and optional IBKR **paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
+With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
+(local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
 ``--interval`` / ``--rescan-interval`` if needed.
 
 ``--with-equity`` runs a parallel equity paper book alongside the options book using the same
@@ -118,7 +120,10 @@ def main() -> int:
     ap.add_argument(
         "--master",
         action="store_true",
-        help="Full paper stack + timed rescans: implies --full-paper, monitor every 60s, universe rescan every 300s",
+        help=(
+            "Timed rescans + monitor every 60s; implies --paper-trade --paper-close --follow "
+            "unless combined with --with-equity (then options are dry-run only, no IBKR option closes)."
+        ),
     )
     # -----------------------------------------------------------------------
     # Equity book flags
@@ -127,9 +132,9 @@ def main() -> int:
         "--with-equity",
         action="store_true",
         help=(
-            "Equity-primary dual-book mode: run ibkr_equity_paper_trade.py with real IBKR paper "
-            "orders AND automatically force options into dry-run (signal-log only, no IBKR option "
-            "orders). IBKR paper accounts support equities; options are tracked hypothetically."
+            "Equity-primary dual-book mode: run ibkr_equity_paper_trade.py with real IBKR orders "
+            "for stocks, while options stay hypothetical — dry-run opens (signal-log), monitor "
+            "updates marks/P&L locally, and no IBKR option combo opens or closes are sent."
         ),
     )
     ap.add_argument(
@@ -166,13 +171,15 @@ def main() -> int:
         args.paper_close = True
         args.follow = True
 
-    # Equity-primary mode: IBKR paper accounts support stock orders only.
-    # Options run as dry-run (signal-log) so no option orders are attempted.
-    if args.with_equity and not args.paper_dry_run:
-        args.paper_dry_run = True
+    # Equity-primary mode: IBKR for stocks only. Options are hypothetical (no combo orders).
+    if args.with_equity:
+        if not args.paper_dry_run:
+            args.paper_dry_run = True
+        if args.paper_close:
+            args.paper_close = False
         print(
-            "[info] --with-equity active: options running in dry-run (signal-log) mode; "
-            "equities will place real IBKR paper orders",
+            "[info] --with-equity: options are simulation-only (dry-run opens, no IBKR closes); "
+            "equities use IBKR per ibkr_equity_paper_trade.py",
             flush=True,
         )
 
