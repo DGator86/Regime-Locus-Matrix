@@ -54,14 +54,6 @@ def build_pipeline_config(
         merged = merge_overrides(merged, load_profile(path=config_path))
 
     merged = merge_overrides(merged, {"symbol": symbol})
-    merged = merge_overrides(
-        merged,
-        {
-            "symbol": symbol,
-            "use_kronos": bool(use_kronos),
-            "attach_vix": bool(attach_vix),
-        },
-    )
     if initial_capital is not None:
         merged["initial_capital"] = float(initial_capital)
     if overrides:
