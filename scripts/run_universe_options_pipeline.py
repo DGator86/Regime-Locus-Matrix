@@ -48,7 +48,7 @@ from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
-from rlm.factors.pipeline import FactorPipeline
+from rlm.factors import FactorPipeline
 from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
