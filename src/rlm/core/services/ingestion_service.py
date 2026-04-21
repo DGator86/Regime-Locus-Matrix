@@ -96,9 +96,6 @@ class IngestionService:
                 req, run_id, metadata, bars_path, chain_path, backend
             )
             manifest_path = self._write_manifest(
-                req, run_id, bars_path, chain_path, metadata_path, backend
-            metadata_path = self._write_ingest_metadata(req, run_id, metadata, bars_path, chain_path)
-            manifest_path = self._write_manifest(
                 req,
                 run_id,
                 bars_path,
