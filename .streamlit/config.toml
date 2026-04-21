@@ -16,5 +16,6 @@ gatherUsageStats = false
 # https://docs.streamlit.io/develop/api-reference/configuration/config.toml
 [server]
 address = "127.0.0.1"
-enableCORS = false
+# XSRF protection requires CORS to allow credentialed requests; match explicitly to avoid startup warnings.
+enableCORS = true
 enableXsrfProtection = true

@@ -1,0 +1,25 @@
+# Example systemd unit — copy to /etc/systemd/system/rlm-control-center.service and adjust paths.
+# After install: pip install -e ".[ui]"  and  WorkingDirectory = your repo root.
+#
+# Local only (default Streamlit bind from .streamlit/config.toml):
+#   ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/run_control_center.py
+#
+# Reachable from browser on VPS public IP / LAN:
+#   ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/run_control_center.py --public --port 8501
+
+[Unit]
+Description=RLM Control Center (Streamlit)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/run_control_center.py --public --port 8501
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -66,6 +66,31 @@ from rlm.roee.strategy_map import get_strategy_for_regime  # noqa: E402
 from rlm.ui.pipeline_runner import ForecastMode, run_feature_forecast_stack  # noqa: E402
 
 DIRECTIONS = ("bull", "bear", "range", "transition")
+
+
+@st.cache_data(show_spinner="Computing factors & forecast…", ttl=180)
+def _cached_feature_forecast(
+    bars: pd.DataFrame,
+    symbol: str,
+    attach_vix: bool,
+    move_window: int,
+    vol_window: int,
+    forecast_mode: ForecastMode,
+    probabilistic_model_path_str: str,
+) -> tuple[pd.DataFrame | None, str | None]:
+    """Cache heavy stack so sidebar tweaks do not re-run factors/Kronos every rerun."""
+    live_cfg = LiveRegimeModelConfig()
+    prob = Path(probabilistic_model_path_str.strip()) if probabilistic_model_path_str.strip() else None
+    return run_feature_forecast_stack(
+        bars,
+        symbol=symbol,
+        attach_vix=attach_vix,
+        move_window=int(move_window),
+        vol_window=int(vol_window),
+        forecast_mode=forecast_mode,
+        live=live_cfg,
+        probabilistic_model_path=prob,
+    )
 VOLS = ("low_vol", "high_vol", "transition")
 DEFAULT_PLANS = ROOT / "data" / "processed" / "universe_trade_plans.json"
 
@@ -188,6 +213,14 @@ def main() -> None:
         "Tip: keep **Bars source = Demo** until you have `data/raw/bars_{SYM}.csv` or IBKR. "
         "Use **Deterministic** forecast first; HMM/Markov need enough history and can be slow."
     )
+    with st.expander("How to launch (local vs VPS)", expanded=False):
+        st.markdown(
+            "- **This machine:** from repo root: `python -m streamlit run scripts/rlm_control_center/app.py` "
+            "or `python scripts/run_control_center.py`.\n"
+            "- **VPS / remote browser:** `python scripts/run_control_center.py --public --port 8501` "
+            "then open `http://<server-ip>:8501/` (firewall must allow the port).\n"
+            "- Install UI deps once: `pip install -e \".[ui]\"`."
+        )
 
     massive_ok = env_connected_massive()
     ibkr_ok = env_connected_ibkr()
@@ -333,21 +366,19 @@ def main() -> None:
     if err is None and bars.empty and data_mode != "Demo":
         err = "No bars found. Switch **Bars source** to **Demo**, or fix the CSV path / IBKR connection."
 
-    live_cfg = LiveRegimeModelConfig()
     prob_model = Path(prob_path.strip()) if prob_path.strip() else None
 
     processed: pd.DataFrame | None = None
     perr: str | None = None
     if err is None:
-        processed, perr = run_feature_forecast_stack(
+        processed, perr = _cached_feature_forecast(
             bars,
             symbol=symbol,
             attach_vix=attach_vix,
             move_window=int(move_w),
             vol_window=int(vol_w),
             forecast_mode=forecast_mode,
-            live=live_cfg,
-            probabilistic_model_path=prob_model,
+            probabilistic_model_path_str=str(prob_model) if prob_model else "",
         )
         if perr:
             err = perr
@@ -369,7 +400,10 @@ def main() -> None:
         if not payload:
             st.warning("No plans file found. Run universe pipeline first.")
         else:
-            rows = [flatten_universe_result(r) for r in payload.get("results", []) if isinstance(r, dict)]
+            raw_rows = payload.get("results")
+            if not raw_rows:
+                raw_rows = payload.get("active_ranked") or []
+            rows = [flatten_universe_result(r) for r in raw_rows if isinstance(r, dict)]
             udf = pd.DataFrame(rows)
             if not udf.empty and "symbol" in udf.columns:
                 udf = enrich_universe_with_feature_tail(udf, ROOT)
@@ -482,7 +516,10 @@ def main() -> None:
             cmd = f'{sys.executable} scripts/monitor_active_trade_plans.py --plans "{_pp}" --once'
             st.code(cmd, language="bash")
             if allow_live:
-                st.warning("Paper-close live path not auto-run from UI; use terminal with `--paper-close`.")
+                st.warning(
+                    "Live IBKR option closes are not launched from this UI. "
+                    "Use the terminal if you run a full-paper stack **without** `--with-equity`."
+                )
 
     with tab4:
         st.subheader("Regime locus matrix explorer")
