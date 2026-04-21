@@ -145,27 +145,7 @@ class DiagnosticsService:
     def _check_ingest_readiness(
         self, *, provider: str, backend: str, data_root: str | None
     ) -> list[CheckResult]:
-        from rlm.data.providers import resolve_provider
-
         root = get_data_root(data_root)
-        provider_ok = provider in {"yfinance", "ibkr"}
-        provider_detail = "supported: yfinance, ibkr"
-        if provider_ok:
-            try:
-                _ = resolve_provider(provider)
-                provider_detail = "provider adapter resolve OK"
-            except Exception as exc:
-                provider_ok = False
-                provider_detail = str(exc)
-        return [
-            CheckResult(
-                name=f"ingest: provider={provider}", passed=provider_ok, detail=provider_detail
-            ),
-            CheckResult(
-                name=f"ingest: backend={backend}",
-                passed=backend in {"auto", "csv", "lake"},
-                detail="supported: auto, csv, lake",
-            ),
         provider_valid = provider in {"yfinance", "ibkr"}
         provider_dep_ok: bool | None = None
         provider_dep_detail = ""
@@ -249,23 +229,6 @@ class DiagnosticsService:
             try:
                 import ibapi  # noqa: F401
 
-                deps_ok = True
-                deps_detail = "ibapi import OK"
-            except Exception as exc:
-                deps_ok = False
-                deps_detail = str(exc)
-            checks.append(
-                CheckResult(
-                    name=f"trade: mode={mode} broker deps",
-                    passed=deps_ok if strict else (deps_ok or None),
-                    detail=deps_detail,
-                )
-            )
-            checks.append(
-                CheckResult(
-                    name=f"trade: mode={mode} prerequisites",
-                    passed=True if not strict else (broker_ok and deps_ok),
-                    detail="strict mode requires broker adapter and deps",
                 ib_dep_ok: bool | None = True
                 ib_dep_detail = ""
             except Exception as exc:

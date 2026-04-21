@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -120,7 +119,6 @@ class TradeService:
                 "attach_vix": req.attach_vix,
                 "initial_capital": req.capital,
             },
-            overrides={"initial_capital": req.capital},
         )
         result = FullRLMPipeline(cfg).run(bars_df, chain_df)
 
@@ -238,34 +236,6 @@ class TradeService:
             encoding="utf-8",
         )
 
-        manifest_path.write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "command": "trade",
-                    "symbol": req.symbol,
-                    "backend": req.backend,
-                    "profile": req.profile,
-                    "config_summary": {
-                        "mode": req.mode,
-                        "use_kronos": req.use_kronos,
-                        "attach_vix": req.attach_vix,
-                        "capital": req.capital,
-                        "config_path": req.config_path,
-                    },
-                    "input_paths": {
-                        "bars": "inline" if req.bars_df is not None else "auto",
-                        "chain": "inline" if req.option_chain_df is not None else "auto",
-                    },
-                    "output_paths": {
-                        "decision_path": str(decision_path),
-                        "execution_path": str(execution_path),
-                        "manifest_path": str(manifest_path),
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-                indent=2,
-                default=str,
         manifest_path = write_run_manifest(
             RunManifest(
                 run_id=run_id,
