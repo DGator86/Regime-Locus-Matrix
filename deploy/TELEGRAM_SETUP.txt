@@ -199,9 +199,10 @@ PART G — Quick reference: what the commands do
   /status  — Short summary of universe_trade_plans.json
   /universe  or  /report  — List of top active ideas
   /balances — IBKR account summary (needs ibapi + live Gateway)
+  /brief or /session — session_brief.json from pre/post-close timers
 
 Push alerts (if TELEGRAM_NOTIFY=1) watch:
-  - universe trade plans, trade_log.csv, equity_positions_state.json
+  - new active plan_id in universe_trade_plans.json; trade_log.csv; equity_positions_state.json
   (see rlm/notify/telegram_rlm.py)
 
 
@@ -219,7 +220,7 @@ PART H — If something goes wrong
   → Set TELEGRAM_LONG_POLL_SEC=10  or run the bot on a Linux VPS instead.
 
   Symptom: /balances fails
-  → Install ibkr extra; ensure Gateway is up; set IBKR_HOST/IBKR_PORT; paper port is usually 4002 (Gateway) or 7497 (TWS paper).
+  → Install ibkr extra; ensure Gateway is up; set IBKR_HOST/IBKR_PORT; paper port is usually 4002 (Gateway), 7497 (TWS paper), or 4004 (gnzsnz ib-gateway-docker on host / socat).
 
   Symptom: no push messages
   → Send /start once. Or set TELEGRAM_NOTIFY_CHAT_ID in .env. Check TELEGRAM_NOTIFY is 1. Ensure monitor/equity scripts run so trade_log and state files update.

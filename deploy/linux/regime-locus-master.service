@@ -3,15 +3,17 @@
 # Prereqs on the VPS:
 #   - Python 3.11+ venv at @INSTALL_ROOT@/.venv with: pip install -e ".[ibkr]" (and Massive deps as needed)
 #   - Repo at @INSTALL_ROOT@, .env with IBKR_HOST/PORT/CLIENT_ID, Massive keys, etc.
-#   - IBKR: TWS is GUI-only; use IB Gateway in headless/API mode on the VPS, or tunnel API to a machine
-#     that runs Gateway. The master loop talks to whatever IBKR_HOST points at.
+#   - IBKR: TWS is GUI-only; use IB Gateway in headless/API mode on the VPS (see deploy/systemd/ib-gateway.service.example),
+#     or tunnel API to a machine that runs Gateway. The master loop talks to whatever IBKR_HOST points at.
+#   - Telegram: run EITHER this unit with run_master.py --telegram-bot OR a standalone rlm-telegram.service —
+#     never both (duplicate bots / double notifications). See deploy/rlm-master-telegram.service.example.
 #   - This service runs run_master.py (no Tk GUI). For pnl_chart_dashboard.py use a local PC or Xvfb.
 #
 # Logs: journalctl -u regime-locus-master -f
 
 [Unit]
 Description=Regime-Locus-Matrix master loop (universe pipeline + paper equity + monitor)
-After=network-online.target
+After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5

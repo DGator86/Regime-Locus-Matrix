@@ -1,0 +1,12 @@
+# Mon–Fri shortly after NYSE cash close — copy to /etc/systemd/system/rlm-postclose.timer
+
+[Unit]
+Description=RLM post-close brief (16:15 America/New_York)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:15:00 America/New_York
+Unit=rlm-postclose.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

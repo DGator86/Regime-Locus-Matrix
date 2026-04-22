@@ -1,0 +1,16 @@
+# Post-close session brief — copy to /etc/systemd/system/rlm-postclose.service (adjust @INSTALL_ROOT@).
+
+[Unit]
+Description=RLM post-close session brief (bounded universe pipeline)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+ExecStart=@INSTALL_ROOT@/.venv/bin/python @INSTALL_ROOT@/scripts/run_session_brief.py --phase postclose --top 8
+
+[Install]
+WantedBy=multi-user.target

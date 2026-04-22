@@ -184,6 +184,11 @@ def main() -> int:
         action="store_true",
         help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
     )
+    ap.add_argument(
+        "--monitor-rth-only-poll",
+        action="store_true",
+        help="Pass --rth-only-poll to monitor (skip Massive API cycles outside NYSE RTH).",
+    )
     args = ap.parse_args()
 
     if args.master:
@@ -349,6 +354,8 @@ def main() -> int:
         mcmd.append("--paper-close-dry-run")
     if args.force_close_dte > 0.0:
         mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    if args.monitor_rth_only_poll:
+        mcmd.append("--rth-only-poll")
     return _run(mcmd)
 
 

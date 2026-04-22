@@ -3,11 +3,11 @@
 Telegram bot for RLM: commands + optional file-driven **push** alerts (options + equity).
 
 **Push alerts** (when ``TELEGRAM_NOTIFY=1`` and ``notify_chat_id`` is set from ``/start`` or
-``TELEGRAM_NOTIFY_CHAT_ID``): new options plan in ``universe_trade_plans.json``,
-take-profit / exit rows in ``trade_log.csv``, equity open/close in
+``TELEGRAM_NOTIFY_CHAT_ID``): new **active** ``plan_id`` in ``universe_trade_plans.json``;
+opens / take-profit / exit signals in ``trade_log.csv`` (monitor); equity open/close in
 ``equity_positions_state.json``.
 
-**Commands**: /start, /help, /status, /universe, /portfolio, /balances (IBKR snapshot)
+**Commands**: /start, /help, /status, /universe, /portfolio, /balances, /brief (session timer JSON)
 """
 
 from __future__ import annotations
@@ -108,6 +108,7 @@ def _handle_message(
 ) -> None:
     from rlm.notify.telegram_rlm import (
         build_balances_text,
+        build_session_brief_text,
         build_status_brief,
         build_universe_and_positions,
         build_universe_report,
@@ -132,7 +133,7 @@ def _handle_message(
         st.parent.mkdir(parents=True, exist_ok=True)
         st.write_text(json.dumps(blob, indent=2), encoding="utf-8")
         reply = (
-            "RLM bot online. Push alerts use this chat. Commands: /help /status /universe /portfolio /balances"
+            "RLM bot online. Push alerts use this chat. Commands: /help /status /universe /portfolio /balances /brief"
         )
     elif t_low.startswith("/help"):
         reply = (
@@ -140,8 +141,8 @@ def _handle_message(
             "/universe — ranked active trade ideas\n"
             "/portfolio — universe + open option rows (trade_log) + equity state\n"
             "/balances — IBKR net liq, cash, and STK/OPT position rows (needs Gateway + ibapi)\n"
-            "Push alerts: new position (trade_log open), exited position, above profit target; "
-            "plus equity open/close (state json)."
+            "/brief — last session_brief.json (pre/post-close timer run)\n"
+            "Push alerts: new active universe plan_id; trade_log open / TP / exit; equity open/close."
         )
     elif t_low.startswith("/status"):
         reply = build_status_brief(ROOT)
@@ -151,6 +152,8 @@ def _handle_message(
         reply = build_universe_report(ROOT, max_active=12)
     elif t_low.startswith("/balances") or t_low.startswith("/balance"):
         reply = build_balances_text(ROOT)
+    elif t_low.startswith("/brief") or t_low.startswith("/session"):
+        reply = build_session_brief_text(ROOT)
     else:
         reply = "Unknown command. Try /help"
     for chunk in _chunk_text(str(reply)[:12000], 4000):

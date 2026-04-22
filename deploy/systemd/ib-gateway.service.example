@@ -1,0 +1,27 @@
+# IB Gateway via Docker Compose — copy to /etc/systemd/system/ib-gateway.service
+# and set IB_GATEWAY_DIR to the directory that contains your compose file (see deploy/ib-gateway-compose.example.yml).
+#
+#   sudo sed "s|@IB_GATEWAY_DIR@|/opt/ib-gateway|g" deploy/systemd/ib-gateway.service.example | sudo tee /etc/systemd/system/ib-gateway.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ib-gateway
+#
+# regime-locus-master.service uses After=ib-gateway.service so the API port is up before RLM starts.
+# If you manage Gateway only via Docker restart policies and omit this unit, systemd will log a
+# harmless notice for the missing After= target; remove ib-gateway.service from After= in your copy.
+
+[Unit]
+Description=IB Gateway (docker compose up -d)
+Documentation=https://github.com/gnzsnz/ib-gateway-docker
+After=docker.service network-online.target
+Wants=network-online.target
+Before=regime-locus-master.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@IB_GATEWAY_DIR@
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

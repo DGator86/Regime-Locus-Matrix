@@ -1,9 +1,10 @@
 """
 Telegram push logic driven by RLM on-disk state (no changes to the trading stack).
 
-* Options: ``trade_log.csv`` (monitor) + ``universe_trade_plans.json``
-* Equities: ``equity_positions_state.json``
-* Balances: optional ``fetch_ibkr_account_snapshot`` (requires IB Gateway + ``ibapi``)
+* Universe: new **active** ``plan_id`` in ``universe_trade_plans.json`` (and optional ``session_brief.json`` for /brief).
+* Options monitor: ``trade_log.csv`` (open / take-profit / exit signals).
+* Equities: ``equity_positions_state.json``.
+* Balances: optional ``fetch_ibkr_account_snapshot`` (requires IB Gateway + ``ibapi``).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ def default_paths(root: Path) -> dict[str, Path]:
         "trade_log": root / "data" / "processed" / "trade_log.csv",
         "equity_state": root / "data" / "processed" / "equity_positions_state.json",
         "state": root / "data" / "processed" / "telegram_notify_state.json",
+        "session_brief": root / "data" / "processed" / "session_brief.json",
     }
 
 
@@ -133,16 +135,57 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     return "\n".join(lines)
 
 
-def build_universe_report(root: Path, *, max_active: int = 12) -> str:
-    p = default_paths(root)["plans"]
+def _iter_active_plan_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rows treated as the active universe set (matches monitor payload selection)."""
+    ranked = data.get("active_ranked") or []
+    if ranked:
+        return [r for r in ranked if isinstance(r, dict)]
+    return [
+        r
+        for r in (data.get("results") or [])
+        if isinstance(r, dict) and r.get("status") == "active"
+    ]
+
+
+def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for r in _iter_active_plan_rows(data):
+        pid = str(r.get("plan_id") or r.get("symbol") or "")
+        if pid:
+            out.add(pid)
+    return out
+
+
+def _symbol_by_plan_id(data: dict[str, Any]) -> dict[str, str]:
+    m: dict[str, str] = {}
+    for r in _iter_active_plan_rows(data):
+        pid = str(r.get("plan_id") or r.get("symbol") or "")
+        if not pid:
+            continue
+        m[pid] = str(r.get("symbol") or "?")
+    return m
+
+
+def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
+    """Summary of ``session_brief.json`` (systemd pre/post-close pipeline output)."""
+    p = default_paths(root)["session_brief"]
+    if not p.is_file():
+        return f"No session brief file: {p.name} (run scripts/run_session_brief.py or timers)"
     data = _read_plans(p)
     if not data:
-        return f"No plans file or empty: {p.name}"
+        return f"Empty or unreadable: {p.name}"
     gen = str(data.get("generated_at_utc", "?"))
-    actives: list[dict[str, Any]] = []
-    for r in data.get("results") or []:
-        if r.get("status") == "active":
-            actives.append(r)
+    mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat() if p.is_file() else "?"
+    head = f"=== session_brief.json ===\ngenerated_at: {gen}\nfile mtime (UTC): {mtime}\n\n"
+    return head + build_universe_report_from_data(data, max_active=max_active)
+
+
+def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 12) -> str:
+    """Like :func:`build_universe_report` but from an already-loaded plans payload."""
+    if not data:
+        return "No data"
+    gen = str(data.get("generated_at_utc", "?"))
+    actives: list[dict[str, Any]] = list(_iter_active_plan_rows(data))
     actives.sort(key=lambda x: float(x.get("rank_score") or 0.0), reverse=True)
     lines = [
         f"Universe report (top {min(max_active, len(actives))} of {len(actives)} active)\n"
@@ -157,6 +200,14 @@ def build_universe_report(root: Path, *, max_active: int = 12) -> str:
     if not actives:
         lines.append("  (no active rows)")
     return "\n".join(lines)
+
+
+def build_universe_report(root: Path, *, max_active: int = 12) -> str:
+    p = default_paths(root)["plans"]
+    data = _read_plans(p)
+    if not data:
+        return f"No plans file or empty: {p.name}"
+    return build_universe_report_from_data(data, max_active=max_active)
 
 
 def build_balances_text(root: Path) -> str:
@@ -215,6 +266,7 @@ class _St:
     announced_exit: set[str] = field(default_factory=set)
     last_equity_open: set[str] = field(default_factory=set)
     announced_equity_close: set[str] = field(default_factory=set)
+    last_universe_active_ids: set[str] = field(default_factory=set)
 
     @staticmethod
     def from_json(d: dict[str, Any]) -> _St:
@@ -228,6 +280,9 @@ class _St:
         s.announced_exit = set(str(x) for x in (d.get("announced_exit") or []))
         s.last_equity_open = set(str(x) for x in (d.get("last_equity_open") or []))
         s.announced_equity_close = set(str(x) for x in (d.get("announced_equity_close") or []))
+        raw_u = d.get("last_universe_active_ids")
+        if raw_u is not None:
+            s.last_universe_active_ids = set(str(x) for x in raw_u)
         return s
 
     def to_json(self) -> dict[str, Any]:
@@ -239,6 +294,7 @@ class _St:
             "announced_exit": sorted(self.announced_exit),
             "last_equity_open": sorted(self.last_equity_open),
             "announced_equity_close": sorted(self.announced_equity_close),
+            "last_universe_active_ids": sorted(self.last_universe_active_ids),
         }
 
 
@@ -273,6 +329,8 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             if (row.get("closed") or "0").strip() != "1"
         }
         st.last_equity_open = set(now_open)
+        plans_data0 = _read_plans(p["plans"])
+        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data0)
         st.notify_seeded = True
         merged = {**state_blob, **st.to_json()}
         return [], merged
@@ -284,6 +342,12 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             for pid, row in latest.items()
             if (row.get("closed") or "0").strip() != "1"
         }
+        merged = {**state_blob, **st.to_json()}
+        return [], merged
+
+    if st.notify_seeded and "last_universe_active_ids" not in state_blob:
+        plans_data_u = _read_plans(p["plans"])
+        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data_u)
         merged = {**state_blob, **st.to_json()}
         return [], merged
 
@@ -322,6 +386,16 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         row = latest.get(pid)
         if not row or (row.get("closed") or "0").strip() == "1":
             st.announced_trade_open.discard(pid)
+
+    plans_data = _read_plans(p["plans"])
+    cur_u = _active_plan_ids_from_plans(plans_data)
+    sym_by_u = _symbol_by_plan_id(plans_data)
+    for pid in sorted(cur_u - st.last_universe_active_ids):
+        out.append(
+            f"Alert: New active universe idea — {sym_by_u.get(pid, '?')}  plan={pid} "
+            "(universe_trade_plans.json)"
+        )
+    st.last_universe_active_ids = cur_u
 
     prev_eq = st.last_equity_open
     for pid, d in eq.items():

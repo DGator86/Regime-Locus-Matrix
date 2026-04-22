@@ -39,6 +39,7 @@ def test_notify_seed_silent(tmp_path: Path) -> None:
     assert msgs == []
     assert blob.get("notify_seeded") is True
     assert "p1" in blob.get("announced_trade_open", [])
+    assert "p1" in blob.get("last_universe_active_ids", [])
 
 
 def test_new_position_after_seed(tmp_path: Path) -> None:
@@ -102,8 +103,9 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     ]
     (dproc / "trade_log.csv").write_text("".join(log_lines), encoding="utf-8")
     s1, _ = notification_cycle(tmp_path, b0)
-    assert len(s1) == 1
-    assert "New position" in s1[0] and "p2" in s1[0] and "QQQ" in s1[0]
+    assert len(s1) == 2
+    assert any("New position" in m and "p2" in m and "QQQ" in m for m in s1)
+    assert any("universe" in m.lower() and "p2" in m for m in s1)
 
 
 def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:

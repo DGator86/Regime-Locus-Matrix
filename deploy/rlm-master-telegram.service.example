@@ -4,10 +4,13 @@
 #
 # Requires: repo at /opt/Regime-Locus-Matrix, venv, .env (TELEGRAM_*, IBKR_*, MASSIVE_* as needed)
 # For Streamlit, use a separate service (deploy/rlm-control-center.service.example).
+#
+# Telegram: this unit embeds the bot via --telegram-bot. Do NOT also enable deploy/rlm-telegram-bot.service.example
+# (or any standalone rlm_telegram_bot.py service) — one bot process only.
 
 [Unit]
 Description=Regime-Locus-Matrix master + Telegram bot
-After=network-online.target docker.service
+After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target
 
 [Service]

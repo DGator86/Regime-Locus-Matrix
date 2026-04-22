@@ -55,12 +55,15 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+# ruff: noqa: E402
+from rlm.utils.market_hours import entry_window_open, is_rth_now, session_label
+
 PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
 EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
 EQUITY_LOG_PATH = ROOT / "data" / "processed" / "equity_trade_log.csv"
 
 IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
-IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002})
+IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
 
 # IBKR error codes that are advisory notices, not hard order rejections.
 # These are silently swallowed by the error handler so they never enter
@@ -355,7 +358,7 @@ def ibkr_equity_connection() -> Generator[_EquityApp, None, None]:
     if port in IBKR_LIVE_PORTS:
         raise ValueError(
             f"Refusing automated equity orders on live port {port}. "
-            "Set IBKR_PORT to a paper port (7497 / 4002)."
+            "Set IBKR_PORT to a paper port (7497 / 4002 / 4004 for gnzsnz Gateway on host)."
         )
     app = _EquityApp()
     app.connect(host, port, cid)
@@ -427,7 +430,16 @@ def open_equity_positions(
     app: _EquityApp | None,
     plans_path: Path,
     log_path: Path,
+    rth_gate: bool = True,
 ) -> None:
+    if rth_gate and not entry_window_open():
+        print(
+            f"  [equity] skip new entries — outside NYSE entry window ({session_label()}); "
+            "use --no-rth-gate to override",
+            flush=True,
+        )
+        return
+
     open_symbols = {pos.symbol.upper() for pos in positions.values() if pos.status == "open"}
 
     for plan in plans:
@@ -533,6 +545,7 @@ def evaluate_equity_positions(
     dry_run: bool,
     app: _EquityApp | None,
     log_path: Path,
+    rth_gate: bool = True,
 ) -> None:
     for plan_id, pos in list(positions.items()):
         if pos.status != "open":
@@ -588,6 +601,14 @@ def evaluate_equity_positions(
         })
 
         if exit_reason is None:
+            continue
+
+        if rth_gate and not is_rth_now():
+            print(
+                f"  [equity] {pos.symbol}: exit signal ({exit_reason}) deferred — outside NYSE RTH "
+                f"({session_label()}); will retry in session",
+                flush=True,
+            )
             continue
 
         # Close position
@@ -646,7 +667,14 @@ def main() -> None:
                         help="Paper-mode without IBKR orders (log only)")
     parser.add_argument("--monitor-only", action="store_true",
                         help="Skip opening new positions; only evaluate existing ones")
+    parser.add_argument(
+        "--no-rth-gate",
+        action="store_true",
+        help="Allow IBKR stock orders outside NYSE RTH (default: new entries only in entry window; "
+        "exits only during RTH)",
+    )
     args = parser.parse_args()
+    rth_gate = not args.no_rth_gate
 
     plans_path = Path(args.plans)
     state_path = Path(args.state)
@@ -658,6 +686,7 @@ def main() -> None:
     print(f"  position_usd: ${args.position_usd:,.0f}", flush=True)
     print(f"  stop / target: -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  dry_run     : {args.dry_run}", flush=True)
+    print(f"  rth_gate    : {rth_gate}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
     plans = _load_plans(plans_path)
@@ -672,11 +701,13 @@ def main() -> None:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
                 dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
+                rth_gate=rth_gate,
             )
         evaluate_equity_positions(
             positions=positions, active_plan_ids=active_plan_ids,
             stop_pct=args.stop_pct, target_pct=args.target_pct,
             dry_run=True, app=None, log_path=log_path,
+            rth_gate=rth_gate,
         )
         _save_state(positions, state_path)
         print("\n[equity] dry-run complete.", flush=True)
@@ -688,11 +719,13 @@ def main() -> None:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
                 dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
+                rth_gate=rth_gate,
             )
         evaluate_equity_positions(
             positions=positions, active_plan_ids=active_plan_ids,
             stop_pct=args.stop_pct, target_pct=args.target_pct,
             dry_run=False, app=app, log_path=log_path,
+            rth_gate=rth_gate,
         )
 
     _save_state(positions, state_path)
