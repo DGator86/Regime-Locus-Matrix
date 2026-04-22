@@ -15,6 +15,14 @@ Minimal Telegram bot for RLM (long-poll, no extra deps — stdlib + python-doten
    ``EnvironmentFile`` = ``.env``, ``Restart=always``.
 
 Commands: /start, /help, /status (summary from ``universe_trade_plans.json`` if present)
+
+Troubleshooting (Windows / flaky networks)
+------------------------------------------
+- ``getaddrinfo failed``: DNS or offline; try another network, set DNS to 1.1.1.1 / 8.8.8.8.
+- ``10054`` / connection closed: VPN, corporate firewall, or antivirus **HTTPS inspection**; try
+  phone hotspot, disable VPN, allow Python in Windows Firewall, or set ``TELEGRAM_LONG_POLL_SEC=10``
+  in ``.env`` (shorter long-poll, less “stuck” on bad links).
+- Run the bot on the **VPS** (stable outbound HTTPS) if your PC’s network blocks Telegram.
 """
 
 from __future__ import annotations
@@ -52,6 +60,16 @@ def _token() -> str:
     return t
 
 
+def _long_poll_timeout_sec() -> int:
+    """Telegram getUpdates long-poll 0..50; shorter helps flaky firewalls (default 50)."""
+    raw = (os.environ.get("TELEGRAM_LONG_POLL_SEC") or "50").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 50
+    return max(0, min(50, n))
+
+
 def _allowed() -> set[int] | None:
     raw = (os.environ.get("TELEGRAM_ALLOWED_USER_IDS") or "").strip()
     if not raw:
@@ -78,12 +96,14 @@ def _api(token: str, method: str, **params: Any) -> dict[str, Any]:
 
 
 def _get_updates(token: str, offset: int | None) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"timeout": 50}
+    to = _long_poll_timeout_sec()
+    params: dict[str, Any] = {"timeout": to}
     if offset is not None:
         params["offset"] = offset
     q = urlencode(params)
     url = f"https://api.telegram.org/bot{token}/getUpdates?{q}"
-    with urlopen(Request(url, method="GET"), timeout=60) as resp:
+    # Long-poll can block up to `to` seconds; allow margin for TLS.
+    with urlopen(Request(url, method="GET"), timeout=max(65, to + 15)) as resp:
         raw = json.loads(resp.read().decode("utf-8"))
     if not raw.get("ok"):
         raise RuntimeError(raw.get("description", raw))
@@ -141,6 +161,8 @@ def main() -> int:
         print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
     else:
         print("[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot", flush=True)
+    lp = _long_poll_timeout_sec()
+    print(f"[rlm-telegram] long-poll timeout={lp}s (set TELEGRAM_LONG_POLL_SEC=0-50 in .env to tune)", flush=True)
     last_offset: int | None = None
     while True:
         try:
@@ -170,4 +192,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\n[rlm-telegram] stopped (Ctrl+C).", flush=True)
+        raise SystemExit(0) from None
