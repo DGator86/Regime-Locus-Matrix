@@ -159,6 +159,21 @@ def _command_center_snapshot(root: Path) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             monitor_blob = None
     tg_state = load_notify_state(paths["state"])
+    ibkr_file: dict[str, str] = {}
+    try:
+        from dotenv import dotenv_values
+
+        if (root / ".env").is_file():
+            dv = dotenv_values(root / ".env")
+            for k in ("IBKR_HOST", "IBKR_PORT", "IBKR_CLIENT_ID", "IBKR_DASHBOARD_CLIENT_ID"):
+                v = dv.get(k)
+                if v is not None and str(v).strip() != "":
+                    ibkr_file[k] = str(v).strip()
+    except ImportError:
+        pass
+    from rlm.data.ibkr_snapshot import load_ibkr_dashboard_socket_config
+
+    dh, dp, dcid = load_ibkr_dashboard_socket_config()
     file_rows: list[dict[str, str]] = []
     for label, p in [
         ("universe_trade_plans.json", paths["plans"]),
@@ -188,6 +203,10 @@ def _command_center_snapshot(root: Path) -> dict[str, Any]:
         "telegram_token_set": bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()),
         "monitor_json": json.dumps(monitor_blob, indent=2, default=str) if monitor_blob else "",
         "file_rows": file_rows,
+        "ibkr_effective_host": dh,
+        "ibkr_effective_port": dp,
+        "ibkr_effective_dashboard_cid": dcid,
+        "ibkr_from_dotenv_file": ibkr_file,
     }
 
 
@@ -466,6 +485,28 @@ def main() -> None:
         with st.expander("Universe + all open positions (same as Telegram /portfolio)", expanded=True):
             st.code(snap["portfolio_text"], language="text")
         with st.expander("IBKR account snapshot (Gateway / TWS)", expanded=False):
+            eff_h = snap["ibkr_effective_host"]
+            eff_p = snap["ibkr_effective_port"]
+            eff_c = snap["ibkr_effective_dashboard_cid"]
+            st.caption(
+                f"**Process (used for this snapshot):** `{eff_h}:{eff_p}` · dashboard client id **{eff_c}** "
+                f"(base `IBKR_CLIENT_ID` + 20 unless `IBKR_DASHBOARD_CLIENT_ID` is set)"
+            )
+            fmap = snap.get("ibkr_from_dotenv_file") or {}
+            if fmap:
+                st.caption("**Repo `.env` file (for comparison):** " + " · ".join(f"`{k}={v}`" for k, v in fmap.items()))
+                fp = fmap.get("IBKR_PORT")
+                fh_raw = fmap.get("IBKR_HOST")
+                port_bad = fp is not None and str(eff_p) != str(fp).strip()
+                host_bad = fh_raw is not None and str(eff_h) != str(fh_raw).strip()
+                if port_bad or host_bad:
+                    st.warning(
+                        f"`.env` on disk does not match what this snapshot used (**`{eff_h}:{eff_p}`**). "
+                        "**Restart Streamlit** so `.env` reloads. Repo `.env` now overrides pre-set OS variables; "
+                        "if mismatch persists, remove duplicate **`IBKR_*`** from Windows system/user env."
+                    )
+            else:
+                st.caption("No `IBKR_*` entries read from repo `.env` (file missing or empty).")
             st.code(snap["balances_text"], language="text")
         with st.expander("Telegram notify state & env", expanded=False):
             st.caption(
