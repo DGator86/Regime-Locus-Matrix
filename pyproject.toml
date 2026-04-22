@@ -83,6 +83,13 @@ options_data = [
     "polygon-api-client",
     "yahooquery",
 ]
+# Starfleet AI crew — Scotty / Spock / Kirk agents
+# Primary backend: Groq (free, sign up at console.groq.com, set GROQ_API_KEY in .env)
+# Fallback backend: Ollama (local, set LLM_BACKEND=ollama, run `ollama serve`)
+# No extra Python deps required — uses stdlib urllib only.
+agents = [
+    "python-dotenv",   # already in core deps; listed here for clarity
+]
 # Alternate IB stack (examples only)
 ib-insync = [
     "ib_insync",
