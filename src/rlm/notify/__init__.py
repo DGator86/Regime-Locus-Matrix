@@ -3,6 +3,7 @@
 from rlm.notify.telegram_rlm import (
     build_balances_text,
     build_status_brief,
+    build_universe_and_positions,
     build_universe_report,
     default_paths,
     load_notify_state,
@@ -13,6 +14,7 @@ from rlm.notify.telegram_rlm import (
 __all__ = [
     "build_balances_text",
     "build_status_brief",
+    "build_universe_and_positions",
     "build_universe_report",
     "default_paths",
     "load_notify_state",

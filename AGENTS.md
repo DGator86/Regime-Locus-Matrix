@@ -26,6 +26,11 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 | Fine-tune Kronos | `python3 scripts/finetune_kronos.py --symbol SPY --epochs 10` |
 | Control Center (Streamlit) | From **repo root**: `pip install -e ".[ui]"` then `python3 scripts/run_control_center.py` (localhost). On a VPS open the app with `python3 scripts/run_control_center.py --public --port 8501` and browse to `http://<host>:8501/` (see [.streamlit/config.toml](.streamlit/config.toml); example unit: [deploy/rlm-control-center.service.example](deploy/rlm-control-center.service.example)). |
 | Master + Telegram (one process) | `python3 scripts/run_master.py --telegram-bot` — embeds the Telegram process; do not also run `scripts/rlm_telegram_bot.py`. Systemd: [deploy/rlm-master-telegram.service.example](deploy/rlm-master-telegram.service.example). Steps: [deploy/QUICK-ACTIVATE.txt](deploy/QUICK-ACTIVATE.txt). Telegram-only setup: [deploy/TELEGRAM_SETUP.txt](deploy/TELEGRAM_SETUP.txt). |
+| Ship changes to Hostinger VPS | From repo root (Windows): `.\scripts\deploy_vps.ps1` after committing — runs `git push origin main`, SSH `git pull` on `/opt/Regime-Locus-Matrix`, restarts `rlm-telegram.service`. If the server has local edits, use `-StashOnVpsBeforePull`. Defaults: `root@2.24.28.77`; override with env `VPS_HOST`, `VPS_USER`, `VPS_REPO`. |
+
+### Agent note: deploy after edits
+
+When you change this codebase in a session, **commit** the intended files, then **run `.\scripts\deploy_vps.ps1`** from the repo root so the VPS matches `main` (unless the user opts out). The script requires a **clean** working tree before push.
 
 ### Gotchas
 
