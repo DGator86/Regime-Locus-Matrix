@@ -21,3 +21,44 @@ Python side: RLM sets conservative BLAS / torch thread caps when
 ``RLM_MAX_CPU_THREADS`` is unset (see ``rlm.utils.compute_threads``).  Export
 ``RLM_MAX_CPU_THREADS=2`` (or match vCPU) in systemd ``Environment=`` for
 ``run_universe_options_pipeline`` / ``rlm forecast`` if you need a harder cap.
+
+
+High CPU steal + Docker ib-gateway + exit 1112
+==============================================
+
+**CPU steal (e.g. 78–95%)** means the hypervisor is not giving your VM the cycles
+you are entitled to: the guest "wants" CPU but the physical host is busy.  No
+amount of in-process tuning fixes that; you need less neighbor contention
+(different size/region/provider), fewer hungry neighbors on the same metal, or
+time-of-day luck.
+
+**A hard cap (e.g. 20% of one host CPU)** on top of steal is especially painful:
+the scheduler may grant you only a fraction of a fraction.  Python + Java
+together will fight for that slice.  Raising the cap helps only if the host
+actually has spare cycles (low steal).
+
+**Docker ``ib-gateway`` at ~94% of its container limit** usually means the
+gateway JVM is saturating what you allow that container — often a **restart
+loop** (crash → restart → crash) or aggressive GC / UI polling.
+
+**Exit code 1112** (IBC / Gateway in Linux containers) is often reported when the
+Gateway fails early in startup (e.g. login/API path, headless UI expectations,
+version or port mismatch).  Do this in order:
+
+1. Open the **IBC log** lines immediately before the 1112 exit; the message above
+   the exit code is authoritative (not the number alone).
+2. Confirm **credentials**, **paper vs live** ports (e.g. 4002 vs 4001), and that
+   the container image matches the **Gateway build** you expect.
+3. If you use **auto-restart**, verify IBC can find its **autorestart** / settings
+   paths inside the container (volume mounts); a missing path can cause rapid
+   exit/restart churn and constant CPU.
+
+**Architecture that usually works on small VPSes**
+
+- Run **IB Gateway in its own** small VM or a **dedicated** container with a modest
+  but **stable** CPU reservation (no tight 20% ceiling if you can avoid it), and
+  run **RLM Python + Streamlit** on another host or a second container that talks
+  to the API over the network.  That isolates Java restarts from your pipeline.
+
+If steal stays high after a plan upgrade, treat it as a **provider / placement**
+issue, not an application bug.
