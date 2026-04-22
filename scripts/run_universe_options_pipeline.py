@@ -49,7 +49,12 @@ from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors import FactorPipeline
-from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
+from rlm.forecasting.live_model import (
+    LiveKronosParameters,
+    LiveRegimeModelConfig,
+    apply_nightly_hyperparam_overlay,
+    load_live_regime_model,
+)
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
     estimate_entry_cost_from_matched_legs,
@@ -555,6 +560,8 @@ def main() -> int:
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")
+    if live_model is not None:
+        live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []

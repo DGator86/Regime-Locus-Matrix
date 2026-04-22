@@ -19,7 +19,8 @@ Examples::
     python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR orders
 
 **Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
-rescans, and optional IBKR **paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
+rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
+**paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
 With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
 (local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
 ``--interval`` / ``--rescan-interval`` if needed.
@@ -40,6 +41,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+_SRC = ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
 def _run(cmd: list[str]) -> int:
@@ -160,6 +166,17 @@ def main() -> int:
         default=10.0,
         help="Equity take-profit (%% above entry, default: 10)",
     )
+    ap.add_argument(
+        "--scanner-hours-et",
+        action="store_true",
+        help="Gate universe rescans to Mon–Fri 09:00–16:00 America/New_York; sets --follow and "
+        "default 300s rescan if none given.",
+    )
+    ap.add_argument(
+        "--scanner-24h",
+        action="store_true",
+        help="Disable US/Eastern scanner window (rescans run 24/7). Default: window on with --master.",
+    )
     args = ap.parse_args()
 
     if args.master:
@@ -187,6 +204,19 @@ def main() -> int:
         args.interval = 60.0 if args.master else 120.0
     if not hasattr(args, "rescan_interval"):
         args.rescan_interval = 300.0 if args.master else 0.0
+
+    if args.scanner_hours_et:
+        args.follow = True
+        if float(args.rescan_interval) <= 0.0:
+            args.rescan_interval = 300.0
+
+    scanner_hours_et = (args.master or args.scanner_hours_et) and not args.scanner_24h
+    if scanner_hours_et:
+        print(
+            "[info] Universe rescans gated to Mon–Fri 09:00–16:00 America/New_York "
+            "(use --scanner-24h for continuous rescans).",
+            flush=True,
+        )
 
     py = sys.executable
     plans = args.out
@@ -263,6 +293,12 @@ def main() -> int:
             while True:
                 time.sleep(rescan_every)
                 with rescan_lock:
+                    if scanner_hours_et and not is_scanner_window_open():
+                        print(
+                            f"[rescan] skip — outside ET scanner window ({scanner_window_label()})",
+                            flush=True,
+                        )
+                        continue
                     if not args.skip_pipeline:
                         print(f"[rescan] every {rescan_every:.0f}s: universe pipeline", flush=True)
                         if _run(pipeline_cmd()) != 0:

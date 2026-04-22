@@ -23,7 +23,7 @@ class NightlyMTFOptimizer:
         if REGIME_PATH.exists():
             model = json.loads(REGIME_PATH.read_text(encoding="utf-8"))
             if isinstance(model, dict):
-                regime_model = str(model.get("regime_model", regime_model))
+                regime_model = str(model.get("model", model.get("regime_model", regime_model)))
 
         study = optuna.create_study(direction="maximize", study_name="nightly_mtf")
         study.optimize(

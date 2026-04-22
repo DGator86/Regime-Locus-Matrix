@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -184,6 +185,38 @@ class LiveRegimeModelConfig(BaseModel):
 
     def decision_kwargs(self) -> dict[str, float | bool]:
         return self.roee.decision_kwargs()
+
+
+def apply_nightly_hyperparam_overlay(cfg: LiveRegimeModelConfig, repo_root: Path) -> LiveRegimeModelConfig:
+    """Merge ``data/processed/live_nightly_hyperparams.json`` into a live config when present.
+
+    Keys produced by :class:`rlm.optimization.nightly.NightlyMTFOptimizer` are mapped onto
+    :class:`LiveForecastParameters` / :class:`LiveROEEParameters` where names align; unknown keys
+    are ignored so the live stack stays forward-compatible.
+    """
+    path = repo_root / "data" / "processed" / "live_nightly_hyperparams.json"
+    if not path.is_file():
+        return cfg
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return cfg
+    if not isinstance(raw, dict) or not raw:
+        return cfg
+    d = cfg.model_dump()
+    fo: dict[str, Any] = d["forecast"]
+    rw: dict[str, Any] = d["roee"]
+    if (v := raw.get("move_window")) is not None:
+        fo["move_window"] = int(v)
+    if (v := raw.get("vol_window")) is not None:
+        fo["vol_window"] = int(v)
+    if (v := raw.get("direction_neutral_threshold")) is not None:
+        fo["direction_neutral_threshold"] = float(v)
+    if (v := raw.get("hmm_confidence_threshold")) is not None:
+        rw["confidence_threshold"] = float(v)
+    d["forecast"] = fo
+    d["roee"] = rw
+    return LiveRegimeModelConfig.model_validate(d)
 
 
 def load_live_regime_model(path: Path) -> LiveRegimeModelConfig:

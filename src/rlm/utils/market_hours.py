@@ -42,6 +42,11 @@ _EASTERN = _eastern_tz()
 _RTH_OPEN = time(9, 30, 0)
 _RTH_CLOSE = time(16, 0, 0)
 
+# Universe / rescan window (US Eastern legal time via ``_eastern_tz`` — EST in winter, EDT in summer).
+# Mon–Fri inclusive; ``start`` inclusive, ``end`` exclusive (scanner stops at 16:00).
+_SCANNER_START = time(9, 0, 0)
+_SCANNER_END = time(16, 0, 0)
+
 
 def _now_eastern() -> datetime:
     return datetime.now(_EASTERN)
@@ -118,6 +123,32 @@ def is_friday_afternoon(
     if now.weekday() != 4:  # Friday
         return False
     return minutes_to_session_end(_override=_override) <= cutoff_minutes_before_close
+
+
+def is_scanner_window_open(*, _override: Optional[datetime] = None) -> bool:
+    """True Mon–Fri when local Eastern clock is in ``[09:00, 16:00)``.
+
+    Used to gate periodic universe rescans (``run_everything`` master loop).
+    This is **not** identical to RTH (09:30–16:00); it matches a 9:00–16:00 ET scan day.
+    """
+    now = _override if _override is not None else _now_eastern()
+    if now.weekday() >= 5:
+        return False
+    t = now.time().replace(second=0, microsecond=0)
+    return _SCANNER_START <= t < _SCANNER_END
+
+
+def scanner_window_label(*, _override: Optional[datetime] = None) -> str:
+    """Human-readable state for :func:`is_scanner_window_open`."""
+    now = _override if _override is not None else _now_eastern()
+    if now.weekday() >= 5:
+        return "weekend (scanner off)"
+    t = now.time().replace(second=0, microsecond=0)
+    if t < _SCANNER_START:
+        return f"before_scanner_open ({_SCANNER_START.strftime('%H:%M')} ET)"
+    if t >= _SCANNER_END:
+        return f"at_or_after_scanner_close ({_SCANNER_END.strftime('%H:%M')} ET)"
+    return "scanner_open"
 
 
 def session_label(*, _override: Optional[datetime] = None) -> str:
