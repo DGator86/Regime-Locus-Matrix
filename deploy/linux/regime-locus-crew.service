@@ -33,6 +33,9 @@ EnvironmentFile=-@INSTALL_ROOT@/.env
 Environment=CREW_HEALTH_INTERVAL=120
 Environment=CREW_ANALYSIS_INTERVAL=300
 Environment=CREW_BRIEFING_INTERVAL=600
+# Scotty: auto-restart dead RLM systemd units (never restarts regime-locus-crew from inside this process)
+Environment=SCOTTY_AUTO_RESTART=1
+Environment=SCOTTY_RESTART_COOLDOWN_SEC=180
 
 ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_crew.py
 

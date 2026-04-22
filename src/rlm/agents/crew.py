@@ -116,7 +116,8 @@ class StarfleetCrew:
             f"Scotty (health every {self.cfg.health_interval}s) | "
             f"Spock (analysis every {self.cfg.analysis_interval}s) | "
             f"Kirk (briefings every {self.cfg.briefing_interval}s)\n"
-            f"LLM backend: {self.llm.cfg.backend} / {self.llm.cfg.model}"
+            f"LLM backend: {self.llm.cfg.backend} / {self.llm.cfg.model}",
+            force_notify=True,
         )
         while True:
             now = time.monotonic()
@@ -128,7 +129,10 @@ class StarfleetCrew:
         report, diagnosis = self.scotty.check()
         briefing = self.spock.analyse()
         decision = self.kirk.command(report, briefing, diagnosis)
-        self._send(self._format_full_briefing(report, diagnosis, briefing, decision))
+        self._send(
+            self._format_full_briefing(report, diagnosis, briefing, decision),
+            force_notify=True,
+        )
         return decision
 
     # ------------------------------------------------------------------
@@ -144,9 +148,12 @@ class StarfleetCrew:
                 self._last_health_report = report
                 self._last_scotty_diag = diagnosis
                 if not report.overall_ok or not self.cfg.silent_health_ok:
-                    self._send(f"<b>[Scotty]</b>\n{diagnosis}")
+                    self._send(
+                        f"<b>[Scotty]</b>\n{diagnosis}",
+                        force_notify=(not report.overall_ok) or (not self.cfg.silent_health_ok),
+                    )
             except Exception as exc:
-                self._send(f"<b>[Scotty ERROR]</b> {exc}")
+                self._send(f"<b>[Scotty ERROR]</b> {exc}", force_notify=True)
 
         # Spock market analysis
         if now - self._last_analysis >= self.cfg.analysis_interval:
@@ -156,9 +163,12 @@ class StarfleetCrew:
                 self._last_briefing_obj = briefing
                 # Only send if Spock found something meaningful
                 if briefing.overall_risk in ("HIGH", "CRITICAL"):
-                    self._send(f"<b>[Spock]</b> Risk: {briefing.overall_risk}\n{briefing.llm_text[:1200]}")
+                    self._send(
+                        f"<b>[Spock]</b> Risk: {briefing.overall_risk}\n{briefing.llm_text[:1200]}",
+                        force_notify=True,
+                    )
             except Exception as exc:
-                self._send(f"<b>[Spock ERROR]</b> {exc}")
+                self._send(f"<b>[Spock ERROR]</b> {exc}", force_notify=True)
 
         # Kirk full command briefing
         if now - self._last_briefing >= self.cfg.briefing_interval:
@@ -170,9 +180,9 @@ class StarfleetCrew:
                         self._last_briefing_obj,
                         self._last_scotty_diag,
                     )
-                    self._send(decision.to_telegram_message())
+                    self._send(decision.to_telegram_message(), force_notify=True)
                 except Exception as exc:
-                    self._send(f"<b>[Kirk ERROR]</b> {exc}")
+                    self._send(f"<b>[Kirk ERROR]</b> {exc}", force_notify=True)
 
     # ------------------------------------------------------------------
     # Formatting
@@ -201,11 +211,13 @@ class StarfleetCrew:
     # Telegram
     # ------------------------------------------------------------------
 
-    def _send(self, text: str) -> None:
+    def _send(self, text: str, *, force_notify: bool = False) -> None:
+        """If ``force_notify``, Telegram message rings even when ``silent_health_ok``."""
+        silent = bool(self.cfg.silent_health_ok and not force_notify)
         _tg_send(
             text,
             self.cfg.telegram_token,
             self.cfg.telegram_chat_id,
-            silent=self.cfg.silent_health_ok,
+            silent=silent,
         )
         print(text, flush=True)

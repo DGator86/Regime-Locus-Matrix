@@ -20,6 +20,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -46,7 +47,12 @@ _DEFAULT_SERVICES = [
     "regime-locus-crew",
     "rlm-control-center",
     "rlm-telegram",
+    "rlm-master-telegram",
+    "rlm-telegram-bot",
 ]
+
+# Monotonic time of last systemctl restart per unit (rate limit)
+_restart_last_mono: dict[str, float] = {}
 
 # Artefact staleness thresholds
 _STALE_HOURS = {
@@ -120,8 +126,12 @@ class ScottyAgent:
     def check(self) -> tuple[HealthReport, str]:
         """Run all health checks and return (report, llm_diagnosis)."""
         report = self._gather()
+        remed: list[str] = self._try_restart_inactive_services(report)
+        if remed:
+            report = self._gather()
         self._last_report = report
-        diagnosis = self._diagnose(report)
+        extra = "\n".join(remed) if remed else ""
+        diagnosis = self._diagnose(report, remediation_notes=extra)
         return report, diagnosis
 
     def is_degraded(self) -> bool:
@@ -246,15 +256,74 @@ class ScottyAgent:
         except Exception as exc:
             return f"(doctor failed: {exc})"
 
+    def _try_restart_inactive_services(self, report: HealthReport) -> list[str]:
+        """``systemctl restart`` for loaded-but-inactive watched units (Linux VPS only)."""
+        raw = (os.environ.get("SCOTTY_AUTO_RESTART") or "1").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return []
+        if shutil.which("systemctl") is None:
+            return []
+        allow_crew = (os.environ.get("SCOTTY_RESTART_ALLOW_CREW") or "").strip() in (
+            "1",
+            "true",
+            "yes",
+        )
+        skip_crew = any("run_crew" in (a or "") for a in sys.argv)
+        try:
+            cooldown = float((os.environ.get("SCOTTY_RESTART_COOLDOWN_SEC") or "180").strip())
+        except ValueError:
+            cooldown = 180.0
+        cooldown = max(30.0, cooldown)
+        now = time.monotonic()
+        actions: list[str] = []
+        for s in report.services:
+            if s.load_state != "loaded":
+                continue
+            if s.active:
+                continue
+            key = s.name
+            if key == "regime-locus-crew" and skip_crew and not allow_crew:
+                actions.append(f"[auto] skip restart {key}.service (would stop this crew process)")
+                continue
+            prev = _restart_last_mono.get(key, 0.0)
+            if now - prev < cooldown:
+                actions.append(f"[auto] skip restart {key}.service (cooldown {cooldown:.0f}s)")
+                continue
+            try:
+                r = subprocess.run(
+                    ["systemctl", "restart", f"{key}.service"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                _restart_last_mono[key] = now
+                tail = ((r.stderr or "") + (r.stdout or "")).strip()[:200]
+                if r.returncode == 0:
+                    actions.append(f"[auto] systemctl restart {key}.service — ok")
+                else:
+                    actions.append(f"[auto] systemctl restart {key}.service — failed: {tail or r.returncode}")
+            except Exception as exc:
+                actions.append(f"[auto] restart {key}.service error: {exc}")
+        return actions
+
     # ------------------------------------------------------------------
     # LLM diagnosis
     # ------------------------------------------------------------------
 
-    def _diagnose(self, report: HealthReport) -> str:
+    def _diagnose(self, report: HealthReport, *, remediation_notes: str = "") -> str:
         raw = report.to_text()
+        if remediation_notes:
+            raw = f"{raw}\n\nActions just taken (automated):\n{remediation_notes}"
         try:
             return self.llm.chat(
-                [Message("user", f"Here is the current system health report:\n\n{raw}\n\nWhat is your diagnosis and what actions do I need to take right now?")],
+                [
+                    Message(
+                        "user",
+                        "Here is the current system health report:\n\n"
+                        f"{raw}\n\n"
+                        "What is your diagnosis and what actions do I need to take right now?",
+                    )
+                ],
                 system=_SCOTTY_SYSTEM,
             )
         except Exception as exc:

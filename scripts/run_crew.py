@@ -21,6 +21,9 @@ Environment (.env):
     CREW_ANALYSIS_INTERVAL  seconds between Spock analyses  (default 300)
     CREW_BRIEFING_INTERVAL  seconds between Kirk briefings  (default 600)
     CREW_SERVICES           comma-separated systemd unit names to monitor
+    SCOTTY_AUTO_RESTART     1 = try systemctl restart on loaded-but-inactive watched units (default 1)
+    SCOTTY_RESTART_COOLDOWN_SEC  min seconds between restarts per unit (default 180)
+    SCOTTY_RESTART_ALLOW_CREW set 1 to allow restarting regime-locus-crew (unsafe from run_crew)
 """
 
 from __future__ import annotations
