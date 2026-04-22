@@ -1,0 +1,53 @@
+Telegram bot — setup checklist
+==============================
+
+1) Create a bot in Telegram
+   - Open a chat with **@BotFather**
+   - Send **/newbot** (or use an existing bot)
+   - Copy the **API token** BotFather gives you. Keep it secret; never commit it to git.
+
+2) Put the token in **.env** (repo root, next to `pyproject.toml`)
+   ::
+       TELEGRAM_BOT_TOKEN=123456:ABC-your-token-here
+
+   Optional (recommended for a public or shared host):
+   ::
+       TELEGRAM_ALLOWED_USER_IDS=123456789
+   (Your numeric user ID: message **@userinfobot** in Telegram, or from any bot that shows it.)
+
+3) If your **Windows** PC drops long requests (getUpdates errors 10054 / 11001), add:
+   ::
+       TELEGRAM_LONG_POLL_SEC=10
+
+4) **Push notifications** (new plans, trade_log, equity state) are on by default. Optional:
+   ::
+       TELEGRAM_NOTIFY=1
+       TELEGRAM_NOTIFY_INTERVAL_SEC=20
+   - First time: message the bot **/start** in Telegram (saves your chat for pushes), **or** set
+     **TELEGRAM_NOTIFY_CHAT_ID** in `.env` to your numeric chat id.
+
+5) **Install** (from repo root, venv activated):
+   ::
+       pip install -e "."
+   (``python-dotenv`` is part of the project; for ``/balances`` you need **pip install -e ".[ibkr]"** and IB Gateway running.)
+
+6) **Run the bot (standalone, for testing)**
+   ::
+       python3 scripts/rlm_telegram_bot.py
+   On Windows: ``py -3 scripts\rlm_telegram_bot.py``
+
+   - In Telegram, send: **/start** then **/help** then **/status** and **/universe** if you have run the universe pipeline.
+   - **/balances** needs IBKR API reachable (see ``IBKR_HOST`` / ``IBKR_PORT`` in ``.env``).
+
+7) **Run with the full trading stack (VPS, recommended)**
+   - One process starts the bot for you; **do not** also run step 6.
+   ::
+       python3 scripts/run_master.py --telegram-bot
+   - Or use **systemd**: ``deploy/rlm-master-telegram.service.example`` (``deploy/QUICK-ACTIVATE.txt``).
+
+8) **Troubleshooting**
+   - **401** / "Unauthorized" → wrong or revoked token; get a new one from @BotFather.
+   - **Long-poll / connection errors on Windows** → use ``TELEGRAM_LONG_POLL_SEC=10`` or run the bot on the **VPS** instead.
+   - **No push messages** → send **/start** once, or set ``TELEGRAM_NOTIFY_CHAT_ID``; check ``data/processed/telegram_notify_state.json`` and that ``TELEGRAM_NOTIFY`` is not ``0``.
+
+For Hostinger / VPS, same ``.env``; run via systemd so it keeps running (see **deploy/rlm-telegram-bot.service.example** for bot-only, or **rlm-master-telegram** for full stack + bot).
