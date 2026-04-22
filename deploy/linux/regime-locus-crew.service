@@ -2,6 +2,7 @@
 #
 # Prereqs on the VPS:
 #   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[agents]")
+#     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed.
 #   - .env with GROQ_API_KEY (free key from console.groq.com)
 #             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
 #   - OR: set LLM_BACKEND=ollama if you prefer a fully-local model
@@ -37,6 +38,7 @@ Environment=CREW_BRIEFING_INTERVAL=600
 Environment=SCOTTY_AUTO_RESTART=1
 Environment=SCOTTY_RESTART_COOLDOWN_SEC=180
 
+# After install, replace with /opt/rlm-venv/bin/python if that is your venv.
 ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_crew.py
 
 Restart=always
