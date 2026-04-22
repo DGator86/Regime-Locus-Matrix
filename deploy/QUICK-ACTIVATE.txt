@@ -1,0 +1,35 @@
+Quick activation (RLM + Telegram)
+=================================
+
+1) Clone / pull, create venv, install::
+
+    cd /opt/Regime-Locus-Matrix   # or your path
+    git pull
+    python3 -m venv .venv
+    . .venv/bin/activate
+    pip install -U pip
+    pip install -e ".[ibkr,ui]"
+
+2) ``.env`` (never commit): MASSIVE_*, IBKR_HOST, IBKR_PORT, TELEGRAM_BOT_TOKEN, optional
+   TELEGRAM_ALLOWED_USER_IDS, TELEGRAM_NOTIFY=1, TELEGRAM_LONG_POLL_SEC=10 on flaky networks.
+
+3) **One process** = master + Telegram (script starts the bot subprocess)::
+
+    python3 scripts/run_master.py --telegram-bot
+
+   Do **not** also run ``scripts/rlm_telegram_bot.py`` (duplicate bot).
+
+4) **Windows** (repo root)::
+
+    .\scripts\activate_rlm_stack.ps1 -Run
+
+5) **Linux systemd** (VPS)::
+
+    sudo install -m 0644 deploy/rlm-master-telegram.service.example /etc/systemd/system/rlm-master-telegram.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now rlm-master-telegram
+    sudo journalctl -u rlm-master-telegram -f
+
+6) **Telegram**: message the bot with ``/start`` (saves notify chat) then ``/help``.
+
+7) **Streamlit** (optional, separate): ``deploy/rlm-control-center.service.example``.

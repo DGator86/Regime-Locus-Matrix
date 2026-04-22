@@ -25,6 +25,7 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 | Backtest (no Kronos) | `python3 scripts/run_backtest.py --no-kronos --no-vix` |
 | Fine-tune Kronos | `python3 scripts/finetune_kronos.py --symbol SPY --epochs 10` |
 | Control Center (Streamlit) | From **repo root**: `pip install -e ".[ui]"` then `python3 scripts/run_control_center.py` (localhost). On a VPS open the app with `python3 scripts/run_control_center.py --public --port 8501` and browse to `http://<host>:8501/` (see [.streamlit/config.toml](.streamlit/config.toml); example unit: [deploy/rlm-control-center.service.example](deploy/rlm-control-center.service.example)). |
+| Master + Telegram (one process) | `python3 scripts/run_master.py --telegram-bot` — embeds the Telegram process; do not also run `scripts/rlm_telegram_bot.py`. Systemd: [deploy/rlm-master-telegram.service.example](deploy/rlm-master-telegram.service.example). Steps: [deploy/QUICK-ACTIVATE.txt](deploy/QUICK-ACTIVATE.txt). |
 
 ### Gotchas
 

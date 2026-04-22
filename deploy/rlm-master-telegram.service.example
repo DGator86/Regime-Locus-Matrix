@@ -1,0 +1,29 @@
+# Systemd: full master loop (universe rescans, equity book, monitor) + --telegram-bot.
+# copy to /etc/systemd/system/rlm-master-telegram.service
+#   sudo systemctl enable --now rlm-master-telegram
+#
+# Requires: repo at /opt/Regime-Locus-Matrix, venv, .env (TELEGRAM_*, IBKR_*, MASSIVE_* as needed)
+# For Streamlit, use a separate service (deploy/rlm-control-center.service.example).
+
+[Unit]
+Description=Regime-Locus-Matrix master + Telegram bot
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/run_master.py --telegram-bot
+Restart=always
+RestartSec=20
+KillMode=mixed
+TimeoutStopSec=120
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rlm-master-telegram
+
+[Install]
+WantedBy=multi-user.target
