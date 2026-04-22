@@ -1,0 +1,24 @@
+# Example systemd — copy to /etc/systemd/system/rlm-telegram-bot.service, adjust paths.
+# Token lives only in /opt/Regime-Locus-Matrix/.env (TELEGRAM_BOT_TOKEN=...).
+#   sudo systemctl enable --now rlm-telegram-bot
+#
+# Get your numeric Telegram user ID: message @userinfobot or look at start-up logs
+# (rlm-telegram) after first message if you temporarily log chat_id (not in production).
+
+[Unit]
+Description=RLM Telegram bot (long-poll)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/rlm_telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
