@@ -1,0 +1,33 @@
+PERSISTENCE — what can and cannot be promised
+==============================================
+
+No software vendor can *guarantee* that a cloud VPS will "never" shut down. The
+host can migrate, patch, or restart nodes; the guest OS can OOM, panic, or lose
+power; your account or disk can fill.  What *is* achievable is:
+
+  * Services that **start at boot** (``systemctl enable``)
+  * Processes that **restart when they exit** (``Restart=always`` in systemd, or
+    Docker ``restart: unless-stopped``)
+  * So that **normal** crashes and **reboots** bring the stack back without you
+    logging in over SSH
+
+That is the practical maximum. For proof after you configure the server, reboot
+the VPS once and confirm everything came back (IB Gateway, your systemd units,
+Streamlit, master loop).
+
+Shipped in this repo (adjust paths to match your install, e.g. ``/opt/``)::
+
+  - ``deploy/rlm-control-center.service.example`` — Control Center (Streamlit)
+  - ``deploy/linux/regime-locus-master.service`` + ``deploy/linux/install-systemd.sh`` — master loop
+
+Set ``Restart=always`` in the unit if you want restarts even after a clean exit
+0 (at the cost of harder debugging if something exits "successfully" in a
+loop).  The examples use ``always`` for long-running trading UI + pipeline
+services; switch to ``on-failure`` if you prefer restarts only on errors.
+
+IB Gateway in Docker: set ``--restart=unless-stopped`` (or Compose
+``restart: unless-stopped``) on the *container*, not only the Java process, so
+reboots and Docker daemon restarts bring the gateway back.
+
+External monitoring (health checks, alerts when HTTP/TCP to your app fails) is
+still recommended; systemd does not replace observability.

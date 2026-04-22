@@ -18,7 +18,8 @@ WorkingDirectory=/opt/Regime-Locus-Matrix
 EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
 Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/run_control_center.py --public --port 8501
-Restart=on-failure
+# "always" = restart on any exit, including 0; use "on-failure" if you only want crash restarts
+Restart=always
 RestartSec=10
 
 [Install]

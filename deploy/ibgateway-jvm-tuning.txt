@@ -62,3 +62,11 @@ version or port mismatch).  Do this in order:
 
 If steal stays high after a plan upgrade, treat it as a **provider / placement**
 issue, not an application bug.
+
+Process persistence
+===================
+
+The repo cannot promise the VPS never reboots, but you can make IB Gateway and
+RLM **restart automatically**: Docker ``--restart=unless-stopped`` for the
+gateway container, and systemd for Python (see ``deploy/persistence.txt`` and
+``deploy/linux/install-systemd.sh``).
