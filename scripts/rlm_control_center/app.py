@@ -14,15 +14,20 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from rlm.utils.compute_threads import apply_compute_thread_env
+
+apply_compute_thread_env()
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 

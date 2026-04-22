@@ -1,0 +1,23 @@
+IB Gateway / IBC — JVM flags that often cause high CPU on small VPSes
+======================================================================
+
+If ``java`` shows sustained high CPU (e.g. well over one full core with multiple GC threads) while
+the gateway is idle, check **GC thread counts**.  A common misconfiguration is
+``-XX:ParallelGCThreads=20`` on a host with only 2–4 vCPUs and a small heap
+(``-Xmx768m``): the JVM still spins parallel GC work that fights the rest of the
+stack (Python forecast, Streamlit, etc.).
+
+Recommended direction (tune to your vCPU count):
+
+  -XX:+UseG1GC
+  -XX:MaxGCPauseMillis=200
+  -XX:ParallelGCThreads=2
+  -XX:ConcGCThreads=1
+
+Set these in the IBC / gateway launch script or ``config.ini`` JVM options section
+where your environment injects ``JAVA_TOOL_OPTIONS`` or the install4j command line.
+
+Python side: RLM sets conservative BLAS / torch thread caps when
+``RLM_MAX_CPU_THREADS`` is unset (see ``rlm.utils.compute_threads``).  Export
+``RLM_MAX_CPU_THREADS=2`` (or match vCPU) in systemd ``Environment=`` for
+``run_universe_options_pipeline`` / ``rlm forecast`` if you need a harder cap.

@@ -18,12 +18,16 @@ Examples::
 
     python scripts/run_universe_options_pipeline.py --out data/processed/universe_trade_plans.json
     python scripts/run_universe_options_pipeline.py --top 3 --stop-loss-frac 0.45
+
+BLAS/OpenMP and PyTorch threads are capped automatically (see ``RLM_MAX_CPU_THREADS`` in
+``.env.example``); set it before launch for a stricter ceiling on shared VPSes.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -31,14 +35,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
+
+apply_compute_thread_env()
+
 import numpy as np
 import pandas as pd
 
 # ruff: noqa: E402
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
 
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
@@ -452,8 +460,8 @@ def main() -> int:
     p.add_argument(
         "--massive-workers",
         type=int,
-        default=4,
-        help="Concurrent Massive chain fetch workers",
+        default=max(1, min(4, (os.cpu_count() or 4) // 2)),
+        help="Concurrent Massive chain fetch workers (default: min(4, max(1, cpu_count//2)))",
     )
     p.add_argument(
         "--massive-cache-ttl",

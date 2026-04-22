@@ -7,6 +7,10 @@ import sys
 
 
 def main() -> None:
+    from rlm.utils.compute_threads import apply_compute_thread_env
+
+    apply_compute_thread_env()
+
     parser = argparse.ArgumentParser(
         prog="rlm",
         description="Regime Locus Matrix — quantitative trading engine",
