@@ -17,6 +17,7 @@ Examples::
     python scripts/run_everything.py --pipeline-args "--top 2 --no-vix"
     python scripts/run_everything.py --master --with-equity              # options + equities book
     python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR orders
+    python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
 
 **Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
 rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
@@ -33,6 +34,7 @@ are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import subprocess
 import sys
@@ -177,6 +179,11 @@ def main() -> int:
         action="store_true",
         help="Disable US/Eastern scanner window (rescans run 24/7). Default: window on with --master.",
     )
+    ap.add_argument(
+        "--telegram-bot",
+        action="store_true",
+        help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
+    )
     args = ap.parse_args()
 
     if args.master:
@@ -313,6 +320,18 @@ def main() -> int:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
+
+    if args.telegram_bot:
+        tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
+        print(f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)", flush=True)
+        try:
+            subprocess.Popen(
+                [py, str(tscript)],
+                cwd=str(ROOT),
+                env=os.environ.copy(),
+            )
+        except OSError as e:
+            print(f"[warn] could not start Telegram bot: {e}", flush=True)
 
     mcmd = [
         py,
