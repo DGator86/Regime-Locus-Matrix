@@ -11,8 +11,12 @@ Requires: ``pip install -e ".[ui]"`` (optional ``ibkr`` for live bars).
 
 from __future__ import annotations
 
+import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -98,6 +102,93 @@ def _cached_feature_forecast(
     )
 VOLS = ("low_vol", "high_vol", "transition")
 DEFAULT_PLANS = ROOT / "data" / "processed" / "universe_trade_plans.json"
+
+
+@st.cache_data(show_spinner="Loading command snapshot…", ttl=15)
+def _command_center_snapshot(root: Path) -> dict[str, Any]:
+    """Single refresh bundle for the AT A GLANCE tab (live files + optional IBKR)."""
+    from rlm.notify.telegram_rlm import (
+        build_balances_text,
+        build_status_brief,
+        build_universe_and_positions,
+        default_paths,
+        load_notify_state,
+    )
+
+    paths = default_paths(root)
+    plans_payload: dict[str, Any] | None = None
+    if paths["plans"].is_file():
+        try:
+            raw = json.loads(paths["plans"].read_text(encoding="utf-8"))
+            plans_payload = raw if isinstance(raw, dict) else None
+        except (OSError, json.JSONDecodeError):
+            plans_payload = None
+    health, health_detail = universe_health_score(plans_payload)
+    active_n = 0
+    if plans_payload and isinstance(plans_payload.get("results"), list):
+        active_n = sum(
+            1 for r in plans_payload["results"] if isinstance(r, dict) and r.get("status") == "active"
+        )
+    open_opts = 0
+    if paths["trade_log"].is_file():
+        try:
+            df = pd.read_csv(paths["trade_log"])
+            if not df.empty and "plan_id" in df.columns and "closed" in df.columns:
+                tail = df.groupby("plan_id", sort=False).tail(1)
+                open_opts = int((tail["closed"].astype(str).str.strip() != "1").sum())
+        except (OSError, ValueError):
+            open_opts = 0
+    eq_open = 0
+    if paths["equity_state"].is_file():
+        try:
+            eq = json.loads(paths["equity_state"].read_text(encoding="utf-8"))
+            if isinstance(eq, dict):
+                eq_open = sum(
+                    1
+                    for v in eq.values()
+                    if isinstance(v, dict) and str(v.get("status") or "") == "open"
+                )
+        except (OSError, json.JSONDecodeError):
+            pass
+    mon_path = root / "data" / "processed" / "trade_monitor_state.json"
+    monitor_blob: dict[str, Any] | None = None
+    if mon_path.is_file():
+        try:
+            m = json.loads(mon_path.read_text(encoding="utf-8"))
+            monitor_blob = m if isinstance(m, dict) else None
+        except (OSError, json.JSONDecodeError):
+            monitor_blob = None
+    tg_state = load_notify_state(paths["state"])
+    file_rows: list[dict[str, str]] = []
+    for label, p in [
+        ("universe_trade_plans.json", paths["plans"]),
+        ("trade_log.csv", paths["trade_log"]),
+        ("equity_positions_state.json", paths["equity_state"]),
+        ("telegram_notify_state.json", paths["state"]),
+        ("trade_monitor_state.json", mon_path),
+    ]:
+        if p.is_file():
+            mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            b = p.stat().st_size
+            sz = f"{b} B" if b < 1024 else f"{b / 1024:.1f} KB"
+        else:
+            mtime, sz = "—", "—"
+        file_rows.append({"file": label, "updated_utc": mtime, "size": sz})
+    return {
+        "health": health,
+        "health_detail": health_detail,
+        "active_plans": active_n,
+        "open_options": open_opts,
+        "open_equity": eq_open,
+        "status_brief": build_status_brief(root),
+        "portfolio_text": build_universe_and_positions(root, max_active=16, max_positions=25),
+        "balances_text": build_balances_text(root),
+        "telegram_state_json": json.dumps(tg_state, indent=2, default=str) if tg_state else "{}",
+        "telegram_notify_env": (os.environ.get("TELEGRAM_NOTIFY") or "1").strip(),
+        "telegram_token_set": bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()),
+        "monitor_json": json.dumps(monitor_blob, indent=2, default=str) if monitor_blob else "",
+        "file_rows": file_rows,
+    }
 
 
 def _load_bars_ibkr(symbol: str, duration: str, bar_size: str) -> pd.DataFrame:
@@ -215,8 +306,8 @@ def main() -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Tip: keep **Bars source = Demo** until you have `data/raw/bars_{SYM}.csv` or IBKR. "
-        "Use **Deterministic** forecast first; HMM/Markov need enough history and can be slow."
+        "Start with **AT A GLANCE** for universe, open positions, IBKR snapshot, Telegram state, and file freshness. "
+        "Tip: keep **Bars source = Demo** until you have `data/raw/bars_{SYM}.csv` or IBKR."
     )
     with st.expander("How to launch (local vs VPS)", expanded=False):
         st.markdown(
@@ -315,6 +406,7 @@ def main() -> None:
         auto_refresh = st.checkbox("Auto-refresh 30s", value=False)
         if st.button("Refresh data", key="sidebar_refresh_data"):
             clear_file_caches()
+            _command_center_snapshot.clear()
             st.session_state["proc_df"] = None
             st.rerun()
 
@@ -343,8 +435,9 @@ def main() -> None:
             else:
                 st.toast(f"Exit {code}", icon="⚠️")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         [
+            "🎯 AT A GLANCE",
             "🌍 UNIVERSE",
             "📈 FORECASTS",
             "⚔️ POSITIONS",
@@ -354,6 +447,42 @@ def main() -> None:
             "⚙️ SETTINGS",
         ]
     )
+
+    with tab0:
+        st.subheader("Command view — live stack status")
+        snap = _command_center_snapshot(ROOT)
+        c0, c1, c2, c3, c4 = st.columns(5)
+        with c0:
+            st.metric("Universe health", f"{snap['health']:.0f}%", help=str(snap["health_detail"]))
+        with c1:
+            st.metric("Active plans", snap["active_plans"])
+        with c2:
+            st.metric("Open option legs", snap["open_options"], help="Latest trade_log row per plan_id with closed≠1")
+        with c3:
+            st.metric("Open equity (state)", snap["open_equity"])
+        with c4:
+            st.metric("Telegram token", "set" if snap["telegram_token_set"] else "—", help=".env TELEGRAM_BOT_TOKEN")
+        st.markdown(f"**Plan file** — `{snap['status_brief'].replace(chr(10), ' · ')}`")
+        with st.expander("Universe + all open positions (same as Telegram /portfolio)", expanded=True):
+            st.code(snap["portfolio_text"], language="text")
+        with st.expander("IBKR account snapshot (Gateway / TWS)", expanded=False):
+            st.code(snap["balances_text"], language="text")
+        with st.expander("Telegram notify state & env", expanded=False):
+            st.caption(
+                f"TELEGRAM_NOTIFY={snap['telegram_notify_env']} · token configured: {snap['telegram_token_set']}"
+            )
+            st.code(snap["telegram_state_json"], language="json")
+        with st.expander("Trade monitor state (peak / trail)", expanded=False):
+            if snap["monitor_json"]:
+                st.code(snap["monitor_json"], language="json")
+            else:
+                st.info("No `trade_monitor_state.json` yet — monitor job may not have run.")
+        with st.expander("Artifact freshness", expanded=False):
+            st.dataframe(pd.DataFrame(snap["file_rows"]), use_container_width=True, hide_index=True)
+        st.markdown(
+            "**Telegram bot:** `/start` `/help` `/status` `/universe` `/portfolio` `/balances` · "
+            "**Remote:** `python scripts/run_control_center.py --public --port 8501` then open `http://<host>:8501/`"
+        )
 
     # --- load bars + processed (shared) ---
     bars = pd.DataFrame()
