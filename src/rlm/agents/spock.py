@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from rlm.agents.base import LLMClient, Message
-from rlm.persona.pipeline import PersonaDecisionPipeline
-from rlm.persona.models import PersonaInputs
 
 # -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
@@ -41,8 +39,6 @@ class PlanAnalysis:
     rank_score: float
     action: str          # GO | HOLD | ABORT
     rationale: str
-    persona_directive: str = "unknown"
-    persona_trap_detected: bool = False
     raw_plan: dict[str, Any] = field(default_factory=dict)
 
 
@@ -139,35 +135,9 @@ class SpockAgent:
             regime = r.get("regime", r.get("regime_label", "?"))
             conf = r.get("regime_confidence", r.get("confidence", "?"))
             kron = r.get("kronos_return_forecast", "?")
-
-            # Run persona interpretation if possible
-            persona_str = ""
-            try:
-                pipeline_data = r.get("pipeline", {})
-                regime_key = str(pipeline_data.get("regime_key", ""))
-                regime_parts = [p.strip() for p in regime_key.split("|") if p.strip()]
-                
-                inputs = PersonaInputs(
-                    s_d=float(pipeline_data.get("S_D", 0.0)),
-                    s_v=float(pipeline_data.get("S_V", 0.0)),
-                    s_l=float(pipeline_data.get("S_L", 0.0)),
-                    s_g=float(pipeline_data.get("S_G", 0.0)),
-                    direction_regime=regime_parts[0] if len(regime_parts) > 0 else "neutral",
-                    volatility_regime=regime_parts[1] if len(regime_parts) > 1 else "neutral",
-                    liquidity_regime=regime_parts[2] if len(regime_parts) > 2 else "neutral",
-                    dealer_flow_regime=regime_parts[3] if len(regime_parts) > 3 else "neutral",
-                    hmm_confidence=float(r.get("decision", {}).get("metadata", {}).get("confidence", 0.5)),
-                    roee_action=str(r.get("decision", {}).get("strategy_name", "")) if r.get("decision") else None,
-                )
-                persona = PersonaDecisionPipeline().run_from_inputs(inputs)
-                trap = " [TRAP!]" if persona.garak.trap_detected else ""
-                persona_str = f" | SISKO: {persona.sisko.directive.upper()}{trap}"
-            except Exception:
-                pass
-
             lines.append(
                 f"  • {sym} [{strat}] score={score} regime={regime} conf={conf} "
-                f"kronos={kron}{persona_str} id={pid}"
+                f"kronos={kron} id={pid}"
             )
         return "\n".join(lines)
 
