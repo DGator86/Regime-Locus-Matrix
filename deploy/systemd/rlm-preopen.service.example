@@ -1,0 +1,19 @@
+# Pre-open session brief — copy to /etc/systemd/system/rlm-preopen.service (adjust @INSTALL_ROOT@).
+# Installed by: sed "s|@INSTALL_ROOT@|/opt/Regime-Locus-Matrix|g" ... | sudo tee /etc/systemd/system/rlm-preopen.service
+#
+# Enable the timer (rlm-preopen.timer.example), not this service directly.
+
+[Unit]
+Description=RLM pre-open session brief (bounded universe pipeline)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+ExecStart=@INSTALL_ROOT@/.venv/bin/python @INSTALL_ROOT@/scripts/run_session_brief.py --phase preopen --top 8
+
+[Install]
+WantedBy=multi-user.target

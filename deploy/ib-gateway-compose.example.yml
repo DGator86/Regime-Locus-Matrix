@@ -1,0 +1,17 @@
+# Sanitized example: gnzsnz/ib-gateway-docker style layout for VPS (host-published paper API).
+# Copy beside a chmod 600 env file (e.g. .env.ibgateway) — do not commit credentials.
+#
+# Typical vars (see upstream image docs): TWS_USERID, TWS_PASSWORD, TRADING_MODE=paper,
+# READ_ONLY_API, TWOFA_TIMEOUT_ACTION, IBC_* / TWS_* as needed for unattended restart.
+#
+# On the VPS, point RLM at the host port you publish (often 4004 for paper with socat/host networking):
+#   IBKR_HOST=127.0.0.1
+#   IBKR_PORT=4004
+#
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.ibgateway

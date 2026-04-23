@@ -3,11 +3,11 @@
 Telegram bot for RLM: commands + optional file-driven **push** alerts (options + equity).
 
 **Push alerts** (when ``TELEGRAM_NOTIFY=1`` and ``notify_chat_id`` is set from ``/start`` or
-``TELEGRAM_NOTIFY_CHAT_ID``): new options plan in ``universe_trade_plans.json``,
-take-profit / exit rows in ``trade_log.csv``, equity open/close in
+``TELEGRAM_NOTIFY_CHAT_ID``): new **active** ``plan_id`` in ``universe_trade_plans.json``;
+opens / take-profit / exit signals in ``trade_log.csv`` (monitor); equity open/close in
 ``equity_positions_state.json``.
 
-**Commands**: /start, /help, /status, /universe, /balances (IBKR snapshot)
+**Commands**: /start, /help, /status, /universe, /portfolio, /balances, /brief (session timer JSON)
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+import urllib.error
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -34,7 +35,9 @@ def _load_env() -> None:
         return
     p = ROOT / ".env"
     if p.is_file():
-        load_dotenv(p)
+        # systemd EnvironmentFile= parses .env differently than bash/python-dotenv
+        # (quotes, duplicate keys, export). Override so the file on disk matches curl/source tests.
+        load_dotenv(p, override=True)
 
 
 def _token() -> str:
@@ -106,7 +109,13 @@ def _handle_message(
     text: str,
     allowed: set[int] | None,
 ) -> None:
-    from rlm.notify.telegram_rlm import build_balances_text, build_status_brief, build_universe_report
+    from rlm.notify.telegram_rlm import (
+        build_balances_text,
+        build_session_brief_text,
+        build_status_brief,
+        build_universe_and_positions,
+        build_universe_report,
+    )
 
     if allowed is not None and user_id not in allowed:
         _api(token, "sendMessage", chat_id=chat_id, text="Not authorized for this bot.")
@@ -127,21 +136,27 @@ def _handle_message(
         st.parent.mkdir(parents=True, exist_ok=True)
         st.write_text(json.dumps(blob, indent=2), encoding="utf-8")
         reply = (
-            "RLM bot online. Push alerts use this chat. Commands: /help /status /universe /balances"
+            "RLM bot online. Push alerts use this chat. Commands: /help /status /universe /portfolio /balances /brief"
         )
     elif t_low.startswith("/help"):
         reply = (
             "/status — plan file summary\n"
             "/universe — ranked active trade ideas\n"
+            "/portfolio — universe + open option rows (trade_log) + equity state\n"
             "/balances — IBKR net liq, cash, and STK/OPT position rows (needs Gateway + ibapi)\n"
-            "Push: new option plan, exit/take-profit (trade_log), equity open/close (state json)."
+            "/brief — last session_brief.json (pre/post-close timer run)\n"
+            "Push alerts: new active universe plan_id; trade_log open / TP / exit; equity open/close."
         )
     elif t_low.startswith("/status"):
         reply = build_status_brief(ROOT)
+    elif t_low.startswith("/portfolio") or t_low.startswith("/positions"):
+        reply = build_universe_and_positions(ROOT, max_active=12, max_positions=20)
     elif t_low.startswith("/universe") or t_low.startswith("/report"):
         reply = build_universe_report(ROOT, max_active=12)
     elif t_low.startswith("/balances") or t_low.startswith("/balance"):
         reply = build_balances_text(ROOT)
+    elif t_low.startswith("/brief") or t_low.startswith("/session"):
+        reply = build_session_brief_text(ROOT)
     else:
         reply = "Unknown command. Try /help"
     for chunk in _chunk_text(str(reply)[:12000], 4000):
@@ -240,6 +255,18 @@ def main() -> int:
     while True:
         try:
             updates = _get_updates(token, last_offset)
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                print(
+                    "[rlm-telegram] getUpdates HTTP 409 Conflict — only one client may long-poll this bot. "
+                    "Stop any other rlm_telegram_bot, run_master.py --telegram-bot, IDE test, or second server "
+                    "using the same TELEGRAM_BOT_TOKEN; then restart this service.",
+                    flush=True,
+                )
+            else:
+                print(f"[rlm-telegram] getUpdates HTTP {e.code}: {e.reason}; sleep 5s", flush=True)
+            time.sleep(5)
+            continue
         except Exception as e:
             print(f"[rlm-telegram] getUpdates error: {e}; sleep 5s", flush=True)
             time.sleep(5)

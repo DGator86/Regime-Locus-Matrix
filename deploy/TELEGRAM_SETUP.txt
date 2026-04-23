@@ -1,0 +1,240 @@
+Telegram bot — explicit setup (read top to bottom)
+=================================================
+
+This project’s bot script is:  scripts/rlm_telegram_bot.py
+It reads settings from a file named  .env  in the **repo root** (the folder that contains
+pyproject.toml and the scripts/ folder — not inside .git).
+
+
+--------------------------------------------------------------------------------
+PART A — Create the bot in Telegram (you do this on your phone or desktop app)
+--------------------------------------------------------------------------------
+
+1. Install Telegram if you do not have it: https://telegram.org
+
+2. In the search box, type:  BotFather
+3. Open the chat with the account named “BotFather” (official, verified).
+
+4. Tap the message field and send exactly this (including the slash):
+   /newbot
+
+5. BotFather asks for a **display name** (what users see). Type any name, e.g.:
+   My RLM Bot
+   Send the message.
+
+6. BotFather asks for a **username** (must end in “bot”, unique worldwide). Example:
+   my_rlm_bot_dv
+   Send the message. If it is taken, try another name ending in “bot”.
+
+7. BotFather replies with a success message. In that message you will see a line like:
+   Use this token to access the HTTP API:
+   followed by a long string (numbers, letters, maybe a colon).
+
+8. **Copy that entire token** and keep it private. You will paste it into .env in Part C.
+   Do not post the token in Telegram groups, Discord, or git.
+
+9. (Optional) To see or change the bot later, you can message BotFather again with:
+   /mybots
+   and select your bot.
+
+
+--------------------------------------------------------------------------------
+PART B — Find your “repo root” on your computer
+--------------------------------------------------------------------------------
+
+The repo root is the folder that contains **all** of these:
+   - pyproject.toml
+   - scripts/   (folder)
+   - src/       (folder)
+
+Example on Windows:
+   C:\Users\YourName\...\Regime-Locus-Matrix
+
+You need to open a terminal **in that folder** (see Part D).
+
+
+--------------------------------------------------------------------------------
+PART C — Create or edit the .env file (minimum for Telegram)
+--------------------------------------------------------------------------------
+
+1. In the **repo root**, check if a file named  .env  already exists.
+   - If it does not exist: copy the template:
+     - On Windows (PowerShell, in repo root):
+         copy .env.example .env
+     - On Linux/macOS:
+         cp .env.example .env
+
+2. Open  .env  in Notepad, VS Code, or Cursor.
+   (On Windows, if File Explorer hides extensions, the file may show as “.env” with type
+   “ENV File” or similar.)
+
+3. Add **this line** (use your real token from Part A, one line, no spaces around “=”):
+   TELEGRAM_BOT_TOKEN=123456789:AAHe...your-actual-token
+
+4. (Strongly recommended) Restrict who can use the bot. Get your Telegram **user id**:
+   - In Telegram, search:  @userinfobot
+   - Start a chat and send any message; it replies with a number: “Id: 123456789”
+   - Add to .env (replace with your number):
+   TELEGRAM_ALLOWED_USER_IDS=123456789
+   If several people, use commas (no spaces):
+   TELEGRAM_ALLOWED_USER_IDS=111111111,222222222
+
+5. If you are on **Windows** and the bot will show errors about getaddrinfo, 10054, or
+   “connection forcibly closed”, add:
+   TELEGRAM_LONG_POLL_SEC=10
+
+6. (Optional) Push notification timing (alerts for new plans, exits, etc.):
+   TELEGRAM_NOTIFY=1
+   TELEGRAM_NOTIFY_INTERVAL_SEC=20
+
+7. **Save the .env file** and close the editor.
+   (Cursor/VS Code: make sure the file is actually saved — File → Save, or Ctrl+S.)
+
+
+--------------------------------------------------------------------------------
+PART D — Python and install the package (do this in a terminal)
+--------------------------------------------------------------------------------
+
+1. Open a terminal in the **repo root** (same folder as pyproject.toml).
+
+   Windows (PowerShell):
+   - File Explorer: go to the Regime-Locus-Matrix folder, click the address bar, type:  powershell
+     press Enter, a PowerShell window opens in that folder.
+
+2. (Recommended) Create a virtual environment once:
+   Windows:
+   py -3 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   If activation is blocked, run once (as Administrator may be required):
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+   Linux / VPS:
+   python3 -m venv .venv
+   source .venv/bin/activate
+
+3. Upgrade pip and install the project:
+   python -m pip install -U pip
+   python -m pip install -e "."
+
+   (For IBKR /balances in Telegram, also run:  python -m pip install -e ".[ibkr]")
+
+4. You should see pip finish without an error. If you see “python not found” on Windows,
+   use:  py -3 -m pip install -e "."
+
+
+--------------------------------------------------------------------------------
+PART E — Run the bot and test (manual run)
+--------------------------------------------------------------------------------
+
+1. With the venv still activated, in the **repo root**, run **one** of these:
+
+   **Option 1 — Telegram only (good for first test)**
+   Windows:
+   py -3 scripts\rlm_telegram_bot.py
+
+   Linux / VPS:
+   python3 scripts/rlm_telegram_bot.py
+
+   **Option 2 — Full RLM + Telegram in one process (for real trading on VPS)**
+   Do **not** use Option 1 and Option 2 at the same time.
+   Windows:
+   py -3 scripts\run_master.py --telegram-bot
+   Linux / VPS:
+   python3 scripts/run_master.py --telegram-bot
+
+2. The terminal will print a few lines starting with [rlm-telegram] and then may sit quietly.
+   **Leave this window open** while the bot runs. Stopping: press Ctrl+C.
+
+3. On your phone, open Telegram → search for your **bot username** (the one you chose in
+   Part A, e.g. @my_rlm_bot_dv). Open the chat (this is a private chat with the bot).
+
+4. Send this exact message (including slash):
+   /start
+
+5. You should get a text reply. If you do not:
+   - Check the token in .env (no extra spaces or quotes)
+   - Check TELEGRAM_ALLOWED_USER_IDS: your user id must be listed, or remove that line to allow anyone (less safe)
+
+6. Send:
+   /help
+   /status
+
+7. For **/universe** and **/status** to show real data, the pipeline must have written:
+   data/processed/universe_trade_plans.json
+   (Run your universe options pipeline on the same machine, or copy that file in.)
+
+8. For **/balances** to work: IB Gateway (or TWS) must be running, and .env must have
+   IBKR_HOST, IBKR_PORT, etc. Install with:  pip install -e ".[ibkr]"
+
+
+--------------------------------------------------------------------------------
+PART F — Keep the bot running on a Linux VPS (systemd)
+--------------------------------------------------------------------------------
+
+1. Copy your .env to the server (or create it in /opt/Regime-Locus-Matrix).
+
+2. For **only** the Telegram bot (no run_master), copy and edit the example unit:
+   deploy/rlm-telegram-bot.service.example
+   Set WorkingDirectory, EnvironmentFile, and ExecStart to your paths, e.g.:
+   WorkingDirectory=/opt/Regime-Locus-Matrix
+   EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+   ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/rlm_telegram_bot.py
+
+3. Install and start:
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now rlm-telegram-bot
+   sudo journalctl -u rlm-telegram-bot -f
+
+4. For **run_master + Telegram** together, use instead:
+   deploy/rlm-master-telegram.service.example
+   (see also deploy/QUICK-ACTIVATE.txt)
+
+
+--------------------------------------------------------------------------------
+PART G — Quick reference: what the commands do
+--------------------------------------------------------------------------------
+
+  /start   — Registers this chat for push alerts; creates/updates data/processed/telegram_notify_state.json
+  /help    — Lists commands
+  /status  — Short summary of universe_trade_plans.json
+  /universe  or  /report  — List of top active ideas
+  /balances — IBKR account summary (needs ibapi + live Gateway)
+  /brief or /session — session_brief.json from pre/post-close timers
+
+Push alerts (if TELEGRAM_NOTIFY=1) watch:
+  - new active plan_id in universe_trade_plans.json; trade_log.csv; equity_positions_state.json
+  (see rlm/notify/telegram_rlm.py)
+
+
+--------------------------------------------------------------------------------
+PART H — If something goes wrong
+--------------------------------------------------------------------------------
+
+  Symptom: “Unauthorized” or 401 on getUpdates, but curl getMe with sourced .env works
+  → The service may be using a different TELEGRAM_BOT_TOKEN than your shell: systemd’s
+    EnvironmentFile= does not parse .env exactly like bash (avoid duplicate TELEGRAM_BOT_TOKEN=
+    lines, stray quotes, or export KEY=). The bot reloads .env with override so the repo file wins.
+    After fixing .env: sudo systemctl restart rlm-telegram (or your unit name). Confirm with:
+    systemd-analyze cat-config systemd/system/rlm-telegram.service
+  → If getMe also fails: token wrong or revoked. BotFather → /mybots → API Token → Revoke,
+    update .env, restart the service.
+
+  Symptom: “Not authorized for this bot”
+  → Your user id is not in TELEGRAM_ALLOWED_USER_IDS. Add it or remove the line to test (not for production on a public server).
+
+  Symptom: getUpdates error, 10054, 11001 (often on Windows)
+  → Set TELEGRAM_LONG_POLL_SEC=10  or run the bot on a Linux VPS instead.
+
+  Symptom: getUpdates HTTP 409 Conflict
+  → Telegram allows only ONE long-polling client per bot token. Stop every other process using the same token:
+    another VPS service, run_master.py --telegram-bot, a local rlm_telegram_bot.py test, or a second Cursor/IDE run.
+    Or create a second bot in BotFather for dev vs prod.
+
+  Symptom: /balances fails
+  → Install ibkr extra; ensure Gateway is up; set IBKR_HOST/IBKR_PORT; paper port is usually 4002 (Gateway), 7497 (TWS paper), or 4004 (gnzsnz ib-gateway-docker on host / socat).
+
+  Symptom: no push messages
+  → Send /start once. Or set TELEGRAM_NOTIFY_CHAT_ID in .env. Check TELEGRAM_NOTIFY is 1. Ensure monitor/equity scripts run so trade_log and state files update.
+
+For the fastest path to “full stack on VPS” after Telegram works, read:
+  deploy/QUICK-ACTIVATE.txt

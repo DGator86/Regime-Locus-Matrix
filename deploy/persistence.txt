@@ -19,6 +19,34 @@ Shipped in this repo (adjust paths to match your install, e.g. ``/opt/``)::
 
   - ``deploy/rlm-control-center.service.example`` — Control Center (Streamlit)
   - ``deploy/linux/regime-locus-master.service`` + ``deploy/linux/install-systemd.sh`` — master loop
+  - ``deploy/systemd/ib-gateway.service.example`` — optional: ``docker compose up -d`` before RLM (see ``deploy/ib-gateway-compose.example.yml``)
+  - ``deploy/systemd/rlm-preopen*.example`` / ``rlm-postclose*.example`` — optional timed session briefs (``scripts/run_session_brief.py``)
+
+Boot ordering
+-------------
+
+Install and **enable** IB Gateway (Docker or ``ib-gateway.service``) before the master loop so API
+TCP is accepting connections; ``regime-locus-master.service`` lists ``After=docker.service ib-gateway.service``.
+If you do not use a systemd unit named ``ib-gateway.service``, edit ``After=`` in your local copy or
+expect a short burst of connection errors until Gateway is healthy.
+
+**Reboot checklist:** ``systemctl is-active docker`` (if used), ``ib-gateway`` (or verify container),
+``regime-locus-master``, ``rlm-control-center`` if installed; ``journalctl -u regime-locus-master -b``
+for IBKR **502** / auth messages.
+
+IBKR / unattended limits
+------------------------
+
+Fully unattended operation is **not** guaranteed: periodic **2FA**, password changes, **NYSE holidays**
+and **early closes**, Gateway/UI prompts, and host/network faults can still require human action.
+Use supported unattended patterns (e.g. IBC ``AUTO_RESTART_TIME``, account settings) and alert on
+failures (Telegram, journald). Equity orders from ``ibkr_equity_paper_trade.py`` are gated to **NYSE RTH**
+by default; universe rescans use a separate **09:00–16:00 ET** scanner window.
+
+Telegram
+--------
+
+Run **either** ``run_master.py --telegram-bot`` **or** a standalone ``rlm_telegram_bot`` service — **not both**.
 
 Set ``Restart=always`` in the unit if you want restarts even after a clean exit
 0 (at the cost of harder debugging if something exits "successfully" in a

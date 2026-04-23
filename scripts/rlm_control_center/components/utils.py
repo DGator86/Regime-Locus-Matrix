@@ -59,19 +59,17 @@ def env_connected_ibkr() -> bool:
 
 def load_dotenv_if_present(root: Path) -> None:
     """
-    Load environment variables from a ".env" file in the given root directory if available.
-    
-    If the "python-dotenv" package is installed and a file named ".env" exists at `root`, its variables are loaded into the process environment. If the package is not installed or the file is absent, the function does nothing.
-    
-    Parameters:
-        root (Path): Directory to check for a ".env" file.
+    Load environment variables from ``root / ".env"`` if the file exists.
+
+    Uses ``override=True`` so repo ``.env`` wins over pre-set OS/user variables (a common
+    cause of "my .env says 4002 but the app still uses 7497").
     """
     try:
         from dotenv import load_dotenv
 
         p = root / ".env"
         if p.is_file():
-            load_dotenv(p)
+            load_dotenv(p, override=True)
     except ImportError:
         pass
 

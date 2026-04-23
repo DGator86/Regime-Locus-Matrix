@@ -1,0 +1,12 @@
+# Mon–Fri ~1h before NYSE cash open — copy to /etc/systemd/system/rlm-preopen.timer
+
+[Unit]
+Description=RLM pre-open brief (08:30 America/New_York)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:30:00 America/New_York
+Unit=rlm-preopen.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

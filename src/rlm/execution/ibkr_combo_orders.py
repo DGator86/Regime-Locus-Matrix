@@ -26,7 +26,8 @@ IBKRLegAction = Literal["BUY", "SELL"]
 
 # TWS default ports
 IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
-IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002})
+# 4004: gnzsnz ib-gateway-docker host-network + socat (paper API published on host)
+IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
 
 _INFO_CODES = frozenset({2104, 2106, 2107, 2108, 2158, 2174})
 
@@ -54,7 +55,7 @@ def assert_paper_trading_port(port: int) -> None:
     if port not in IBKR_PAPER_PORTS:
         raise ValueError(
             f"Automated paper trading requires IBKR_PORT in {sorted(IBKR_PAPER_PORTS)}; got {port}. "
-            "Set paper TWS (7497) or Gateway (4002)."
+            "Set paper TWS (7497), Gateway (4002), or host-mapped Gateway (4004)."
         )
 
 

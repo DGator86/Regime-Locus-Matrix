@@ -1,0 +1,54 @@
+# Regime-Locus-Matrix — Starfleet AI Crew (Scotty / Spock / Kirk)
+#
+# Prereqs on the VPS:
+#   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[agents]")
+#     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed.
+#   - .env with GROQ_API_KEY (free key from console.groq.com)
+#             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
+#   - OR: set LLM_BACKEND=ollama if you prefer a fully-local model
+#
+# Install:
+#   cp deploy/linux/regime-locus-crew.service /etc/systemd/system/
+#   sed -i 's|@INSTALL_ROOT@|/opt/Regime-Locus-Matrix|g' /etc/systemd/system/regime-locus-crew.service
+#   systemctl daemon-reload
+#   systemctl enable --now regime-locus-crew
+#
+# Logs: journalctl -u regime-locus-crew -f
+
+[Unit]
+Description=RLM Starfleet AI Crew — Scotty health guardian + Spock analyst + Kirk commander
+After=network-online.target regime-locus-master.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+
+# Intervals (seconds) — override here or in .env
+Environment=CREW_HEALTH_INTERVAL=120
+Environment=CREW_ANALYSIS_INTERVAL=300
+Environment=CREW_BRIEFING_INTERVAL=600
+# Scotty: auto-restart dead RLM systemd units (never restarts regime-locus-crew from inside this process)
+Environment=SCOTTY_AUTO_RESTART=1
+Environment=SCOTTY_RESTART_COOLDOWN_SEC=180
+
+# After install, replace with /opt/rlm-venv/bin/python if that is your venv.
+ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_crew.py
+
+Restart=always
+RestartSec=30
+KillMode=mixed
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=regime-locus-crew
+
+[Install]
+WantedBy=multi-user.target

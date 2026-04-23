@@ -13,7 +13,7 @@ Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
 ``trail_on`` per ``plan_id``.
 
-With ``--paper-close`` (paper **7497** / **4002** only), submits a **market** combo in the opposite
+With ``--paper-close`` (paper **7497** / **4002** / **4004** only), submits a **market** combo in the opposite
 direction of ``ibkr_combo_spec`` once per plan when an exit **ACTION** fires.
 
 Examples::
@@ -55,6 +55,7 @@ from rlm.execution.ibkr_combo_orders import (
 )
 from rlm.execution.risk_targets import trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs
+from rlm.utils.market_hours import is_rth_now, session_label
 
 
 def _load_json(path: Path) -> dict:
@@ -386,6 +387,11 @@ def main() -> int:
             "0.0 = disabled. Recommended: 0.1 (~2.4 h) for 0DTE positions."
         ),
     )
+    p.add_argument(
+        "--rth-only-poll",
+        action="store_true",
+        help="Outside NYSE RTH, skip Massive polling and sleep for --interval (saves API quota)",
+    )
     args = p.parse_args()
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
@@ -407,6 +413,13 @@ def main() -> int:
 
     def run_cycle() -> float:
         """Execute one monitor cycle.  Returns the recommended sleep interval (seconds)."""
+        if args.rth_only_poll and not is_rth_now():
+            print(
+                f"[monitor] --rth-only-poll: outside NYSE RTH ({session_label()}), skipping Massive cycle",
+                flush=True,
+            )
+            return max(5.0, float(args.interval))
+
         if args.paper_close and not args.paper_close_dry_run:
             _, port, _ = load_ibkr_order_socket_config()
             assert_paper_trading_port(port)

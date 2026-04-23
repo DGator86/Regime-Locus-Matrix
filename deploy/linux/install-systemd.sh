@@ -35,6 +35,8 @@ rm -f "${tmp}"
 systemctl daemon-reload
 systemctl enable regime-locus-master.service
 echo "Installed ${UNIT_DST}"
+echo "  Optional: copy deploy/systemd/ib-gateway.service.example with IB_GATEWAY_DIR sed, enable ib-gateway before master."
+echo "  Optional: deploy/systemd/rlm-preopen*.example + rlm-postclose*.example for session brief timers."
 echo "  Start now:  systemctl start regime-locus-master"
 echo "  Follow log: journalctl -u regime-locus-master -f"
 echo "  Status:     systemctl status regime-locus-master"
