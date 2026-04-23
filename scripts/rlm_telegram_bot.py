@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+import urllib.error
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -252,6 +253,18 @@ def main() -> int:
     while True:
         try:
             updates = _get_updates(token, last_offset)
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                print(
+                    "[rlm-telegram] getUpdates HTTP 409 Conflict — only one client may long-poll this bot. "
+                    "Stop any other rlm_telegram_bot, run_master.py --telegram-bot, IDE test, or second server "
+                    "using the same TELEGRAM_BOT_TOKEN; then restart this service.",
+                    flush=True,
+                )
+            else:
+                print(f"[rlm-telegram] getUpdates HTTP {e.code}: {e.reason}; sleep 5s", flush=True)
+            time.sleep(5)
+            continue
         except Exception as e:
             print(f"[rlm-telegram] getUpdates error: {e}; sleep 5s", flush=True)
             time.sleep(5)

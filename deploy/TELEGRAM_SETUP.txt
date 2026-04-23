@@ -219,6 +219,11 @@ PART H — If something goes wrong
   Symptom: getUpdates error, 10054, 11001 (often on Windows)
   → Set TELEGRAM_LONG_POLL_SEC=10  or run the bot on a Linux VPS instead.
 
+  Symptom: getUpdates HTTP 409 Conflict
+  → Telegram allows only ONE long-polling client per bot token. Stop every other process using the same token:
+    another VPS service, run_master.py --telegram-bot, a local rlm_telegram_bot.py test, or a second Cursor/IDE run.
+    Or create a second bot in BotFather for dev vs prod.
+
   Symptom: /balances fails
   → Install ibkr extra; ensure Gateway is up; set IBKR_HOST/IBKR_PORT; paper port is usually 4002 (Gateway), 7497 (TWS paper), or 4004 (gnzsnz ib-gateway-docker on host / socat).
 
