@@ -178,7 +178,7 @@ class ScottyAgent:
         degraded = (
             bool(service_issues)
             or any(d.pct > 90 for d in report.disk)
-            or bool(report.stale_files)
+            or (scanner_open and bool(report.stale_files))
         )
         report.overall_ok = not degraded
         return report
@@ -329,6 +329,8 @@ class ScottyAgent:
             if s.load_state != "loaded":
                 continue
             if s.active:
+                continue
+            if s.name == "regime-locus-master" and not is_scanner_window_open():
                 continue
             key = s.name
             if key == "regime-locus-crew" and skip_crew and not allow_crew:

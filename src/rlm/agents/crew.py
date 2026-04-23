@@ -251,7 +251,10 @@ class StarfleetCrew:
                         self._last_briefing_obj,
                         self._last_scotty_diag,
                     )
-                    self._send(decision.to_telegram_message(), force_notify=True)
+                    # Only send automated briefing if scanner is open OR if system is in trouble
+                    from rlm.utils.market_hours import is_scanner_window_open
+                    if is_scanner_window_open() or decision.system_status != "NOMINAL":
+                        self._send(decision.to_telegram_message(), force_notify=True)
                 except Exception as exc:
                     self._send(f"<b>[Kirk ERROR]</b> {exc}", force_notify=True)
 
