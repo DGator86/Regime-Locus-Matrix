@@ -224,9 +224,15 @@ class ScottyAgent:
                 stale.append(f"{fname} ({age_hours:.1f}h old)")
         return stale
 
+    def _journal_services(self) -> list[str]:
+        """Units to scan with journalctl. Skip crew's own unit when this process is the crew."""
+        if any("run_crew" in (a or "") for a in sys.argv):
+            return [s for s in self.services if s != "regime-locus-crew"]
+        return self.services
+
     def _check_logs(self, lines: int = 100) -> list[str]:
         errors: list[str] = []
-        for service in self.services:
+        for service in self._journal_services():
             try:
                 r = subprocess.run(
                     ["journalctl", "-u", f"{service}.service",
@@ -241,10 +247,29 @@ class ScottyAgent:
                 pass
         return errors[:20]
 
+    def _resolve_doctor_python(self) -> str:
+        override = (os.environ.get("RLM_DOCTOR_PYTHON") or "").strip()
+        if override:
+            return override
+        candidates: list[Path] = [
+            self.root / ".venv" / "bin" / "python",
+            self.root / ".venv" / "Scripts" / "python.exe",
+        ]
+        venv = (os.environ.get("VIRTUAL_ENV") or "").strip()
+        if venv:
+            vp = Path(venv)
+            candidates.append(vp / "bin" / "python")
+            candidates.append(vp / "Scripts" / "python.exe")
+        for p in candidates:
+            if p.exists():
+                return str(p)
+        if sys.executable:
+            return sys.executable
+        return "python3"
+
     def _run_doctor(self) -> str:
         try:
-            venv_python = self.root / ".venv" / "bin" / "python"
-            python = str(venv_python) if venv_python.exists() else "python3"
+            python = self._resolve_doctor_python()
             r = subprocess.run(
                 [python, "-m", "rlm", "doctor", "--strict"],
                 capture_output=True, text=True, timeout=30,
