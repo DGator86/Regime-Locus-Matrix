@@ -64,3 +64,8 @@ def get_artifacts_dir(explicit: str | Path | None = None) -> Path:
     path = get_data_root(explicit) / "artifacts"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_repo_root() -> Path:
+    """Return the absolute path to the repository root."""
+    return Path(__file__).resolve().parent.parent.parent.parent

@@ -24,9 +24,10 @@ def main() -> None:
             "  challenge  $1K->$25K aggressive options dry-run challenge\n"
             "  doctor     Diagnose the environment, providers, and data lake\n"
             "  status     View consolidated PnL across all systems\n"
+            "  dashboard  Launch the Streamlit performance dashboard\n"
         ),
     )
-    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status"])
+    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -49,6 +50,17 @@ def main() -> None:
         from rlm.cli.doctor import main as _main  # type: ignore[assignment]
     elif ns.command == "status":
         from rlm.cli.status import main as _main  # type: ignore[assignment]
+    elif ns.command == "dashboard":
+        import subprocess
+        from rlm.data.paths import get_repo_root
+        ui_path = get_repo_root() / "src" / "rlm" / "ui" / "dashboard.py"
+        cmd = [sys.executable, "-m", "streamlit", "run", str(ui_path)]
+        print(f"Launching dashboard: {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, check=True)
+        except KeyboardInterrupt:
+            pass
+        sys.exit(0)
     else:
         parser.print_help()
         sys.exit(1)
