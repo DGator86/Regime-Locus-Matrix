@@ -18,6 +18,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--capital", type=float, default=100_000.0, help="Account capital")
     p.add_argument("--out-dir", default=None, help="Artifact output directory")
     p.add_argument("--write-artifacts", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument(
+        "--persona",
+        action="store_true",
+        default=False,
+        help="Run the four-stage persona interpretation layer (Seven→Garak→Sisko→Data) and print the result.",
+    )
     add_data_root_arg(p)
     add_backend_arg(p)
     add_profile_args(p)
@@ -38,6 +44,7 @@ def main() -> None:
         config_path=args.config,
         out_dir=None if args.out_dir is None else Path(args.out_dir).expanduser().resolve(),
         write_artifacts=args.write_artifacts,
+        use_persona=args.persona,
     )
     result = TradeService().run(req)
 
@@ -50,3 +57,8 @@ def main() -> None:
         print(f"  success={entry.success} broker={entry.broker} order_id={entry.order_id} message={entry.message}")
     if result.artifacts.manifest_path:
         print(f"Artifacts: {result.artifacts.manifest_path.parent}")
+
+    if result.persona:
+        import json
+        print("\nPersona interpretation:")
+        print(json.dumps(result.persona.to_dict(), indent=2))
