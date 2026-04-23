@@ -184,10 +184,9 @@ class StarfleetCrew:
         """Blocking main loop."""
         self._send(
             "<b>[Starfleet Crew] Online</b>\n"
-            f"Scotty (health every {self.cfg.health_interval}s) | "
-            f"Spock (analysis every {self.cfg.analysis_interval}s) | "
-            f"Kirk (briefings every {self.cfg.briefing_interval}s)\n"
-            f"LLM backend: {self.llm.cfg.backend} / {self.llm.cfg.model}",
+            f"Scotty (Health) | Spock (Logic) | Kirk (Command)\n"
+            f"Sisko Team (Interpretation) activated.\n"
+            f"LLM: {self.llm.cfg.backend}/{self.llm.cfg.model}",
             force_notify=True,
         )
         while True:
