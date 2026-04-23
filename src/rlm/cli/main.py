@@ -17,14 +17,15 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Commands:\n"
-            "  ingest    Fetch and normalize market data into the data lake\n"
-            "  forecast  Run the factor + regime + ROEE forecast pipeline\n"
-            "  backtest  Execute a strategy backtest (with optional walk-forward)\n"
-            "  trade     Generate and execute live/paper trade plans\n"
-            "  doctor    Diagnose the environment, providers, and data lake\n"
+            "  ingest     Fetch and normalize market data into the data lake\n"
+            "  forecast   Run the factor + regime + ROEE forecast pipeline\n"
+            "  backtest   Execute a strategy backtest (with optional walk-forward)\n"
+            "  trade      Generate and execute live/paper trade plans\n"
+            "  challenge  $1K→$25K aggressive options dry-run challenge\n"
+            "  doctor     Diagnose the environment, providers, and data lake\n"
         ),
     )
-    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "doctor"])
+    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -41,6 +42,8 @@ def main() -> None:
         from rlm.cli.backtest import main as _main  # type: ignore[assignment]
     elif ns.command == "trade":
         from rlm.cli.trade import main as _main  # type: ignore[assignment]
+    elif ns.command == "challenge":
+        from rlm.cli.challenge import main as _main  # type: ignore[assignment]
     elif ns.command == "doctor":
         from rlm.cli.doctor import main as _main  # type: ignore[assignment]
     else:
