@@ -22,9 +22,10 @@ def main() -> None:
             "  backtest  Execute a strategy backtest (with optional walk-forward)\n"
             "  trade     Generate and execute live/paper trade plans\n"
             "  doctor    Diagnose the environment, providers, and data lake\n"
+            "  challenge Run the $1k→$25k PDT-aware dry-run challenge engine\n"
         ),
     )
-    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "doctor"])
+    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "doctor", "challenge"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -43,6 +44,8 @@ def main() -> None:
         from rlm.cli.trade import main as _main  # type: ignore[assignment]
     elif ns.command == "doctor":
         from rlm.cli.doctor import main as _main  # type: ignore[assignment]
+    elif ns.command == "challenge":
+        from rlm.cli.challenge import main as _main  # type: ignore[assignment]
     else:
         parser.print_help()
         sys.exit(1)
