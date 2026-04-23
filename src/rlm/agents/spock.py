@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from rlm.agents.base import LLMClient, Message
+from rlm.utils.market_hours import session_label
 
 # -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
@@ -91,7 +92,7 @@ class SpockAgent:
     # ------------------------------------------------------------------
 
     def _build_context(self) -> str:
-        sections: list[str] = []
+        sections: list[str] = [f"Market State: {session_label()}"]
 
         # 1 — Universe trade plans
         plans_text = self._read_plans()

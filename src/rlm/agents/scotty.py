@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from rlm.agents.base import LLMClient, LLMConfig, Message
+from rlm.utils.market_hours import is_scanner_window_open, session_label
 
 # -----------------------------------------------------------------------
 # Scotty's character system prompt
@@ -86,10 +87,11 @@ class HealthReport:
     stale_files: list[str] = field(default_factory=list)
     recent_errors: list[str] = field(default_factory=list)
     doctor_output: str = ""
+    session: str = "unknown"
     overall_ok: bool = True
 
     def to_text(self) -> str:
-        lines = [f"[Scotty health report @ {self.timestamp}]"]
+        lines = [f"[Scotty health report @ {self.timestamp} | {self.session}]"]
         for s in self.services:
             icon = "✓" if s.active else "✗"
             lines.append(f"  {icon} {s.name}: {s.sub_state} ({s.load_state})")
@@ -150,9 +152,24 @@ class ScottyAgent:
         report.stale_files = self._check_staleness()
         report.recent_errors = self._check_logs()
         report.doctor_output = self._run_doctor()
+        report.session = session_label()
+
+        scanner_open = is_scanner_window_open()
+        
+        # Determine degradation
+        # We only care about regime-locus-master being dead if the scanner window is open.
+        service_issues = []
+        for s in report.services:
+            if s.load_state != "loaded":
+                continue
+            if not s.active:
+                if s.name == "regime-locus-master" and not scanner_open:
+                    # After hours, we expect the master to be down.
+                    continue
+                service_issues.append(s.name)
 
         degraded = (
-            any(not s.active for s in report.services if s.load_state == "loaded")
+            bool(service_issues)
             or any(d.pct > 90 for d in report.disk)
             or bool(report.stale_files)
         )
