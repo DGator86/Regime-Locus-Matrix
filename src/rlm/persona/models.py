@@ -1,113 +1,115 @@
-"""Typed models for the four-stage persona pipeline."""
+"""Typed output models for the four persona stages."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal
 
-
-# ---------------------------------------------------------------------------
-# Pipeline input — consumed from existing RLM pipeline outputs
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class PersonaPipelineInput:
-    """Normalised inputs consumed from existing RLM outputs.
+class PersonaInputs:
+    """Scalar inputs extracted from the last bar of a PipelineResult."""
 
-    All values should be pre-computed by the caller from standard RLM
-    pipeline results.  No computation happens here.
-    """
-    symbol: str
+    # Composite factor scores from factors_df — all nominally in [-1, 1]
+    s_d: float
+    """Direction composite score (S_D)."""
+    s_v: float
+    """Volatility composite score (S_V)."""
+    s_l: float
+    """Liquidity composite score (S_L)."""
+    s_g: float
+    """GEX / dealer-flow composite score (S_G)."""
 
-    # From regime / forecast outputs
-    regime_label: str = "unknown"          # e.g. "bull_trend", "bear_vol"
-    regime_confidence: float = 0.5        # 0..1
-    forecast_return: float = 0.0          # expected return, signed
-    realized_vol: float = 0.2            # annualised σ
+    # Regime classification from policy_df
+    direction_regime: str
+    """'bull' | 'bear' | 'neutral' from classify_state_matrix."""
+    volatility_regime: str
+    """'low_vol' | 'high_vol' | 'neutral'."""
+    liquidity_regime: str
+    """'high_liquidity' | 'low_liquidity' | 'neutral'."""
+    dealer_flow_regime: str
+    """'supportive' | 'opposed' | 'neutral'."""
 
-    # From factor pipeline
-    signal_alignment: float = 0.5        # 0..1 — how many factors agree
-    momentum_score: float = 0.0          # signed, normalised
-    mean_reversion_score: float = 0.0    # signed, normalised
+    # Forecast confidence from forecast_df
+    hmm_confidence: float
+    """Max HMM state probability (0–1); falls back to 0.5 if unavailable."""
 
-    # From microstructure / options flow (optional)
-    dealer_gamma_exposure: float = 0.0   # positive = supportive
-    options_put_call_ratio: float = 1.0  # >1 bearish skew
-    bid_ask_spread_pct: float = 0.01     # 0..1
-    volume_ratio: float = 1.0            # today vs avg
+    # ROEE output
+    roee_action: str | None
+    """Last ROEE action string, e.g. 'enter' | 'skip' | 'hold'."""
 
-    # Historical edge (from Data stage / backtest ledger)
-    historical_edge: float = 0.5         # 0..1 win-rate proxy for this regime
+    # Optional historical context
+    backtest_metrics: dict[str, float] | None = None
+    """Backtest summary dict from PipelineResult, if available."""
 
-
-# ---------------------------------------------------------------------------
-# Stage outputs
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SevenStageOutput:
-    """Signal normalisation and structured interpretation."""
+    """Signal normalization and structured interpretation."""
+
     bias: Literal["bullish", "bearish", "neutral"]
-    signal_alignment: float          # 0..1
-    confidence: float                # 0..1
-    regime_label: str
-    notes: str = ""
+    signal_alignment: float
+    """Fraction of direction/liquidity/dealer scores aligned with bias (0–1)."""
+    confidence: float
+    """Blended HMM-confidence + signal-strength measure (0–1)."""
 
 
 @dataclass(frozen=True)
 class GarakStageOutput:
     """Trap / deception / false-breakout detection."""
-    trap_risk: float                 # 0..1  (higher = more suspicious)
+
+    trap_risk: float
+    """Composite trap-risk score (0–1); higher = more suspicious."""
     dealer_alignment: Literal["supportive", "neutral", "opposed"]
     liquidity_comment: str
-    veto: bool                       # True → block trade regardless of Seven
+    """Human-readable assessment of current liquidity conditions."""
+    veto: bool
+    """True when trap_risk exceeds the configured veto threshold."""
 
 
 @dataclass(frozen=True)
 class SiskoStageOutput:
     """Final trade directive authority."""
+
     directive: Literal["long", "short", "no_trade"]
     entry_policy: str
     invalidation_policy: str
     target_policy: str
-    reason: str = ""
 
 
 @dataclass(frozen=True)
 class DataStageOutput:
-    """Post-trade audit / empirical validation / edge tracking."""
+    """Post-trade audit, empirical validation, and edge tracking."""
+
     regime_match: Literal["high", "moderate", "low"]
-    historical_edge: float           # 0..1
+    """Quality of current regime vs. historically-edge-positive setups."""
+    historical_edge: float
+    """Estimated win-rate proxy or backtest-derived edge (0–1)."""
     adaptation_note: str
+    """Contextual note on how similar setups have performed."""
     review_flag: bool
+    """True when historical_edge is below the review threshold."""
 
-
-# ---------------------------------------------------------------------------
-# Final result
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class PersonaPipelineResult:
-    """Complete persona pipeline result."""
-    symbol: str
+    """Bundled output from all four persona stages."""
+
     seven: SevenStageOutput
     garak: GarakStageOutput
     sisko: SiskoStageOutput
     data: DataStageOutput
 
-    def to_dict(self) -> dict:  # type: ignore[return]
-        """Serialise to a plain dict (JSON-compatible)."""
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a plain dict suitable for JSON output."""
         return {
-            "symbol": self.symbol,
             "seven": {
                 "bias": self.seven.bias,
-                "signal_alignment": self.seven.signal_alignment,
-                "confidence": self.seven.confidence,
-                "regime_label": self.seven.regime_label,
-                "notes": self.seven.notes,
+                "signal_alignment": round(self.seven.signal_alignment, 4),
+                "confidence": round(self.seven.confidence, 4),
             },
             "garak": {
-                "trap_risk": self.garak.trap_risk,
+                "trap_risk": round(self.garak.trap_risk, 4),
                 "dealer_alignment": self.garak.dealer_alignment,
                 "liquidity_comment": self.garak.liquidity_comment,
                 "veto": self.garak.veto,
@@ -117,11 +119,10 @@ class PersonaPipelineResult:
                 "entry_policy": self.sisko.entry_policy,
                 "invalidation_policy": self.sisko.invalidation_policy,
                 "target_policy": self.sisko.target_policy,
-                "reason": self.sisko.reason,
             },
             "data": {
                 "regime_match": self.data.regime_match,
-                "historical_edge": self.data.historical_edge,
+                "historical_edge": round(self.data.historical_edge, 4),
                 "adaptation_note": self.data.adaptation_note,
                 "review_flag": self.data.review_flag,
             },

@@ -1,4 +1,20 @@
-"""``rlm challenge`` — $1,000 → $25,000 PDT-aware dry-run challenge CLI."""
+"""``rlm challenge`` — $1K→$25K aggressive options dry-run challenge.
+
+Runs in complete isolation from the standard IBKR equities / options flow.
+State lives under ``data/challenge/``.  No real orders are ever placed.
+
+Commands
+--------
+``rlm challenge --reset``
+    Wipe state and start fresh at $1,000 (or ``--capital``).
+
+``rlm challenge --run``
+    Run one session: evaluates open positions, then considers a new entry
+    based on the persona pipeline directive.
+
+``rlm challenge --status``
+    Print current balance, open positions, milestone progress, and stats.
+"""
 
 from __future__ import annotations
 
@@ -7,150 +23,259 @@ import json
 import sys
 from pathlib import Path
 
+from rlm.challenge.config import ChallengeConfig, MILESTONES
+from rlm.challenge.engine import ChallengeEngine
+from rlm.challenge.tracker import ChallengeTracker
+from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="rlm challenge",
-        description="Run or inspect the $1k→$25k dry-run challenge engine.",
+        description="$1K→$25K aggressive options dry-run challenge.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  rlm challenge --reset --symbol SPY\n"
+            "  rlm challenge --run   --symbol SPY\n"
+            "  rlm challenge --status\n"
+        ),
+    )
+    p.add_argument("--symbol", default="SPY", help="Underlying ticker (default: SPY)")
+    p.add_argument("--reset", action="store_true", help="Reset challenge state to seed capital")
+    p.add_argument("--run", action="store_true", help="Run one session (loads data + persona)")
+    p.add_argument("--status", action="store_true", help="Print challenge dashboard")
+    p.add_argument(
+        "--capital", type=float, default=1_000.0,
+        help="Seed capital for --reset (default: $1,000)",
     )
     p.add_argument(
-        "--status", action="store_true",
-        help="Print current challenge account state and PDT budget",
+        "--target", type=float, default=25_000.0,
+        help="Target capital (default: $25,000)",
     )
     p.add_argument(
-        "--run", action="store_true",
-        help="Run one challenge decision cycle for --symbol",
-    )
-    p.add_argument("--symbol", default=None, help="Ticker (e.g. SPY)")
-    p.add_argument(
-        "--reset", action="store_true",
-        help="Reset challenge state to starting equity ($1,000)",
+        "--underlying-price", type=float, default=None,
+        help="Override underlying price (skips live data fetch for --run)",
     )
     p.add_argument(
-        "--data-dir", default=None,
-        help="Override challenge data directory (default: data/challenge/)",
+        "--iv", type=float, default=None,
+        help="Override implied volatility, e.g. 0.18 for 18%% (default: auto-estimate)",
     )
+    p.add_argument(
+        "--no-kronos", action="store_true", help="Disable Kronos overlay in persona pipeline"
+    )
+    p.add_argument("--json", action="store_true", help="Output session summary as JSON")
+    add_data_root_arg(p)
+    add_backend_arg(p)
     return p.parse_args()
 
 
 def main() -> None:  # noqa: C901
     args = _parse_args()
+    symbol = normalize_symbol(args.symbol)
 
-    from rlm.challenge.state import ChallengeStateManager
+    cfg = ChallengeConfig(
+        seed_capital=args.capital,
+        target_capital=args.target,
+        symbol=symbol,
+    )
+    tracker = ChallengeTracker(data_root=args.data_root)
 
-    data_dir = Path(args.data_dir) if args.data_dir else None
-    mgr = ChallengeStateManager(data_dir=data_dir)
-
+    # ---- Reset --------------------------------------------------------------
     if args.reset:
-        mgr.reset()
-        print("[challenge] State reset to $1,000 starting equity.")
+        state = tracker.reset(cfg)
+        print(f"Challenge reset.  Starting balance: ${state.balance:,.2f}  Target: ${state.target:,.2f}")
+        print(f"State file: {tracker.state_path()}")
         return
 
-    state, pdt = mgr.load()
-
+    # ---- Status -------------------------------------------------------------
     if args.status:
-        pct_to_goal = (state.current_equity / 25_000.0) * 100.0
-        print(f"\n{'='*55}")
-        print(f"  CHALLENGE STATUS — $1k → $25k")
-        print(f"{'='*55}")
-        print(f"  Current equity : ${state.current_equity:>10,.2f}")
-        print(f"  Peak equity    : ${state.peak_equity:>10,.2f}")
-        print(f"  Progress       : {pct_to_goal:.1f}% of $25,000 goal")
-        print(f"  Realized P&L   : ${state.realized_pnl:>+10,.2f}")
-        print(f"  Open positions : {state.open_positions_count}")
-        print(f"  Sessions run   : {state.sessions_run}")
-        print(f"  W/L            : {state.wins}/{state.losses} "
-              f"({state.win_rate*100:.0f}% win rate)")
-        print(f"\n  PDT slots remaining (rolling 5d): {pdt.day_trades_remaining}")
-        print(f"  Same-day exit allowed           : {pdt.same_day_exit_allowed}")
-        print(f"  Must hold overnight if entered  : {pdt.must_hold_overnight_if_entered}")
-        print(f"{'='*55}\n")
+        if not tracker.exists():
+            print("No active challenge.  Run `rlm challenge --reset` to start.", file=sys.stderr)
+            sys.exit(1)
+        _print_dashboard(tracker)
         return
 
+    # ---- Run session --------------------------------------------------------
     if args.run:
-        if not args.symbol:
-            print("[challenge] --symbol is required with --run", file=sys.stderr)
+        if not tracker.exists():
+            print("No active challenge.  Run `rlm challenge --reset` first.", file=sys.stderr)
             sys.exit(1)
 
-        # Build a synthetic persona input from available pipeline artifacts
-        # (In production, wire to actual pipeline output; here we show the hook)
-        from rlm.challenge.pipeline import ChallengeDecisionPipeline
-        from rlm.persona.models import PersonaPipelineInput
-        from rlm.persona.pipeline import PersonaDecisionPipeline
+        directive, underlying_price, signal_alignment, confidence, iv = _get_signals(
+            symbol=symbol,
+            underlying_price_override=args.underlying_price,
+            iv_override=args.iv,
+            use_kronos=not args.no_kronos,
+            data_root=args.data_root,
+            backend=args.backend,
+        )
 
-        sym = args.symbol.upper()
-        print(f"[challenge] Running decision cycle for {sym} …")
+        engine = ChallengeEngine(cfg, tracker)
+        summary = engine.run_session(
+            directive=directive,
+            underlying_price=underlying_price,
+            signal_alignment=signal_alignment,
+            confidence=confidence,
+            iv=iv,
+        )
 
-        # Try to load pipeline artifacts from data/processed/ if they exist
-        persona_inp = _build_persona_input(sym)
-        persona_result = PersonaDecisionPipeline().run(persona_inp)
-
-        directive = ChallengeDecisionPipeline().run(sym, persona_result, state, pdt)
-
-        print(json.dumps({
-            "symbol": directive.symbol,
-            "directive": directive.directive,
-            "trade_mode": directive.trade_mode,
-            "conviction": directive.conviction,
-            "setup_score": directive.setup_score,
-            "pdt_slots_remaining": directive.pdt_slots_remaining,
-            "same_day_exit_allowed": directive.same_day_exit_allowed,
-            "contract_profile": {
-                "delta_band": [directive.contract_profile.target_delta_min,
-                               directive.contract_profile.target_delta_max],
-                "dte_band": [directive.contract_profile.preferred_dte_min,
-                             directive.contract_profile.preferred_dte_max],
-                "max_spread_pct": directive.contract_profile.max_spread_pct,
-                "note": directive.contract_profile.note,
-            },
-            "risk_plan": {
-                "premium_outlay_pct": directive.risk_plan.premium_outlay_pct,
-                "hard_stop_pct": directive.risk_plan.hard_stop_pct,
-                "trail_activate_pct": directive.risk_plan.trail_activate_pct,
-                "profit_target_pct": directive.risk_plan.profit_target_pct,
-                "partial_take_pct": directive.risk_plan.partial_take_pct,
-            },
-            "reason_summary": directive.reason_summary,
-            "persona": {
-                "seven": {"bias": persona_result.seven.bias,
-                          "confidence": persona_result.seven.confidence},
-                "garak": {"trap_risk": persona_result.garak.trap_risk,
-                          "veto": persona_result.garak.veto},
-                "sisko": {"directive": persona_result.sisko.directive},
-                "data": {"regime_match": persona_result.data.regime_match,
-                         "historical_edge": persona_result.data.historical_edge},
-            },
-        }, indent=2))
+        if args.json:
+            _print_summary_json(summary)
+        else:
+            _print_summary(summary, symbol)
         return
 
-    # Default: print help
-    from rlm.cli.challenge import _parse_args as _p
-    _p().print_help()
+    # Default: show status if exists, else prompt
+    if tracker.exists():
+        _print_dashboard(tracker)
+    else:
+        print("No active challenge.  Options:")
+        print("  rlm challenge --reset          Start fresh at $1,000")
+        print("  rlm challenge --reset --capital 2500   Start at custom amount")
 
 
-def _build_persona_input(symbol: str):
-    """Try to read existing pipeline artifacts, otherwise use neutral defaults."""
-    from rlm.persona.models import PersonaPipelineInput
-    import os
+# ---------------------------------------------------------------------------
+# Signal acquisition
+# ---------------------------------------------------------------------------
 
-    plans_path = Path("data") / "processed" / "universe_trade_plans.json"
-    if plans_path.exists():
-        try:
-            with open(plans_path) as fh:
-                plans = json.load(fh)
-            for plan in plans:
-                if plan.get("symbol", "").upper() == symbol:
-                    meta = plan.get("decision", {}).get("metadata", {})
-                    return PersonaPipelineInput(
-                        symbol=symbol,
-                        regime_label=str(meta.get("regime_label", "unknown")),
-                        regime_confidence=float(meta.get("regime_confidence", 0.5)),
-                        forecast_return=float(meta.get("forecast_return", 0.0)),
-                        signal_alignment=float(meta.get("signal_alignment", 0.5)),
-                        historical_edge=float(meta.get("historical_edge", 0.5)),
-                    )
-        except Exception:
-            pass
+def _get_signals(
+    *,
+    symbol: str,
+    underlying_price_override: float | None,
+    iv_override: float | None,
+    use_kronos: bool,
+    data_root: str | None,
+    backend: str,
+) -> tuple[str, float, float, float, float]:
+    """Return (directive, underlying_price, signal_alignment, confidence, iv).
 
-    # Fallback: neutral defaults
-    return PersonaPipelineInput(symbol=symbol)
+    Attempts to run FullRLMPipeline + PersonaDecisionPipeline.
+    Falls back to neutral defaults when data is unavailable.
+    """
+    default_iv = iv_override or 0.18
+
+    try:
+        from rlm.core.config import build_pipeline_config
+        from rlm.core.pipeline import FullRLMPipeline
+        from rlm.data.readers import load_bars, load_option_chain
+        from rlm.persona.pipeline import PersonaDecisionPipeline
+
+        bars_df = load_bars(symbol, data_root=data_root, backend=backend)
+        chain_df = load_option_chain(symbol, data_root=data_root, backend=backend)
+        cfg = build_pipeline_config(
+            symbol=symbol,
+            overrides={"use_kronos": use_kronos, "attach_vix": True},
+        )
+        result = FullRLMPipeline(cfg).run(bars_df, chain_df)
+        persona = PersonaDecisionPipeline().run(result)
+
+        directive = persona.sisko.directive
+        alignment = persona.seven.signal_alignment
+        conf = persona.seven.confidence
+
+        # Underlying price: last close from bars
+        price = underlying_price_override
+        if price is None and not result.factors_df.empty:
+            last = result.factors_df.iloc[-1]
+            price = float(last.get("close", last.get("Close", 0)) or 0)
+        if not price:
+            price = underlying_price_override or 500.0
+
+        # IV: try to pull from pipeline, else fall back
+        iv = default_iv
+        if not result.factors_df.empty and "realized_vol" in result.factors_df.columns:
+            rv = result.factors_df["realized_vol"].iloc[-1]
+            if rv and rv > 0:
+                iv = float(rv) * 1.1  # slight IV premium over RV
+
+        return directive, price, alignment, conf, iv
+
+    except Exception as exc:
+        print(f"[challenge] Pipeline unavailable ({exc}); using neutral fallback.", file=sys.stderr)
+        price = underlying_price_override or 500.0
+        return "no_trade", price, 0.5, 0.5, default_iv
+
+
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
+def _print_dashboard(tracker: ChallengeTracker) -> None:
+    state = tracker.load()
+    m = state.current_milestone
+
+    bar_filled = int(state.progress_pct * 30)
+    bar = "█" * bar_filled + "░" * (30 - bar_filled)
+
+    print("\n  $1K→$25K OPTIONS CHALLENGE  ")
+    print("=" * 46)
+    print(f"  Balance   : ${state.balance:>12,.2f}")
+    print(f"  Seed      : ${state.seed:>12,.2f}")
+    print(f"  Target    : ${state.target:>12,.2f}")
+    print(f"  Return    : {state.total_return_pct:>+.1f}%")
+    print(f"  Progress  : [{bar}] {state.progress_pct * 100:.1f}%")
+    print(f"  Stage     : {getattr(m, 'label', '—')}")
+    print()
+    print(f"  Sessions  : {state.session_count}")
+    print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
+    print()
+
+    # Milestones
+    print("  Milestones:")
+    for ms in MILESTONES:
+        tick = "✓" if state.balance >= ms.target else " "
+        print(f"    [{tick}] ${ms.target:>8,.0f}  {ms.label}")
+    print()
+
+    # Open positions
+    if state.open_positions:
+        print("  Open Positions:")
+        for p in state.open_positions:
+            pnl_sign = "+" if p.unrealised_pnl >= 0 else ""
+            print(
+                f"    {p.option_type.upper():4s} ${p.strike:.0f}  "
+                f"×{p.qty}  DTE:{p.dte_remaining}  "
+                f"P&L {pnl_sign}${p.unrealised_pnl:.2f}"
+            )
+    else:
+        print("  Open Positions: none")
+    print()
+    print(f"  Data : {tracker.state_path()}")
+    print()
+
+
+def _print_summary(summary: object, symbol: str) -> None:
+    from rlm.challenge.engine import SessionSummary
+    s: SessionSummary = summary  # type: ignore[assignment]
+
+    delta = s.balance_after - s.balance_before
+    sign = "+" if delta >= 0 else ""
+    print(f"\n  [{s.session_date}] {symbol} | Directive: {s.directive.upper()}")
+    print(f"  Balance: ${s.balance_before:,.2f}  →  ${s.balance_after:,.2f}  ({sign}${delta:,.2f})")
+    if s.message:
+        for line in s.message.split("  "):
+            if line.strip():
+                print(f"    {line}")
+    if s.milestone_cleared:
+        print(f"\n  *** MILESTONE CLEARED: {s.milestone_cleared} ***")
+    if s.challenge_complete:
+        print("\n  *** CHALLENGE COMPLETE — $25,000 reached! ***")
+    print()
+
+
+def _print_summary_json(summary: object) -> None:
+    from rlm.challenge.engine import SessionSummary
+    s: SessionSummary = summary  # type: ignore[assignment]
+    out = {
+        "session_date": s.session_date,
+        "directive": s.directive,
+        "balance_before": s.balance_before,
+        "balance_after": s.balance_after,
+        "milestone_cleared": s.milestone_cleared,
+        "challenge_complete": s.challenge_complete,
+        "message": s.message,
+        "closed_trades": [t.to_dict() for t in s.closed_trades],
+        "new_position": s.new_position.to_dict() if s.new_position else None,
+    }
+    print(json.dumps(out, indent=2, default=str))

@@ -38,6 +38,9 @@ class TradeRequest:
     config_path: str | None = None
     out_dir: Path | None = None
     write_artifacts: bool = True
+    use_persona: bool = False
+    """When True, run the four-stage persona interpretation layer and attach the
+    result to ``TradeResult.persona``."""
 
 
 @dataclass
@@ -72,6 +75,8 @@ class TradeResult:
     artifacts: TradeArtifacts
     duration_s: float
     run_id: str
+    persona: Any = None
+    """PersonaPipelineResult when ``TradeRequest.use_persona`` is True; else None."""
 
 
 class TradeService:
@@ -85,20 +90,32 @@ class TradeService:
         run_id = generate_run_id("trade")
         logger = get_run_logger(__name__, run_id, command="trade", symbol=req.symbol, backend=req.backend, profile=req.profile)
         logger.info("building trade decision")
-        decision = self.build_decision(req)
+        decision, pipeline_result = self.build_decision(req, return_pipeline_result=True)
         logger.info("executing trade decision", extra={"stage": "execution"})
         executions = self.execute_decision(req, decision)
         logger.info("writing trade artifacts", extra={"stage": "artifacts"})
         artifacts = self.write_outputs(req, decision, executions, run_id)
+
+        persona = None
+        if req.use_persona:
+            from rlm.persona.pipeline import PersonaDecisionPipeline
+            logger.info("running persona interpretation layer", extra={"stage": "persona"})
+            persona = PersonaDecisionPipeline().run(pipeline_result)
+
         return TradeResult(
             decision=decision,
             executions=executions,
             artifacts=artifacts,
             duration_s=time.monotonic() - t0,
             run_id=run_id,
+            persona=persona,
         )
 
-    def build_decision(self, req: TradeRequest) -> TradeDecision:
+    def build_decision(
+        self,
+        req: TradeRequest,
+        return_pipeline_result: bool = False,
+    ) -> TradeDecision | tuple[TradeDecision, Any]:
         bars_df = (
             req.bars_df
             if req.bars_df is not None
@@ -123,16 +140,20 @@ class TradeService:
         result = FullRLMPipeline(cfg).run(bars_df, chain_df)
 
         if result.policy_df.empty:
-            return TradeDecision(None, None, None, None, {"reason": "no_policy_rows"})
+            decision = TradeDecision(None, None, None, None, {"reason": "no_policy_rows"})
+        else:
+            last_row = result.policy_df.iloc[-1].to_dict()
+            decision = TradeDecision(
+                action=last_row.get("roee_action"),
+                strategy=last_row.get("roee_strategy"),
+                size_fraction=last_row.get("roee_size_fraction"),
+                vault_triggered=last_row.get("vault_triggered"),
+                raw=last_row,
+            )
 
-        last_row = result.policy_df.iloc[-1].to_dict()
-        return TradeDecision(
-            action=last_row.get("roee_action"),
-            strategy=last_row.get("roee_strategy"),
-            size_fraction=last_row.get("roee_size_fraction"),
-            vault_triggered=last_row.get("vault_triggered"),
-            raw=last_row,
-        )
+        if return_pipeline_result:
+            return decision, result
+        return decision
 
     def execute_decision(
         self, req: TradeRequest, decision: TradeDecision
