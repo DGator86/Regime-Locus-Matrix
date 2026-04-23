@@ -35,7 +35,9 @@ def _load_env() -> None:
         return
     p = ROOT / ".env"
     if p.is_file():
-        load_dotenv(p)
+        # systemd EnvironmentFile= parses .env differently than bash/python-dotenv
+        # (quotes, duplicate keys, export). Override so the file on disk matches curl/source tests.
+        load_dotenv(p, override=True)
 
 
 def _token() -> str:

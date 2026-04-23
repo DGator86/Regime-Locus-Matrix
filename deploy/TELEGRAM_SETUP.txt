@@ -210,8 +210,14 @@ Push alerts (if TELEGRAM_NOTIFY=1) watch:
 PART H — If something goes wrong
 --------------------------------------------------------------------------------
 
-  Symptom: “Unauthorized” or 401
-  → Token wrong or revoked. In BotFather: /mybots → your bot → API Token → Revoke and get a new token, update .env, restart the script.
+  Symptom: “Unauthorized” or 401 on getUpdates, but curl getMe with sourced .env works
+  → The service may be using a different TELEGRAM_BOT_TOKEN than your shell: systemd’s
+    EnvironmentFile= does not parse .env exactly like bash (avoid duplicate TELEGRAM_BOT_TOKEN=
+    lines, stray quotes, or export KEY=). The bot reloads .env with override so the repo file wins.
+    After fixing .env: sudo systemctl restart rlm-telegram (or your unit name). Confirm with:
+    systemd-analyze cat-config systemd/system/rlm-telegram.service
+  → If getMe also fails: token wrong or revoked. BotFather → /mybots → API Token → Revoke,
+    update .env, restart the service.
 
   Symptom: “Not authorized for this bot”
   → Your user id is not in TELEGRAM_ALLOWED_USER_IDS. Add it or remove the line to test (not for production on a public server).
