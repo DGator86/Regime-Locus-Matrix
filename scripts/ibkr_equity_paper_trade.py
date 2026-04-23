@@ -52,8 +52,10 @@ except ImportError:
     _EClient = _EWrapper = _IbkrContract = _IbkrOrder = None  # type: ignore[assignment,misc]
     _IBAPI_OK = False
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
+apply_compute_thread_env()
+
+from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
 
 PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
 EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
@@ -412,9 +414,34 @@ def _mark_equity_opened(plan_id: str, plans_path: Path) -> None:
 # Core logic
 # ---------------------------------------------------------------------------
 
-def _quantity_for_symbol(price: float, position_usd: float) -> int:
+def _quantity_for_symbol(
+    price: float,
+    position_usd: float,
+    risk_usd: float | None = None,
+    stop_pct: float | None = None,
+    account_nlv: float | None = None,
+    max_account_pct: float | None = None,
+    confidence: float | None = None,
+) -> int:
     if price <= 0:
         return 0
+
+    # Option 1: Account-percentage scaling (Notional = NLV * MaxPct * Confidence)
+    if account_nlv is not None and max_account_pct is not None:
+        conf = confidence if confidence is not None else 1.0
+        target_notional = account_nlv * (max_account_pct / 100.0) * conf
+        qty = int(target_notional // price)
+        return max(1, qty)
+
+    # Option 2: Risk-based sizing (Risk $ = Fixed Risk * Confidence)
+    if risk_usd is not None and risk_usd > 0 and stop_pct is not None and stop_pct > 0:
+        # Quantity = Risk $ / (Price * Stop %)
+        conf = confidence if confidence is not None else 1.0
+        scaled_risk = risk_usd * conf
+        qty = int(scaled_risk / (price * (stop_pct / 100.0)))
+        return max(1, qty)
+
+    # Option 3: Fixed notional
     return max(1, int(position_usd // price))
 
 
@@ -423,6 +450,10 @@ def open_equity_positions(
     plans: list[dict],
     positions: dict[str, EquityPosition],
     position_usd: float,
+    risk_usd: float | None = None,
+    stop_pct: float | None = None,
+    account_nlv: float | None = None,
+    max_account_pct: float | None = None,
     dry_run: bool,
     app: _EquityApp | None,
     plans_path: Path,
@@ -466,7 +497,25 @@ def open_equity_positions(
             print(f"  [equity] {sym}: cannot determine price — skip", flush=True)
             continue
 
-        qty = _quantity_for_symbol(entry_price, position_usd)
+        # Extract confidence from plan metadata
+        decision_data = plan.get("decision") or {}
+        meta = decision_data.get("metadata") or {}
+        confidence = float(
+            meta.get("regime_confidence")
+            or meta.get("confidence")
+            or decision_data.get("size_fraction")
+            or 1.0
+        )
+
+        qty = _quantity_for_symbol(
+            entry_price,
+            position_usd,
+            risk_usd=risk_usd,
+            stop_pct=stop_pct,
+            account_nlv=account_nlv,
+            max_account_pct=max_account_pct,
+            confidence=confidence,
+        )
         if qty == 0:
             print(f"  [equity] {sym}: qty=0 at price={entry_price:.2f} — skip", flush=True)
             continue
@@ -637,7 +686,13 @@ def main() -> None:
     parser.add_argument("--state", default=str(EQUITY_STATE_PATH), help="Path to equity positions state JSON")
     parser.add_argument("--log", default=str(EQUITY_LOG_PATH), help="Path to equity trade log CSV")
     parser.add_argument("--position-usd", type=float, default=10_000.0,
-                        help="Target notional USD per position (default: $10,000)")
+                        help="Target notional USD per position (default: $10,000; ignored if --risk-usd is set)")
+    parser.add_argument("--risk-usd", type=float, default=None,
+                        help="Dollar amount to risk per trade (e.g. 500). If set, overrides --position-usd.")
+    parser.add_argument("--use-account-scale", action="store_true",
+                        help="Scale position size based on account balance (NLV).")
+    parser.add_argument("--max-account-pct", type=float, default=10.0,
+                        help="Max percentage of account balance per position (default: 10.0)")
     parser.add_argument("--stop-pct", type=float, default=5.0,
                         help="Hard stop loss %% below entry (default: 5)")
     parser.add_argument("--target-pct", type=float, default=10.0,
@@ -655,7 +710,11 @@ def main() -> None:
     print(f"\n{'='*60}", flush=True)
     print(f"  IBKR Equity Paper Trade  |  {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
     print(f"  plans       : {plans_path}", flush=True)
-    print(f"  position_usd: ${args.position_usd:,.0f}", flush=True)
+    print(f"  position_usd: ${args.position_usd:,.0f}{' (ignored)' if args.risk_usd or args.use_account_scale else ''}", flush=True)
+    if args.risk_usd:
+        print(f"  risk_usd    : ${args.risk_usd:,.0f}", flush=True)
+    if args.use_account_scale:
+        print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
     print(f"  stop / target: -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  dry_run     : {args.dry_run}", flush=True)
     print(f"{'='*60}\n", flush=True)
@@ -664,6 +723,24 @@ def main() -> None:
     positions = _load_state(state_path)
     active_plan_ids = {p["plan_id"] for p in plans if p.get("plan_id")}
 
+    account_nlv: float | None = None
+    if args.use_account_scale:
+        try:
+            print("[equity] Fetching account balance for scaling …", flush=True)
+            snap = fetch_ibkr_account_snapshot(timeout_sec=30.0)
+            for row in snap.account_summary:
+                if row.tag == "NetLiquidation":
+                    try:
+                        account_nlv = float(row.value)
+                        print(f"  [equity] Account NLV: ${account_nlv:,.2f}", flush=True)
+                        break
+                    except (ValueError, TypeError):
+                        pass
+            if account_nlv is None:
+                print("  [equity] [warn] Could not find NetLiquidation in account summary. Falling back to default sizing.", flush=True)
+        except Exception as e:
+            print(f"  [equity] [error] Could not fetch account snapshot: {e}. Falling back to default sizing.", flush=True)
+
     print(f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True)
 
     if args.dry_run:
@@ -671,6 +748,8 @@ def main() -> None:
         if not args.monitor_only:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
+                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
                 dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
             )
         evaluate_equity_positions(
@@ -687,6 +766,8 @@ def main() -> None:
         if not args.monitor_only:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
+                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
                 dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
             )
         evaluate_equity_positions(

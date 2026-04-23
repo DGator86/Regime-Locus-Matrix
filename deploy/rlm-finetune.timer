@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for RLM Kronos Weekend Fine-Tuning
+
+[Timer]
+# Run every Saturday at 2:00 AM UTC
+OnCalendar=Sat *-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

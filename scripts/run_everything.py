@@ -169,6 +169,23 @@ def main() -> int:
         help="Equity take-profit (%% above entry, default: 10)",
     )
     ap.add_argument(
+        "--equity-risk-usd",
+        type=float,
+        default=0.0,
+        help="Dollar amount to risk per equity trade (overrides --equity-position-usd)",
+    )
+    ap.add_argument(
+        "--equity-use-account-scale",
+        action="store_true",
+        help="Scale equity positions based on IBKR account balance and AI confidence",
+    )
+    ap.add_argument(
+        "--equity-max-account-pct",
+        type=float,
+        default=10.0,
+        help="Max %% of account balance per equity position (default: 10)",
+    )
+    ap.add_argument(
         "--scanner-hours-et",
         action="store_true",
         help="Gate universe rescans to Mon–Fri 09:00–16:00 America/New_York; sets --follow and "
@@ -262,6 +279,10 @@ def main() -> int:
             "--target-pct",
             str(args.equity_target_pct),
         ]
+        if args.equity_risk_usd > 0:
+            ecmd.extend(["--risk-usd", str(args.equity_risk_usd)])
+        if args.equity_use_account_scale:
+            ecmd.extend(["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)])
         if args.equity_dry_run:
             ecmd.append("--dry-run")
         return ecmd

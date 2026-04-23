@@ -210,7 +210,8 @@ def fetch_historical_stock_bars(
     h, p, cid = load_ibkr_socket_config()
     h = host if host is not None else h
     p = port if port is not None else p
-    cid = client_id if client_id is not None else cid
+    import random
+    cid = (client_id if client_id is not None else cid) + random.randint(1000, 9999)
 
     app = app_cls()
     thread: threading.Thread | None = None
