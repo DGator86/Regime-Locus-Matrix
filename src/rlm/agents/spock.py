@@ -12,6 +12,7 @@ Outputs a structured recommendation list for Kirk to act on.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,8 @@ class SpockBriefing:
     overall_risk: str = "UNKNOWN"
     llm_text: str = ""
     context_snapshot: str = ""
+    data_generated_at: str = ""
+    data_age_minutes: float = 0.0
 
 
 class SpockAgent:
@@ -65,6 +68,10 @@ class SpockAgent:
         """Read current artefacts and return Spock's briefing."""
         ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         briefing = SpockBriefing(timestamp=ts)
+
+        gen_at, age_min = self._plans_data_age()
+        briefing.data_generated_at = gen_at
+        briefing.data_age_minutes = age_min
 
         context = self._build_context()
         briefing.context_snapshot = context
@@ -111,6 +118,20 @@ class SpockAgent:
 
         return "\n\n".join(sections) if sections else "No active plans or signals found."
 
+    _STALE_THRESHOLD_MINUTES = 30
+
+    def _plans_data_age(self) -> tuple[str, float]:
+        """Return (generated_at_utc_str, age_in_minutes) for the plans file."""
+        path = self.root / "data" / "processed" / "universe_trade_plans.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            gen_str = data.get("generated_at_utc", "")
+            gen_dt = datetime.fromisoformat(gen_str.replace("Z", "+00:00"))
+            age = (datetime.now(tz=timezone.utc) - gen_dt).total_seconds() / 60
+            return gen_str, round(age, 1)
+        except Exception:
+            return "", 0.0
+
     def _read_plans(self) -> str:
         path = self.root / "data" / "processed" / "universe_trade_plans.json"
         if not path.is_file():
@@ -123,8 +144,17 @@ class SpockAgent:
         active = [r for r in results if r.get("status") == "active"]
         if not active:
             return "No active plans."
+        generated_at = data.get("generated_at_utc", "?")
+        stale_tag = ""
+        try:
+            gen_dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+            age_min = (datetime.now(tz=timezone.utc) - gen_dt).total_seconds() / 60
+            if age_min > self._STALE_THRESHOLD_MINUTES:
+                stale_tag = f" [STALE: {age_min:.0f}min old — scores may not reflect current market]"
+        except Exception:
+            pass
         lines: list[str] = [
-            f"Generated: {data.get('generated_at_utc', '?')}",
+            f"Generated: {generated_at}{stale_tag}",
             f"Active plans: {len(active)}",
         ]
         active.sort(key=lambda x: float(x.get("rank_score") or 0), reverse=True)
@@ -182,11 +212,15 @@ class SpockAgent:
             lines.append(f"  • {sym} {side} qty={qty} id={pid}")
         return "\n".join(lines)
 
-    @staticmethod
-    def _extract_risk(text: str) -> str:
+    _RISK_PATTERN = re.compile(
+        r"OVERALL\s+RISK\s+POSTURE\s*:\s*(CRITICAL|HIGH|MODERATE|LOW)",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _extract_risk(cls, text: str) -> str:
         for line in reversed(text.splitlines()):
-            upper = line.upper()
-            for level in ("CRITICAL", "HIGH", "MODERATE", "LOW"):
-                if level in upper and "RISK POSTURE" in upper:
-                    return level
+            m = cls._RISK_PATTERN.search(line)
+            if m:
+                return m.group(1).upper()
         return "UNKNOWN"
