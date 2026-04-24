@@ -26,11 +26,15 @@ git pull origin main && \
 if ! command -v node &> /dev/null; then
     echo 'Installing Node.js via NVM...'
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    export NVM_DIR="\$HOME/.nvm"
-    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    export NVM_DIR="`$HOME/.nvm"
+    [ -s "`$NVM_DIR/nvm.sh" ] && \. "`$NVM_DIR/nvm.sh"
     nvm install 20
     nvm use 20
 fi
+
+# Ensure nvm is loaded for the rest of the script
+export NVM_DIR="`$HOME/.nvm"
+[ -s "`$NVM_DIR/nvm.sh" ] && \. "`$NVM_DIR/nvm.sh"
 
 # Build dashboard
 cd dashboard && \
