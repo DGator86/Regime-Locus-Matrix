@@ -191,9 +191,10 @@ class StarfleetCrew:
             force_notify=True,
         )
         while True:
-            now = time.monotonic()
-            self._tick(now)
-            time.sleep(10)
+            tick_start = time.monotonic()
+            self._tick()
+            elapsed = time.monotonic() - tick_start
+            time.sleep(max(0.0, 10.0 - elapsed))
 
     def run_once(self) -> CommandDecision:
         """Single full cycle — useful for testing or cron invocation."""
@@ -210,8 +211,9 @@ class StarfleetCrew:
     # Tick logic
     # ------------------------------------------------------------------
 
-    def _tick(self, now: float) -> None:
+    def _tick(self) -> None:
         # Scotty health check
+        now = time.monotonic()
         if now - self._last_health >= self.cfg.health_interval:
             self._last_health = now
             try:
@@ -227,6 +229,7 @@ class StarfleetCrew:
                 self._send(f"<b>[Scotty ERROR]</b> {exc}", force_notify=True)
 
         # Spock market analysis
+        now = time.monotonic()
         if now - self._last_analysis >= self.cfg.analysis_interval:
             self._last_analysis = now
             try:
@@ -234,14 +237,20 @@ class StarfleetCrew:
                 self._last_briefing_obj = briefing
                 # Only send if Spock found something meaningful
                 if briefing.overall_risk in ("HIGH", "CRITICAL"):
+                    age_note = (
+                        f" | data {briefing.data_age_minutes:.0f}min old"
+                        if briefing.data_age_minutes > self.cfg.analysis_interval / 60
+                        else ""
+                    )
                     self._send(
-                        f"<b>[Spock]</b> Risk: {briefing.overall_risk}\n{briefing.llm_text[:1200]}",
+                        f"<b>[Spock]</b> Risk: {briefing.overall_risk} | analysed: {briefing.timestamp}{age_note}\n{briefing.llm_text[:1200]}",
                         force_notify=True,
                     )
             except Exception as exc:
                 self._send(f"<b>[Spock ERROR]</b> {exc}", force_notify=True)
 
         # Kirk full command briefing
+        now = time.monotonic()
         if now - self._last_briefing >= self.cfg.briefing_interval:
             self._last_briefing = now
             if self._last_health_report and self._last_briefing_obj:
