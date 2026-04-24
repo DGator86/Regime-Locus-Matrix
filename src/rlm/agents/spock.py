@@ -22,6 +22,30 @@ from rlm.agents.base import LLMClient, Message
 from rlm.utils.market_hours import session_label
 
 # -----------------------------------------------------------------------
+
+def _fmt_score(v: object) -> str:
+    try:
+        return f"{float(v):.4f}"  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _fmt_pct(v: object, decimals: int = 1) -> str:
+    try:
+        return f"{float(v) * 100:.{decimals}f}%"  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _fmt_ret(v: object) -> str:
+    try:
+        val = float(v) * 100  # type: ignore[arg-type]
+        sign = "+" if val >= 0 else ""
+        return f"{sign}{val:.2f}%"
+    except (TypeError, ValueError):
+        return "?"
+
+# -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
 You are Spock, the Science Officer and strategic analyst of this trading system.
 You operate on pure logic and probability. No emotional language. No hedging phrases.
@@ -161,14 +185,14 @@ class SpockAgent:
         for r in active[:15]:
             sym = r.get("symbol", "?")
             strat = r.get("strategy", "?")
-            score = r.get("rank_score", "?")
+            score = r.get("rank_score")
             pid = r.get("plan_id", "?")
             regime = r.get("regime", r.get("regime_label", "?"))
-            conf = r.get("regime_confidence", r.get("confidence", "?"))
-            kron = r.get("kronos_return_forecast", "?")
+            conf = r.get("regime_confidence", r.get("confidence"))
+            kron = r.get("kronos_return_forecast")
             lines.append(
-                f"  • {sym} [{strat}] score={score} regime={regime} conf={conf} "
-                f"kronos={kron} id={pid}"
+                f"  • {sym} [{strat}] score={_fmt_score(score)} regime={regime} "
+                f"conf={_fmt_pct(conf)} kronos={_fmt_ret(kron)} id={pid}"
             )
         return "\n".join(lines)
 
