@@ -230,7 +230,7 @@ def main() -> int:
         )
 
     if not hasattr(args, "interval"):
-        args.interval = 60.0 if args.master else 120.0
+        args.interval = 60.0
     if not hasattr(args, "rescan_interval"):
         args.rescan_interval = 300.0 if args.master else 0.0
 

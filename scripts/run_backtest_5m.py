@@ -35,7 +35,7 @@ from rlm.datasets.backtest_data import (
 )
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.engines import ForecastPipeline, HybridForecastPipeline, HybridMarkovForecastPipeline

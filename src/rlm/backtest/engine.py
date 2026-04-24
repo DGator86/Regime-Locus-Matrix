@@ -23,6 +23,8 @@ from rlm.roee.exits import (
     should_exit_for_profit,
     should_exit_for_regime_flip,
     should_exit_for_zone_breach,
+    should_exit_for_stop_loss,
+    should_exit_for_time_stop,
 )
 from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
@@ -181,6 +183,23 @@ class BacktestEngine:
                 gex_confluence_enabled=self.config.gex_confluence_enabled,
             )
 
+            if decision.action == "enter" and not (
+                self.lifecycle_config.one_trade_per_bar and traded_this_bar
+            ):
+                # --- Portfolio Manager Enforcement ---
+                symbol_cap = rc.max_positions_per_symbol
+                total_cap = rc.max_total_positions
+                
+                has_symbol_pos = self.portfolio.has_position_for_symbol(self.underlying_symbol)
+                total_pos_count = self.portfolio.total_position_count()
+                
+                if has_symbol_pos and symbol_cap > 0:
+                    decision.action = "skip"
+                    decision.rationale = f"Symbol cap reached: {self.underlying_symbol}"
+                elif total_pos_count >= total_cap and total_cap > 0:
+                    decision.action = "skip"
+                    decision.rationale = f"Portfolio cap reached: {total_pos_count}/{total_cap}"
+                
             if decision.action == "enter" and not (
                 self.lifecycle_config.one_trade_per_bar and traded_this_bar
             ):
@@ -383,6 +402,22 @@ class BacktestEngine:
                 pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct
             ):
                 to_close.append((position_id, "profit_target"))
+                continue
+
+            # Hard Stop Loss
+            if pricing_ok and should_exit_for_stop_loss(
+                pnl_pct=pnl_pct, stop_loss_pct=self.roee_config.hard_stop_loss_pct if self.roee_config else -0.50
+            ):
+                to_close.append((position_id, "stop_loss"))
+                continue
+
+            # Time Stop (DTE)
+            from rlm.data.option_chain import calculate_dte_from_expiry
+            dte = calculate_dte_from_expiry(pos.expiry, ts) if pos.expiry else 999
+            if pricing_ok and should_exit_for_time_stop(
+                dte_remaining=dte, min_dte_threshold=self.roee_config.force_exit_dte if self.roee_config else 2
+            ):
+                to_close.append((position_id, "time_stop"))
                 continue
 
             if pricing_ok and should_exit_for_zone_breach(

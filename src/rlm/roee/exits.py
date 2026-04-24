@@ -26,3 +26,19 @@ def should_exit_for_regime_flip(
     if "|" in entry_regime_key and "|" in current_regime_key:
         return entry_regime_key.split("|")[0] != current_regime_key.split("|")[0]
     return entry_regime_key != current_regime_key
+
+
+def should_exit_for_stop_loss(
+    pnl_pct: float,
+    stop_loss_pct: float,
+) -> bool:
+    """Exit if loss exceeds the stop loss threshold (e.g., -0.50)."""
+    return pnl_pct <= stop_loss_pct
+
+
+def should_exit_for_time_stop(
+    dte_remaining: float,
+    min_dte_threshold: float,
+) -> bool:
+    """Exit if the time remaining until expiry is below the threshold."""
+    return dte_remaining <= min_dte_threshold

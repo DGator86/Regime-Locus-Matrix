@@ -120,9 +120,9 @@ def _tg_send(text: str, token: str, chat_id: str, *, silent: bool = False) -> bo
 
 @dataclass
 class CrewConfig:
-    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "3600"))
-    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "3600"))
-    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "7200"))
+    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "60"))
+    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "60"))
+    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "3600"))
     telegram_token: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
     silent_health_ok: bool = True     # don't spam Telegram when everything is fine

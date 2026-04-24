@@ -64,9 +64,9 @@ _restart_last_mono: dict[str, float] = {}
 
 # Artefact staleness thresholds
 _STALE_HOURS = {
-    "universe_trade_plans.json": 2.0,
-    "trade_log.csv": 4.0,
-    "equity_positions_state.json": 4.0,
+    "universe_trade_plans.json": 0.1,  # ~6 mins
+    "trade_log.csv": 0.1,
+    "equity_positions_state.json": 0.1,
 }
 
 

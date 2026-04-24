@@ -335,7 +335,7 @@ def main() -> int:
     p.add_argument(
         "--interval",
         type=float,
-        default=120.0,
+        default=60.0,
         help="Seconds between polls (if not --once)",
     )
     p.add_argument("--once", action="store_true", help="Single poll then exit")

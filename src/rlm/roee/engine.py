@@ -35,6 +35,11 @@ class ROEEConfig:
     eighty_percent_boost: float = 0.2
     hybrid_strength_scaling: bool = True
     gex_confluence_enabled: bool = True
+    # --- Risk & Portfolio Limits ---
+    hard_stop_loss_pct: float = -0.50
+    force_exit_dte: int = 2
+    max_total_positions: int = 10
+    max_positions_per_symbol: int = 1
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:

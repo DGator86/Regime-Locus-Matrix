@@ -134,7 +134,7 @@ def compute_regime_modulators(
         composite = kronos_agree
         model_name = "kronos"
     else:
-        return {"confidence": 1.0, "size_mult": 1.0, "trade": True, "model": model_name}
+        return {"confidence": 0.0, "size_mult": 0.0, "trade": False, "model": "none"}
 
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
