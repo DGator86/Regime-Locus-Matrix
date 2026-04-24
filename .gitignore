@@ -57,6 +57,8 @@ checkpoints/
 *.feather
 *.csv
 *.json
+!dashboard/package.json
+!dashboard/tsconfig.json
 !configs/*.json
 !configs/*.yaml
 
