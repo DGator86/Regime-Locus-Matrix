@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
 
 from rlm.core.config import build_pipeline_config
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
+from rlm.data.paths import get_processed_data_dir
+from rlm.datasets.paths import (
+    walkforward_equity_filename,
+    walkforward_summary_filename,
+    walkforward_trades_filename,
+)
 from rlm.utils.logging import get_logger
 from rlm.utils.timing import timed_stage
 
@@ -113,6 +119,8 @@ class BacktestService:
             summary["metrics"] = result.backtest_metrics
         if result.backtest_trades is not None:
             summary["trade_count"] = len(result.backtest_trades)
+        if result.walkforward_summary is not None and not result.walkforward_summary.empty:
+            summary["walkforward_windows"] = len(result.walkforward_summary)
         return summary
 
     # ------------------------------------------------------------------
@@ -122,41 +130,62 @@ class BacktestService:
     def _run_walkforward(
         self, req: BacktestRequest, cfg: FullRLMConfig, base_result: PipelineResult
     ) -> PipelineResult:
-        from rlm.backtest.walkforward import WalkForwardConfig, run_walkforward
-        from rlm.datasets.paths import (
-            walkforward_equity_filename,
-            walkforward_summary_filename,
-            walkforward_trades_filename,
-        )
+        from rlm.backtest.walkforward import WalkForwardConfig, WalkForwardEngine
 
-        out_dir = req.out_dir
-        if out_dir is None:
-            from rlm.data.paths import get_processed_data_dir
-            out_dir = get_processed_data_dir()
+        out_dir = req.out_dir if req.out_dir is not None else get_processed_data_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
-
+        hmm_dir = out_dir / "walkforward_hmm"
+        hmm_dir.mkdir(parents=True, exist_ok=True)
         try:
-            equity_df, trades_df, summary_df = run_walkforward(
-                bars=req.bars_df,
-                option_chain=req.option_chain_df if req.option_chain_df is not None else pd.DataFrame(),
+            engine = WalkForwardEngine(
+                pipeline_config=cfg,
                 wf_config=WalkForwardConfig(),
-                use_hmm=(cfg.regime_model == "hmm"),
-                use_markov=(cfg.regime_model == "markov"),
-                use_probabilistic=cfg.probabilistic,
-                probabilistic_model_path=cfg.probabilistic_model_path,
-                roee_config=cfg.roee_config,
+                hmm_model_dir=hmm_dir,
             )
-            sym = req.symbol.upper()
-            equity_df.to_csv(out_dir / walkforward_equity_filename(sym))
-            trades_df.to_csv(out_dir / walkforward_trades_filename(sym))
-            summary_df.to_csv(out_dir / walkforward_summary_filename(sym))
+            wf_result = engine.run(req.bars_df, req.option_chain_df)
             log.info(
                 "walkforward done  symbol=%s windows=%d trades=%d",
                 req.symbol,
-                len(summary_df),
-                len(trades_df),
+                len(wf_result.summary_df),
+                len(wf_result.trades_df),
             )
         except Exception as exc:
             log.warning("walkforward failed  symbol=%s error=%s", req.symbol, exc)
+            return base_result
 
-        return base_result
+        if req.write_outputs:
+            sym = req.symbol.upper()
+            sum_path = out_dir / walkforward_summary_filename(sym)
+            wf_result.summary_df.to_csv(sum_path, index=False)
+            if not wf_result.equity_df.empty:
+                wf_result.equity_df.to_csv(out_dir / walkforward_equity_filename(sym))
+            if not wf_result.trades_df.empty:
+                wf_result.trades_df.to_csv(out_dir / walkforward_trades_filename(sym))
+            log.info("walkforward output  summary=%s", sum_path)
+
+        merged_metrics = dict(base_result.backtest_metrics or {})
+        merged_metrics.update(_aggregate_walkforward_metrics(wf_result.summary_df))
+        return replace(
+            base_result,
+            backtest_metrics=merged_metrics,
+            walkforward_summary=wf_result.summary_df,
+        )
+
+
+def _aggregate_walkforward_metrics(summary_df: pd.DataFrame) -> dict[str, float]:
+    if summary_df.empty:
+        return {}
+    out: dict[str, float] = {"wf_windows": float(len(summary_df))}
+    for col in (
+        "sharpe",
+        "total_return_pct",
+        "max_drawdown",
+        "num_trades",
+        "win_rate",
+        "profit_factor",
+        "final_equity",
+    ):
+        if col in summary_df.columns:
+            s = pd.to_numeric(summary_df[col], errors="coerce")
+            out[f"wf_mean_{col}"] = float(s.mean())
+    return out
