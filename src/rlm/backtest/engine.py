@@ -393,9 +393,18 @@ class BacktestEngine:
                 to_close.append((position_id, "zone_breach"))
                 continue
 
-            if pricing_ok and should_exit_for_regime_flip(
-                entry_regime_key=pos.regime_key,
-                current_regime_key=str(row["regime_key"]),
+            bars_held = (
+                bar_index - pos.entry_bar_index
+                if pos.entry_bar_index is not None
+                else self.lifecycle_config.min_hold_bars
+            )
+            if (
+                pricing_ok
+                and bars_held >= self.lifecycle_config.min_hold_bars
+                and should_exit_for_regime_flip(
+                    entry_regime_key=pos.regime_key,
+                    current_regime_key=str(row["regime_key"]),
+                )
             ):
                 to_close.append((position_id, "regime_flip"))
                 continue

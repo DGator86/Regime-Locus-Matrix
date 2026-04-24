@@ -114,9 +114,14 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
         lines.append("  (none — no rows with closed=0)")
     else:
         for pid, row in opts[:max_positions]:
+            raw_pnl = row.get("unrealized_pnl_pct", "")
+            try:
+                pnl_fmt = f"{float(raw_pnl) * 100:+.1f}%"
+            except (TypeError, ValueError):
+                pnl_fmt = str(raw_pnl)
             lines.append(
                 f"  • {row.get('symbol', '?')}  plan={pid}  mark={row.get('current_mark', '')}  "
-                f"PnL%={row.get('unrealized_pnl_pct', '')}  signal={row.get('signal', '')}  dte={row.get('dte', '')}"
+                f"PnL={pnl_fmt}  signal={row.get('signal', '')}  dte={row.get('dte', '')}"
             )
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
@@ -194,9 +199,18 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
     for r in actives[:max_active]:
         sym = r.get("symbol", "?")
         st = r.get("strategy", "?")
-        rs = r.get("rank_score", "")
+        rs = r.get("rank_score")
+        conf = r.get("regime_confidence", r.get("confidence"))
         pid = r.get("plan_id", "")
-        lines.append(f"  • {sym}  {st}  score={rs}  id={pid}")
+        try:
+            rs_fmt = f"{float(rs):.4f}"  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            rs_fmt = str(rs or "?")
+        try:
+            conf_fmt = f"{float(conf) * 100:.1f}%"  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            conf_fmt = "?"
+        lines.append(f"  • {sym}  {st}  score={rs_fmt}  conf={conf_fmt}  id={pid}")
     if not actives:
         lines.append("  (no active rows)")
     return "\n".join(lines)

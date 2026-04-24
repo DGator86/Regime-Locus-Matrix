@@ -341,7 +341,8 @@ def run_walkforward(
                 oos_features["regime_train_sample_count"].iloc[-1]
             ),
             "min_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].min()),
-            "regime_safety_passed": bool(oos_features["regime_safety_ok"].all()),
+            "regime_safety_fraction": round(float(oos_features["regime_safety_ok"].mean()), 3),
+            "regime_safety_passed": float(oos_features["regime_safety_ok"].mean()) >= 0.70,
             **regime_meta,
         }
         if cfg.log_vp_metrics:

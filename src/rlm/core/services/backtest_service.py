@@ -122,15 +122,39 @@ class BacktestService:
     def _run_walkforward(
         self, req: BacktestRequest, cfg: FullRLMConfig, base_result: PipelineResult
     ) -> PipelineResult:
-        try:
-            from rlm.backtest.walkforward import WalkForwardEngine, WalkForwardConfig
+        from rlm.backtest.walkforward import WalkForwardConfig, run_walkforward
+        from rlm.datasets.paths import (
+            walkforward_equity_filename,
+            walkforward_summary_filename,
+            walkforward_trades_filename,
+        )
 
-            engine = WalkForwardEngine(pipeline_config=cfg, wf_config=WalkForwardConfig())
-            wf_result = engine.run(req.bars_df, req.option_chain_df)
+        out_dir = req.out_dir
+        if out_dir is None:
+            from rlm.data.paths import get_processed_data_dir
+            out_dir = get_processed_data_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            equity_df, trades_df, summary_df = run_walkforward(
+                bars=req.bars_df,
+                option_chain=req.option_chain_df if req.option_chain_df is not None else pd.DataFrame(),
+                wf_config=WalkForwardConfig(),
+                use_hmm=(cfg.regime_model == "hmm"),
+                use_markov=(cfg.regime_model == "markov"),
+                use_probabilistic=cfg.probabilistic,
+                probabilistic_model_path=cfg.probabilistic_model_path,
+                roee_config=cfg.roee_config,
+            )
+            sym = req.symbol.upper()
+            equity_df.to_csv(out_dir / walkforward_equity_filename(sym))
+            trades_df.to_csv(out_dir / walkforward_trades_filename(sym))
+            summary_df.to_csv(out_dir / walkforward_summary_filename(sym))
             log.info(
-                "walkforward done  symbol=%s windows=%d",
+                "walkforward done  symbol=%s windows=%d trades=%d",
                 req.symbol,
-                len(wf_result.window_results),
+                len(summary_df),
+                len(trades_df),
             )
         except Exception as exc:
             log.warning("walkforward failed  symbol=%s error=%s", req.symbol, exc)

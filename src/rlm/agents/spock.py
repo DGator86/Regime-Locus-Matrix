@@ -22,6 +22,30 @@ from rlm.agents.base import LLMClient, Message
 from rlm.utils.market_hours import session_label
 
 # -----------------------------------------------------------------------
+
+def _fmt_score(v: object) -> str:
+    try:
+        return f"{float(v):.4f}"  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _fmt_pct(v: object, decimals: int = 1) -> str:
+    try:
+        return f"{float(v) * 100:.{decimals}f}%"  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _fmt_ret(v: object) -> str:
+    try:
+        val = float(v) * 100  # type: ignore[arg-type]
+        sign = "+" if val >= 0 else ""
+        return f"{sign}{val:.2f}%"
+    except (TypeError, ValueError):
+        return "?"
+
+# -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
 You are Spock, the Science Officer and strategic analyst of this trading system.
 You operate on pure logic and probability. No emotional language. No hedging phrases.
@@ -116,6 +140,11 @@ class SpockAgent:
         if eq_text:
             sections.append(f"=== Open Equity Positions ===\n{eq_text}")
 
+        # 4 — Historical OOS walk-forward performance (past)
+        wf_text = self._read_walkforward_performance()
+        if wf_text:
+            sections.append(f"=== Historical OOS Performance (Walk-Forward) ===\n{wf_text}")
+
         return "\n\n".join(sections) if sections else "No active plans or signals found."
 
     _STALE_THRESHOLD_MINUTES = 30
@@ -161,14 +190,14 @@ class SpockAgent:
         for r in active[:15]:
             sym = r.get("symbol", "?")
             strat = r.get("strategy", "?")
-            score = r.get("rank_score", "?")
+            score = r.get("rank_score")
             pid = r.get("plan_id", "?")
             regime = r.get("regime", r.get("regime_label", "?"))
-            conf = r.get("regime_confidence", r.get("confidence", "?"))
-            kron = r.get("kronos_return_forecast", "?")
+            conf = r.get("regime_confidence", r.get("confidence"))
+            kron = r.get("kronos_return_forecast")
             lines.append(
-                f"  • {sym} [{strat}] score={score} regime={regime} conf={conf} "
-                f"kronos={kron} id={pid}"
+                f"  • {sym} [{strat}] score={_fmt_score(score)} regime={regime} "
+                f"conf={_fmt_pct(conf)} kronos={_fmt_ret(kron)} id={pid}"
             )
         return "\n".join(lines)
 
@@ -192,6 +221,54 @@ class SpockAgent:
             return "\n".join(lines) if len(lines) > 1 else ""
         except Exception:
             return ""
+
+    def _read_walkforward_performance(self, windows: int = 5) -> str:
+        """Summarise the most recent OOS windows from the walk-forward summary CSV."""
+        candidates = [
+            self.root / "data" / "processed" / "walkforward_summary.csv",
+        ]
+        # Prefer symbol-specific files if they have trading data
+        for p in (self.root / "data" / "processed").glob("walkforward_summary_*.csv"):
+            candidates.insert(0, p)
+
+        import csv as _csv
+
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                with path.open(encoding="utf-8") as f:
+                    rows = list(_csv.DictReader(f))
+                if not rows:
+                    continue
+                # Check this file actually has trading metric columns
+                if "win_rate" not in rows[0]:
+                    continue
+                recent = rows[-windows:]
+                lines = [f"Last {len(recent)} OOS windows ({path.stem}):"]
+                for r in recent:
+                    try:
+                        wr = f"{float(r['win_rate']):.0%}"
+                        sh = f"{float(r['sharpe']):.1f}"
+                        pnl = f"{float(r['avg_trade_pnl_pct']):+.1f}%"
+                        n = int(float(r.get("num_trades", 0)))
+                        oos_end = str(r.get("oos_end", "?"))[:10]
+                        safe = r.get("regime_safety_passed", "?")
+                        safe_frac = r.get("regime_safety_fraction", "")
+                        safe_str = (
+                            f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
+                        )
+                        lines.append(
+                            f"  OOS ending {oos_end}: win={wr} sharpe={sh} "
+                            f"avg_pnl={pnl} trades={n} regime_safe={safe_str}"
+                        )
+                    except (ValueError, KeyError):
+                        continue
+                if len(lines) > 1:
+                    return "\n".join(lines)
+            except Exception:
+                continue
+        return ""
 
     def _read_equity_state(self) -> str:
         path = self.root / "data" / "processed" / "equity_positions_state.json"
