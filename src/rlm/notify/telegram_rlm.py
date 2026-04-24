@@ -404,11 +404,12 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
     plans_data = _read_plans(p["plans"])
     cur_u = _active_plan_ids_from_plans(plans_data)
     sym_by_u = _symbol_by_plan_id(plans_data)
-    for pid in sorted(cur_u - st.last_universe_active_ids):
-        out.append(
-            f"Alert: New active universe idea — {sym_by_u.get(pid, '?')}  plan={pid} "
-            "(universe_trade_plans.json)"
-        )
+    # Disabling universe idea alerts to reduce chatter per user request
+    # for pid in sorted(cur_u - st.last_universe_active_ids):
+    #     out.append(
+    #         f"Alert: New active universe idea — {sym_by_u.get(pid, '?')}  plan={pid} "
+    #         "(universe_trade_plans.json)"
+    #     )
     st.last_universe_active_ids = cur_u
 
     prev_eq = st.last_equity_open

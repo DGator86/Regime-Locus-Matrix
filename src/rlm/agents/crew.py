@@ -120,9 +120,9 @@ def _tg_send(text: str, token: str, chat_id: str, *, silent: bool = False) -> bo
 
 @dataclass
 class CrewConfig:
-    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "120"))
-    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300"))
-    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "600"))
+    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "3600"))
+    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "3600"))
+    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "7200"))
     telegram_token: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
     silent_health_ok: bool = True     # don't spam Telegram when everything is fine
@@ -260,9 +260,8 @@ class StarfleetCrew:
                         self._last_briefing_obj,
                         self._last_scotty_diag,
                     )
-                    # Only send automated briefing if scanner is open OR if system is in trouble
-                    from rlm.utils.market_hours import is_scanner_window_open
-                    if is_scanner_window_open() or decision.system_status != "NOMINAL":
+                    # Only send automated briefing if system is in trouble OR high market risk
+                    if decision.system_status != "NOMINAL" or briefing.overall_risk in ("HIGH", "CRITICAL"):
                         self._send(decision.to_telegram_message(), force_notify=True)
                 except Exception as exc:
                     self._send(f"<b>[Kirk ERROR]</b> {exc}", force_notify=True)
