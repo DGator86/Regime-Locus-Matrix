@@ -32,6 +32,7 @@ class LifecycleConfig:
         ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
     )
     max_holding_bars: int | None = None
+    min_hold_bars: int = 2
     one_trade_per_bar: bool = True
     # Legacy scalar — kept for backward compatibility.  Prefer commission_config.
     commission_per_contract: float = 0.65
