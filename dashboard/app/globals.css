@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0a0a0b;
+  --color-foreground: #ececf1;
+  --color-card: #111114;
+  --color-card-foreground: #ececf1;
+  --color-primary: #00f5ff;
+  --color-accent: #a855f7;
+  --color-border: #1e1e24;
+}
+
+:root {
+  --background: #0a0a0b;
+  --foreground: #ececf1;
+  --card: #111114;
+  --card-foreground: #ececf1;
+  --popover: #0a0a0b;
+  --popover-foreground: #ececf1;
+  --primary: #00f5ff;
+  --primary-foreground: #0a0a0b;
+  --secondary: #1a1a1e;
+  --secondary-foreground: #ececf1;
+  --muted: #1a1a1e;
+  --muted-foreground: #94a3b8;
+  --accent: #a855f7;
+  --accent-foreground: #ececf1;
+  --destructive: #ef4444;
+  --destructive-foreground: #ececf1;
+  --border: #1e1e24;
+  --input: #1e1e24;
+  --ring: #00f5ff;
+  --radius: 0.75rem;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
+.glass {
+  background: rgba(17, 17, 20, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.neon-border {
+  box-shadow: 0 0 15px rgba(0, 245, 255, 0.15);
+}
+
+.neon-text {
+  text-shadow: 0 0 10px rgba(0, 245, 255, 0.4);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.98); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
