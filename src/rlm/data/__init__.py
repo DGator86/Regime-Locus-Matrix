@@ -5,6 +5,7 @@ Merged from former top-level packages: data, datasets (bar enrichment), microstr
 
 from rlm.data.liquidity_universe import (
     CORE_LIQUID_ETFS,
+    EXPANDED_LIQUID_UNIVERSE,
     LIQUID_STOCK_EXTRAS,
     LIQUID_STOCK_UNIVERSE_10,
     LIQUID_UNIVERSE,
@@ -33,6 +34,7 @@ from rlm.data.occ_symbol import ParsedOccSymbol, parse_occ_option_symbol
 
 __all__ = [
     "CORE_LIQUID_ETFS",
+    "EXPANDED_LIQUID_UNIVERSE",
     "LIQUID_STOCK_EXTRAS",
     "LIQUID_STOCK_UNIVERSE_10",
     "LIQUID_UNIVERSE",

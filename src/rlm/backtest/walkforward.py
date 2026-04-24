@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -20,6 +21,7 @@ from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.features.scoring.state_matrix import classify_state_matrix
+from rlm.core.pipeline import FullRLMConfig
 from rlm.types.forecast import ForecastConfig
 
 
@@ -156,6 +158,7 @@ def run_walkforward(
     hmm_model_dir: Path = Path("models"),
     use_mtf: bool = False,
     higher_tfs: tuple[str, ...] = ("1W", "1M"),
+    attach_vix: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg = wf_config or WalkForwardConfig()
     fc = forecast_config or ForecastConfig()
@@ -163,6 +166,8 @@ def run_walkforward(
         hmm_model_dir.mkdir(parents=True, exist_ok=True)
 
     bars = bars.sort_index().copy()
+    if option_chain is None:
+        option_chain = pd.DataFrame()
     # Local import avoids circular import: rlm.datasets.backtest_data → walkforward.
     from rlm.data.bars_enrichment import prepare_bars_for_factors
 
@@ -170,7 +175,7 @@ def run_walkforward(
         bars,
         option_chain,
         underlying=cfg.underlying_symbol,
-        attach_vix=True,
+        attach_vix=attach_vix,
     )
     all_equity = []
     all_trades = []
@@ -287,7 +292,10 @@ def run_walkforward(
             purge_bars=cfg.purge_bars,
         )
         oos_features = feature_df.loc[oos_bars.index].copy()
-        oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
+        if option_chain is None or option_chain.empty or "timestamp" not in option_chain.columns:
+            oos_chain = pd.DataFrame()
+        else:
+            oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
 
         effective_roee_config = roee_config or ROEEConfig(
             use_dynamic_sizing=(cfg.use_dynamic_sizing or use_hmm or use_markov),
@@ -393,3 +401,82 @@ def run_walkforward(
     summary_df = pd.DataFrame(window_summaries)
 
     return equity_df, trades_df, summary_df
+
+
+@dataclass
+class WalkForwardResult:
+    """Structured output from :class:`WalkForwardEngine`."""
+
+    equity_df: pd.DataFrame
+    trades_df: pd.DataFrame
+    summary_df: pd.DataFrame
+
+    @property
+    def window_results(self) -> list[dict[str, Any]]:
+        if self.summary_df.empty:
+            return []
+        return self.summary_df.to_dict(orient="records")
+
+
+class WalkForwardEngine:
+    """Run walk-forward OOS backtests with :func:`run_walkforward` and a :class:`FullRLMConfig`."""
+
+    def __init__(
+        self,
+        pipeline_config: FullRLMConfig,
+        wf_config: WalkForwardConfig | None = None,
+        *,
+        hmm_model_dir: Path | None = None,
+    ) -> None:
+        self.pipeline_config = pipeline_config
+        self.wf_config = wf_config or WalkForwardConfig()
+        self.hmm_model_dir = hmm_model_dir
+
+    def run(self, bars: pd.DataFrame, option_chain: pd.DataFrame | None) -> WalkForwardResult:
+        cfg = self.pipeline_config
+        wf = replace(
+            self.wf_config,
+            initial_capital=cfg.initial_capital,
+            underlying_symbol=cfg.symbol,
+            strike_increment=cfg.strike_increment,
+        )
+        fc = ForecastConfig(
+            drift_gamma_alpha=cfg.drift_gamma_alpha,
+            sigma_floor=cfg.sigma_floor,
+            direction_neutral_threshold=cfg.direction_neutral_threshold,
+        )
+        use_hmm = cfg.regime_model == "hmm"
+        use_markov = cfg.regime_model == "markov"
+        hmm_c = HMMConfig(n_states=cfg.hmm_states) if use_hmm else None
+        vp_cfg = cfg.volume_profile
+        markov_c: MarkovSwitchingConfig | None
+        if use_markov:
+            markov_c = MarkovSwitchingConfig(
+                n_states=cfg.markov_states,
+                use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
+                use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
+                use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
+            )
+        else:
+            markov_c = None
+        hmm_dir = self.hmm_model_dir if self.hmm_model_dir is not None else Path("models")
+        higher = tuple(cfg.higher_tfs) if cfg.higher_tfs else ("1W", "1M")
+        oc = option_chain if option_chain is not None else pd.DataFrame()
+        eq, tr, sm = run_walkforward(
+            bars=bars,
+            option_chain=oc,
+            forecast_config=fc,
+            wf_config=wf,
+            use_hmm=use_hmm,
+            hmm_config=hmm_c,
+            use_markov=use_markov,
+            markov_config=markov_c,
+            use_probabilistic=cfg.probabilistic,
+            probabilistic_model_path=cfg.probabilistic_model_path,
+            roee_config=cfg.roee_config,
+            hmm_model_dir=hmm_dir,
+            use_mtf=cfg.mtf,
+            higher_tfs=higher,
+            attach_vix=cfg.attach_vix,
+        )
+        return WalkForwardResult(equity_df=eq, trades_df=tr, summary_df=sm)

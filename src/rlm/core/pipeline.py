@@ -173,6 +173,8 @@ class PipelineResult:
     backtest_trades: pd.DataFrame | None = None
     backtest_equity: pd.DataFrame | None = None
     backtest_metrics: dict[str, float] | None = None
+    walkforward_summary: pd.DataFrame | None = None
+    """Per-window OOS walk-forward summary when a walk-forward pass ran."""
     vp_metrics: pd.DataFrame | None = None
     vp_signals: dict[str, object] | None = None
 

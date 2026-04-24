@@ -7,10 +7,25 @@ from typing import Any
 
 from rlm.core.config import build_pipeline_config as build_core_pipeline_config
 from rlm.core.pipeline import FullRLMConfig
+from rlm.data.liquidity_universe import EXPANDED_LIQUID_UNIVERSE
 
 
 def normalize_symbol(symbol: str) -> str:
     return symbol.strip().upper()
+
+
+def resolve_backtest_symbols(args: argparse.Namespace) -> list[str]:
+    """Resolve ``--symbol`` (default), ``--symbols``, or ``--universe`` into a ticker list."""
+    if getattr(args, "universe", False) and getattr(args, "symbols", None):
+        raise SystemExit("Use either --universe or --symbols, not both.")
+    if getattr(args, "universe", False):
+        return list(EXPANDED_LIQUID_UNIVERSE)
+    if getattr(args, "symbols", None):
+        out = [normalize_symbol(x) for x in str(args.symbols).split(",") if x.strip()]
+        if not out:
+            raise SystemExit("--symbols must list at least one ticker.")
+        return out
+    return [normalize_symbol(args.symbol)]
 
 
 def validate_regime_flags(use_hmm: bool, use_markov: bool) -> str:

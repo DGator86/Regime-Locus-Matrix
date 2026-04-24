@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
+import pandas as pd
+
 from rlm.agents.base import LLMClient, Message
 from rlm.utils.market_hours import session_label
 
@@ -140,10 +143,15 @@ class SpockAgent:
         if eq_text:
             sections.append(f"=== Open Equity Positions ===\n{eq_text}")
 
-        # 4 — Historical OOS walk-forward performance (past)
+        # 4 — Historical OOS walk-forward performance (recent windows)
         wf_text = self._read_walkforward_performance()
         if wf_text:
             sections.append(f"=== Historical OOS Performance (Walk-Forward) ===\n{wf_text}")
+
+        # 5 — Walk-forward OOS summaries (cross-symbol)
+        wf_agg = self._read_walkforward_oos_aggregate()
+        if wf_agg:
+            sections.append(f"=== Walk-forward OOS (universe aggregate) ===\n{wf_agg}")
 
         return "\n\n".join(sections) if sections else "No active plans or signals found."
 
@@ -269,6 +277,56 @@ class SpockAgent:
             except Exception:
                 continue
         return ""
+
+    def _read_walkforward_oos_aggregate(self) -> str:
+        proc = self.root / "data" / "processed"
+        if not proc.is_dir():
+            return ""
+        pat = re.compile(r"^walkforward_summary_([A-Za-z0-9\.\-]+)\.csv$")
+        per_symbol: list[tuple[str, dict[str, float]]] = []
+        for p in sorted(proc.glob("walkforward_summary_*.csv")):
+            m = pat.match(p.name)
+            if not m:
+                continue
+            sym = m.group(1).upper()
+            try:
+                df = pd.read_csv(p)
+            except Exception:
+                continue
+            if df.empty:
+                continue
+            row: dict[str, float] = {}
+            for col in ("sharpe", "total_return_pct", "max_drawdown", "profit_factor", "num_trades"):
+                if col in df.columns:
+                    s = pd.to_numeric(df[col], errors="coerce")
+                    row[f"mean_{col}"] = float(s.mean())
+            if row:
+                per_symbol.append((sym, row))
+        if not per_symbol:
+            return ""
+
+        lines = [f"Symbols with walk-forward summary files: {len(per_symbol)}"]
+        for src in ("sharpe", "total_return_pct", "max_drawdown"):
+            k = f"mean_{src}"
+            vals = [d[k] for _s, d in per_symbol if k in d]
+            if vals:
+                tag = f"mean window {src.replace('_', ' ')}"
+                lines.append(f"  cross-symbol avg ({tag}): {float(np.mean(vals)):.4f}")
+        if per_symbol:
+            by_sharpe = sorted(
+                per_symbol,
+                key=lambda t: t[1].get("mean_sharpe", float("-inf")),
+                reverse=True,
+            )
+            best = by_sharpe[0]
+            worst = by_sharpe[-1]
+            lines.append(
+                f"  best OOS (by mean window sharpe): {best[0]} mean_sharpe={best[1].get('mean_sharpe', 'n/a')}"
+            )
+            lines.append(
+                f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}"
+            )
+        return "\n".join(lines)
 
     def _read_equity_state(self) -> str:
         path = self.root / "data" / "processed" / "equity_positions_state.json"
