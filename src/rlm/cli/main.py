@@ -25,9 +25,10 @@ def main() -> None:
             "  doctor     Diagnose the environment, providers, and data lake\n"
             "  status     View consolidated PnL across all systems\n"
             "  dashboard  Launch the Streamlit performance dashboard\n"
+            "  morning    Run the Morning Briefing protocol (9:00 - 9:45 ET)\n"
         ),
     )
-    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard"])
+    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard", "morning"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -56,6 +57,18 @@ def main() -> None:
         ui_path = get_repo_root() / "src" / "rlm" / "ui" / "dashboard.py"
         cmd = [sys.executable, "-m", "streamlit", "run", str(ui_path)]
         print(f"Launching dashboard: {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, check=True)
+        except KeyboardInterrupt:
+            pass
+        sys.exit(0)
+
+    elif ns.command == "morning":
+        import subprocess
+        from rlm.data.paths import get_repo_root
+        script_path = get_repo_root() / "scripts" / "morning_briefing.py"
+        cmd = [sys.executable, str(script_path)]
+        print(f"Running morning briefing: {' '.join(cmd)}")
         try:
             subprocess.run(cmd, check=True)
         except KeyboardInterrupt:

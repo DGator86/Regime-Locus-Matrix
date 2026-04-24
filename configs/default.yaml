@@ -50,6 +50,8 @@ feature_engineering:
       - market_breadth_ratio
       - relative_strength_vs_index
       - kronos_return_forecast
+      - overnight_symbol_change_pct
+      - news_avg_sentiment
     volatility:
       - atr_over_price
       - bollinger_width
@@ -62,6 +64,7 @@ feature_engineering:
       - underlying_vix_corr_breakdown
       - kronos_range_forecast
       - kronos_path_dispersion
+      - premarket_gap_pct
     liquidity:
       - spread_over_price
       - volume_vs_average
@@ -121,3 +124,13 @@ transaction_cost:
   underlying_slippage_bps: 0.0
   market_impact_factor: 0.0
   avg_daily_volume_floor: 1000
+
+morning_briefing:
+  enabled: true
+  news_api: "finnhub"
+  news_api_key: "${NEWS_API_KEY}"
+  start_time: "09:00"          # ET
+  execution_time: "09:45"      # ET
+  allow_premarket_execution: false
+  overnight_sources: ["ibkr"]
+  mode: "dry-run"             # paper | dry-run
