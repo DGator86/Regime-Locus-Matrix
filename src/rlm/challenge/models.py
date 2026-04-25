@@ -31,10 +31,11 @@ class ChallengePipelineConfig:
     starting_equity: float = 1_000.0
     target_equity: float = 25_000.0
 
-    # Universe — challenge only; keep narrow and liquid
-    allowed_universe: list[str] = field(default_factory=lambda: [
-        "SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "META"
-    ])
+    # Universe — challenge only; restricted to the most liquid intraday/overnight instruments.
+    # SPY and QQQ give tight spreads, 0DTE availability, deep options liquidity, and
+    # well-behaved regime signals.  Single-name equities are excluded: their earnings /
+    # gap risk is incompatible with the small-account risk budget.
+    allowed_universe: list[str] = field(default_factory=lambda: ["SPY", "QQQ"])
 
     # Setup quality gates
     min_setup_score: float = 0.55        # below this → no_trade
