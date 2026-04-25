@@ -20,8 +20,12 @@ class StageSizingRule:
 
 
 @dataclass
-class ChallengeConfig:
-    """All configurable parameters for the $1k→$25k challenge engine."""
+class ChallengePipelineConfig:
+    """Pipeline-layer parameters: scoring, trade-mode gating, and contract preferences.
+
+    Distinct from ``rlm.challenge.config.ChallengeConfig`` which owns execution
+    parameters (exit multipliers, DTE per stage, position sizing fractions).
+    """
 
     # Account targets
     starting_equity: float = 1_000.0
@@ -34,7 +38,7 @@ class ChallengeConfig:
 
     # Setup quality gates
     min_setup_score: float = 0.55        # below this → no_trade
-    elite_setup_score: float = 0.78      # above this → scalp eligible
+    elite_setup_score: float = 0.70      # above this → scalp eligible (was 0.78 — too restrictive)
     top_setups_per_session: int = 2      # max entries per session
 
     # PDT
@@ -61,10 +65,10 @@ class ChallengeConfig:
     swing_dte_max: int = 21
 
     # Contract preferences (scalp)
-    scalp_delta_min: float = 0.30
-    scalp_delta_max: float = 0.50
-    scalp_dte_min: int = 3
-    scalp_dte_max: int = 10
+    scalp_delta_min: float = 0.40        # ATM-ish; matches engine's 0DTE ATM play
+    scalp_delta_max: float = 0.60
+    scalp_dte_min: int = 0               # true 0DTE allowed (was 3)
+    scalp_dte_max: int = 3               # short-dated cap (was 10)
 
     # Max bid-ask spread as fraction of mid-price
     max_spread_pct: float = 0.06

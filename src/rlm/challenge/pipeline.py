@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from rlm.challenge.models import (
     ChallengeAccountState,
-    ChallengeConfig,
+    ChallengePipelineConfig,
     ChallengeDirective,
     ContractProfileRecommendation,
     PDTTracker,
@@ -24,7 +24,7 @@ class ChallengeDecisionPipeline:
 
     Usage::
 
-        from rlm.challenge import ChallengeDecisionPipeline, ChallengeConfig
+        from rlm.challenge import ChallengeDecisionPipeline, ChallengePipelineConfig
         from rlm.challenge.state import ChallengeStateManager
 
         mgr = ChallengeStateManager()
@@ -33,8 +33,8 @@ class ChallengeDecisionPipeline:
         directive = pipeline.run("SPY", persona_result, state, pdt)
     """
 
-    def __init__(self, config: ChallengeConfig | None = None) -> None:
-        self._cfg = config or ChallengeConfig()
+    def __init__(self, config: ChallengePipelineConfig | None = None) -> None:
+        self._cfg = config or ChallengePipelineConfig()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -56,7 +56,7 @@ class ChallengeDecisionPipeline:
 
         # 1. Persona veto passthrough
         if persona.sisko.directive == "no_trade":
-            return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.reason}")
+            return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.entry_policy}")
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)

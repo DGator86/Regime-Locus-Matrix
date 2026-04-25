@@ -55,11 +55,14 @@ class ChallengeStrategy:
         base_dte = cfg.dte(balance)
         base_otm = cfg.otm_pct(balance)
 
-        # Ultra-high conviction: compress DTE for extra leverage (Stage 1 only)
-        if balance < 3_000 and signal_alignment >= 0.80 and confidence >= 0.75:
-            dte = max(3, base_dte - 3)
-            otm_pct = base_otm + 0.005  # push slightly further OTM for more delta leverage
-            rationale = "high-conviction scalp: compressed DTE + extended OTM for max leverage"
+        # High conviction: use scalp_dte (default 1DTE) + ATM for maximum intraday gamma
+        # ATM options have delta ~0.50, giving the most dollar sensitivity per underlying move.
+        # Requires signal_alignment >= 0.75 and confidence >= 0.70 (consistent with pipeline
+        # elite_setup_score threshold).
+        if balance < 3_000 and signal_alignment >= 0.75 and confidence >= 0.70:
+            dte = cfg.scalp_dte
+            otm_pct = 0.0  # ATM for maximum delta on short-dated plays
+            rationale = f"high-conviction scalp: {dte}DTE ATM for max intraday leverage"
         else:
             dte = base_dte
             otm_pct = base_otm
