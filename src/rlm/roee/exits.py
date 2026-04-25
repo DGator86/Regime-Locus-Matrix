@@ -23,8 +23,18 @@ def should_exit_for_regime_flip(
     # Regime key format: "direction|volatility|liquidity|dealer_flow".
     # Only the direction component (index 0) warrants an immediate exit —
     # vol/liquidity noise would otherwise flush positions every 1-2 bars.
+    #
+    # "transition" is signal uncertainty, not a committed reversal.  Passing
+    # through the transition band (S_D ±0.3–0.6) would otherwise flush every
+    # position within 1-2 bars of entry at entry-spread cost (~-2% every trade).
+    # Hold through transition; only exit on a confirmed directional change
+    # between committed states (bull / bear / range).
     if "|" in entry_regime_key and "|" in current_regime_key:
-        return entry_regime_key.split("|")[0] != current_regime_key.split("|")[0]
+        entry_dir = entry_regime_key.split("|")[0]
+        current_dir = current_regime_key.split("|")[0]
+        if entry_dir == "transition" or current_dir == "transition":
+            return False
+        return entry_dir != current_dir
     return entry_regime_key != current_regime_key
 
 
