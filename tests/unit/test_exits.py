@@ -35,17 +35,17 @@ class TestRegimeFlip:
             "bull|low_vol|high_liquidity|supportive",
         )
 
-    def test_bull_to_range_exits(self) -> None:
-        # Direction changed from committed bull to range — still an exit.
+    def test_bull_to_bear_exits(self) -> None:
+        # True polarity reversal — exit immediately.
         assert should_exit_for_regime_flip(
             "bull|high_vol|low_liquidity|unknown",
-            "range|high_vol|low_liquidity|unknown",
+            "bear|high_vol|low_liquidity|unknown",
         )
 
-    def test_range_to_bear_exits(self) -> None:
+    def test_bear_to_bull_exits(self) -> None:
         assert should_exit_for_regime_flip(
-            "range|low_vol|high_liquidity|supportive",
             "bear|low_vol|high_liquidity|supportive",
+            "bull|low_vol|high_liquidity|supportive",
         )
 
     # --- transition hold tests (root-cause regression guard) ---
@@ -86,6 +86,36 @@ class TestRegimeFlip:
         assert not should_exit_for_regime_flip(
             "transition|high_vol|low_liquidity|unknown",
             "transition|low_vol|high_liquidity|supportive",
+        )
+
+    # --- directional hold through range stall ---
+
+    def test_bull_to_range_no_exit(self) -> None:
+        # Bull position stalls to range — stop loss handles it, don't flush early.
+        assert not should_exit_for_regime_flip(
+            "bull|high_vol|low_liquidity|unknown",
+            "range|high_vol|low_liquidity|unknown",
+        )
+
+    def test_bear_to_range_no_exit(self) -> None:
+        assert not should_exit_for_regime_flip(
+            "bear|low_vol|high_liquidity|supportive",
+            "range|low_vol|high_liquidity|supportive",
+        )
+
+    # --- range breakout still exits (protects iron condors / strangles) ---
+
+    def test_range_to_bull_exits(self) -> None:
+        # Range position breaks out bullish — short call is threatened.
+        assert should_exit_for_regime_flip(
+            "range|low_vol|high_liquidity|supportive",
+            "bull|low_vol|high_liquidity|supportive",
+        )
+
+    def test_range_to_bear_exits(self) -> None:
+        assert should_exit_for_regime_flip(
+            "range|high_vol|low_liquidity|unknown",
+            "bear|high_vol|low_liquidity|unknown",
         )
 
     def test_plain_keys_same_no_exit(self) -> None:

@@ -24,15 +24,25 @@ def should_exit_for_regime_flip(
     # Only the direction component (index 0) warrants an immediate exit —
     # vol/liquidity noise would otherwise flush positions every 1-2 bars.
     #
-    # "transition" is signal uncertainty, not a committed reversal.  Passing
-    # through the transition band (S_D ±0.3–0.6) would otherwise flush every
-    # position within 1-2 bars of entry at entry-spread cost (~-2% every trade).
-    # Hold through transition; only exit on a confirmed directional change
-    # between committed states (bull / bear / range).
+    # Two hold rules prevent premature exits:
+    #
+    # 1. "transition" (S_D ±0.3–0.6) is signal uncertainty, not a reversal.
+    #    A bull position whose S_D dips to 0.55 should not be flushed — it
+    #    would exit at entry-spread cost before any P&L can develop.
+    #
+    # 2. Directional positions (bull/bear) hold through a range stall.
+    #    If S_D falls from 0.65 → 0.25 the thesis has weakened, but the
+    #    -50% hard stop and 45% profit target already manage that outcome.
+    #    Exiting on "bull→range" cuts potential winners and duplicates the
+    #    stop-loss function.  Non-directional range positions (iron condors /
+    #    strangles) still exit immediately when a true breakout occurs
+    #    (range→bull or range→bear) because the short leg is then at risk.
     if "|" in entry_regime_key and "|" in current_regime_key:
         entry_dir = entry_regime_key.split("|")[0]
         current_dir = current_regime_key.split("|")[0]
         if entry_dir == "transition" or current_dir == "transition":
+            return False
+        if entry_dir in {"bull", "bear"} and current_dir == "range":
             return False
         return entry_dir != current_dir
     return entry_regime_key != current_regime_key
