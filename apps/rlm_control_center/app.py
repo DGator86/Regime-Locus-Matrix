@@ -26,7 +26,7 @@ if str(ROOT / "src") not in sys.path:
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from components import charts, modals, tables  # noqa: E402
+from components import charts, cluster_analysis, modals, tables  # noqa: E402
 from components.utils import (  # noqa: E402
     append_pipeline_log,
     clear_file_caches,
@@ -305,7 +305,7 @@ def main() -> None:
             else:
                 st.toast(f"Exit {code}", icon="⚠️")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
         [
             "🌍 UNIVERSE",
             "📈 FORECASTS",
@@ -314,6 +314,7 @@ def main() -> None:
             "📊 BACKTEST",
             "🚀 PIPELINE",
             "⚙️ SETTINGS",
+            "🔬 CLUSTER ANALYSIS",
         ]
     )
 
@@ -618,6 +619,140 @@ def main() -> None:
             st.success(f"Found `{rel_forecast_features_csv(symbol)}` ({len(fc)} rows).")
         else:
             st.caption("No precomputed forecast_features CSV for this symbol.")
+
+    # ── Tab 8: Cluster Analysis ───────────────────────────────────────────────
+    with tab8:
+        st.subheader("Regime cluster analysis")
+        st.caption(
+            "K-Means or Gaussian Mixture clustering of the regime feature space.  "
+            "Reveals recurring market regimes, transition probabilities, and per-cluster edge."
+        )
+
+        if processed is None or processed.empty:
+            st.warning(
+                "No forecast data available.  Load bars in the sidebar (Demo mode works), "
+                "then the cluster analysis will run automatically."
+            )
+        else:
+            # ── Controls ─────────────────────────────────────────────────────
+            _ca_avail = [
+                c for c in ["S_D", "S_V", "S_L", "S_G", "sigma", "realized_vol", "move"]
+                if c in processed.columns and pd.api.types.is_numeric_dtype(processed[c])
+            ]
+            cc1, cc2, cc3, cc4 = st.columns([1, 1, 1, 2])
+            with cc1:
+                n_cl = st.slider("Clusters", 2, 8, 4, key="ca_n_clusters")
+            with cc2:
+                ca_method_label = st.selectbox(
+                    "Method", ["K-Means", "Gaussian Mixture"], key="ca_method"
+                )
+            with cc3:
+                max_lb = max(len(processed), 1)
+                ca_lookback = int(
+                    st.number_input(
+                        "Lookback bars", min_value=30, max_value=max_lb,
+                        value=min(300, max_lb), step=10, key="ca_lookback",
+                    )
+                )
+            with cc4:
+                ca_features = st.multiselect(
+                    "Feature columns",
+                    options=_ca_avail,
+                    default=_ca_avail[:4] if len(_ca_avail) >= 4 else _ca_avail,
+                    key="ca_features",
+                    help="Columns from the forecast dataframe used for clustering.",
+                )
+
+            method_map = {"K-Means": "kmeans", "Gaussian Mixture": "gmm"}
+            _ca_method: cluster_analysis.ClusterMethod = method_map[ca_method_label]  # type: ignore[assignment]
+
+            # ── Run clustering ────────────────────────────────────────────────
+            clustered, used_cols_or_err = cluster_analysis.run_regime_clustering(
+                processed,
+                n_clusters=int(n_cl),
+                method=_ca_method,
+                feature_cols=ca_features or None,
+                lookback=ca_lookback,
+            )
+
+            if clustered is None:
+                st.error(f"Clustering failed: {used_cols_or_err}")
+            else:
+                used_cols: list[str] = used_cols_or_err  # type: ignore[assignment]
+                ca_stats = cluster_analysis.compute_cluster_stats(clustered, used_cols)
+                ca_trans = cluster_analysis.compute_transition_matrix(
+                    clustered["cluster"], int(n_cl)
+                )
+
+                # ── Row 1: Sankey (left) + Radar (right) ─────────────────────
+                row1_l, row1_r = st.columns(2)
+                with row1_l:
+                    st.plotly_chart(
+                        charts.fig_cluster_sankey(ca_trans, cluster_stats=ca_stats),
+                        use_container_width=True,
+                    )
+                with row1_r:
+                    radar = charts.fig_cluster_radar(ca_stats, used_cols)
+                    if radar:
+                        st.plotly_chart(radar, use_container_width=True)
+                    else:
+                        st.info("Radar requires mean_* columns in cluster stats.")
+
+                # ── Row 2: Price chart with cluster coloring (full width) ─────
+                st.plotly_chart(
+                    charts.fig_price_with_clusters(clustered, n_clusters=int(n_cl)),
+                    use_container_width=True,
+                )
+
+                # ── Row 3: Signal distribution (left) + Stats table (right) ──
+                row3_l, row3_r = st.columns([3, 2])
+                with row3_l:
+                    sig_fig = charts.fig_signal_distribution(ca_stats, used_cols)
+                    if sig_fig:
+                        st.plotly_chart(sig_fig, use_container_width=True)
+                with row3_r:
+                    st.caption("Cluster statistics")
+                    display_cols = (
+                        ["count", "pct_of_data"]
+                        + [f"mean_{f}" for f in used_cols if f"mean_{f}" in ca_stats.columns]
+                        + [c for c in ("avg_return_pct", "volatility_pct", "sharpe") if c in ca_stats.columns]
+                    )
+                    st.dataframe(
+                        ca_stats[[c for c in display_cols if c in ca_stats.columns]],
+                        use_container_width=True,
+                    )
+
+                # ── Transition matrix ─────────────────────────────────────────
+                with st.expander("Transition probability matrix", expanded=False):
+                    st.caption(
+                        "Entry [i, j] = empirical probability of moving from cluster i to j in one bar."
+                    )
+                    st.dataframe(
+                        ca_trans.style.format("{:.3f}").background_gradient(
+                            cmap="Blues", axis=None
+                        ),
+                        use_container_width=True,
+                    )
+
+                # ── Cluster label legend ──────────────────────────────────────
+                with st.expander("Regime labels per cluster", expanded=False):
+                    for cid, lbl in cluster_analysis.cluster_summary_labels(ca_stats).items():
+                        c_hex = cluster_analysis.cluster_color(int(cid))
+                        st.markdown(
+                            f'<span style="color:{c_hex};font-weight:600">{lbl}</span> — '
+                            f'{int(ca_stats.loc[cid, "count"])} bars '
+                            f'({ca_stats.loc[cid, "pct_of_data"]:.1f}%)',
+                            unsafe_allow_html=True,
+                        )
+
+                # ── Download ──────────────────────────────────────────────────
+                st.download_button(
+                    "Download cluster data CSV",
+                    data=clustered.reset_index().to_csv(index=False).encode("utf-8"),
+                    file_name=f"{symbol}_clusters_{n_cl}_{ca_method_label.replace(' ', '_')}.csv",
+                    mime="text/csv",
+                    key="ca_download",
+                )
 
     if err and data_mode != "Demo":
         st.sidebar.error(err[:400])
