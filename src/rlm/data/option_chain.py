@@ -96,6 +96,14 @@ def filter_option_chain(
     return out
 
 
+def calculate_dte_from_expiry(
+    expiry: pd.Timestamp | str,
+    timestamp: pd.Timestamp | str,
+) -> float:
+    """Calendar days from timestamp to expiry, consistent with normalize_option_chain."""
+    return float((pd.Timestamp(expiry).normalize() - pd.Timestamp(timestamp).normalize()).days)
+
+
 def select_nearest_expiry_slice(
     chain: pd.DataFrame,
     dte_min: int,
