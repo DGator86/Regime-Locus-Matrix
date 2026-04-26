@@ -39,10 +39,40 @@ def test_eod_report_open_closed_and_worst_symbols(
 
     text = calculate_daily_pnl(tmp_path)
     assert "2026-04-24" in text
+    assert "Options" in text
     assert "Open: 2" in text
     assert "Exits (closed=1): 1" in text
     assert "IWM" in text or "Worst" in text
+    # Missing parallel books: placeholders, not a failure
+    assert "Equities" in text
+    assert "no file" in text.lower() or "file empty" in text
+    assert "Challenge" in text
+    assert "no data/challenge/state" in text or "state.json" in text
 
 
 def _ts(y: int, m: int, d: int, hour: int, minute: int = 0) -> str:
     return datetime(y, m, d, hour, minute, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_eod_includes_challenge_when_state_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,"
+        "unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n",
+        encoding="utf-8",
+    )
+    ch = tmp_path / "data" / "challenge"
+    ch.mkdir(parents=True)
+    ch_state = (
+        '{"balance": 1100, "seed": 1000, "target": 25000, '
+        '"open_positions": [], "trade_history": []}'
+    )
+    (ch / "state.json").write_text(ch_state, encoding="utf-8")
+    fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
+    out = calculate_daily_pnl(tmp_path)
+    assert "Challenge" in out
+    assert "1,100.00" in out
