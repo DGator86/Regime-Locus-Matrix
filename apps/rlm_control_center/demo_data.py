@@ -19,7 +19,11 @@ def get_demo_bars(*, symbol: str = "SPY", n: int = 320) -> pd.DataFrame:
         "open", "high", "low", "close", and "volume".
     """
     rng = np.random.default_rng(42)
-    idx = pd.date_range(end=pd.Timestamp.utcnow().normalize(), periods=n, freq="B")
+    # Over-generate by one week then slice to exactly n.  pd.bdate_range returns
+    # fewer than `periods` elements when the end date falls on a weekend in newer
+    # pandas versions; this pattern is always exact regardless of day-of-week.
+    end = pd.Timestamp.now("UTC").normalize()
+    idx = pd.bdate_range(end=end, periods=n + 7)[-n:]
     close = 450.0 + np.cumsum(rng.normal(0, 1.2, size=n))
     open_ = np.r_[close[0], close[:-1]] + rng.normal(0, 0.35, size=n)
     high = np.maximum(open_, close) + rng.uniform(0.05, 1.1, size=n)

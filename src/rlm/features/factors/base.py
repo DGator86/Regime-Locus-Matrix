@@ -58,13 +58,15 @@ def standardize_factor_frame(
     raw_factors: pd.DataFrame,
     specs: list[FactorSpec],
 ) -> pd.DataFrame:
-    out = pd.DataFrame(index=raw_factors.index)
+    # Build all columns in one concat to avoid repeated DataFrame.insert calls
+    # which fragment internal block structure and trigger PerformanceWarnings.
+    cols: dict[str, pd.Series] = {}
     for spec in specs:
         if spec.name not in raw_factors.columns:
-            out[spec.name] = np.nan
-            continue
-        out[spec.name] = standardize_factor_series(raw_factors[spec.name], spec)
-    return out
+            cols[spec.name] = pd.Series(np.nan, index=raw_factors.index)
+        else:
+            cols[spec.name] = standardize_factor_series(raw_factors[spec.name], spec)
+    return pd.DataFrame(cols, index=raw_factors.index)
 
 
 def compute_composite_scores(
