@@ -17,6 +17,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Commands:\n"
+            "  activate   Bulk-import data then start equity, options, and challenge plans\n"
             "  ingest     Fetch and normalize market data into the data lake\n"
             "  forecast   Run the factor + regime + ROEE forecast pipeline\n"
             "  backtest   Execute a strategy backtest (with optional walk-forward)\n"
@@ -28,7 +29,7 @@ def main() -> None:
             "  morning    Run the Morning Briefing protocol (9:00 - 9:45 ET)\n"
         ),
     )
-    parser.add_argument("command", choices=["ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard", "morning"])
+    parser.add_argument("command", choices=["activate", "ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard", "morning"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -37,7 +38,9 @@ def main() -> None:
 
     ns = parser.parse_args()
 
-    if ns.command == "ingest":
+    if ns.command == "activate":
+        from rlm.cli.activate import main as _main  # type: ignore[assignment]
+    elif ns.command == "ingest":
         from rlm.cli.ingest import main as _main
     elif ns.command == "forecast":
         from rlm.cli.forecast import main as _main  # type: ignore[assignment]

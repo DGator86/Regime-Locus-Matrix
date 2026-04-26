@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -448,10 +448,10 @@ def fig_equity_regime(equity: pd.DataFrame, regime_col: str | None) -> go.Figure
 def write_figure_png_bytes(fig: go.Figure) -> bytes | None:
     """
     Serialize a Plotly figure to PNG image bytes.
-    
+
     Parameters:
         fig (go.Figure): Plotly figure to serialize.
-    
+
     Returns:
         bytes | None: PNG image bytes if serialization succeeds, `None` if serialization fails.
     """
@@ -459,3 +459,293 @@ def write_figure_png_bytes(fig: go.Figure) -> bytes | None:
         return fig.to_image(format="png", scale=2)
     except Exception:
         return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Cluster Analysis charts
+# ──────────────────────────────────────────────────────────────────────────────
+
+_CLUSTER_COLORS: list[str] = [
+    "#00f5ff",  # cyan
+    "#a855f7",  # purple
+    "#00ff9d",  # green
+    "#ff3355",  # red
+    "#ffaa00",  # orange
+    "#88ccff",  # sky blue
+    "#ff88cc",  # pink
+    "#ffff66",  # yellow
+]
+
+
+def _ccolor(cid: int) -> str:
+    return _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
+
+
+def fig_cluster_sankey(
+    transition_df: pd.DataFrame,
+    *,
+    cluster_stats: pd.DataFrame | None = None,
+    title: str = "Regime cluster transition flow",
+) -> go.Figure:
+    """Sankey diagram of cluster-to-cluster transition probabilities.
+
+    ``transition_df`` is a square (n × n) row-normalised probability matrix
+    (output of ``cluster_analysis.compute_transition_matrix``).
+    Links < 2% probability are hidden to keep the chart readable.
+    """
+    n = len(transition_df)
+    if n == 0:
+        return go.Figure().update_layout(template="plotly_dark", title=title)
+
+    def _node_label(cid: int, side: str) -> str:
+        arrow = "→" if side == "src" else ""
+        if cluster_stats is not None and cid in cluster_stats.index:
+            pct = cluster_stats.loc[cid].get("pct_of_data", "")
+            return f"C{cid} ({pct}%) {arrow}".strip()
+        return f"C{cid} {arrow}".strip()
+
+    node_labels = [_node_label(i, "src") for i in range(n)] + [
+        _node_label(i, "tgt") for i in range(n)
+    ]
+    node_colors = [_ccolor(i) for i in range(n)] * 2
+
+    sources: list[int] = []
+    targets: list[int] = []
+    values: list[float] = []
+    link_colors: list[str] = []
+    link_labels: list[str] = []
+
+    prob_matrix = transition_df.values
+    for i in range(n):
+        for j in range(n):
+            p = float(prob_matrix[i, j])
+            if p < 0.02:
+                continue
+            sources.append(i)
+            targets.append(n + j)
+            values.append(round(p * 100, 2))
+            c = _ccolor(i)
+            r, g, b = int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)
+            link_colors.append(f"rgba({r},{g},{b},0.35)")
+            link_labels.append(f"{p * 100:.1f}%")
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                arrangement="snap",
+                node=dict(
+                    pad=20,
+                    thickness=22,
+                    line=dict(color="rgba(255,255,255,0.15)", width=0.5),
+                    label=node_labels,
+                    color=node_colors,
+                    hovertemplate="<b>%{label}</b><extra></extra>",
+                ),
+                link=dict(
+                    source=sources,
+                    target=targets,
+                    value=values,
+                    color=link_colors,
+                    label=link_labels,
+                    hovertemplate="<b>%{label}</b><br>Probability: %{value:.1f}%<extra></extra>",
+                ),
+            )
+        ]
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        height=420,
+        title=title,
+        margin=dict(l=20, r=20, t=48, b=20),
+        font=dict(size=11),
+    )
+    return fig
+
+
+def fig_cluster_radar(
+    cluster_stats: pd.DataFrame,
+    feature_cols: list[str],
+    *,
+    title: str = "Cluster regime centroids (factor means)",
+) -> go.Figure | None:
+    """Multi-cluster polar chart of mean factor values per cluster."""
+    mean_cols = [f"mean_{f}" for f in feature_cols if f"mean_{f}" in cluster_stats.columns]
+    if not mean_cols:
+        return None
+    theta = [c.replace("mean_", "") for c in mean_cols]
+    fig = go.Figure()
+    for cid in cluster_stats.index:
+        row = cluster_stats.loc[cid]
+        r_vals = [float(row.get(mc, 0) or 0) for mc in mean_cols]
+        c = _ccolor(int(cid))
+        r, g, b = int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)
+        fig.add_trace(
+            go.Scatterpolar(
+                r=r_vals + [r_vals[0]],
+                theta=theta + [theta[0]],
+                fill="toself",
+                name=f"C{cid}",
+                line=dict(color=c, width=2),
+                fillcolor=f"rgba({r},{g},{b},0.18)",
+                hovertemplate=f"<b>C{cid} — %{{theta}}</b><br>%{{r:.3f}}<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        template="plotly_dark",
+        polar=dict(
+            radialaxis=dict(visible=True, range=[-1.0, 1.0], gridcolor="rgba(255,255,255,0.15)"),
+            angularaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        height=420,
+        title=title,
+        legend=dict(orientation="h", y=-0.12),
+        margin=dict(l=40, r=40, t=48, b=40),
+    )
+    return fig
+
+
+def fig_price_with_clusters(
+    df: pd.DataFrame,
+    *,
+    n_clusters: int = 4,
+    title: str = "Price with regime cluster coloring",
+) -> go.Figure:
+    """Candlestick (or line) price chart with cluster-colored marker overlay.
+
+    Bottom sub-panel shows cluster assignment as a step chart.
+    ``df`` must contain ``'cluster'`` (int) and ``'close'`` columns.
+    If ``'open'``, ``'high'``, ``'low'`` are also present, a full candlestick
+    is rendered; otherwise a line chart is used.
+    """
+    has_ohlc = all(c in df.columns for c in ("open", "high", "low", "close"))
+    idx = df.index if isinstance(df.index, pd.DatetimeIndex) else pd.RangeIndex(len(df))
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.75, 0.25],
+        vertical_spacing=0.04,
+    )
+
+    if has_ohlc:
+        fig.add_trace(
+            go.Candlestick(
+                x=idx,
+                open=df["open"],
+                high=df["high"],
+                low=df["low"],
+                close=df["close"],
+                name="Price",
+                increasing_line_color="#00ff9d",
+                decreasing_line_color="#ff3355",
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+    else:
+        fig.add_trace(
+            go.Scatter(
+                x=idx, y=df["close"], name="Close",
+                line=dict(color="#aaaaaa", width=1), showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+
+    if "cluster" in df.columns:
+        for cid in sorted(df["cluster"].unique()):
+            mask = df["cluster"] == cid
+            x_vals = idx[mask] if hasattr(idx, "__getitem__") else [
+                idx[i] for i, m in enumerate(mask) if m
+            ]
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=df.loc[mask, "close"],
+                    mode="markers",
+                    marker=dict(color=_ccolor(int(cid)), size=5, opacity=0.85),
+                    name=f"C{cid}",
+                    legendgroup=f"C{cid}",
+                ),
+                row=1,
+                col=1,
+            )
+        fig.add_trace(
+            go.Scatter(
+                x=idx,
+                y=df["cluster"],
+                mode="lines",
+                line=dict(color="#888888", width=1, shape="hv"),
+                fill="tozeroy",
+                fillcolor="rgba(0,245,255,0.12)",
+                name="Cluster",
+                showlegend=False,
+            ),
+            row=2,
+            col=1,
+        )
+        fig.update_yaxes(
+            title_text="Cluster",
+            tickvals=list(range(n_clusters)),
+            ticktext=[f"C{i}" for i in range(n_clusters)],
+            row=2,
+            col=1,
+        )
+
+    fig.update_layout(
+        template="plotly_dark",
+        height=560,
+        title=title,
+        xaxis_rangeslider_visible=False,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        margin=dict(l=40, r=20, t=48, b=40),
+    )
+    return fig
+
+
+def fig_signal_distribution(
+    cluster_stats: pd.DataFrame,
+    feature_cols: list[str],
+    *,
+    title: str = "Mean signal strength per cluster",
+) -> go.Figure | None:
+    """Grouped bar chart: mean factor value per cluster, one bar group per feature."""
+    mean_cols = [f"mean_{f}" for f in feature_cols if f"mean_{f}" in cluster_stats.columns]
+    if not mean_cols or cluster_stats.empty:
+        return None
+
+    cluster_ids = cluster_stats.index.tolist()
+    x_labels = [f"C{cid}" for cid in cluster_ids]
+    palette = ["#00f5ff", "#a855f7", "#00ff9d", "#ff3355", "#ffaa00", "#88ccff"]
+    fig = go.Figure()
+
+    for pi, mc in enumerate(mean_cols):
+        fname = mc.replace("mean_", "")
+        y_vals = [float(cluster_stats.loc[cid, mc]) for cid in cluster_ids]
+        fig.add_trace(
+            go.Bar(
+                x=x_labels,
+                y=y_vals,
+                name=fname,
+                marker_color=palette[pi % len(palette)],
+                text=[f"{v:+.3f}" for v in y_vals],
+                textposition="outside",
+                hovertemplate=f"<b>{fname}</b><br>C%{{x}}: %{{y:.4f}}<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        template="plotly_dark",
+        barmode="group",
+        height=380,
+        title=title,
+        xaxis_title="Cluster",
+        yaxis_title="Mean value",
+        legend=dict(orientation="h", y=-0.22),
+        margin=dict(l=40, r=20, t=48, b=60),
+    )
+    fig.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.3)")
+    return fig

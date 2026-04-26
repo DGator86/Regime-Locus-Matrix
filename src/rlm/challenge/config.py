@@ -63,6 +63,10 @@ class ChallengeConfig:
     stage3_dte: int = 21
     """Days-to-expiry for Stage 3 buys — slightly longer runway as size grows."""
 
+    scalp_dte: int = 1
+    """DTE for high-conviction intraday scalp plays. 1 = 1DTE (max gamma leverage).
+    Set to 0 for true 0DTE lottery plays (extreme risk, use only with live chain data)."""
+
     stage1_otm_pct: float = 0.010
     """1% OTM for Stage 1 — lottery-style leverage."""
     stage2_otm_pct: float = 0.005
