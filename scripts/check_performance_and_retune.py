@@ -92,7 +92,10 @@ def main() -> int:
         "--critical-threshold",
         type=float,
         default=DEFAULT_CRITICAL_THRESHOLD,
-        help=f"Win rate below this also fires regime re-calibration (default {DEFAULT_CRITICAL_THRESHOLD})",
+        help=(
+            "Win rate below this also fires regime re-calibration "
+            f"(default {DEFAULT_CRITICAL_THRESHOLD})"
+        ),
     )
     ap.add_argument(
         "--nightly-trials", type=int, default=40, help="Optuna trials for nightly opt (default 40)"
