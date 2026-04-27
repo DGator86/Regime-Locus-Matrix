@@ -57,9 +57,26 @@ const MetricCard = ({ title, value, delta, icon: Icon, color }: any) => (
 
 export default function Overview() {
   const [isMounted, setIsMounted] = useState(false);
+  const [metrics, setMetrics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await fetch("/api/metrics");
+      const data = await res.json();
+      setMetrics(data);
+    } catch (err) {
+      console.error("Failed to load metrics", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     setIsMounted(true);
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 10000); // Refresh every 10s
+    return () => clearInterval(interval);
   }, []);
 
   if (!isMounted) return null;
@@ -71,17 +88,44 @@ export default function Overview() {
           <h1 className="text-3xl font-bold tracking-tight">Strategy Overview</h1>
           <p className="text-muted-foreground mt-1">Real-time performance monitoring across all regimes.</p>
         </div>
-        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-opacity">
-          <RefreshCcw className="w-4 h-4" />
-          Refresh
+        <button 
+          onClick={() => { setLoading(true); fetchMetrics(); }}
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+          disabled={loading}
+        >
+          <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard title="Account Balance" value="$21,450.80" delta={4.2} icon={DollarSign} color="blue" />
-        <MetricCard title="Realized P/L" value="+$3,240.15" delta={12.5} icon={TrendingUp} color="green" />
-        <MetricCard title="Active Risk" value="$1,120.00" icon={Target} color="purple" />
-        <MetricCard title="Win Rate" value="64.2%" delta={-1.4} icon={Percent} color="amber" />
+        <MetricCard 
+          title="Account Balance" 
+          value={metrics?.accountBalance || "---"} 
+          delta={metrics ? 0.0 : undefined} 
+          icon={DollarSign} 
+          color="blue" 
+        />
+        <MetricCard 
+          title="Realized P/L" 
+          value={metrics?.realizedPnl || "---"} 
+          delta={metrics ? 0.0 : undefined} 
+          icon={TrendingUp} 
+          color="green" 
+        />
+        <MetricCard 
+          title="Active Risk" 
+          value={metrics?.activeRisk || "---"} 
+          icon={Target} 
+          color="purple" 
+        />
+        <MetricCard 
+          title="Win Rate" 
+          value={metrics?.winRate || "---"} 
+          delta={metrics ? 0.0 : undefined} 
+          icon={Percent} 
+          color="amber" 
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -117,11 +161,9 @@ export default function Overview() {
         <div className="glass rounded-2xl p-8 flex flex-col">
           <h2 className="text-xl font-bold mb-6">Active Signals</h2>
           <div className="flex-1 space-y-6">
-            {[
-              { sym: "SPY", type: "LONG", time: "10m ago", score: 0.82 },
-              { sym: "QQQ", type: "HOLD", time: "25m ago", score: 0.12 },
-              { sym: "TSLA", type: "EXIT", time: "1h ago", score: -0.45 },
-            ].map((item, i) => (
+            {(metrics?.signals || [
+              { sym: "SPY", type: "LOADING", time: "...", score: 0 },
+            ]).map((item: any, i: number) => (
               <div key={i} className="flex items-center justify-between p-4 bg-secondary/30 rounded-xl border border-border">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${
@@ -150,3 +192,4 @@ export default function Overview() {
     </div>
   );
 }
+
