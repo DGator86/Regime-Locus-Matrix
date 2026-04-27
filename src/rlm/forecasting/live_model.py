@@ -69,6 +69,9 @@ class LiveROEEParameters(BaseModel):
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
 
     def to_roee_config(self) -> ROEEConfig:
         return ROEEConfig(
@@ -79,6 +82,9 @@ class LiveROEEParameters(BaseModel):
             vol_target=self.vol_target,
             max_kelly_fraction=self.max_kelly_fraction,
             max_capital_fraction=self.max_capital_fraction,
+            high_vol_kelly_multiplier=self.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=self.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=self.calm_trend_kelly_multiplier,
         )
 
     def decision_kwargs(self) -> dict[str, float | bool]:
@@ -90,6 +96,9 @@ class LiveROEEParameters(BaseModel):
             "vol_target": self.vol_target,
             "max_kelly_fraction": self.max_kelly_fraction,
             "max_capital_fraction": self.max_capital_fraction,
+            "high_vol_kelly_multiplier": self.high_vol_kelly_multiplier,
+            "transition_kelly_multiplier": self.transition_kelly_multiplier,
+            "calm_trend_kelly_multiplier": self.calm_trend_kelly_multiplier,
         }
 
 
@@ -214,6 +223,12 @@ def apply_nightly_hyperparam_overlay(cfg: LiveRegimeModelConfig, repo_root: Path
         fo["direction_neutral_threshold"] = float(v)
     if (v := raw.get("hmm_confidence_threshold")) is not None:
         rw["confidence_threshold"] = float(v)
+    if (v := raw.get("high_vol_kelly_multiplier")) is not None:
+        rw["high_vol_kelly_multiplier"] = float(v)
+    if (v := raw.get("transition_kelly_multiplier")) is not None:
+        rw["transition_kelly_multiplier"] = float(v)
+    if (v := raw.get("calm_trend_kelly_multiplier")) is not None:
+        rw["calm_trend_kelly_multiplier"] = float(v)
     d["forecast"] = fo
     d["roee"] = rw
     return LiveRegimeModelConfig.model_validate(d)

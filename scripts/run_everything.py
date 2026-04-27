@@ -377,7 +377,16 @@ def main() -> int:
         mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
     if args.monitor_rth_only_poll:
         mcmd.append("--rth-only-poll")
-    return _run(mcmd)
+    rc = _run(mcmd)
+
+    # Post-session: check win rate and re-tune if below threshold
+    _run_check = [py, str(ROOT / "scripts" / "check_performance_and_retune.py")]
+    try:
+        subprocess.run(_run_check, cwd=str(ROOT))
+    except OSError as e:
+        print(f"[warn] could not run check_performance_and_retune: {e}", flush=True)
+
+    return rc
 
 
 if __name__ == "__main__":

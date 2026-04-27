@@ -42,6 +42,9 @@ data/processed/backtest_equity.csv
 data/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+# Seed live config — overwritten by calibrate_regime_models.py; version-controlled
+# so a fresh clone has a working default and the overlay path is always loadable.
+!data/processed/live_regime_model.json
 
 # Model / experiment artifacts
 artifacts/

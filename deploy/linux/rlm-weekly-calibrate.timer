@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer for RLM weekly regime model calibration (Sunday 20:00 ET = 00:00 UTC Monday)
+
+[Timer]
+OnCalendar=Mon *-*-* 00:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
