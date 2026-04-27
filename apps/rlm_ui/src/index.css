@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: #060b14;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: #0a1020; }
+  ::-webkit-scrollbar-thumb { background: #1e2d52; border-radius: 2px; }
+}
+
+@layer components {
+  .card {
+    @apply bg-navy-900 rounded-xl border border-white/5 shadow-card;
+  }
+  .card-header {
+    @apply flex items-center justify-between px-4 py-3 border-b border-white/5;
+  }
+  .card-title {
+    @apply text-xs font-semibold uppercase tracking-widest text-slate-400;
+  }
+  .metric-value {
+    @apply font-mono text-2xl font-bold;
+  }
+  .metric-label {
+    @apply text-xs text-slate-500 uppercase tracking-wider;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold;
+  }
+  .badge-bull {
+    @apply badge bg-green-trade/20 text-green-trade border border-green-trade/30;
+  }
+  .badge-bear {
+    @apply badge bg-red-trade/20 text-red-trade border border-red-trade/30;
+  }
+  .badge-neutral {
+    @apply badge bg-amber-trade/20 text-amber-trade border border-amber-trade/30;
+  }
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium
+           text-slate-400 hover:text-cyan hover:bg-cyan/5 transition-all cursor-pointer;
+  }
+  .nav-item-active {
+    @apply nav-item text-cyan bg-cyan/10 border border-cyan/20;
+  }
+  .score-bar-track {
+    @apply relative h-1.5 rounded-full bg-navy-700 overflow-hidden;
+  }
+  .glow-text {
+    @apply text-cyan;
+    text-shadow: 0 0 12px rgba(0,245,255,0.5);
+  }
+}
+
+.regime-cell {
+  transition: opacity 0.15s ease;
+}
+.regime-cell:hover {
+  opacity: 0.85;
+  outline: 1px solid rgba(0,245,255,0.5);
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(0,245,255,0.4); }
+  50% { box-shadow: 0 0 20px rgba(0,245,255,0.8); }
+}
+.pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-inner { animation: ticker-scroll 30s linear infinite; }
+.ticker-inner:hover { animation-play-state: paused; }
