@@ -253,41 +253,51 @@ def _pnl_aggregates_from_log(
     today = now.date()
     iso_now = today.isocalendar()
 
-    by_pid: dict[str, dict[str, str]] = {}
+    # Two passes: (1) collect all closed rows for realized PnL (one per
+    # plan_id — the *last* closed snapshot), (2) latest row per plan_id
+    # that is still open for unrealized MTM.
+    closed_by_pid: dict[str, dict[str, str]] = {}
+    latest_by_pid: dict[str, dict[str, str]] = {}
     for row in rows:
         pid = str(row.get("plan_id") or "")
-        if pid:
-            by_pid[pid] = row
+        if not pid:
+            continue
+        latest_by_pid[pid] = row
+        if (row.get("closed") or "0").strip() == "1":
+            closed_by_pid[pid] = row
 
     daily = 0.0
     weekly = 0.0
     all_time = 0.0
     open_mtm = 0.0
 
-    for pid, row in by_pid.items():
-        closed = (row.get("closed") or "0").strip() == "1"
+    for pid, row in closed_by_pid.items():
         try:
             pnl = float(row.get("unrealized_pnl") or 0)
         except (ValueError, TypeError):
             pnl = 0.0
+        all_time += pnl
+        ts_raw = row.get("timestamp_utc", "")
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            local_date = ts.astimezone().date()
+            if local_date == today:
+                daily += pnl
+            iso_ts = local_date.isocalendar()
+            if iso_ts.year == iso_now.year and iso_ts.week == iso_now.week:
+                weekly += pnl
+        except (ValueError, TypeError):
+            pass
 
-        if closed:
-            all_time += pnl
-            ts_raw = row.get("timestamp_utc", "")
-            try:
-                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                local_date = ts.astimezone().date()
-                if local_date == today:
-                    daily += pnl
-                iso_ts = local_date.isocalendar()
-                if iso_ts.year == iso_now.year and iso_ts.week == iso_now.week:
-                    weekly += pnl
-            except (ValueError, TypeError):
-                pass
-        else:
-            open_mtm += pnl
+    for pid, row in latest_by_pid.items():
+        if (row.get("closed") or "0").strip() == "1":
+            continue
+        try:
+            open_mtm += float(row.get("unrealized_pnl") or 0)
+        except (ValueError, TypeError):
+            pass
 
     return daily, weekly, all_time, open_mtm
 
@@ -373,8 +383,14 @@ def _challenge_pnl_section(root: Path) -> str:
         lines.append(f"Open MTM:  {_fmt_pnl(open_mtm)}")
     n_trades = len(trade_history)
     if n_trades:
-        wins = sum(1 for t in trade_history if float(t.get("pnl", 0)) > 0)
-        wr = wins / n_trades * 100 if n_trades else 0
+        wins = 0
+        for t in trade_history:
+            try:
+                if float(t.get("pnl", 0)) > 0:
+                    wins += 1
+            except (ValueError, TypeError):
+                pass
+        wr = wins / n_trades * 100
         lines.append(f"Trades: {n_trades}  W/L: {wins}/{n_trades - wins}  WR: {wr:.0f}%")
     return "\n".join(lines)
 

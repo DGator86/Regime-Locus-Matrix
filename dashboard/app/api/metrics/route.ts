@@ -2,71 +2,140 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 
+function parseCsv(text: string): Record<string, string>[] {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",");
+  return lines.slice(1).map((line) => {
+    const vals = line.split(",");
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      row[h.trim()] = (vals[i] ?? "").trim();
+    });
+    return row;
+  });
+}
+
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
-    // Paths to the live data on the VPS
-    // We use environment variables or fallback to the standard deployment path
-    const DATA_DIR = process.env.RLM_DATA_DIR || "/opt/regime-locus/data/processed";
-    const positionsPath = path.join(DATA_DIR, "equity_positions_state.json");
-    const monitorPath = path.join(DATA_DIR, "trade_monitor_state.json");
+    const DATA_DIR =
+      process.env.RLM_DATA_DIR ||
+      "/root/Regime-Locus-Matrix/data/processed";
+
+    const tradeLogPath = path.join(DATA_DIR, "trade_log.csv");
+    const plansPath = path.join(DATA_DIR, "universe_trade_plans.json");
 
     let accountBalance = 0;
     let realizedPnl = 0;
-    let activeSignalsCount = 0;
-    let winRate = 0;
+    let unrealizedPnl = 0;
+    let winRate = "0.0%";
+    let tradesCount = 0;
+    let openCount = 0;
 
-    // 1. Parse Positions for P/L and Stats
-    if (fs.existsSync(positionsPath)) {
-      const positions = JSON.parse(fs.readFileSync(positionsPath, "utf8"));
-      const trades = Object.values(positions) as any[];
-      
-      const closedTrades = trades.filter(t => t.status === "closed");
-      const winningTrades = closedTrades.filter(t => (t.exit_price - t.entry_price) * (t.side === "long" ? 1 : -1) > 0);
-      
-      realizedPnl = closedTrades.reduce((acc, t) => {
-        const pnl = (t.exit_price - t.entry_price) * t.quantity * (t.side === "long" ? 1 : -1);
-        return acc + pnl;
-      }, 0);
+    if (fs.existsSync(tradeLogPath)) {
+      const rows = parseCsv(fs.readFileSync(tradeLogPath, "utf8"));
 
-      winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
-    }
+      const latestByPid: Record<string, Record<string, string>> = {};
+      const closedByPid: Record<string, Record<string, string>> = {};
 
-    // 2. Parse Monitor for Active Signals
-    let signals: any[] = [];
-    if (fs.existsSync(monitorPath)) {
-      const monitor = JSON.parse(fs.readFileSync(monitorPath, "utf8"));
-      activeSignalsCount = Object.keys(monitor).length;
-      
-      // Try to get more detailed signal info from universe_trade_plans if available
-      const plansPath = path.join(DATA_DIR, "universe_trade_plans.json");
-      if (fs.existsSync(plansPath)) {
-        const plans = JSON.parse(fs.readFileSync(plansPath, "utf8"));
-        signals = Object.entries(plans).slice(0, 5).map(([sym, plan]: [string, any]) => ({
-          sym,
-          type: plan.direction.toUpperCase(),
-          time: "Active",
-          score: plan.confidence || 0.5
-        }));
+      for (const row of rows) {
+        const pid = row.plan_id || "";
+        if (!pid) continue;
+        latestByPid[pid] = row;
+        if ((row.closed || "0").trim() === "1") {
+          closedByPid[pid] = row;
+        }
       }
+
+      let totalRealized = 0;
+      let wins = 0;
+      const closedPids = Object.keys(closedByPid);
+      tradesCount = closedPids.length;
+
+      for (const pid of closedPids) {
+        const pnl = parseFloat(closedByPid[pid].unrealized_pnl || "0") || 0;
+        totalRealized += pnl;
+        if (pnl > 0) wins++;
+      }
+      realizedPnl = totalRealized;
+      winRate =
+        tradesCount > 0
+          ? ((wins / tradesCount) * 100).toFixed(1) + "%"
+          : "0.0%";
+
+      let totalUnrealized = 0;
+      for (const pid of Object.keys(latestByPid)) {
+        if ((latestByPid[pid].closed || "0").trim() === "1") continue;
+        openCount++;
+        totalUnrealized +=
+          parseFloat(latestByPid[pid].unrealized_pnl || "0") || 0;
+      }
+      unrealizedPnl = totalUnrealized;
+
+      const seed = 20000;
+      accountBalance = seed + realizedPnl + unrealizedPnl;
     }
 
-    // TODO: Connect to IBKR for real-time NLV
-    // For now, we calculate a baseline + realized P/L
-    const baseline = 20000; 
-    accountBalance = baseline + realizedPnl;
+    let signals: {
+      sym: string;
+      type: string;
+      time: string;
+      score: number;
+    }[] = [];
+
+    if (fs.existsSync(plansPath)) {
+      const plans = JSON.parse(fs.readFileSync(plansPath, "utf8"));
+      const results: any[] = plans.results || [];
+      const active = results
+        .filter((r: any) => r.status === "active")
+        .sort(
+          (a: any, b: any) =>
+            (parseFloat(b.rank_score) || 0) - (parseFloat(a.rank_score) || 0)
+        );
+
+      signals = active.slice(0, 5).map((r: any) => ({
+        sym: r.symbol || "?",
+        type: (r.strategy || "HOLD").toUpperCase(),
+        time: "Active",
+        score: parseFloat(r.regime_confidence || r.confidence || "0.5") || 0.5,
+      }));
+    }
+
+    const fmt = (v: number) =>
+      v.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        signDisplay: "always",
+      });
 
     return NextResponse.json({
-      accountBalance: accountBalance.toLocaleString("en-US", { style: "currency", currency: "USD" }),
-      realizedPnl: realizedPnl.toLocaleString("en-US", { style: "currency", currency: "USD", signDisplay: "always" }),
-      activeRisk: (activeSignalsCount * 500).toLocaleString("en-US", { style: "currency", currency: "USD" }), 
-      winRate: winRate.toFixed(1) + "%",
-      activeSignalsCount,
-      signals: signals.length > 0 ? signals : [
-        { sym: "N/A", type: "NONE", time: "Now", score: 0 }
-      ]
+      accountBalance: accountBalance.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+      }),
+      realizedPnl: fmt(realizedPnl),
+      activeRisk:
+        openCount > 0
+          ? unrealizedPnl.toLocaleString("en-US", {
+              style: "currency",
+              currency: "USD",
+              signDisplay: "always",
+            })
+          : "$0.00",
+      winRate,
+      activeSignalsCount: signals.length,
+      signals:
+        signals.length > 0
+          ? signals
+          : [{ sym: "N/A", type: "NONE", time: "Now", score: 0 }],
     });
   } catch (error) {
     console.error("Dashboard API Error:", error);
-    return NextResponse.json({ error: "Failed to fetch metrics" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch metrics" },
+      { status: 500 }
+    );
   }
 }
