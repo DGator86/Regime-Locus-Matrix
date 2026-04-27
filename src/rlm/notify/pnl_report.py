@@ -112,6 +112,8 @@ def _format_log_section(
     closed_pnl = 0.0
     closed_n = 0
     c_win = c_loss = 0
+    c_win_sum = 0.0
+    c_loss_sum = 0.0
     wins = 0
     sym_pnl: dict[str, float] = {}
     n_plan = 0
@@ -128,8 +130,10 @@ def _format_log_section(
             closed_n += 1
             if p > 0:
                 c_win += 1
+                c_win_sum += p
             elif p < 0:
                 c_loss += 1
+                c_loss_sum += abs(p)
         else:
             open_mtm += p
             open_n += 1
@@ -149,7 +153,24 @@ def _format_log_section(
         f"use exit line for stop/TP quality.)\n"
     )
     if n_plan <= 30:
-        mtm_note = ""
+        mtm_note = "\n"  # preserve newline so exits line doesn't merge with next
+    payoff_line = ""
+    if closed_n >= 2 and c_win >= 1 and c_loss >= 1:
+        avg_win = c_win_sum / c_win
+        avg_loss = c_loss_sum / c_loss
+        ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
+        min_ratio = (1.0 - c_wr / 100.0) / (c_wr / 100.0) if c_wr > 0 else float("inf")
+        payoff_line = (
+            f"  Exit payoff: avg win ${avg_win:.0f} / avg loss ${avg_loss:.0f} = "
+            f"{ratio:.2f}x  (min +EV at {c_wr:.0f}% wr: {min_ratio:.2f}x)\n"
+        )
+    conc_line = ""
+    if pnl_sum < 0 and sym_pnl:
+        worst_sym, worst_val = min(sym_pnl.items(), key=lambda x: x[1])
+        if worst_val < 0:
+            conc_pct = abs(worst_val) / abs(pnl_sum) * 100
+            if conc_pct >= 40:
+                conc_line = f"  Concentration: {worst_sym} = {conc_pct:.0f}% of session PnL\n"
     return (
         f"<b>{title}</b>\n"
         f"  Mark vs entry (last row/plan, session): <b>${pnl_sum:+.2f}</b>\n"
@@ -158,6 +179,8 @@ def _format_log_section(
         f"{c_win}W / {c_loss}L  ({c_wr:.1f}% green){mtm_note}"
         f"  unique plan_id: {n_plan}\n"
         f"{worst_line}"
+        f"{payoff_line}"
+        f"{conc_line}"
     )
 
 
