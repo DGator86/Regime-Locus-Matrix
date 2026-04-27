@@ -61,6 +61,10 @@ checkpoints/
 !dashboard/tsconfig.json
 !configs/*.json
 !configs/*.yaml
+!apps/rlm_ui/package.json
+!apps/rlm_ui/package-lock.json
+!apps/rlm_ui/tsconfig.json
+!apps/rlm_ui/tsconfig.node.json
 
 # Versioned test fixtures and sample data are explicitly allowed.
 # Runtime outputs must live under ignored data/ or artifacts/ roots — never here.
