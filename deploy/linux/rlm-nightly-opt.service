@@ -1,0 +1,20 @@
+# Regime-Locus-Matrix — nightly hyperparameter optimization (post-close).
+# Writes data/processed/live_nightly_hyperparams.json consumed by the next
+# session's run_universe_options_pipeline.py via apply_nightly_hyperparam_overlay.
+#
+# Installed by install-systemd.sh — do not edit @INSTALL_ROOT@ by hand.
+
+[Unit]
+Description=RLM nightly MTF hyperparameter optimization
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+EnvironmentFile=-@INSTALL_ROOT@/.env
+Environment="RLM_MAX_CPU_THREADS=2"
+Environment="OMP_NUM_THREADS=2"
+ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_nightly_hyperparam_opt.py --trials 40
+StandardOutput=append:/var/log/rlm-nightly-opt.log
+StandardError=append:/var/log/rlm-nightly-opt.error.log

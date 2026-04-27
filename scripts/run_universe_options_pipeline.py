@@ -554,6 +554,11 @@ def main() -> int:
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
+        else:
+            # Bootstrap default so apply_nightly_hyperparam_overlay always fires.
+            # calibrate_regime_models.py will overwrite this file on first weekly run.
+            live_model = LiveRegimeModelConfig(model="hmm")
+            print(f"[live_model] {live_model_path} not found — using defaults (run calibrate_regime_models.py to tune)")
     if args.use_kronos:
         kronos_params = LiveKronosParameters(
             model_name=args.kronos_model,
