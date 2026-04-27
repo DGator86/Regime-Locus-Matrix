@@ -19,11 +19,36 @@ def test_read_closed_pnl_counts_each_plan_once(tmp_path: Path) -> None:
     _write_log(
         log,
         [
-            {"timestamp_utc": "2026-01-01T14:00:00Z", "plan_id": "A", "unrealized_pnl": -10, "closed": "0"},
-            {"timestamp_utc": "2026-01-01T15:00:00Z", "plan_id": "A", "unrealized_pnl": -12, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T15:01:00Z", "plan_id": "A", "unrealized_pnl": -11, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T15:02:00Z", "plan_id": "A", "unrealized_pnl": -9, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T16:00:00Z", "plan_id": "B", "unrealized_pnl": 5, "closed": "1"},
+            {
+                "timestamp_utc": "2026-01-01T14:00:00Z",
+                "plan_id": "A",
+                "unrealized_pnl": -10,
+                "closed": "0",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:00:00Z",
+                "plan_id": "A",
+                "unrealized_pnl": -12,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:01:00Z",
+                "plan_id": "A",
+                "unrealized_pnl": -11,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:02:00Z",
+                "plan_id": "A",
+                "unrealized_pnl": -9,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T16:00:00Z",
+                "plan_id": "B",
+                "unrealized_pnl": 5,
+                "closed": "1",
+            },
         ],
     )
 
@@ -38,10 +63,30 @@ def test_read_closed_pnl_uses_last_distinct_closed_trades(tmp_path: Path) -> Non
     _write_log(
         log,
         [
-            {"timestamp_utc": "2026-01-01T15:00:00Z", "plan_id": "A", "unrealized_pnl": 10, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T15:01:00Z", "plan_id": "B", "unrealized_pnl": -8, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T15:02:00Z", "plan_id": "C", "unrealized_pnl": 7, "closed": "1"},
-            {"timestamp_utc": "2026-01-01T15:03:00Z", "plan_id": "B", "unrealized_pnl": -6, "closed": "1"},
+            {
+                "timestamp_utc": "2026-01-01T15:00:00Z",
+                "plan_id": "A",
+                "unrealized_pnl": 10,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:01:00Z",
+                "plan_id": "B",
+                "unrealized_pnl": -8,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:02:00Z",
+                "plan_id": "C",
+                "unrealized_pnl": 7,
+                "closed": "1",
+            },
+            {
+                "timestamp_utc": "2026-01-01T15:03:00Z",
+                "plan_id": "B",
+                "unrealized_pnl": -6,
+                "closed": "1",
+            },
         ],
     )
 
