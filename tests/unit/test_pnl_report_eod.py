@@ -54,6 +54,99 @@ def _ts(y: int, m: int, d: int, hour: int, minute: int = 0) -> str:
     return datetime(y, m, d, hour, minute, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def test_small_session_exits_line_has_newline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exits line must end with newline even when n_plan <= 30 (mtm_note suppressed)."""
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    h = (
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,"
+        "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+    )
+    rows = [
+        f"{_ts(2026, 4, 24, 18)},p1,SPY,x,2,1,0.5,0.5,-1.5,-1,hold,1,1\n",  # closed, loss
+    ]
+    (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
+    fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
+
+    text = calculate_daily_pnl(tmp_path)
+    # "unique plan_id" must appear on its own line, not concatenated with exits line
+    assert "\n  unique plan_id:" in text
+
+
+def test_exit_payoff_ratio_shown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Payoff ratio line appears when there are both wins and losses in closed exits."""
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    h = (
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,"
+        "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+    )
+    rows = [
+        f"{_ts(2026, 4, 24, 18)},win1,SPY,x,1,1,1.0,1.0,200.0,2,tp,1,0\n",   # closed win +200
+        f"{_ts(2026, 4, 24, 18)},lose1,QQQ,x,1,1,0.5,0.5,-100.0,-1,stop,1,0\n",  # closed loss -100
+        f"{_ts(2026, 4, 24, 18)},lose2,IWM,x,1,1,0.5,0.5,-50.0,-1,stop,1,0\n",   # closed loss -50
+    ]
+    (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
+    fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
+
+    text = calculate_daily_pnl(tmp_path)
+    assert "Exit payoff" in text
+    assert "2.67x" in text  # avg win 200 / avg loss 75 = 2.666...
+
+
+def test_concentration_warning_shown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Concentration line fires when one symbol >= 40% of total session loss."""
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    h = (
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,"
+        "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+    )
+    rows = [
+        f"{_ts(2026, 4, 24, 18)},m1,META,x,1,1,0.5,0.5,-500.0,-1,hold,0,5\n",  # META big loss
+        f"{_ts(2026, 4, 24, 18)},s1,SPY,x,1,1,0.9,0.9,-100.0,-1,hold,0,5\n",   # SPY small loss
+    ]
+    (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
+    fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
+
+    text = calculate_daily_pnl(tmp_path)
+    assert "Concentration" in text
+    assert "META" in text
+    assert "83%" in text  # 500 / 600 = 83.3%
+
+
+def test_concentration_warning_not_shown_when_spread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No concentration warning when no single symbol dominates."""
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    h = (
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,"
+        "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+    )
+    rows = [
+        f"{_ts(2026, 4, 24, 18)},a1,AAPL,x,1,1,0.7,0.7,-100.0,-1,hold,0,5\n",
+        f"{_ts(2026, 4, 24, 18)},m1,MSFT,x,1,1,0.7,0.7,-120.0,-1,hold,0,5\n",
+        f"{_ts(2026, 4, 24, 18)},g1,GOOGL,x,1,1,0.7,0.7,-110.0,-1,hold,0,5\n",
+    ]
+    (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
+    fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
+
+    text = calculate_daily_pnl(tmp_path)
+    assert "Concentration" not in text
+
+
 def test_eod_includes_challenge_when_state_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
