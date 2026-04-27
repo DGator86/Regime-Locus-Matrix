@@ -21,9 +21,12 @@ def default_paths(root: Path) -> dict[str, Path]:
     return {
         "plans": root / "data" / "processed" / "universe_trade_plans.json",
         "trade_log": root / "data" / "processed" / "trade_log.csv",
+        "equity_trade_log": root / "data" / "processed" / "equity_trade_log.csv",
         "equity_state": root / "data" / "processed" / "equity_positions_state.json",
         "state": root / "data" / "processed" / "telegram_notify_state.json",
         "session_brief": root / "data" / "processed" / "session_brief.json",
+        "challenge_state": root / "data" / "challenge" / "state.json",
+        "challenge_trade_log": root / "data" / "challenge" / "trade_log.csv",
     }
 
 
@@ -222,6 +225,224 @@ def build_universe_report(root: Path, *, max_active: int = 12) -> str:
     if not data:
         return f"No plans file or empty: {p.name}"
     return build_universe_report_from_data(data, max_active=max_active)
+
+
+def _load_all_csv_rows(path: Path) -> list[dict[str, str]]:
+    """Read every row from a CSV trade log (not just latest per plan)."""
+    if not path.is_file():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            return list(csv.DictReader(f))
+    except OSError:
+        return []
+
+
+def _pnl_aggregates_from_log(
+    rows: list[dict[str, str]],
+) -> tuple[float, float, float, float]:
+    """Compute (daily, weekly, all_time, open_mtm) from a trade log CSV.
+
+    Closed trades: last row per plan_id with closed=1 → realized PnL.
+    Open positions: last row per plan_id with closed!=1 → unrealized MTM.
+    """
+    if not rows:
+        return 0.0, 0.0, 0.0, 0.0
+
+    now = datetime.now().astimezone()
+    today = now.date()
+    iso_now = today.isocalendar()
+
+    by_pid: dict[str, dict[str, str]] = {}
+    for row in rows:
+        pid = str(row.get("plan_id") or "")
+        if pid:
+            by_pid[pid] = row
+
+    daily = 0.0
+    weekly = 0.0
+    all_time = 0.0
+    open_mtm = 0.0
+
+    for pid, row in by_pid.items():
+        closed = (row.get("closed") or "0").strip() == "1"
+        try:
+            pnl = float(row.get("unrealized_pnl") or 0)
+        except (ValueError, TypeError):
+            pnl = 0.0
+
+        if closed:
+            all_time += pnl
+            ts_raw = row.get("timestamp_utc", "")
+            try:
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                local_date = ts.astimezone().date()
+                if local_date == today:
+                    daily += pnl
+                iso_ts = local_date.isocalendar()
+                if iso_ts.year == iso_now.year and iso_ts.week == iso_now.week:
+                    weekly += pnl
+            except (ValueError, TypeError):
+                pass
+        else:
+            open_mtm += pnl
+
+    return daily, weekly, all_time, open_mtm
+
+
+def _fmt_pnl(v: float) -> str:
+    sign = "+" if v > 0 else ""
+    return f"{sign}${v:,.2f}"
+
+
+def _challenge_pnl_section(root: Path) -> str:
+    """Build the PDT Challenge section of the PnL report."""
+    p = default_paths(root)
+    state_path = p["challenge_state"]
+    if not state_path.is_file():
+        return "--- PDT CHALLENGE ($1K -> $25K) ---\n  (no challenge state — run `rlm challenge --reset`)"
+
+    try:
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "--- PDT CHALLENGE ($1K -> $25K) ---\n  (unreadable state file)"
+
+    balance = float(raw.get("balance", 0))
+    seed = float(raw.get("seed", 1000))
+    target = float(raw.get("target", 25000))
+    span = target - seed
+    progress = min(100.0, max(0.0, (balance - seed) / span * 100.0)) if span > 0 else 100.0
+
+    from rlm.challenge.config import MILESTONES
+
+    milestone_label = "—"
+    for m in MILESTONES:
+        if balance < m.target:
+            milestone_label = m.label
+            break
+    else:
+        milestone_label = MILESTONES[-1].label if MILESTONES else "—"
+
+    now = datetime.now().astimezone()
+    today = now.date()
+    iso_now = today.isocalendar()
+
+    daily = 0.0
+    weekly = 0.0
+    all_time = balance - seed
+
+    trade_history = raw.get("trade_history") or []
+    for t in trade_history:
+        try:
+            pnl = float(t.get("pnl", 0))
+        except (ValueError, TypeError):
+            continue
+        exit_date_raw = str(t.get("exit_date", ""))
+        try:
+            exit_dt = datetime.fromisoformat(exit_date_raw.replace("Z", "+00:00"))
+            if exit_dt.tzinfo is None:
+                exit_dt = exit_dt.replace(tzinfo=timezone.utc)
+            local_date = exit_dt.astimezone().date()
+            if local_date == today:
+                daily += pnl
+            iso_d = local_date.isocalendar()
+            if iso_d.year == iso_now.year and iso_d.week == iso_now.week:
+                weekly += pnl
+        except (ValueError, TypeError):
+            pass
+
+    open_mtm = 0.0
+    for pos in raw.get("open_positions") or []:
+        try:
+            open_mtm += float(pos.get("unrealised_pnl", 0))
+        except (ValueError, TypeError):
+            pass
+
+    lines = [
+        "--- PDT CHALLENGE ($1K -> $25K) ---",
+        f"Balance:   ${balance:,.2f}",
+        f"Seed:      ${seed:,.2f}",
+        f"Progress:  {progress:.1f}% ({milestone_label})",
+        f"Today:     {_fmt_pnl(daily)}",
+        f"This week: {_fmt_pnl(weekly)}",
+        f"All-time:  {_fmt_pnl(all_time)}",
+    ]
+    if open_mtm:
+        lines.append(f"Open MTM:  {_fmt_pnl(open_mtm)}")
+    n_trades = len(trade_history)
+    if n_trades:
+        wins = sum(1 for t in trade_history if float(t.get("pnl", 0)) > 0)
+        wr = wins / n_trades * 100 if n_trades else 0
+        lines.append(f"Trades: {n_trades}  W/L: {wins}/{n_trades - wins}  WR: {wr:.0f}%")
+    return "\n".join(lines)
+
+
+def _ibkr_balance_section() -> str:
+    """Compact IBKR account balances for the PnL report."""
+    try:
+        from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
+    except ImportError:
+        return "--- IBKR ACCOUNT ---\n  (ibapi not installed)"
+    try:
+        snap = fetch_ibkr_account_snapshot(timeout_sec=15.0)
+    except Exception:  # noqa: BLE001
+        return "--- IBKR ACCOUNT ---\n  (Gateway unavailable)"
+
+    def _tag(t: str) -> str:
+        for row in snap.account_summary:
+            if str(row.tag) == t and row.value:
+                try:
+                    return f"${float(row.value):,.2f}"
+                except (ValueError, TypeError):
+                    return f"{row.value} {row.currency or ''}".strip()
+        return "—"
+
+    return "\n".join([
+        "--- IBKR ACCOUNT ---",
+        f"Net liq:    {_tag('NetLiquidation')}",
+        f"Cash:       {_tag('TotalCashValue')}",
+        f"Buying pwr: {_tag('BuyingPower')}",
+        f"Unreal PnL: {_tag('UnrealizedPnL')}",
+        f"Real PnL:   {_tag('RealizedPnL')}",
+    ])
+
+
+def build_pnl_text(root: Path) -> str:
+    """Full P&L report across all three systems: equities, options, PDT challenge + IBKR balances."""
+    p = default_paths(root)
+    sections: list[str] = ["=== P&L REPORT ==="]
+
+    eq_rows = _load_all_csv_rows(p["equity_trade_log"])
+    eq_d, eq_w, eq_a, eq_mtm = _pnl_aggregates_from_log(eq_rows)
+    sections.append("\n".join([
+        "",
+        "--- EQUITIES ---",
+        f"Today:     {_fmt_pnl(eq_d)}",
+        f"This week: {_fmt_pnl(eq_w)}",
+        f"All-time:  {_fmt_pnl(eq_a)}",
+        f"Open MTM:  {_fmt_pnl(eq_mtm)}",
+    ]))
+
+    opt_rows = _load_all_csv_rows(p["trade_log"])
+    opt_d, opt_w, opt_a, opt_mtm = _pnl_aggregates_from_log(opt_rows)
+    sections.append("\n".join([
+        "",
+        "--- OPTIONS (Large Acct) ---",
+        f"Today:     {_fmt_pnl(opt_d)}",
+        f"This week: {_fmt_pnl(opt_w)}",
+        f"All-time:  {_fmt_pnl(opt_a)}",
+        f"Open MTM:  {_fmt_pnl(opt_mtm)}",
+    ]))
+
+    sections.append("")
+    sections.append(_challenge_pnl_section(root))
+
+    sections.append("")
+    sections.append(_ibkr_balance_section())
+
+    return "\n".join(sections)
 
 
 def build_balances_text(root: Path) -> str:
