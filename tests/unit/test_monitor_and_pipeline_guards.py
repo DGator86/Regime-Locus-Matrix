@@ -73,7 +73,7 @@ def test_monitor_max_loss_stop_closes_trade(tmp_path: Path, monkeypatch) -> None
         trade_log_path=log_path,
     )
     row = pd.read_csv(log_path).iloc[-1]
-    assert row["signal"] == "hard_stop"
+    assert row["signal"] == "max_loss_stop"
     assert str(row["closed"]) == "1"
 
 

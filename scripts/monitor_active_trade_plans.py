@@ -245,7 +245,7 @@ def _evaluate_plan(
         if v < tstop:
             signal = "trailing_stop"
     if pnl_pct == pnl_pct and pnl_pct <= float(max_loss_pct):
-        signal = "hard_stop"
+        signal = "max_loss_stop"
 
     if signal == "expiry_force_close":
         print(f"{msg}  ACTION: EXPIRY_FORCE_CLOSE (DTE={plan_dte:.3f} <= {force_close_dte})")
@@ -253,6 +253,8 @@ def _evaluate_plan(
         print(f"{msg}  ACTION: TAKE_PROFIT (V >= {v_tp:.2f})")
     elif signal == "hard_stop":
         print(f"{msg}  ACTION: HARD_STOP (V <= {v_sl:.2f})")
+    elif signal == "max_loss_stop":
+        print(f"{msg}  ACTION: MAX_LOSS_STOP (PnL={pnl_pct:.2f}% <= {max_loss_pct:.2f}%)")
     elif signal == "time_stop":
         print(
             f"{msg}  ACTION: TIME_STOP (DTE={plan_dte:.3f} <= {soft_time_stop_dte}"
@@ -413,7 +415,7 @@ def main() -> int:
         "--max-loss-pct",
         type=float,
         default=-70.0,
-        help="Max-loss kill-switch in percent; <= this unrealized PnL%% forces hard_stop.",
+        help="Max-loss kill-switch in percent; <= this unrealized PnL%% forces max_loss_stop.",
     )
     p.add_argument(
         "--rth-only-poll",
