@@ -14,8 +14,9 @@ import {
   Bar,
   Cell,
 } from "recharts";
-import { Activity, BarChart3, Grid3X3, TrendingUp, RefreshCcw } from "lucide-react";
+import { Activity, BarChart3, Grid3X3, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHero, HudRefreshButton, HUD_CHART_TOOLTIP } from "@/components/PageHero";
 
 interface ActivePlan {
   symbol: string;
@@ -48,17 +49,11 @@ interface ForecastPoint {
 }
 
 const FACTOR_COLORS = {
-  S_D: "#00f5ff",
+  S_D: "#22d3ee",
   S_V: "#a855f7",
   S_L: "#f59e0b",
   S_G: "#22c55e",
 } as const;
-
-const CHART_TOOLTIP_STYLE = {
-  backgroundColor: "#111114",
-  border: "1px solid #1e1e24",
-  borderRadius: "12px",
-};
 
 function factorCellColor(val: number): string {
   if (val > 0.5) return "bg-green-500/70 text-white";
@@ -86,11 +81,14 @@ function SectionCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
-      className={cn("glass rounded-2xl p-6", className)}
+      className={cn(
+        "glass rounded-2xl p-6 panel-hud border border-white/[0.06]",
+        className,
+      )}
     >
       <div className="flex items-center gap-2 mb-5">
-        <Icon className="w-4 h-4 text-primary" />
-        <h3 className="font-bold">{title}</h3>
+        <Icon className="w-4 h-4 text-cyan-400" />
+        <h3 className="font-bold text-sm uppercase tracking-[0.12em] text-slate-300">{title}</h3>
       </div>
       {children}
     </motion.div>
@@ -160,26 +158,21 @@ export default function AnalysisPage() {
   );
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
-      <header className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Analysis Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Factor decomposition, signal distribution, and universe analytics.
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setLoading(true);
-            fetchData();
-          }}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
-          disabled={loading}
-        >
-          <RefreshCcw className={cn("w-4 h-4", loading && "animate-spin")} />
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
-      </header>
+    <div className="space-y-8 max-w-[1920px] mx-auto w-full">
+      <PageHero
+        eyebrow="RLM · Factors"
+        title="Analysis"
+        subtitle="Factor decomposition, signal distribution, and universe analytics."
+        action={
+          <HudRefreshButton
+            loading={loading}
+            onClick={() => {
+              setLoading(true);
+              fetchData();
+            }}
+          />
+        }
+      />
 
       {/* ─── Factor Timeline ─── */}
       <SectionCard title="Factor Timeline" icon={Activity} delay={0.05}>
@@ -202,7 +195,7 @@ export default function AnalysisPage() {
                   tick={{ fill: "#94a3b8", fontSize: 11 }}
                   domain={[-1, 1]}
                 />
-                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                <Tooltip contentStyle={HUD_CHART_TOOLTIP} />
                 <Line type="monotone" dataKey="S_D" stroke={FACTOR_COLORS.S_D} strokeWidth={2} dot={false} name="Direction" />
                 <Line type="monotone" dataKey="S_V" stroke={FACTOR_COLORS.S_V} strokeWidth={2} dot={false} name="Volatility" />
                 <Line type="monotone" dataKey="S_L" stroke={FACTOR_COLORS.S_L} strokeWidth={2} dot={false} name="Liquidity" />
@@ -381,7 +374,7 @@ export default function AnalysisPage() {
                     width={48}
                   />
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    contentStyle={HUD_CHART_TOOLTIP}
                     formatter={(val) =>
                       [`${(Number(val ?? 0) * 100).toFixed(1)}%`, "Confidence"]
                     }

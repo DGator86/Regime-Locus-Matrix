@@ -6,7 +6,6 @@ import {
   Layers,
   ArrowRightLeft,
   BarChart3,
-  RefreshCcw,
 } from "lucide-react";
 import {
   ComposedChart,
@@ -21,7 +20,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { PageHero, HudRefreshButton, HUD_CHART_TOOLTIP } from "@/components/PageHero";
 
 const STATE_COLORS: Record<string, string> = {
   "bull-quiet": "#22c55e",
@@ -141,26 +140,21 @@ export default function StateMapPage() {
     : "—";
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      <header className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">State Map</h1>
-          <p className="text-muted-foreground mt-1">
-            Regime transitions and price-state overlay
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setLoading(true);
-            fetchMetrics();
-          }}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
-          disabled={loading}
-        >
-          <RefreshCcw className={cn("w-4 h-4", loading && "animate-spin")} />
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
-      </header>
+    <div className="space-y-6 max-w-[1920px] mx-auto w-full">
+      <PageHero
+        eyebrow="RLM · State"
+        title="State Map"
+        subtitle="Regime transitions, forecast bands, and HMM confidence over time."
+        action={
+          <HudRefreshButton
+            loading={loading}
+            onClick={() => {
+              setLoading(true);
+              fetchMetrics();
+            }}
+          />
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Main area: 2/3 width ── */}
@@ -169,13 +163,15 @@ export default function StateMapPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-2xl p-6"
+            className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 rounded-lg bg-secondary border border-border">
-                <Layers className="w-5 h-5 text-primary neon-text" />
+              <div className="p-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10">
+                <Layers className="w-5 h-5 text-cyan-400 neon-text-soft" />
               </div>
-              <h2 className="text-lg font-bold">Price & State Overlay</h2>
+              <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300">
+                Price &amp; State Overlay
+              </h2>
             </div>
 
             <div className="h-[400px] w-full">
@@ -188,16 +184,16 @@ export default function StateMapPage() {
                   <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="band2Fill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#00f5ff" stopOpacity={0.04} />
-                        <stop offset="100%" stopColor="#00f5ff" stopOpacity={0.02} />
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.04} />
+                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
                       </linearGradient>
                       <linearGradient id="band1Fill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#00f5ff" stopOpacity={0.15} />
-                        <stop offset="100%" stopColor="#00f5ff" stopOpacity={0.05} />
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.15} />
+                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.05} />
                       </linearGradient>
                       <linearGradient id="closeFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00f5ff" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#00f5ff" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e1e24" />
@@ -216,12 +212,7 @@ export default function StateMapPage() {
                       tickFormatter={(v: number) => `$${v}`}
                     />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#111114",
-                        border: "1px solid #1e1e24",
-                        borderRadius: "12px",
-                        fontSize: 12,
-                      }}
+                      contentStyle={{ ...HUD_CHART_TOOLTIP }}
                       labelStyle={{ color: "#94a3b8" }}
                       formatter={(value, name) => {
                         const key = String(name ?? "");
@@ -248,7 +239,7 @@ export default function StateMapPage() {
                       type="monotone"
                       dataKey="lower_2s"
                       stroke="none"
-                      fill="#0a0a0b"
+                      fill="#08090d"
                       fillOpacity={1}
                       isAnimationActive={false}
                     />
@@ -265,7 +256,7 @@ export default function StateMapPage() {
                       type="monotone"
                       dataKey="lower_1s"
                       stroke="none"
-                      fill="#0a0a0b"
+                      fill="#08090d"
                       fillOpacity={1}
                       isAnimationActive={false}
                     />
@@ -273,7 +264,7 @@ export default function StateMapPage() {
                     <Area
                       type="monotone"
                       dataKey="close"
-                      stroke="#00f5ff"
+                      stroke="#22d3ee"
                       strokeWidth={2}
                       fill="url(#closeFill)"
                       fillOpacity={1}
@@ -313,13 +304,15 @@ export default function StateMapPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="glass rounded-2xl p-6"
+            className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-lg bg-secondary border border-border">
-                <Activity className="w-5 h-5 text-accent" />
+              <div className="p-2 rounded-lg border border-violet-500/25 bg-violet-500/10">
+                <Activity className="w-5 h-5 text-violet-300" />
               </div>
-              <h2 className="text-lg font-bold">HMM Confidence Timeline</h2>
+              <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300">
+                HMM Confidence Timeline
+              </h2>
             </div>
 
             <div className="h-[140px] w-full">
@@ -351,12 +344,7 @@ export default function StateMapPage() {
                       tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
                     />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#111114",
-                        border: "1px solid #1e1e24",
-                        borderRadius: "12px",
-                        fontSize: 12,
-                      }}
+                      contentStyle={{ ...HUD_CHART_TOOLTIP }}
                       formatter={(value) => [
                         `${(Number(value ?? 0) * 100).toFixed(1)}%`,
                         "Confidence",
@@ -397,9 +385,9 @@ export default function StateMapPage() {
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="glass rounded-2xl p-6 neon-border"
+            className="glass rounded-2xl p-6 neon-border panel-hud border border-white/[0.06]"
           >
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
+            <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-4">
               Current State
             </h3>
             {latest ? (
@@ -459,10 +447,10 @@ export default function StateMapPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 }}
-            className="glass rounded-2xl p-6"
+            className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-3 mb-4">
-              <ArrowRightLeft className="w-4 h-4 text-accent" />
+              <ArrowRightLeft className="w-4 h-4 text-violet-400" />
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Recent Transitions
               </h3>
@@ -501,10 +489,10 @@ export default function StateMapPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
-            className="glass rounded-2xl p-6"
+            className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-3 mb-4">
-              <BarChart3 className="w-4 h-4 text-primary" />
+              <BarChart3 className="w-4 h-4 text-cyan-400" />
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Forecast Bands
               </h3>

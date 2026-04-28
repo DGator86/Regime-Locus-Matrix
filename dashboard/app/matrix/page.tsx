@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Info, AlertTriangle, Maximize2, RefreshCcw } from "lucide-react";
+import { Info, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHero, HudRefreshButton } from "@/components/PageHero";
 
 interface ActivePlan {
   symbol: string;
@@ -50,7 +51,7 @@ function dotColor(plan: ActivePlan): string {
   const strat = plan.strategy.toLowerCase();
   if (plan.action === "enter" && (strat.includes("bull") || strat.includes("call"))) return "#22c55e";
   if (strat.includes("bear") || strat.includes("put")) return "#ef4444";
-  return "#00f5ff";
+  return "#22d3ee";
 }
 
 function dotRadius(plan: ActivePlan): number {
@@ -123,37 +124,34 @@ export default function LocusMatrixPage() {
   const gridLines = [0, 2, 4, 5, 6, 8, 10];
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto h-full flex flex-col">
-      <header className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Regime Locus Matrix</h1>
-          <p className="text-muted-foreground mt-1">
-            Projecting current state into the volatility-direction vector space.
-          </p>
-        </div>
-        <div className="flex gap-3 items-center">
-          <select
-            value={selectedSymbol}
-            onChange={(e) => setSelectedSymbol(e.target.value)}
-            className="bg-secondary border border-border rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-          >
-            {symbols.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => {
-              setLoading(true);
-              fetchData();
-            }}
-            className="p-2 glass rounded-xl hover:bg-secondary transition-colors"
-          >
-            <RefreshCcw className={cn("w-5 h-5 text-muted-foreground", loading && "animate-spin")} />
-          </button>
-        </div>
-      </header>
+    <div className="space-y-8 max-w-[1920px] mx-auto w-full h-full flex flex-col">
+      <PageHero
+        eyebrow="RLM · Locus"
+        title="Regime Locus Matrix"
+        subtitle="Projecting each plan into the volatility × direction vector space (M_D, M_V)."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedSymbol}
+              onChange={(e) => setSelectedSymbol(e.target.value)}
+              className="h-10 min-w-[120px] rounded-xl border border-white/10 bg-white/[0.04] px-3 pr-8 text-sm text-foreground outline-none focus:ring-1 focus:ring-cyan-500/50 font-[family-name:var(--font-mono)]"
+            >
+              {symbols.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <HudRefreshButton
+              loading={loading}
+              onClick={() => {
+                setLoading(true);
+                fetchData();
+              }}
+            />
+          </div>
+        }
+      />
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-8 min-h-[600px]">
         {/* ─── SVG Scatter Plot ─── */}
@@ -161,7 +159,7 @@ export default function LocusMatrixPage() {
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="lg:col-span-3 glass rounded-3xl p-1 relative overflow-hidden flex flex-col"
+          className="lg:col-span-3 glass rounded-3xl p-1 relative overflow-hidden flex flex-col panel-hud neon-border border border-white/[0.06]"
         >
           <div className="absolute inset-0 pointer-events-none opacity-[0.08]">
             <div
@@ -189,8 +187,8 @@ export default function LocusMatrixPage() {
                   <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
                 </radialGradient>
                 <radialGradient id="glow-cyan" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#00f5ff" stopOpacity={0.6} />
-                  <stop offset="100%" stopColor="#00f5ff" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.6} />
+                  <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
                 </radialGradient>
                 <filter id="blur-glow">
                   <feGaussianBlur stdDeviation="3" />
@@ -341,7 +339,7 @@ export default function LocusMatrixPage() {
                 <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Bearish / Put
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#00f5ff]" /> Neutral
+                <span className="w-2.5 h-2.5 rounded-full bg-[#22d3ee]" /> Neutral
               </span>
             </div>
             <span className="italic">Auto-refresh: 15s</span>
@@ -355,11 +353,11 @@ export default function LocusMatrixPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
-            className="glass rounded-3xl p-6"
+            className="glass rounded-3xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-2 mb-4">
-              <Info className="w-4 h-4 text-primary" />
-              <h3 className="font-bold">Regime Analysis</h3>
+              <Info className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300">Regime Analysis</h3>
             </div>
             {selected ? (
               <div className="p-4 bg-secondary/50 rounded-2xl border border-border space-y-2">
@@ -389,11 +387,11 @@ export default function LocusMatrixPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3 }}
-            className="glass rounded-3xl p-6"
+            className="glass rounded-3xl p-6 panel-hud border border-white/[0.06]"
           >
             <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="w-4 h-4 text-accent" />
-              <h3 className="font-bold">Transition Risk</h3>
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300">Transition Risk</h3>
             </div>
             {selected ? (
               <div className="p-4 bg-secondary/30 rounded-2xl border border-border">
@@ -420,9 +418,9 @@ export default function LocusMatrixPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.4 }}
-            className="glass rounded-3xl p-6"
+            className="glass rounded-3xl p-6 panel-hud border border-white/[0.06]"
           >
-            <h3 className="font-bold mb-4">Factor Breakdown</h3>
+            <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300 mb-4">Factor Breakdown</h3>
             {selected ? (
               <div className="space-y-3">
                 <FactorBar label="M_D — Direction" value={selected.M_D} />

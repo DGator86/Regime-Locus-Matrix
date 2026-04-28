@@ -6,7 +6,6 @@ import {
   Lock,
   Brain,
   Radio,
-  RefreshCcw,
   TrendingUp,
   TrendingDown,
 } from "lucide-react";
@@ -21,6 +20,7 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { PageHero, HudRefreshButton } from "@/components/PageHero";
 
 function fmt(v: number | null | undefined, decimals = 2): string {
   if (v == null || isNaN(v)) return "—";
@@ -73,31 +73,45 @@ interface RiskCardProps {
   sub?: string;
   barPct?: number;
   barColor?: string;
-  accent?: string;
+  accent?: "cyan" | "violet";
   delay?: number;
 }
 
-function RiskCard({ icon: Icon, title, value, sub, barPct, barColor, accent = "primary", delay = 0 }: RiskCardProps) {
+function RiskCard({
+  icon: Icon,
+  title,
+  value,
+  sub,
+  barPct,
+  barColor,
+  accent = "cyan",
+  delay = 0,
+}: RiskCardProps) {
+  const tone =
+    accent === "violet"
+      ? "border-violet-500/25 bg-violet-500/10"
+      : "border-cyan-500/25 bg-cyan-500/10";
+  const iconCls = accent === "violet" ? "text-violet-400" : "text-cyan-400";
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
-      className="glass rounded-2xl p-5 relative overflow-hidden"
+      className="glass rounded-2xl p-5 relative overflow-hidden panel-hud border border-white/[0.06]"
     >
       <div className="flex items-center gap-3 mb-3">
-        <div className="p-2 rounded-lg bg-secondary border border-border">
-          <Icon className={cn("w-5 h-5", `text-${accent}`)} />
+        <div className={cn("p-2 rounded-lg border", tone)}>
+          <Icon className={cn("w-5 h-5", iconCls)} />
         </div>
-        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{title}</p>
       </div>
-      <p className="text-2xl font-bold tracking-tight">{value}</p>
+      <p className="text-2xl font-bold tracking-tight font-[family-name:var(--font-mono)]">{value}</p>
       {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       {barPct != null && (
         <div className="mt-3 h-1.5 bg-secondary rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${Math.min(barPct, 100)}%`, backgroundColor: barColor || "#00f5ff" }}
+            style={{ width: `${Math.min(barPct, 100)}%`, backgroundColor: barColor || "#22d3ee" }}
           />
         </div>
       )}
@@ -181,26 +195,21 @@ export default function RiskPage() {
   const status = metrics?.marketState?.status || "UNKNOWN";
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      <header className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Risk Center</h1>
-          <p className="text-muted-foreground mt-1">
-            Portfolio risk assessment and position monitoring
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setLoading(true);
-            fetchMetrics();
-          }}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
-          disabled={loading}
-        >
-          <RefreshCcw className={cn("w-4 h-4", loading && "animate-spin")} />
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
-      </header>
+    <div className="space-y-6 max-w-[1920px] mx-auto w-full">
+      <PageHero
+        eyebrow="RLM · Risk"
+        title="Risk Center"
+        subtitle="Portfolio risk assessment, vault posture, and walk-forward accountability."
+        action={
+          <HudRefreshButton
+            loading={loading}
+            onClick={() => {
+              setLoading(true);
+              fetchMetrics();
+            }}
+          />
+        }
+      />
 
       {/* ── Row 1: Risk Overview Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -211,7 +220,7 @@ export default function RiskPage() {
           sub={`Avg across ${plans.length} plans`}
           barPct={avgUncertainty * 100}
           barColor={avgUncertainty > 0.05 ? "#ef4444" : avgUncertainty > 0.02 ? "#f59e0b" : "#22c55e"}
-          accent="primary"
+          accent="cyan"
         />
         <RiskCard
           icon={Lock}
@@ -220,7 +229,7 @@ export default function RiskPage() {
           sub="Vault triggered"
           barPct={plans.length > 0 ? (vaultCount / plans.length) * 100 : 0}
           barColor={vaultCount > 0 ? "#ef4444" : "#22c55e"}
-          accent="accent"
+          accent="violet"
           delay={0.05}
         />
         <RiskCard
@@ -248,9 +257,11 @@ export default function RiskPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="glass rounded-2xl p-6"
+          className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
         >
-          <h2 className="text-lg font-bold mb-4">Active Options Positions</h2>
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300 mb-4">
+            Active Options Positions
+          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -312,9 +323,11 @@ export default function RiskPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="glass rounded-2xl p-6"
+          className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
         >
-          <h2 className="text-lg font-bold mb-4">Equity Positions</h2>
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300 mb-4">
+            Equity Positions
+          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -395,9 +408,11 @@ export default function RiskPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="glass rounded-2xl p-6"
+          className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
         >
-          <h2 className="text-lg font-bold mb-4">Backtest Equity Curve</h2>
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300 mb-4">
+            Backtest Equity Curve
+          </h2>
           <div className="h-[280px] w-full">
             {btData.length === 0 ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -408,8 +423,8 @@ export default function RiskPage() {
                 <AreaChart data={btData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#00f5ff" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#00f5ff" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e1e24" />
@@ -428,8 +443,8 @@ export default function RiskPage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#111114",
-                      border: "1px solid #1e1e24",
+                      backgroundColor: "#0d1118",
+                      border: "1px solid rgba(255,255,255,0.08)",
                       borderRadius: "12px",
                       fontSize: 12,
                     }}
@@ -438,7 +453,7 @@ export default function RiskPage() {
                   <Area
                     type="monotone"
                     dataKey="equity"
-                    stroke="#00f5ff"
+                    stroke="#22d3ee"
                     strokeWidth={2}
                     fill="url(#eqFill)"
                     fillOpacity={1}
@@ -455,9 +470,11 @@ export default function RiskPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25 }}
-          className="glass rounded-2xl p-6"
+          className="glass rounded-2xl p-6 panel-hud border border-white/[0.06]"
         >
-          <h2 className="text-lg font-bold mb-4">Walk-Forward Performance</h2>
+          <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-300 mb-4">
+            Walk-Forward Performance
+          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

@@ -28,12 +28,16 @@ const primaryNav = [
   { icon: ShieldCheck, label: "Risk Center", href: "/risk" },
 ];
 
-const secondaryNav = [
-  { icon: Layers, label: "Factors" },
-  { icon: Radio, label: "Forecast" },
-  { icon: Cpu, label: "ROEE" },
-  { icon: Activity, label: "Chain" },
-  { icon: FlaskConical, label: "Backtest Lab" },
+const secondaryNav: {
+  icon: React.ElementType;
+  label: string;
+  href?: string;
+}[] = [
+  { icon: Layers, label: "Factors", href: "/analysis" },
+  { icon: Radio, label: "Forecast", href: "/state-map" },
+  { icon: Cpu, label: "ROEE", href: "/analysis" },
+  { icon: Activity, label: "Chain", href: "/matrix" },
+  { icon: FlaskConical, label: "Backtest Lab", href: "/risk" },
   { icon: Stethoscope, label: "Diagnostics" },
   { icon: Settings, label: "Settings" },
 ];
@@ -110,17 +114,39 @@ export default function Sidebar() {
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600">
             Labs
           </p>
-          <div className="space-y-0.5 opacity-75">
-            {secondaryNav.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 cursor-not-allowed"
-                title="Not wired in this build"
-              >
-                <item.icon className="w-[18px] h-[18px] shrink-0 opacity-60" />
-                <span className="font-medium text-[13px] truncate">{item.label}</span>
-              </div>
-            ))}
+          <div className="space-y-0.5">
+            {secondaryNav.map((item) => {
+              const active = item.href ? pathname === item.href : false;
+              const row = (
+                <div
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-xl transition-colors",
+                    item.href
+                      ? active
+                        ? "bg-cyan-500/10 text-cyan-200 border border-cyan-500/20"
+                        : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
+                      : "text-slate-600 cursor-not-allowed opacity-70",
+                  )}
+                >
+                  <item.icon
+                    className={cn(
+                      "w-[18px] h-[18px] shrink-0",
+                      item.href && !active && "opacity-70",
+                    )}
+                  />
+                  <span className="font-medium text-[13px] truncate">{item.label}</span>
+                </div>
+              );
+              return item.href ? (
+                <Link key={item.label} href={item.href}>
+                  {row}
+                </Link>
+              ) : (
+                <div key={item.label} title="Coming soon">
+                  {row}
+                </div>
+              );
+            })}
           </div>
         </div>
       </nav>
