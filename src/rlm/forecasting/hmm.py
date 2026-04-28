@@ -310,14 +310,9 @@ class RLMHMM:
                 t_new[i_new, j_new] = t_old[i_old, j_old]
         return t_new
 
-    def calibrated_transmat(self, pseudocount: float | None = None) -> np.ndarray:
-        """Row-stochastic transition matrix with optional smoothing (calibrated dynamics).
-
-        Smoothing adds ``pseudocount`` to every element of each row, then renormalizes,
-        which pulls extreme 0/1 entries toward a more conservative, better-calibrated
-        view of regime persistence and cross-transitions.
-        """
-        t = self.permuted_transmat().copy()
+    def _calibrate_transition_matrix(self, transmat: np.ndarray, pseudocount: float | None = None) -> np.ndarray:
+        """Return a smoothed row-stochastic transition matrix."""
+        t = np.asarray(transmat, dtype=np.float64).copy()
         alpha = float(self.config.transition_pseudocount if pseudocount is None else pseudocount)
         if alpha > 0.0:
             t = t + alpha
@@ -325,6 +320,41 @@ class RLMHMM:
         row = np.where(row > 0.0, row, 1.0)
         t = t / row
         return np.clip(t, 1e-12, 1.0)
+
+    def calibrated_transmat(self, pseudocount: float | None = None) -> np.ndarray:
+        """Row-stochastic transition matrix with optional smoothing (calibrated dynamics).
+
+        Smoothing adds ``pseudocount`` to every element of each row, then renormalizes,
+        which pulls extreme 0/1 entries toward a more conservative, better-calibrated
+        view of regime persistence and cross-transitions.
+        """
+        return self._calibrate_transition_matrix(self.permuted_transmat(), pseudocount=pseudocount)
+
+    def causal_online_transition_matrices(
+        self,
+        filtered_probs: np.ndarray,
+        step_size: float | None = None,
+    ) -> np.ndarray:
+        """Per-row online transition estimates using only posterior pairs observed so far."""
+        if self.model is None:
+            raise RuntimeError("HMM model is not fitted")
+        gamma = np.asarray(filtered_probs, dtype=np.float64)
+        if gamma.ndim != 2:
+            raise ValueError(f"Expected 2D filtered probabilities, got shape {gamma.shape}")
+        n_samples = gamma.shape[0]
+        current = self.permuted_transmat().copy()
+        eta = float(self.config.online_em_step_size if step_size is None else step_size)
+        mats = np.zeros((n_samples, current.shape[0], current.shape[1]), dtype=np.float64)
+        for i in range(n_samples):
+            if i > 0 and eta > 0.0:
+                expected = np.outer(gamma[i - 1], gamma[i])
+                row = expected.sum(axis=1, keepdims=True)
+                target = np.divide(expected, row, out=current.copy(), where=row > 0.0)
+                current = (1.0 - eta) * current + eta * target
+                current = np.clip(current, 1e-12, None)
+                current = current / current.sum(axis=1, keepdims=True)
+            mats[i] = self._calibrate_transition_matrix(current)
+        return mats
 
     def online_transition_update(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
         """Online EM-style transition update using adjacent filtered posteriors.
