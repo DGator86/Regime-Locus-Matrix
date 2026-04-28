@@ -45,8 +45,8 @@ if str(ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.dte_utils import dte_from_plan, needs_force_close
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.ibkr_combo_orders import (
     assert_paper_trading_port,
     legs_from_ibkr_combo_spec,
