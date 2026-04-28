@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from rlm.execution.exit_signals import EXIT_SIGNALS
+
 
 def default_paths(root: Path) -> dict[str, Path]:
     return {
@@ -30,15 +32,14 @@ def default_paths(root: Path) -> dict[str, Path]:
     }
 
 
-EXIT_SIGNALS = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
-
-
 def _exit_reason_human(sig: str) -> str:
     return {
         "take_profit": "take profit (mark at/above target)",
         "hard_stop": "hard stop",
         "trailing_stop": "trailing stop",
         "expiry_force_close": "DTE / expiry safety close",
+        "time_stop": "time-based stop (low conviction near expiry)",
+        "max_loss_stop": "max-loss kill switch",
     }.get(sig, sig)
 
 
@@ -123,13 +124,28 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     else:
         for pid, row in opts[:max_positions]:
             raw_pnl = row.get("unrealized_pnl_pct", "")
+            pnl_val: float | None = None
             try:
-                pnl_fmt = f"{float(raw_pnl) * 100:+.1f}%"
+                pnl_val = float(raw_pnl)
+                pnl_fmt = f"{pnl_val:+.1f}%"
             except (TypeError, ValueError):
                 pnl_fmt = str(raw_pnl)
+            dte_val: float | None = None
+            try:
+                dte_val = float(row.get("dte") or "")
+            except (TypeError, ValueError):
+                dte_val = None
+            warn: list[str] = []
+            if pnl_val is not None and pnl_val <= -70.0:
+                warn.append("⚠ MAX_LOSS_BREACH")
+            if dte_val is not None and dte_val <= 21.0 and (pnl_val is None or pnl_val < 20.0):
+                warn.append("⚠ TIME_STOP_ZONE")
+            if dte_val is not None and dte_val <= 14.0:
+                warn.append("⚠ FORCE_CLOSE_ZONE")
+            warn_suffix = f"  {' '.join(warn)}" if warn else ""
             lines.append(
                 f"  • {row.get('symbol', '?')}  plan={pid}  mark={row.get('current_mark', '')}  "
-                f"PnL={pnl_fmt}  signal={row.get('signal', '')}  dte={row.get('dte', '')}"
+                f"PnL={pnl_fmt}  signal={row.get('signal', '')}  dte={row.get('dte', '')}{warn_suffix}"
             )
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
