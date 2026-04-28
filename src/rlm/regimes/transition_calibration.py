@@ -12,6 +12,19 @@ Typical workflow::
 
 At runtime, if that file exists (or ``RLM_TRANSITION_CALIBRATION`` points to one),
 pipelines add ``*_most_likely_next_prob_calibrated`` columns.
+
+**What this is not (yet)**
+
+- **Statsmodels layout:** Markov switching exposes the same *row-stochastic* transition
+  matrix and one-step predictive semantics as the HMM path (smoothing + combination
+  with filtered state probabilities gamma_t). If you need the raw statsmodels
+  parameter vector layout for MarkovRegression, that is still separate plumbing.
+- **Layers:** Built-in pseudocount smoothing and one-step predictive combination
+  calibrate the *transition law* from the fitted model. Optional isotonic JSON is an
+  extra *post-hoc* map on reported top-1 next-regime probabilities from historical
+  forecast CSVs — not a full panel calibration of realized regime changes from a long
+  OOS history. Walk-forward JSONL / batch runs are the right place to learn additional
+  scaling on top if you want that.
 """
 
 from __future__ import annotations
