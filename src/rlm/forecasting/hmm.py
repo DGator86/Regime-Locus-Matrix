@@ -97,6 +97,9 @@ class RLMHMM:
         self.model: hmm.GaussianHMM | None = None
         self.state_labels: list[str] | None = None
         self.last_filter_backend: str | None = None
+        # Permutation mapping old HMM integer state → vol-sorted new state.
+        # Populated by _align_states_by_volatility() during fit().
+        self._state_permutation: dict[int, int] | None = None
 
     def prepare_observations(self, df: pd.DataFrame) -> np.ndarray:
         """Return (n_samples, 4) array of standardized scores."""
@@ -132,6 +135,7 @@ class RLMHMM:
                 f"log-likelihood: {self.model.score(obs):.2f}"
             )
         self._auto_label_states(df_train)
+        self._align_states_by_volatility(df_train)
         return self
 
     def _auto_label_states(self, df: pd.DataFrame) -> None:
@@ -154,11 +158,65 @@ class RLMHMM:
 
         self.state_labels = labels
 
+    def _align_states_by_volatility(self, df_train: pd.DataFrame) -> None:
+        """Sort HMM state integers by realised return volatility (ascending).
+
+        Regime labels assigned by hmmlearn are arbitrary and switch between
+        runs with different random seeds or data.  This method computes a
+        stable permutation based on the volatility of each state's returns
+        (state 0 → calmest, state n-1 → most volatile) and stores it as
+        ``self._state_permutation``.  The permutation is applied transparently
+        in :meth:`predict_proba` and :meth:`most_likely_state` so callers
+        always see a consistent ordering.
+        """
+        if self.model is None:
+            return
+        obs = self.prepare_observations(df_train)
+        raw_states = self.model.predict(obs)
+
+        returns: np.ndarray
+        if "close" in df_train.columns:
+            returns = df_train["close"].pct_change().fillna(0.0).values
+        else:
+            returns = np.zeros(len(df_train))
+
+        vol_by_state: dict[int, float] = {}
+        for s in range(self.config.n_states):
+            mask = raw_states == s
+            if mask.sum() > 1:
+                vol_by_state[s] = float(np.std(returns[mask]))
+            else:
+                vol_by_state[s] = 0.0
+
+        # Sort old state indices by ascending volatility
+        sorted_old = sorted(range(self.config.n_states), key=lambda x: vol_by_state[x])
+        perm = {old: new for new, old in enumerate(sorted_old)}
+        self._state_permutation = perm
+
+        # Re-order state_labels to match new indices
+        if self.state_labels and len(self.state_labels) == self.config.n_states:
+            new_labels: list[str] = [""] * self.config.n_states
+            for old_idx, new_idx in perm.items():
+                if old_idx < len(self.state_labels):
+                    new_labels[new_idx] = self.state_labels[old_idx]
+            self.state_labels = new_labels
+
+    def _apply_state_permutation(self, probs: np.ndarray) -> np.ndarray:
+        """Reorder probability columns according to ``_state_permutation``."""
+        if self._state_permutation is None:
+            return probs
+        n_states = probs.shape[1]
+        new_probs = np.zeros_like(probs)
+        for old_idx, new_idx in self._state_permutation.items():
+            if old_idx < n_states and new_idx < n_states:
+                new_probs[:, new_idx] = probs[:, old_idx]
+        return new_probs
+
     def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
         if self.model is None:
             raise RuntimeError("HMM model is not fitted")
         obs = self.prepare_observations(df)
-        return self.model.predict_proba(obs)
+        return self._apply_state_permutation(self.model.predict_proba(obs))
 
     def predict_proba_filtered(self, df: pd.DataFrame) -> np.ndarray:
         """Forward (filtering) state probabilities P(z_t | x_{1:t}) only — no future observations.
@@ -191,13 +249,16 @@ class RLMHMM:
         if gpu_requested:
             gpu_suffix = "+gpu" if self._gpu_runtime_available() else "+gpu-fallback"
         self.last_filter_backend = f"{backend}{gpu_suffix}"
-        return out
+        return self._apply_state_permutation(out)
 
     def most_likely_state(self, df: pd.DataFrame) -> np.ndarray:
         if self.model is None:
             raise RuntimeError("HMM model is not fitted")
         obs = self.prepare_observations(df)
-        return self.model.predict(obs)
+        raw = self.model.predict(obs)
+        if self._state_permutation is None:
+            return raw
+        return np.array([self._state_permutation.get(int(s), int(s)) for s in raw])
 
     def most_likely_state_filtered(self, df: pd.DataFrame) -> np.ndarray:
         probs = self.predict_proba_filtered(df)
