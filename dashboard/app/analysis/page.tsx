@@ -382,7 +382,9 @@ export default function AnalysisPage() {
                   />
                   <Tooltip
                     contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(val: number) => [`${(val * 100).toFixed(1)}%`, "Confidence"]}
+                    formatter={(val) =>
+                      [`${(Number(val ?? 0) * 100).toFixed(1)}%`, "Confidence"]
+                    }
                   />
                   <Bar dataKey="confidence" radius={[0, 4, 4, 0]}>
                     {confidenceData.map((entry, i) => (
