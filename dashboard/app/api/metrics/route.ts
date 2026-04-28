@@ -66,7 +66,12 @@ function buildActivePlans(dataDir: string) {
       action: decision.action || "",
       rationale: decision.rationale || "",
       confidence: num(meta.confidence || decision.confidence || r.confidence),
-      regimeConfidence: num(meta.regime_confidence || r.regime_confidence),
+      regimeConfidence: num(
+        meta.regime_confidence ??
+          meta.hmm_confidence ??
+          r.regime_confidence ??
+          decision.regime_confidence
+      ),
       regimeKey: pipeline.regime_key || r.regime_key || "",
       close: num(pipeline.close),
       sigma: num(pipeline.sigma),
@@ -80,7 +85,11 @@ function buildActivePlans(dataDir: string) {
       S_G: num(pipeline.S_G),
       sizeFraction: decision.size_fraction != null ? num(decision.size_fraction) : null,
       vaultTriggered: Boolean(meta.vault_triggered),
-      forecastUncertainty: num(meta.forecast_uncertainty),
+      forecastUncertainty: num(
+        meta.forecast_uncertainty ??
+          pipeline.forecast_uncertainty ??
+          r.forecast_uncertainty
+      ),
       hmmConfidence: num(meta.hmm_confidence),
       hmmTradeAllowed: Boolean(meta.hmm_trade_allowed),
       M_regime: meta.M_regime || "",

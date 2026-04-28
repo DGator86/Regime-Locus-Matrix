@@ -32,9 +32,19 @@ function fmtDollar(v: number | null | undefined): string {
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** CSV fractions are typically 0–1; avoids "-0.0%" float noise on tiny values */
 function fmtPct(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
-  return `${(v * 100).toFixed(1)}%`;
+  const pct = v * 100;
+  if (Math.abs(pct) < 0.05 && pct !== 0) return `${pct.toFixed(2)}%`;
+  return `${pct.toFixed(1)}%`;
+}
+
+function effectiveRegimeConfidence(p: { regimeConfidence?: number; hmmConfidence?: number }): number {
+  return Math.max(
+    Number(p.regimeConfidence) || 0,
+    Number(p.hmmConfidence) || 0,
+  );
 }
 
 function fmtDate(ts: string): string {
@@ -124,8 +134,12 @@ export default function RiskPage() {
   const eqSummary = metrics?.equityTradeSummary;
 
   const avgUncertainty = useMemo(() => {
-    const vals = plans.map((p) => p.forecastUncertainty).filter((v) => v > 0);
-    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    if (!plans.length) return 0;
+    const sum = plans.reduce(
+      (acc, p) => acc + (Number(p.forecastUncertainty) || 0),
+      0,
+    );
+    return sum / plans.length;
   }, [plans]);
 
   const vaultCount = useMemo(
@@ -134,17 +148,23 @@ export default function RiskPage() {
   );
 
   const regimeSafe = useMemo(
-    () => plans.filter((p) => p.regimeConfidence > 0.7).length,
+    () =>
+      plans.filter((p) => effectiveRegimeConfidence(p) > 0.7).length,
     [plans],
   );
 
-  const enterPlans = useMemo(
-    () => plans.filter((p) => p.action === "enter"),
+  /** Universe marks funded trades with status active (action may still be enter on skipped runners). */
+  const activeOptionPlans = useMemo(
+    () =>
+      plans.filter((p) => String(p.status || "").toLowerCase() === "active"),
     [plans],
   );
 
   const openEquity = useMemo(
-    () => equityPositions.filter((p) => p.status === "open"),
+    () =>
+      equityPositions.filter(
+        (p) => String(p.status || "").toLowerCase() === "open",
+      ),
     [equityPositions],
   );
 
@@ -238,26 +258,28 @@ export default function RiskPage() {
                   <th className="text-left py-3 px-2">Symbol</th>
                   <th className="text-left py-3 px-2">Strategy</th>
                   <th className="text-right py-3 px-2">Entry</th>
-                  <th className="text-right py-3 px-2">Conf</th>
+                  <th className="text-right py-3 px-2">Regime conf</th>
                   <th className="text-center py-3 px-2">Vault</th>
                   <th className="text-left py-3 px-2">Regime</th>
                 </tr>
               </thead>
               <tbody>
-                {enterPlans.length === 0 ? (
+                {activeOptionPlans.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-6 text-center text-muted-foreground">
-                      No active enter signals
+                      No plans with status &quot;active&quot; in universe_trade_plans.json
                     </td>
                   </tr>
                 ) : (
-                  enterPlans.map((p, i) => (
+                  activeOptionPlans.map((p, i) => {
+                    const erc = effectiveRegimeConfidence(p);
+                    return (
                     <tr
                       key={p.planId || i}
                       className={cn(
                         "border-b border-border/50 hover:bg-secondary/30 transition-colors",
-                        p.confidence >= 0.7 && "bg-green-500/5",
-                        p.confidence < 0.4 && "bg-red-500/5",
+                        erc >= 0.7 && "bg-green-500/5",
+                        erc < 0.4 && "bg-red-500/5",
                       )}
                     >
                       <td className="py-3 px-2 font-semibold">{p.symbol}</td>
@@ -265,8 +287,8 @@ export default function RiskPage() {
                       <td className="py-3 px-2 text-right">
                         {p.entryDebit != null ? fmtDollar(p.entryDebit) : "—"}
                       </td>
-                      <td className={cn("py-3 px-2 text-right font-bold", confColor(p.confidence))}>
-                        {fmtPct(p.confidence)}
+                      <td className={cn("py-3 px-2 text-right font-bold", confColor(erc))}>
+                        {fmtPct(erc)}
                       </td>
                       <td className="py-3 px-2 text-center">
                         {p.vaultTriggered ? (
@@ -277,7 +299,8 @@ export default function RiskPage() {
                       </td>
                       <td className="py-3 px-2 font-mono text-xs text-accent">{p.regimeKey || "—"}</td>
                     </tr>
-                  ))
+                  );
+                  })
                 )}
               </tbody>
             </table>
@@ -470,10 +493,10 @@ export default function RiskPage() {
                           w.totalReturnPct >= 0 ? "text-green-400" : "text-red-400",
                         )}
                       >
-                        {fmt(w.totalReturnPct, 1)}%
+                        {fmtPct(w.totalReturnPct)}
                       </td>
                       <td className="py-3 px-2 text-right text-red-400">
-                        {fmt(w.maxDrawdown * 100, 1)}%
+                        {fmtPct(Math.abs(w.maxDrawdown ?? 0))}
                       </td>
                       <td className="py-3 px-2 text-right">{fmt(w.sharpe, 2)}</td>
                       <td className="py-3 px-2 text-right">{fmtPct(w.winRate)}</td>
