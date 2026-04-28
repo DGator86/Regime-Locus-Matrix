@@ -38,6 +38,15 @@ class NightlyMTFOptimizer:
             timeout=3600,
         )
 
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        if not completed:
+            print(
+                "[NightlyMTFOptimizer] All trials were pruned — no valid OOS scores. "
+                "Check that bars files exist in data/raw/ and the pipeline runs correctly. "
+                "Skipping hyperparams write.",
+                flush=True,
+            )
+            return {}
         best = study.best_params
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         NIGHTLY_PATH.write_text(json.dumps(best, indent=2), encoding="utf-8")

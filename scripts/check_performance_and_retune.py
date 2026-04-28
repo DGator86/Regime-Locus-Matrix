@@ -71,6 +71,8 @@ def _run(cmd: list[str], dry_run: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--trade-log", type=Path, default=TRADE_LOG,
+                    help=f"Path to trade_log.csv (default: {TRADE_LOG})")
     ap.add_argument("--lookback", type=int, default=DEFAULT_LOOKBACK,
                     help=f"Closed-trade window to evaluate (default {DEFAULT_LOOKBACK})")
     ap.add_argument("--warn-threshold", type=float, default=DEFAULT_WARN_THRESHOLD,
@@ -83,9 +85,9 @@ def main() -> int:
                     help="Print commands that would run without executing them")
     args = ap.parse_args()
 
-    pnls = _read_closed_pnl(TRADE_LOG, args.lookback)
+    pnls = _read_closed_pnl(Path(args.trade_log), args.lookback)
     if not pnls:
-        print(f"check_performance: no closed trades found in {TRADE_LOG} — skipping.", flush=True)
+        print(f"check_performance: no closed trades found in {args.trade_log} — skipping.", flush=True)
         return 0
 
     wr = _win_rate(pnls)
