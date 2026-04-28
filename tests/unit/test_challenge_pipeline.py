@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rlm.challenge.models import ChallengeAccountState, ChallengePipelineConfig, PDTTracker
+from rlm.challenge.models import ChallengeAccountState, PDTTracker
 from rlm.challenge.pipeline import ChallengeDecisionPipeline
 from rlm.persona.models import (
     DataStageOutput,
@@ -87,7 +87,7 @@ class TestChallengeUniverse:
 class TestSetupScoring:
     def test_elite_bullish_gives_scalp_with_pdt(self):
         d = _run(
-            symbol="NVDA",
+            symbol="SPY",
             pdt_slots=3,
             regime_confidence=0.90,
             signal_alignment=0.88,

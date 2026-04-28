@@ -6,8 +6,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -103,9 +101,9 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     ]
     (dproc / "trade_log.csv").write_text("".join(log_lines), encoding="utf-8")
     s1, _ = notification_cycle(tmp_path, b0)
-    assert len(s1) == 2
+    # Universe "new idea" alerts are disabled to reduce chatter; trade_log still notifies.
+    assert len(s1) == 1
     assert any("New position" in m and "p2" in m and "QQQ" in m for m in s1)
-    assert any("universe" in m.lower() and "p2" in m for m in s1)
 
 
 def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:

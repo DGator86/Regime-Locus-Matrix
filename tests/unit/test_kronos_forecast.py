@@ -10,7 +10,7 @@ import pytest
 
 from rlm.kronos.config import KronosConfig
 from rlm.kronos.forecast import KronosForecastPipeline
-from rlm.factors.kronos_factors import KronosFactorCalculator
+from rlm.factors import KronosFactorCalculator
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:
@@ -37,6 +37,10 @@ def _make_bars(n: int = 60) -> pd.DataFrame:
         "low": close - rng.rand(n) * 0.5,
         "close": close,
         "volume": rng.randint(100_000, 200_000, size=n),
+        "S_D": rng.randn(n) * 0.1,
+        "S_V": rng.randn(n) * 0.1,
+        "S_L": rng.randn(n) * 0.1,
+        "S_G": rng.randn(n) * 0.1,
     })
 
 

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from rlm.roee.pipeline import ROEEConfig, apply_roee_policy
@@ -19,6 +20,7 @@ def test_apply_roee_policy_surfaces_vault_scaling_columns() -> None:
                 "dealer_flow_regime": "supportive",
                 "regime_key": "bull|low_vol|high_liquidity|supportive",
                 "forecast_uncertainty": 0.04,
+                "hmm_probs": np.array([0.7, 0.1, 0.1, 0.05, 0.03, 0.02]),
             }
         ],
         index=pd.to_datetime(["2024-01-02"]),

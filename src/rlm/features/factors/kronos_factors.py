@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.features.factors.base import FactorCalculator
-from rlm.forecasting.models.kronos.config import KronosConfig
+from rlm.forecasting.kronos_config import KronosConfig
 from rlm.forecasting.models.kronos.predictor import RLMKronosPredictor
 from rlm.types.factors import FactorCategory, FactorSpec, TransformKind
 
@@ -39,7 +39,12 @@ class KronosFactorCalculator(FactorCalculator):
             predictor (RLMKronosPredictor | None): Optional predictor instance to use; when omitted, a new RLMKronosPredictor is constructed with the resolved config.
         """
         self._config = config or KronosConfig.from_yaml()
-        self._predictor = predictor or RLMKronosPredictor(self._config)
+        if predictor is None:
+            self._predictor = RLMKronosPredictor(self._config)
+        elif isinstance(predictor, RLMKronosPredictor):
+            self._predictor = predictor
+        else:
+            self._predictor = RLMKronosPredictor(self._config, predictor=predictor)
 
     def specs(self) -> list[FactorSpec]:
         """

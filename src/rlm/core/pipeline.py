@@ -43,8 +43,8 @@ from typing import Literal
 
 import pandas as pd
 
-from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.config.rlm_config import VolumeProfileConfig
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.factors.cumulative_wyckoff_factors import CumulativeWyckoffFactors
 from rlm.factors.hybrid_confluence_factors import HybridConfluenceFactors
 from rlm.factors.microstructure_vp_factors import MicrostructureVPFactors
@@ -60,9 +60,9 @@ from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig, apply_roee_policy
+from rlm.types.forecast import ForecastConfig
 from rlm.volume_profile.hybrid_confluence import hybrid_support_resistance
 from rlm.volume_profile.trade_models import eighty_percent_rule
-from rlm.types.forecast import ForecastConfig
 
 # ---------------------------------------------------------------------------
 # Config
@@ -84,6 +84,8 @@ class FullRLMConfig:
     hmm_states: int = 6
     hmm_transition_pseudocount: float = 0.1
     """Smoothing on the HMM transition matrix for calibrated P(regime i → j)."""
+    hmm_covariance_type: Literal["full", "tied", "diag", "spherical"] = "full"
+    """Passed to hmmlearn ``GaussianHMM``; ``diag`` is more stable on short synthetic series."""
     markov_states: int = 3
     markov_transition_pseudocount: float = 0.1
     """Smoothing on the Markov-switching transition matrix (statsmodels)."""
@@ -375,6 +377,7 @@ class FullRLMPipeline:
                 hmm_config=HMMConfig(
                     n_states=cfg.hmm_states,
                     transition_pseudocount=cfg.hmm_transition_pseudocount,
+                    covariance_type=cfg.hmm_covariance_type,
                 ),
                 model_path=cfg.probabilistic_model_path,
             ).run(factors_df)
@@ -385,6 +388,7 @@ class FullRLMPipeline:
                 hmm_config=HMMConfig(
                     n_states=cfg.hmm_states,
                     transition_pseudocount=cfg.hmm_transition_pseudocount,
+                    covariance_type=cfg.hmm_covariance_type,
                 ),
                 mtf_regimes=cfg.mtf_regimes,
                 mtf_htf_prob_paths=cfg.mtf_htf_prob_paths,
