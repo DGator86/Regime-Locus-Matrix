@@ -14,12 +14,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from rlm.optimization.base import _signal_based_score, _compute_sharpe, align_regime_labels
-
+from rlm.optimization.base import (  # noqa: E402
+    OptimizationBase,
+    _compute_sharpe,
+    _signal_based_score,
+    align_regime_labels,
+)
 
 # ---------------------------------------------------------------------------
 # _compute_sharpe
 # ---------------------------------------------------------------------------
+
 
 def test_compute_sharpe_positive_returns():
     rng = np.random.default_rng(0)
@@ -42,13 +47,16 @@ def test_compute_sharpe_too_short():
 # _signal_based_score
 # ---------------------------------------------------------------------------
 
+
 def _make_policy_df(n: int, action: str = "enter", size: float = 1.0) -> pd.DataFrame:
     prices = 100.0 * (1 + pd.Series(np.random.default_rng(0).normal(0, 0.01, n))).cumprod()
-    return pd.DataFrame({
-        "close": prices.values,
-        "roee_action": [action] * n,
-        "roee_size_fraction": [size] * n,
-    })
+    return pd.DataFrame(
+        {
+            "close": prices.values,
+            "roee_action": [action] * n,
+            "roee_size_fraction": [size] * n,
+        }
+    )
 
 
 def test_signal_based_score_returns_finite_for_entering_strategy():
@@ -85,15 +93,76 @@ def test_signal_based_score_missing_close_returns_nan():
     assert np.isnan(score)
 
 
+class _RecordingTrial:
+    def __init__(self) -> None:
+        self.suggested: set[str] = set()
+
+    def suggest_float(self, name: str, low: float, high: float) -> float:
+        self.suggested.add(name)
+        return (low + high) / 2
+
+    def suggest_int(self, name: str, low: int, high: int) -> int:
+        self.suggested.add(name)
+        return (low + high) // 2
+
+    def suggest_categorical(self, name: str, choices: list[object]) -> object:
+        self.suggested.add(name)
+        return choices[0]
+
+
+def test_objective_does_not_suggest_or_apply_mtf_regimes(monkeypatch):
+    """Nightly opt cannot persist mtf_regimes=True without HTF parquet paths."""
+
+    captured_configs = []
+
+    class FakePipeline:
+        def __init__(self, cfg):
+            captured_configs.append(cfg)
+
+        def run(self, bars):
+            return type(
+                "Result",
+                (),
+                {
+                    "policy_df": pd.DataFrame(
+                        {
+                            "close": np.linspace(100.0, 140.0, 200),
+                            "roee_action": ["enter"] * 200,
+                            "roee_size_fraction": [1.0] * 200,
+                        }
+                    )
+                },
+            )()
+
+    monkeypatch.setattr(
+        "rlm.optimization.base.OptimizationBase.load_bars",
+        staticmethod(
+            lambda symbol, lookback_bars=252 * 2, root=None: pd.DataFrame({"close": [1.0]})
+        ),
+    )
+    monkeypatch.setattr("rlm.optimization.base.FullRLMPipeline", FakePipeline)
+
+    trial = _RecordingTrial()
+    score = OptimizationBase.objective(trial, ["SPY"], "hmm")
+
+    assert np.isfinite(score)
+    assert "mtf_regimes" not in trial.suggested
+    assert captured_configs
+    cfg = captured_configs[0]
+    assert cfg.mtf_regimes is False
+    assert "mtf_regimes" not in cfg.nightly_hyperparams
+
+
 # ---------------------------------------------------------------------------
 # align_regime_labels
 # ---------------------------------------------------------------------------
 
+
 def test_align_regime_labels_stable_across_permutations():
     """Same economic regimes, different raw labels → same aligned output."""
     returns = np.array([0.01, 0.02, 0.05, 0.06, 0.10, 0.12])
-    labels_a = np.array([0, 0, 1, 1, 2, 2])   # 0=low, 1=mid, 2=high vol
-    labels_b = np.array([2, 2, 0, 0, 1, 1])   # switched: 2=low, 0=mid, 1=high vol
+    labels_a = np.array([0, 0, 1, 1, 2, 2])  # 0=low, 1=mid, 2=high vol
+    labels_b = np.array([2, 2, 0, 0, 1, 1])  # switched: 2=low, 0=mid, 1=high vol
 
     aligned_a = align_regime_labels(labels_a, returns, n_regimes=3)
     aligned_b = align_regime_labels(labels_b, returns, n_regimes=3)

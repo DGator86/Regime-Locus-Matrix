@@ -245,7 +245,7 @@ if opt_result is not None:
              "Check that use_kronos=False and attach_vix=False are set in OptimizationBase.objective.")
     else:
         expected_keys = [
-            "mtf_ltf_weight", "mtf_regimes", "hmm_confidence_threshold",
+            "mtf_ltf_weight", "hmm_confidence_threshold",
             "high_vol_kelly_multiplier", "transition_kelly_multiplier",
             "calm_trend_kelly_multiplier", "move_window", "vol_window",
             "direction_neutral_threshold", "transaction_cost_frac",
@@ -254,6 +254,9 @@ if opt_result is not None:
             check(k in opt_result,
                   f"optimizer output has '{k}'",
                   f"optimizer output MISSING '{k}'")
+        check("mtf_regimes" not in opt_result,
+              "optimizer output excludes unevaluated 'mtf_regimes'",
+              "optimizer output includes unsafe unevaluated 'mtf_regimes'")
         check(nightly_json_path.exists(),
               f"live_nightly_hyperparams.json written",
               "live_nightly_hyperparams.json was NOT written")
