@@ -17,7 +17,7 @@ from rlm.cli.common import (
     build_pipeline_config,
     resolve_backtest_symbols,
 )
-from rlm.core.run_manifest import RunManifest, write_run_manifest
+from rlm.core.run_manifest import RunManifest, to_jsonable, write_run_manifest
 from rlm.core.services.backtest_service import BacktestRequest, BacktestService
 from rlm.data.paths import get_processed_data_dir
 from rlm.data.readers import load_bars, load_option_chain
@@ -148,6 +148,7 @@ def main() -> None:
                 "regime_model": cfg.regime_model,
                 "walkforward": args.walkforward,
                 "symbol_batch": symbols if len(symbols) > 1 else None,
+                "full_rlm_config": to_jsonable(cfg),
             },
             input_paths={"bars": args.bars or "auto", "chain": args.chain or "auto"},
             output_paths={

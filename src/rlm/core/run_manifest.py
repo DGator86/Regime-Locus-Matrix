@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -36,3 +36,16 @@ def write_run_manifest(
         path = out_path
     path.write_text(json.dumps(asdict(manifest), indent=2, sort_keys=True), encoding="utf-8")
     return path
+
+
+def to_jsonable(value: Any) -> Any:
+    """Best-effort conversion for dataclasses and nested config payloads."""
+    if is_dataclass(value):
+        return {k: to_jsonable(v) for k, v in asdict(value).items()}
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
