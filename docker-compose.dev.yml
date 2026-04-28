@@ -9,8 +9,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rlm}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-rlm-dev-password}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - ./data/lake:/data
 
@@ -31,7 +31,7 @@ services:
       IBKR_PORT: "4002"
       IBKR_CLIENT_ID: "7"
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     volumes:
       - ./:/workspace
       - ./data:/workspace/data
@@ -49,7 +49,7 @@ services:
       IBEAM_TRADING_MODE: paper
       IBEAM_LOG_LEVEL: INFO
     ports:
-      - "5000:5000"
-      - "4002:4002"
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:4002:4002"
     volumes:
       - ./data/ibkr:/srv/ibeam

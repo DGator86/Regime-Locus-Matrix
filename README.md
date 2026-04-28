@@ -639,6 +639,10 @@ Then open:
 - MinIO Console: `http://localhost:9001`
 - IBKR Gateway API bridge: `http://localhost:5000`
 
+The Compose stack binds published ports to `127.0.0.1` so the default
+development credentials and repo-mounted Jupyter environment are not exposed
+on your LAN.
+
 ## Profiles and config files
 
 Use `--profile <name>` (from `configs/profiles/`) or `--config <path.yaml>`.
