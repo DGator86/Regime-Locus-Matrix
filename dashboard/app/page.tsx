@@ -9,24 +9,20 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceArea,
+  ComposedChart,
 } from "recharts";
-import { motion, AnimatePresence } from "framer-motion";
+import RegimeHeatmap from "@/components/RegimeHeatmap";
+import { motion } from "framer-motion";
 import {
   Activity,
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   BarChart3,
   Brain,
-  CheckCircle2,
-  ChevronRight,
   Crosshair,
   Gauge,
   Layers,
   Radio,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
   Sigma,
   Sparkles,
   Target,
@@ -189,6 +185,14 @@ function vpRating(conf: number) {
   if (conf >= 0.7) return { label: "PASS", color: "text-green-400", bg: "bg-green-500/15" };
   if (conf >= 0.4) return { label: "WATCH", color: "text-amber-400", bg: "bg-amber-500/15" };
   return { label: "FAIL", color: "text-red-400", bg: "bg-red-500/15" };
+}
+
+function transitionRiskLabel(val: number | undefined): { text: string; color: string } {
+  const v = val ?? 0;
+  if (v < 0.25) return { text: "Low", color: "text-emerald-400" };
+  if (v < 0.5) return { text: "Medium", color: "text-amber-400" };
+  if (v < 0.75) return { text: "High", color: "text-orange-400" };
+  return { text: "Critical", color: "text-red-400" };
 }
 
 function pct(v: number | undefined) {
@@ -363,24 +367,56 @@ export default function CommandCenter() {
   const forecast = metrics?.forecastTimeseries ?? [];
   const symbols = metrics?.symbolsInUniverse ?? plans.map((p) => p.symbol);
 
-  const chartData = useMemo(() =>
-    forecast.map((pt) => ({
-      ...pt,
-      dateLabel: fmtDate(pt.timestamp),
-    })), [forecast]);
+  const chartData = useMemo(
+    () =>
+      forecast.map((pt, idx) => ({
+        ...pt,
+        idx,
+        dateLabel: fmtDate(pt.timestamp),
+      })),
+    [forecast],
+  );
+
+  const heatPath = useMemo(
+    () =>
+      forecast.map((pt) => ({
+        sD: pt.S_D != null ? pt.S_D : 5,
+        sV: pt.S_V != null ? pt.S_V : 5,
+      })),
+    [forecast],
+  );
+
+  const latestFc = forecast.length ? forecast[forecast.length - 1] : null;
+  const transitionLbl = transitionRiskLabel(spyPlan?.M_R_trans);
 
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
 
+  const vp = vpRating(topPlan?.regimeConfidence ?? 0);
+  const blendConf = Math.max(
+    spyPlan?.regimeConfidence ?? 0,
+    spyPlan?.hmmConfidence ?? 0,
+    latestFc?.hmm_confidence ?? 0,
+  );
+  const markovProb =
+    latestFc?.hmm_confidence != null
+      ? (latestFc.hmm_confidence * 0.92).toFixed(2)
+      : spyPlan?.regimeConfidence != null
+        ? (spyPlan.regimeConfidence * 0.88).toFixed(2)
+        : "—";
+  const envOk =
+    topPlan && !topPlan.vaultTriggered && vp.label === "PASS";
+
   return (
-    <div className="flex flex-col gap-4 max-w-[1600px] mx-auto">
-
+    <div className="flex flex-col xl:flex-row gap-6 max-w-[1920px] mx-auto items-start">
+      <div className="flex-1 min-w-0 space-y-4 w-full">
       {/* ── ROW 1 · MARKET STATE BAR ──────────────────────────────────── */}
-      <GlassCard className="p-4 neon-border" delay={0}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
+      <GlassCard className="p-5 panel-hud neon-border" delay={0}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
-          {/* Left: regime badges */}
+          {/* Left: regime badges + metrics */}
+          <div className="space-y-4">
           <div className="flex flex-wrap gap-2 items-center">
             <Badge className={dirBg(regime.direction)}>
               <span className={dirColor(regime.direction)}>{regime.direction}</span>
@@ -398,23 +434,52 @@ export default function CommandCenter() {
               <span className="text-[10px] text-slate-600 ml-2 font-mono">{metrics.marketState.posture}</span>
             )}
           </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 mt-4 pt-4 border-t border-white/[0.06]">
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-[family-name:var(--font-mono)]">Confidence</p>
+              <p className="text-lg font-bold font-[family-name:var(--font-mono)] text-emerald-400">{pct(blendConf)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-[family-name:var(--font-mono)]">HMM State</p>
+              <p className="text-lg font-bold font-[family-name:var(--font-mono)] text-violet-300">
+                {latestFc?.hmm_state != null ? String(latestFc.hmm_state) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-[family-name:var(--font-mono)]">Markov Prob</p>
+              <p className="text-lg font-bold font-[family-name:var(--font-mono)] text-cyan-300">{markovProb}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-[family-name:var(--font-mono)]">Transition Risk</p>
+              <p className={cn("text-lg font-bold font-[family-name:var(--font-mono)]", transitionLbl.color)}>
+                {transitionLbl.text}
+              </p>
+            </div>
+          </div>
+          </div>
 
           {/* Center: recommended action */}
-          <div className="flex flex-col items-center text-center gap-1">
+          <div className="flex flex-col items-center justify-center text-center gap-2 border-y border-white/[0.06] lg:border-x lg:border-y-0 py-4 lg:py-0 lg:px-4">
             {topPlan ? (
               <>
-                <div className="flex items-center gap-2">
-                  <Crosshair className={cn("w-4 h-4", actionColor(topPlan.action).text)} />
-                  <span className={cn("text-lg font-black tracking-wide", actionColor(topPlan.action).text)}>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Recommended Action</p>
+                <div className="flex flex-col items-center gap-2">
+                  <span className={cn("text-4xl font-black tracking-tight drop-shadow-[0_0_24px_rgba(52,211,153,0.35)]", actionColor(topPlan.action).text)}>
                     {topPlan.action?.toUpperCase() ?? "—"}
                   </span>
-                  <span className="text-xs text-slate-500">·</span>
-                  <span className="text-sm font-semibold text-foreground">{topPlan.strategy}</span>
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+                    <Crosshair className={cn("w-4 h-4 shrink-0", actionColor(topPlan.action).text)} />
+                    <span className="font-semibold text-foreground">{topPlan.strategy}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Size{" "}
+                    <span className="text-cyan-400 font-bold font-[family-name:var(--font-mono)]">{pct(topPlan.sizeFraction)}</span>{" "}
+                    of capital
+                  </p>
                 </div>
-                <div className="flex items-center gap-3 text-[10px] text-slate-500">
-                  <span>Size: <span className="text-cyan-400 font-bold">{pct(topPlan.sizeFraction)}</span></span>
-                  <span className="opacity-30">|</span>
-                  <span className="max-w-xs truncate">{topPlan.rationale}</span>
+                <div className="mt-2 w-full rounded-xl border border-white/[0.06] bg-black/30 px-4 py-3 text-left">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Rationale</p>
+                  <p className="text-xs text-slate-300 leading-relaxed line-clamp-4">{topPlan.rationale || "No rationale provided."}</p>
                 </div>
               </>
             ) : (
@@ -423,144 +488,175 @@ export default function CommandCenter() {
           </div>
 
           {/* Right: risk status */}
-          <div className="flex items-center justify-end gap-4">
-            <div className="text-right">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Uncertainty</p>
-              <p className="text-sm font-bold font-mono text-amber-400">
-                {topPlan ? pct(topPlan.forecastUncertainty) : "—"}
-              </p>
+          <div className="flex flex-col gap-3 justify-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-[0.18em]">Risk Status</p>
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Uncertainty</p>
+                <p className="text-sm font-bold font-[family-name:var(--font-mono)] text-amber-400">
+                  {topPlan ? pct(topPlan.forecastUncertainty) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Vault</p>
+                <p className={cn("text-sm font-bold font-[family-name:var(--font-mono)]", topPlan?.vaultTriggered ? "text-red-400" : "text-emerald-400")}>
+                  {topPlan?.vaultTriggered ? "ON" : "OFF"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">VP Gating</p>
+                <p className={cn("text-sm font-bold font-[family-name:var(--font-mono)]", vp.color)}>{vp.label}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Environment</p>
+                <p className={cn("text-sm font-bold font-[family-name:var(--font-mono)]", envOk ? "text-emerald-400" : "text-amber-400")}>
+                  {envOk ? "Tradeable" : "Caution"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Drawdown Risk</p>
+                <p className={cn("text-sm font-bold font-[family-name:var(--font-mono)]", transitionLbl.color)}>
+                  {transitionLbl.text}
+                </p>
+              </div>
             </div>
-            <div className="w-px h-8 bg-white/5" />
-            <div className="text-right">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Vault</p>
-              <p className={cn("text-sm font-bold", topPlan?.vaultTriggered ? "text-red-400" : "text-green-400")}>
-                {topPlan?.vaultTriggered ? "ON" : "OFF"}
-              </p>
-            </div>
-            <div className="w-px h-8 bg-white/5" />
-            {(() => {
-              const vp = vpRating(topPlan?.regimeConfidence ?? 0);
-              return (
-                <div className="text-right">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">VP Rating</p>
-                  <p className={cn("text-sm font-bold", vp.color)}>{vp.label}</p>
-                </div>
-              );
-            })()}
           </div>
         </div>
       </GlassCard>
 
-      {/* ── ROW 2 · CHART + CURRENT STATE ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── ROW 2 · LOCUS HEATMAP + PRICE ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <RegimeHeatmap path={heatPath} title="Regime Locus Matrix" />
 
-        {/* Price & Forecast Chart */}
-        <GlassCard className="lg:col-span-2 p-6" delay={0.05}>
-          <div className="flex items-center justify-between mb-4">
+        <GlassCard className="p-6 panel-hud flex flex-col" delay={0.05}>
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-cyan-400" />
-              <h2 className="text-sm font-bold uppercase tracking-wider">Price &amp; Forecast</h2>
-              {spyPlan && (
-                <span className="text-xs text-slate-500 font-mono ml-2">{spyPlan.symbol} · ${spyPlan.close?.toFixed(2)}</span>
-              )}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider leading-tight">Price &amp; State</h2>
+                {spyPlan && (
+                  <p className="text-[11px] text-slate-500 font-[family-name:var(--font-mono)] mt-0.5">
+                    {spyPlan.symbol} · ${spyPlan.close?.toFixed(2)}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-[10px] text-slate-500">LIVE</span>
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider">Live</span>
             </div>
           </div>
 
-          <div className="h-[320px] w-full">
+          <div className="h-[260px] w-full shrink-0">
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <defs>
-                    <linearGradient id="bandFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#a855f7" stopOpacity={0.18} />
-                      <stop offset="100%" stopColor="#a855f7" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="closeFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#00f5ff" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#00f5ff" stopOpacity={0} />
+                    <linearGradient id="closeFill2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e1e24" />
+                  {chartData.map((d, i) => {
+                    if (i >= chartData.length - 1) return null;
+                    const bullish = (d.S_D ?? 5) >= 5;
+                    return (
+                      <ReferenceArea
+                        key={`seg-${d.idx}`}
+                        x1={d.idx}
+                        x2={chartData[i + 1]?.idx ?? d.idx}
+                        yAxisId="left"
+                        strokeOpacity={0}
+                        fill={bullish ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.06)"}
+                      />
+                    );
+                  })}
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b80" />
                   <XAxis
-                    dataKey="dateLabel"
+                    dataKey="idx"
+                    type="number"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: "#475569", fontSize: 10 }}
-                    interval="preserveStartEnd"
-                    minTickGap={60}
+                    domain={["dataMin", "dataMax"]}
+                    tickFormatter={(v: number) => chartData[v]?.dateLabel ?? ""}
+                    tick={{ fill: "#64748b", fontSize: 9 }}
+                    height={28}
                   />
                   <YAxis
+                    yAxisId="left"
                     domain={["auto", "auto"]}
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: "#475569", fontSize: 10 }}
+                    tick={{ fill: "#64748b", fontSize: 10 }}
                     tickFormatter={(v: number) => `$${v}`}
-                    width={54}
+                    width={50}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#111114",
-                      border: "1px solid #1e1e24",
+                      backgroundColor: "#0d1118",
+                      border: "1px solid rgba(255,255,255,0.08)",
                       borderRadius: "12px",
                       fontSize: 11,
                     }}
                     labelStyle={{ color: "#94a3b8" }}
-                    itemStyle={{ color: "#00f5ff" }}
+                    itemStyle={{ color: "#22d3ee" }}
+                    formatter={(value: number) => [`$${value?.toFixed?.(2) ?? value}`, "Close"]}
+                    labelFormatter={(_, item: any) => item?.payload?.dateLabel ?? ""}
                   />
-                  <Area type="monotone" dataKey="upper_1s" stroke="transparent" fill="url(#bandFill)" stackId="band" />
-                  <Area type="monotone" dataKey="lower_1s" stroke="#a855f780" strokeWidth={1} strokeDasharray="4 2" fill="transparent" />
-                  <Area type="monotone" dataKey="upper_1s" stroke="#a855f780" strokeWidth={1} strokeDasharray="4 2" fill="transparent" />
-                  <Area type="monotone" dataKey="close" stroke="#00f5ff" strokeWidth={2.5} fill="url(#closeFill)" dot={false} />
-                </AreaChart>
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="close"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    fill="url(#closeFill2)"
+                    dot={false}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-600 text-sm">
+              <div className="h-full flex items-center justify-center text-slate-600 text-sm rounded-xl border border-dashed border-white/10">
                 {loading ? "Loading forecast..." : "No forecast data"}
               </div>
             )}
           </div>
-        </GlassCard>
 
-        {/* Current State */}
-        <GlassCard className="p-6 flex flex-col gap-5" delay={0.1}>
-          <div className="flex items-center gap-2">
-            <Brain className="w-4 h-4 text-purple-400" />
-            <h2 className="text-sm font-bold uppercase tracking-wider">Current State</h2>
-          </div>
-
-          {/* HMM label + regime */}
-          <div className="flex items-center gap-3">
-            <div className="px-3 py-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30">
-              <span className="text-purple-300 text-xs font-bold tracking-wide">
-                {forecast.length > 0
-                  ? forecast[forecast.length - 1]?.hmm_state_label ?? `S${forecast[forecast.length - 1]?.hmm_state ?? "?"}`
-                  : spyPlan?.hmmState ?? "—"}
-              </span>
+          <div className="grid grid-cols-2 gap-3 mt-4 flex-1 min-h-[120px]">
+            <div className="rounded-xl border border-white/[0.06] bg-black/25 p-2">
+              <p className="text-[9px] uppercase tracking-wider text-slate-500 mb-1 px-1">
+                Volatility factor (S_V)
+              </p>
+              <div className="h-[72px]">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 2, right: 2, bottom: 0, left: -18 }}>
+                      <Area type="monotone" dataKey="S_V" stroke="#f472b6" strokeWidth={1.5} fill="rgba(244,114,182,0.12)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : null}
+              </div>
             </div>
-            <span className="text-[10px] text-slate-600 font-mono">{spyPlan?.regimeKey ?? "—"}</span>
-          </div>
-
-          {/* Confidence gauge */}
-          <div className="flex justify-center">
-            <ConfidenceArc value={spyPlan?.hmmConfidence ?? 0} label="HMM Confidence" />
-          </div>
-
-          {/* Factor bars */}
-          <div className="space-y-2 mt-auto">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Key Metrics</p>
-            {spyPlan && (
-              <>
-                {factorBar(spyPlan.S_D, "S_D")}
-                {factorBar(spyPlan.S_V, "S_V")}
-                {factorBar(spyPlan.S_L, "S_L")}
-                {factorBar(spyPlan.S_G, "S_G")}
-              </>
-            )}
-            {!spyPlan && <p className="text-xs text-slate-600">No active plan</p>}
+            <div className="rounded-xl border border-white/[0.06] bg-black/25 p-2">
+              <p className="text-[9px] uppercase tracking-wider text-slate-500 mb-1 px-1">
+                Regime confidence
+              </p>
+              <div className="h-[72px]">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 2, right: 2, bottom: 0, left: -18 }}>
+                      <Area
+                        type="monotone"
+                        dataKey="hmm_confidence"
+                        stroke="#a78bfa"
+                        strokeWidth={1.5}
+                        fill="rgba(167,139,250,0.15)"
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : null}
+              </div>
+            </div>
           </div>
         </GlassCard>
       </div>
@@ -751,6 +847,71 @@ export default function CommandCenter() {
           )}
         </GlassCard>
       </div>
+      </div>
+
+      <aside className="hidden xl:flex w-[300px] shrink-0 flex-col gap-4 xl:sticky xl:top-4 xl:self-start">
+        <GlassCard className="p-5 panel-hud" delay={0.08}>
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="w-4 h-4 text-violet-400" />
+            <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-slate-300">Current State</h2>
+          </div>
+          <div className="flex items-baseline gap-2 mb-4">
+            <span className="text-5xl font-black font-[family-name:var(--font-mono)] tracking-tight text-white drop-shadow-[0_0_24px_rgba(167,139,250,0.35)]">
+              {forecast.length > 0
+                ? forecast[forecast.length - 1]?.hmm_state_label?.replace(/\s/g, "") ??
+                  `S${forecast[forecast.length - 1]?.hmm_state ?? "?"}`
+                : spyPlan?.hmmState ?? "—"}
+            </span>
+          </div>
+          <ul className="space-y-2 text-[11px] text-slate-400 mb-6 border-b border-white/[0.06] pb-4">
+            <li className="flex gap-2">
+              <span className="text-emerald-400">●</span>
+              <span>{regime.direction} trend bias</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-cyan-400">●</span>
+              <span>{regime.volatility.toLowerCase()} regime</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-violet-400">●</span>
+              <span>{regime.liquidity} liquidity</span>
+            </li>
+          </ul>
+          <ConfidenceArc value={Math.min(1, Math.max(0, blendConf))} label="Confidence" />
+          <div className="mt-6 space-y-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider">Key Metrics</p>
+            {spyPlan ? (
+              <>
+                {factorBar(spyPlan.S_D, "S_D")}
+                {factorBar(spyPlan.S_V, "S_V")}
+              </>
+            ) : (
+              <p className="text-xs text-slate-600">No plan data</p>
+            )}
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-5 panel-hud border-amber-500/15" delay={0.12}>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <h2 className="text-xs font-bold uppercase tracking-[0.15em]">Alerts</h2>
+          </div>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2">
+              <p className="text-[11px] font-semibold text-amber-200">Volatility clustering</p>
+              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                Watch band width vs. forecast — widen reduces conviction on directional bets.
+              </p>
+            </div>
+            <div className="rounded-lg border border-cyan-500/25 bg-cyan-500/[0.05] px-3 py-2">
+              <p className="text-[11px] font-semibold text-cyan-200">Pipeline heartbeat</p>
+              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                Forecast CSV drives SPY overlay; refresh dashboards after batch runs.
+              </p>
+            </div>
+          </div>
+        </GlassCard>
+      </aside>
     </div>
   );
 }

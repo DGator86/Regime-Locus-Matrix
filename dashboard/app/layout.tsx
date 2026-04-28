@@ -1,14 +1,23 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import StatusBar from "@/components/StatusBar";
+import AppHeader from "@/components/AppHeader";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
-  title: "RLM Control Center",
-  description: "Next-gen trading regime monitoring",
+  title: "RLM · Regime Locus Matrix",
+  description: "Market regime analysis, locus positioning, and signal quality",
 };
 
 export default function RootLayout({
@@ -17,11 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} flex h-screen overflow-hidden`}>
+    <html lang="en" className="dark">
+      <body
+        className={`${inter.className} ${jetbrainsMono.variable} antialiased flex h-screen overflow-hidden bg-background text-foreground`}
+      >
         <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <main className="flex-1 overflow-y-auto bg-background p-6 pb-14">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(34,211,238,0.08),transparent_55%)]">
+          <AppHeader />
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 pb-16">
             {children}
           </main>
           <StatusBar />
