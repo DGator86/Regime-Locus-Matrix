@@ -185,6 +185,24 @@ def main() -> int:
         default=10.0,
         help="Max %% of account balance per equity position (default: 10)",
     )
+    # -----------------------------------------------------------------------
+    # Challenge book flags
+    # -----------------------------------------------------------------------
+    ap.add_argument(
+        "--with-challenge",
+        action="store_true",
+        help="Run the $1K→$25K PDT challenge session on each rescan cycle.",
+    )
+    ap.add_argument(
+        "--challenge-symbol",
+        default="SPY",
+        help="Underlying for the challenge (default: SPY)",
+    )
+    ap.add_argument(
+        "--challenge-no-kronos",
+        action="store_true",
+        help="Disable Kronos overlay in the challenge persona pipeline",
+    )
     ap.add_argument(
         "--scanner-hours-et",
         action="store_true",
@@ -292,6 +310,13 @@ def main() -> int:
             ecmd.append("--dry-run")
         return ecmd
 
+    def challenge_cmd() -> list[str]:
+        rlm_bin = Path(py).parent / "rlm"
+        ccmd = [str(rlm_bin), "challenge", "--run", "--symbol", args.challenge_symbol]
+        if args.challenge_no_kronos:
+            ccmd.append("--no-kronos")
+        return ccmd
+
     if not args.skip_pipeline:
         rc = _run(pipeline_cmd())
         if rc != 0:
@@ -314,6 +339,11 @@ def main() -> int:
         et = threading.Thread(target=_run_equity, name="equity-trade", daemon=True)
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue
+
+    if args.with_challenge:
+        print("[rescan] challenge session", flush=True)
+        if _run(challenge_cmd()) != 0:
+            print("[rescan] challenge step failed (continuing)", flush=True)
 
     if args.skip_monitor:
         return 0
@@ -344,6 +374,10 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
+                    if args.with_challenge:
+                        print("[rescan] challenge session", flush=True)
+                        if _run(challenge_cmd()) != 0:
+                            print("[rescan] challenge step failed (continuing)", flush=True)
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
 
