@@ -74,6 +74,7 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
+from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
 
 _IBKR_HIST_LOCK = threading.Lock()
@@ -210,6 +211,23 @@ def _prepare_symbol(
         "regime_key": decision.regime_key,
         "metadata": {k: v for k, v in (decision.metadata or {}).items() if k != "matched_legs"},
     }
+    event = build_pipeline_event(
+        symbol=sym,
+        bar_id=str(ts),
+        factor_values={
+            "S_D": pipeline_row["S_D"],
+            "S_V": pipeline_row["S_V"],
+            "S_L": pipeline_row["S_L"],
+            "S_G": pipeline_row["S_G"],
+        },
+        regime_state=str(pipeline_row.get("regime_key") or ""),
+        kronos_confidence=(
+            float(last["kronos_confidence"]) if "kronos_confidence" in last and pd.notna(last["kronos_confidence"]) else None
+        ),
+        action=decision.action,
+        extra={"strategy_name": decision.strategy_name},
+    )
+    print(json.dumps({"event": "pipeline_bar", **event}, default=str), flush=True)
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
         base["skip_reason"] = (
