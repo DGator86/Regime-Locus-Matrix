@@ -22,6 +22,7 @@ Write-Host "Deploying to VPS..." -ForegroundColor Cyan
 $remote = @"
 set -e
 cd $VpsRepo
+git stash push -u -m dashboard_deploy_autostash 2>/dev/null || true
 git pull origin main
 
 if ! command -v node &> /dev/null; then
