@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 from rlm.data.backend import DataBackend
 from rlm.data.lake.readers import lake_has_bars, lake_has_option_chain, load_lake_bars, load_lake_option_chain
+from rlm.data.option_chain import option_chain_is_usable
 from rlm.data.paths import get_raw_data_dir
+
+_log = logging.getLogger(__name__)
 
 
 def load_bars(
@@ -51,7 +55,9 @@ def load_option_chain(
             raise FileNotFoundError(f"Lake option chain not found for {symbol}")
         return df
     if selected == DataBackend.AUTO and lake_has_option_chain(symbol, data_root=data_root):
-        return load_lake_option_chain(symbol, data_root=data_root, as_of=as_of)
+        df_lake = load_lake_option_chain(symbol, data_root=data_root, as_of=as_of)
+        if df_lake is not None:
+            return df_lake
 
     if selected in (DataBackend.AUTO, DataBackend.CSV):
         return _load_csv_chain(_resolve_chain_csv_path(symbol, data_root))
@@ -136,6 +142,12 @@ def _load_parquet_chain(path: Path) -> pd.DataFrame | None:
     for col in ("timestamp", "expiry"):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
+    if not option_chain_is_usable(df):
+        _log.warning(
+            "Option chain %s missing required columns or empty; skipping chain enrichment",
+            path,
+        )
+        return None
     return df
 
 
@@ -153,4 +165,10 @@ def _load_csv_chain(path: Path) -> pd.DataFrame | None:
     for col in ("timestamp", "expiry"):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
+    if not option_chain_is_usable(df):
+        _log.warning(
+            "Option chain %s missing required columns or empty; skipping chain enrichment",
+            path,
+        )
+        return None
     return df

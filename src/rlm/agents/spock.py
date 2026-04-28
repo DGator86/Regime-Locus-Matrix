@@ -282,11 +282,27 @@ class SpockAgent:
         proc = self.root / "data" / "processed"
         if not proc.is_dir():
             return ""
+        snap_path = proc / "walkforward_universe_latest.json"
+        snap_line = ""
+        if snap_path.is_file():
+            try:
+                snap: dict = json.loads(snap_path.read_text(encoding="utf-8"))
+                cs = snap.get("cross_symbol_mean_window_sharpe")
+                if cs is not None:
+                    snap_line = (
+                        f"Latest universe walk-forward batch ({str(snap.get('ts_utc', ''))[:19]}): "
+                        f"mean OOS window sharpe={float(cs):.4f}, "
+                        f"ok={snap.get('symbols_ok')}/{snap.get('symbols_attempted')}, "
+                        f"OOS windows={snap.get('total_oos_windows')}"
+                    )
+            except Exception:
+                snap_line = ""
+
         pat = re.compile(r"^walkforward_summary_([A-Za-z0-9\.\-]+)\.csv$")
         per_symbol: list[tuple[str, dict[str, float]]] = []
         for p in sorted(proc.glob("walkforward_summary_*.csv")):
             m = pat.match(p.name)
-            if not m:
+            if not m or p.name == "walkforward_summary_universe_all_windows.csv":
                 continue
             sym = m.group(1).upper()
             try:
@@ -303,9 +319,11 @@ class SpockAgent:
             if row:
                 per_symbol.append((sym, row))
         if not per_symbol:
-            return ""
+            return snap_line
 
         lines = [f"Symbols with walk-forward summary files: {len(per_symbol)}"]
+        if snap_line:
+            lines.append(snap_line)
         for src in ("sharpe", "total_return_pct", "max_drawdown"):
             k = f"mean_{src}"
             vals = [d[k] for _s, d in per_symbol if k in d]
