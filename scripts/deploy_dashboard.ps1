@@ -46,8 +46,10 @@ if ! command -v pm2 &> /dev/null; then
     npm install -g pm2
 fi
 
-pm2 delete rlm-dashboard || true
-pm2 start npm --name "rlm-dashboard" -- run start -- -p 3000
+pm2 delete rlm-dashboard 2>/dev/null || true
+PORT=3000 RLM_DATA_DIR=$VpsRepo/data/processed pm2 start npm --name "rlm-dashboard" -- run start
+pm2 save
+pm2 startup systemd -u root --hp /root 2>/dev/null || true
 "@
 
 ssh -o BatchMode=yes "$VpsUser@$VpsHost" "$remote"
