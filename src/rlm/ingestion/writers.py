@@ -17,7 +17,7 @@ from rlm.data.lake import (
     stock_1d_parquet,
     stock_1m_parquet,
 )
-from rlm.ingestion.quality import validate_bar_timestamps, validate_option_chain
+from rlm.ingestion.quality import validate_bar_timestamps, validate_option_contracts
 from rlm.ingestion.fetchers.ibkr.stocks import IBKRStockFetcher
 from rlm.ingestion.fetchers.massive.bars import MassiveOptionBarsFetcher
 from rlm.ingestion.fetchers.massive.contracts import MassiveContractsFetcher
@@ -68,7 +68,7 @@ def write_massive_option_contracts_parquet(
     if out_path is None:
         slug = str(params.get("expiration_date") or "all").replace("-", "")
         out_path = options_contracts_dir(underlying, root=repo_root) / f"{underlying.lower()}_{slug}_contracts.parquet"
-    quality = validate_option_chain(df)
+    quality = validate_option_contracts(df)
     if not quality.ok:
         raise ValueError(f"option contracts quality check failed: {quality.reasons}")
     save_parquet_versioned(df, Path(out_path), source="massive", schema="option_contracts")
