@@ -231,6 +231,7 @@ nightly_backup: str | None = None
 if nightly_json_path.exists():
     nightly_backup = nightly_json_path.read_text(encoding="utf-8")
     info("Existing live_nightly_hyperparams.json backed up")
+generated_nightly_json: str | None = None
 
 opt_result: dict | None = None
 try:
@@ -258,7 +259,8 @@ if opt_result is not None:
               f"live_nightly_hyperparams.json written",
               "live_nightly_hyperparams.json was NOT written")
         if nightly_json_path.exists():
-            written = json.loads(nightly_json_path.read_text(encoding="utf-8"))
+            generated_nightly_json = nightly_json_path.read_text(encoding="utf-8")
+            written = json.loads(generated_nightly_json)
             info(f"Written JSON keys: {sorted(written.keys())}")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,9 +507,10 @@ except Exception as e:
 if nightly_backup is not None:
     nightly_json_path.write_text(nightly_backup, encoding="utf-8")
     info("\nRestored original live_nightly_hyperparams.json")
-elif nightly_json_path.exists() and opt_result:
-    # optimizer wrote a real result — leave it
-    pass
+elif generated_nightly_json is not None:
+    # Keep the real optimizer output, not the synthetic overlays written below.
+    nightly_json_path.write_text(generated_nightly_json, encoding="utf-8")
+    info("\nRestored optimizer-generated live_nightly_hyperparams.json")
 else:
     # synthetic overlay still there — remove it
     nightly_json_path.unlink(missing_ok=True)
