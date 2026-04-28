@@ -26,6 +26,7 @@ from rlm.utils.market_hours import session_label
 
 # -----------------------------------------------------------------------
 
+
 def _fmt_score(v: object) -> str:
     try:
         return f"{float(v):.4f}"  # type: ignore[arg-type]
@@ -48,6 +49,7 @@ def _fmt_ret(v: object) -> str:
     except (TypeError, ValueError):
         return "?"
 
+
 # -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
 You are Spock, the Science Officer and strategic analyst of this trading system.
@@ -66,7 +68,7 @@ class PlanAnalysis:
     strategy: str
     regime: str
     rank_score: float
-    action: str          # GO | HOLD | ABORT
+    action: str  # GO | HOLD | ABORT
     rationale: str
     raw_plan: dict[str, Any] = field(default_factory=dict)
 
@@ -110,9 +112,13 @@ class SpockAgent:
 
         try:
             briefing.llm_text = self.llm.chat(
-                [Message("user",
-                    f"Analyse these active trade plans and regime signals:\n\n{context}\n\n"
-                    "Provide your logical assessment per the format in your instructions.")],
+                [
+                    Message(
+                        "user",
+                        f"Analyse these active trade plans and regime signals:\n\n{context}\n\n"
+                        "Provide your logical assessment per the format in your instructions.",
+                    )
+                ],
                 system=_SPOCK_SYSTEM,
             )
             briefing.overall_risk = self._extract_risk(briefing.llm_text)
@@ -187,7 +193,9 @@ class SpockAgent:
             gen_dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
             age_min = (datetime.now(tz=timezone.utc) - gen_dt).total_seconds() / 60
             if age_min > self._STALE_THRESHOLD_MINUTES:
-                stale_tag = f" [STALE: {age_min:.0f}min old — scores may not reflect current market]"
+                stale_tag = (
+                    f" [STALE: {age_min:.0f}min old — scores may not reflect current market]"
+                )
         except Exception:
             pass
         lines: list[str] = [
@@ -214,15 +222,24 @@ class SpockAgent:
         if not artifacts_dir.is_dir():
             return ""
         try:
-            files = sorted(artifacts_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+            files = sorted(
+                artifacts_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True
+            )
             if not files:
                 return ""
             latest = json.loads(files[0].read_text(encoding="utf-8"))
             lines: list[str] = [f"Run: {files[0].name}"]
-            for key in ("regime", "regime_label", "regime_confidence",
-                        "kronos_return_forecast", "kronos_confidence",
-                        "kronos_regime_agreement", "kronos_transition_flag",
-                        "roee_strategy", "roee_confidence"):
+            for key in (
+                "regime",
+                "regime_label",
+                "regime_confidence",
+                "kronos_return_forecast",
+                "kronos_confidence",
+                "kronos_regime_agreement",
+                "kronos_transition_flag",
+                "roee_strategy",
+                "roee_confidence",
+            ):
                 val = latest.get(key)
                 if val is not None:
                     lines.append(f"  {key}: {val}")
@@ -263,9 +280,7 @@ class SpockAgent:
                         oos_end = str(r.get("oos_end", "?"))[:10]
                         safe = r.get("regime_safety_passed", "?")
                         safe_frac = r.get("regime_safety_fraction", "")
-                        safe_str = (
-                            f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
-                        )
+                        safe_str = f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
                         lines.append(
                             f"  OOS ending {oos_end}: win={wr} sharpe={sh} "
                             f"avg_pnl={pnl} trades={n} regime_safe={safe_str}"
@@ -312,7 +327,13 @@ class SpockAgent:
             if df.empty:
                 continue
             row: dict[str, float] = {}
-            for col in ("sharpe", "total_return_pct", "max_drawdown", "profit_factor", "num_trades"):
+            for col in (
+                "sharpe",
+                "total_return_pct",
+                "max_drawdown",
+                "profit_factor",
+                "num_trades",
+            ):
                 if col in df.columns:
                     s = pd.to_numeric(df[col], errors="coerce")
                     row[f"mean_{col}"] = float(s.mean())
@@ -341,9 +362,7 @@ class SpockAgent:
             lines.append(
                 f"  best OOS (by mean window sharpe): {best[0]} mean_sharpe={best[1].get('mean_sharpe', 'n/a')}"
             )
-            lines.append(
-                f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}"
-            )
+            lines.append(f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}")
         return "\n".join(lines)
 
     def _read_equity_state(self) -> str:

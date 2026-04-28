@@ -8,8 +8,8 @@ import pandas as pd
 from rlm.forecasting.bands import compute_state_matrix_bands
 from rlm.forecasting.distribution import estimate_distribution
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
@@ -67,7 +67,9 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
     _maybe_apply_transition_calibrations(df, "hmm")
 
 
-def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
+def _annotate_markov_transition_fields(
+    markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray
+) -> None:
     """Markov-switching analogue of :func:`_annotate_hmm_transition_fields` (in-place)."""
     t = markov.calibrated_transition_matrix()
     next_p = RLMHMM.one_step_predictive_probs(probs, t)
@@ -138,7 +140,7 @@ class HybridForecastPipeline:
     ) -> None:
         """
         Initialize a hybrid forecasting pipeline by configuring its forecast engine, optional HMM, and optional multi-timeframe regime model.
-        
+
         Parameters:
             config (ForecastConfig | None): Forecast configuration used when constructing the default ForecastPipeline; ignored if `forecast_engine` is provided.
             move_window (int): Lookback window length for the default ForecastPipeline.
@@ -165,6 +167,7 @@ class HybridForecastPipeline:
         self.mtf_regimes = bool(mtf_regimes)
         if self.mtf_regimes:
             from rlm.regimes.multi_timeframe_regimes import MultiTimeframeRegimeModel
+
             self.mtf: MultiTimeframeRegimeModel | None = MultiTimeframeRegimeModel(
                 model="hmm",
                 hmm_config=hmm_config or HMMConfig(),
@@ -532,9 +535,7 @@ class HybridKronosForecastPipeline:
             df["hmm_state"] = np.argmax(probs, axis=1).astype(int)
             df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
-                df["hmm_state_label"] = [
-                    self.hmm.state_labels[int(s)] for s in df["hmm_state"]
-                ]
+                df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
             _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         if self.markov is not None:

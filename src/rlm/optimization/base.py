@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import optuna
-
 from pathlib import Path
+
+import numpy as np
+import optuna
+import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from rlm.optimization.config import NightlyHyperparams
@@ -186,10 +186,10 @@ class OptimizationBase:
         eval_params = {k: v for k, v in nightly.__dict__.items() if k != "mtf_regimes"}
         cfg = FullRLMConfig(
             regime_model=regime_model,
-            mtf=False,          # HTF resampling is too slow in the daily opt loop
+            mtf=False,  # HTF resampling is too slow in the daily opt loop
             mtf_regimes=False,  # no HTF parquet paths available during opt
-            use_kronos=False,   # no model download during nightly opt
-            attach_vix=False,   # no network call; VIX features absent is fine
+            use_kronos=False,  # no model download during nightly opt
+            attach_vix=False,  # no network call; VIX features absent is fine
             roee_config=ROEEConfig(use_dynamic_sizing=False),
             nightly_hyperparams=eval_params,
         )

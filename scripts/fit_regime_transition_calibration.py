@@ -54,8 +54,14 @@ def _parse_args() -> argparse.Namespace:
         help="Which columns to read from forecast CSVs",
     )
     p.add_argument("--data-root", default=None, help="RLM data root (default: env / ./data)")
-    p.add_argument("--out", default=None, help="Output JSON path (default: processed/regime_transition_calibration.json)")
-    p.add_argument("--min-rows", type=int, default=80, help="Minimum aligned rows per symbol before merging")
+    p.add_argument(
+        "--out",
+        default=None,
+        help="Output JSON path (default: processed/regime_transition_calibration.json)",
+    )
+    p.add_argument(
+        "--min-rows", type=int, default=80, help="Minimum aligned rows per symbol before merging"
+    )
     return p.parse_args()
 
 

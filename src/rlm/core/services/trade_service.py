@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -88,7 +88,14 @@ class TradeService:
     def run(self, req: TradeRequest) -> TradeResult:
         t0 = time.monotonic()
         run_id = generate_run_id("trade")
-        logger = get_run_logger(__name__, run_id, command="trade", symbol=req.symbol, backend=req.backend, profile=req.profile)
+        logger = get_run_logger(
+            __name__,
+            run_id,
+            command="trade",
+            symbol=req.symbol,
+            backend=req.backend,
+            profile=req.profile,
+        )
         logger.info("building trade decision")
         decision, pipeline_result = self.build_decision(req, return_pipeline_result=True)
         logger.info("executing trade decision", extra={"stage": "execution"})
@@ -99,6 +106,7 @@ class TradeService:
         persona = None
         if req.use_persona:
             from rlm.persona.pipeline import PersonaDecisionPipeline
+
             logger.info("running persona interpretation layer", extra={"stage": "persona"})
             persona = PersonaDecisionPipeline().run(pipeline_result)
 
@@ -177,7 +185,9 @@ class TradeService:
             **decision.raw,
         }
         try:
-            rsp = self._broker.submit_trade_decision(req.symbol, payload, paper=(req.mode == "paper"))
+            rsp = self._broker.submit_trade_decision(
+                req.symbol, payload, paper=(req.mode == "paper")
+            )
             records = [
                 TradeExecutionRecord(
                     success=bool(rsp.get("success")),

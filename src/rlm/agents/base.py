@@ -19,7 +19,7 @@ from typing import Optional
 
 @dataclass
 class Message:
-    role: str   # "system" | "user" | "assistant"
+    role: str  # "system" | "user" | "assistant"
     content: str
 
 
@@ -37,9 +37,7 @@ class LLMConfig:
 
     def __post_init__(self) -> None:
         if not self.model:
-            self.model = (
-                "llama-3.3-70b-versatile" if self.backend == "groq" else "llama3.2"
-            )
+            self.model = "llama-3.3-70b-versatile" if self.backend == "groq" else "llama3.2"
 
     @classmethod
     def from_env(cls) -> "LLMConfig":

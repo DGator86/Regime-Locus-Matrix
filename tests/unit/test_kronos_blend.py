@@ -18,7 +18,10 @@ class TestCompositeConfidence:
     def test_hmm_only(self):
         row = _row(hmm_probs=np.array([0.1, 0.8, 0.1]))
         result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
         )
         assert result["confidence"] == pytest.approx(0.8)
         assert result["trade"] is True
@@ -27,7 +30,10 @@ class TestCompositeConfidence:
     def test_kronos_only(self):
         row = _row(kronos_regime_agreement=0.7, kronos_transition_flag=False)
         result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
         )
         assert result["confidence"] == pytest.approx(0.7)
         assert result["model"] == "kronos"
@@ -40,8 +46,12 @@ class TestCompositeConfidence:
             kronos_transition_flag=False,
         )
         result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
-            hmm_confidence_weight=0.6, kronos_confidence_weight=0.4,
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
+            hmm_confidence_weight=0.6,
+            kronos_confidence_weight=0.4,
         )
         expected = 0.6 * 0.8 + 0.4 * 0.6
         assert result["confidence"] == pytest.approx(expected)
@@ -60,11 +70,16 @@ class TestCompositeConfidence:
         )
         result_no_trans = compute_regime_modulators(
             row_no_trans,
-            confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
             kronos_transition_penalty=0.3,
         )
         result_with_trans = compute_regime_modulators(
-            row_with_trans, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
+            row_with_trans,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
             kronos_transition_penalty=0.3,
         )
         assert result_with_trans["confidence"] < result_no_trans["confidence"]
@@ -72,7 +87,10 @@ class TestCompositeConfidence:
     def test_no_probs_no_kronos_blocks_trade(self):
         row = _row(foo=1)
         result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.3,
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
         )
         assert result["confidence"] == 0.0
         assert result["trade"] is False
@@ -85,7 +103,10 @@ class TestCompositeConfidence:
             kronos_transition_flag=True,
         )
         result = compute_regime_modulators(
-            row, confidence_threshold=0.6, sizing_multiplier=1.0, transition_penalty=0.3,
+            row,
+            confidence_threshold=0.6,
+            sizing_multiplier=1.0,
+            transition_penalty=0.3,
             kronos_transition_penalty=0.3,
         )
         assert result["trade"] is False

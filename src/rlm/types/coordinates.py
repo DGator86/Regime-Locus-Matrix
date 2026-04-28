@@ -90,10 +90,7 @@ class MarketCoordinate:
         Large δ  → extreme regime.
         """
         return math.sqrt(
-            wD * self.d**2
-            + wV * (self.V - 5.0) ** 2
-            + wL * (self.L - 5.0) ** 2
-            + wG * self.g**2
+            wD * self.d**2 + wV * (self.V - 5.0) ** 2 + wL * (self.L - 5.0) ** 2 + wG * self.g**2
         )
 
     # ------------------------------------------------------------------
@@ -208,6 +205,5 @@ class MarketCoordinate:
 
     def __repr__(self) -> str:
         return (
-            f"MarketCoordinate(D={self.D:.3f}, V={self.V:.3f}, "
-            f"L={self.L:.3f}, G={self.G:.3f})"
+            f"MarketCoordinate(D={self.D:.3f}, V={self.V:.3f}, " f"L={self.L:.3f}, G={self.G:.3f})"
         )

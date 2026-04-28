@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -40,7 +40,11 @@ class MultiTimeframeEngine:
                 agg[col] = "last"
         if not agg:
             return bars.iloc[0:0].copy()
-        out = bars.resample(tf).agg(agg).dropna(subset=[c for c in ("open", "high", "low", "close") if c in agg])
+        out = (
+            bars.resample(tf)
+            .agg(agg)
+            .dropna(subset=[c for c in ("open", "high", "low", "close") if c in agg])
+        )
         return out
 
     def augment_factors(self, bars: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
@@ -54,7 +58,11 @@ class MultiTimeframeEngine:
             if not keep_cols:
                 continue
             suffix = self._suffix_for_tf(tf)
-            expanded = htf_factors[keep_cols].reindex(out.index, method="ffill").add_prefix(f"htf_{suffix}_")
+            expanded = (
+                htf_factors[keep_cols]
+                .reindex(out.index, method="ffill")
+                .add_prefix(f"htf_{suffix}_")
+            )
             out = out.join(expanded)
         return out
 

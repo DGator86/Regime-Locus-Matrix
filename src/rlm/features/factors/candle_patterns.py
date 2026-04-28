@@ -78,7 +78,9 @@ class CandlePatternFactors(FactorCalculator):
         )
 
         marubozu = talib.CDLMARUBOZU(open_, high, low, close).astype(float) / 100.0
-        rising_falling_three = talib.CDLRISEFALL3METHODS(open_, high, low, close).astype(float) / 100.0
+        rising_falling_three = (
+            talib.CDLRISEFALL3METHODS(open_, high, low, close).astype(float) / 100.0
+        )
         out["candle_continuation"] = marubozu + rising_falling_three
 
         doji = talib.CDLDOJI(open_, high, low, close).abs().astype(float) / 100.0

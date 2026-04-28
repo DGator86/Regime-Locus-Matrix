@@ -255,11 +255,13 @@ def _evaluate_plan(
     # --- Trade log -----------------------------------------------------------
     if trade_log_path is not None:
         entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-        entry_mid   = float(plan.get("entry_mid_mark_dollars") or 0.0)
+        entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
         # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
         pnl = v - entry_debit
         pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
-        exit_signals_set = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
+        exit_signals_set = frozenset(
+            {"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"}
+        )
         _append_trade_log(
             trade_log_path,
             {
@@ -319,6 +321,7 @@ def _evaluate_plan(
             st["paper_close_sent"] = True
         except Exception as e:
             print(f"[{sym}] {pid} PAPER-CLOSE FAILED: {e}", file=sys.stderr)
+
 
 def main() -> int:
     p = argparse.ArgumentParser(

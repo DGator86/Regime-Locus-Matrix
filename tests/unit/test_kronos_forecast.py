@@ -8,50 +8,52 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from rlm.factors import KronosFactorCalculator
 from rlm.kronos.config import KronosConfig
 from rlm.kronos.forecast import KronosForecastPipeline
-from rlm.factors import KronosFactorCalculator
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:
     """
     Generate a deterministic synthetic OHLCV DataFrame for testing.
-    
+
     Creates `n` daily rows starting at 2024-01-01 using a fixed random seed so results are reproducible. The returned DataFrame contains the columns:
     - `timestamp`: daily timestamps starting 2024-01-01
     - `open`, `high`, `low`, `close`: synthetic prices
     - `volume`: integer trading volumes in the range [100000, 200000)
-    
+
     Parameters:
         n (int): Number of rows (days) to generate.
-    
+
     Returns:
         pd.DataFrame: Synthetic OHLCV data with columns `timestamp`, `open`, `high`, `low`, `close`, and `volume`.
     """
     rng = np.random.RandomState(42)
     close = 100 + np.cumsum(rng.randn(n) * 0.5)
-    return pd.DataFrame({
-        "timestamp": pd.date_range("2024-01-01", periods=n, freq="D"),
-        "open": close - rng.rand(n) * 0.2,
-        "high": close + rng.rand(n) * 0.5,
-        "low": close - rng.rand(n) * 0.5,
-        "close": close,
-        "volume": rng.randint(100_000, 200_000, size=n),
-        "S_D": rng.randn(n) * 0.1,
-        "S_V": rng.randn(n) * 0.1,
-        "S_L": rng.randn(n) * 0.1,
-        "S_G": rng.randn(n) * 0.1,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2024-01-01", periods=n, freq="D"),
+            "open": close - rng.rand(n) * 0.2,
+            "high": close + rng.rand(n) * 0.5,
+            "low": close - rng.rand(n) * 0.5,
+            "close": close,
+            "volume": rng.randint(100_000, 200_000, size=n),
+            "S_D": rng.randn(n) * 0.1,
+            "S_V": rng.randn(n) * 0.1,
+            "S_L": rng.randn(n) * 0.1,
+            "S_G": rng.randn(n) * 0.1,
+        }
+    )
 
 
 def _mock_predictor(sample_count: int = 5, pred_len: int = 3):
     """
     Create a MagicMock predictor whose `predict_paths` returns deterministic forecast paths.
-    
+
     Parameters:
         sample_count (int): Number of sample paths to generate per call.
         pred_len (int): Number of future time steps per path.
-    
+
     Returns:
         MagicMock: A mock object with a `predict_paths(df, future_timestamps=None)` callable that returns a NumPy array of shape (sample_count, pred_len, 6). Each step contains six deterministic features derived from the last `close` in `df`: [low, high, alternate_low, close, volume, volume * close].
     """
@@ -60,11 +62,11 @@ def _mock_predictor(sample_count: int = 5, pred_len: int = 3):
     def _predict_paths(df, future_timestamps=None):
         """
         Create deterministic simulated forecast paths anchored to the last close price in `df`.
-        
+
         Parameters:
             df (pd.DataFrame): Historical OHLCV bars; the last row's `close` value is used as the starting price.
             future_timestamps (optional): Ignored by this mock; present for API compatibility.
-        
+
         Returns:
             np.ndarray: Array of shape (sample_count, pred_len, 6) with simulated future steps. Each step contains
             [low, high, open, close, volume, volume * price] constructed deterministically from the last close.

@@ -23,7 +23,9 @@ def simulate_strategy_target_row_v1(
         return {name: 0.0 for name in STRATEGY_NAMES}
 
     realized_move = (end_close - start_close) / start_close
-    realized_vol = float(forward_df["close"].pct_change().std(ddof=0)) if len(forward_df) > 1 else 0.0
+    realized_vol = (
+        float(forward_df["close"].pct_change().std(ddof=0)) if len(forward_df) > 1 else 0.0
+    )
     if not np.isfinite(realized_vol):
         realized_vol = 0.0
 
@@ -43,9 +45,7 @@ def simulate_strategy_target_row_v1(
     targets["bear_put_spread"] = -direction_edge - slippage_penalty - 0.5 * instability_penalty
     targets["iron_condor"] = range_edge - slippage_penalty - 0.3 * abs(direction_edge)
     targets["calendar_spread"] = (
-        (realized_vol - sigma) / max(sigma, 1e-4)
-        - slippage_penalty
-        - 0.25 * instability_penalty
+        (realized_vol - sigma) / max(sigma, 1e-4) - slippage_penalty - 0.25 * instability_penalty
     )
     targets["debit_spread"] = (
         abs(direction_edge) + 0.05 * trend - slippage_penalty - instability_penalty

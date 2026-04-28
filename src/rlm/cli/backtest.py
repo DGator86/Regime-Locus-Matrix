@@ -27,7 +27,9 @@ from rlm.utils.run_id import generate_run_id
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="rlm backtest", description="Run RLM backtest (optionally with walk-forward).")
+    p = argparse.ArgumentParser(
+        prog="rlm backtest", description="Run RLM backtest (optionally with walk-forward)."
+    )
     p.add_argument(
         "--symbol",
         default="SPY",
@@ -83,8 +85,14 @@ def main() -> None:
     args = _parse_args()
     symbols = resolve_backtest_symbols(args)
     if len(symbols) > 1 and (args.bars is not None or args.chain is not None):
-        raise SystemExit("Custom --bars / --chain is not supported with multiple tickers; use one --symbol or auto paths.")
-    out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else get_processed_data_dir(args.data_root)
+        raise SystemExit(
+            "Custom --bars / --chain is not supported with multiple tickers; use one --symbol or auto paths."
+        )
+    out_dir = (
+        Path(args.out_dir).expanduser().resolve()
+        if args.out_dir
+        else get_processed_data_dir(args.data_root)
+    )
 
     svc = BacktestService()
     summaries: list[tuple[str, dict]] = []
@@ -106,8 +114,12 @@ def main() -> None:
             bars_df = synthetic_bars_demo(end=pd.Timestamp.today(), periods=220)
             chain_df = synthetic_option_chain_from_bars(bars_df, underlying=sym)
         else:
-            bars_df = load_bars(sym, bars_path=args.bars, data_root=args.data_root, backend=args.backend)
-            chain_df = load_option_chain(sym, chain_path=args.chain, data_root=args.data_root, backend=args.backend)
+            bars_df = load_bars(
+                sym, bars_path=args.bars, data_root=args.data_root, backend=args.backend
+            )
+            chain_df = load_option_chain(
+                sym, chain_path=args.chain, data_root=args.data_root, backend=args.backend
+            )
 
         cfg = build_pipeline_config(args, sym)
         req = BacktestRequest(

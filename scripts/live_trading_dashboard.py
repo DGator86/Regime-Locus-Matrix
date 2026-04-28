@@ -253,9 +253,10 @@ def compute_regime_timeframes(
     client_id: int | None = None,
 ) -> dict[str, dict[str, str]]:
     """Return per-label dict with direction_regime, regime_key, bar_time (last bar timestamp)."""
+    from rlm.factors.pipeline import FactorPipeline
+
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
     from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-    from rlm.factors.pipeline import FactorPipeline
     from rlm.forecasting.engines import ForecastPipeline
     from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -284,9 +285,7 @@ def compute_regime_timeframes(
             continue
 
         df = bars.sort_values("timestamp").set_index("timestamp")
-        df = prepare_bars_for_factors(
-            df, option_chain=None, underlying=sym, attach_vix=attach_vix
-        )
+        df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
         feats = FactorPipeline().run(df)
         feats = classify_state_matrix(feats)
         forecast = ForecastPipeline(move_window=move_w, vol_window=vol_w)
@@ -329,7 +328,9 @@ class LiveTradingDashboard:
         self._schedule_log_refresh()
         if self._auto_regime:
             rperiod = max(30_000, int(self._regime_interval_ms.get()))
-            self.root.after(_delay_ms_to_next_system_tick(rperiod), self._tick_regime_then_reschedule)
+            self.root.after(
+                _delay_ms_to_next_system_tick(rperiod), self._tick_regime_then_reschedule
+            )
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=6)
@@ -349,9 +350,13 @@ class LiveTradingDashboard:
             fr = ttk.LabelFrame(regime_row, text=f" {label} ", padding=8)
             fr.grid(row=0, column=col, padx=4, sticky=tk.NSEW)
             regime_row.columnconfigure(col, weight=1)
-            dir_l = tk.Label(fr, text="—", font=("Segoe UI", 18, "bold"), fg=_DIRECTION_COLORS["unknown"])
+            dir_l = tk.Label(
+                fr, text="—", font=("Segoe UI", 18, "bold"), fg=_DIRECTION_COLORS["unknown"]
+            )
             dir_l.pack()
-            sub = ttk.Label(fr, text="(connect TWS / Gateway for IBKR)", font=("Segoe UI", 9), wraplength=320)
+            sub = ttk.Label(
+                fr, text="(connect TWS / Gateway for IBKR)", font=("Segoe UI", 9), wraplength=320
+            )
             sub.pack()
             self._regime_labels[label] = (dir_l, sub)
 
@@ -412,7 +417,9 @@ class LiveTradingDashboard:
         algo_split = ttk.Panedwindow(algo_outer, orient=tk.VERTICAL)
         algo_split.pack(fill=tk.BOTH, expand=True)
         tree_fr = ttk.Frame(algo_split)
-        detail_fr = ttk.LabelFrame(algo_split, text="Selected — full entry / pipeline detail", padding=4)
+        detail_fr = ttk.LabelFrame(
+            algo_split, text="Selected — full entry / pipeline detail", padding=4
+        )
         algo_split.add(tree_fr, weight=3)
         algo_split.add(detail_fr, weight=2)
         ys_a = ttk.Scrollbar(tree_fr, orient=tk.VERTICAL)
@@ -459,11 +466,18 @@ class LiveTradingDashboard:
         self._log_interval_ms = tk.IntVar(value=5000)
         self._regime_interval_ms = tk.IntVar(value=120_000)
         ttk.Label(bot, text="Log period (ms, wall-clock aligned):").pack(side=tk.LEFT)
-        ttk.Spinbox(bot, from_=2000, to=120_000, increment=1000, width=8,
-                    textvariable=self._log_interval_ms).pack(side=tk.LEFT, padx=(4, 16))
+        ttk.Spinbox(
+            bot, from_=2000, to=120_000, increment=1000, width=8, textvariable=self._log_interval_ms
+        ).pack(side=tk.LEFT, padx=(4, 16))
         ttk.Label(bot, text="Regime period (ms, wall-clock aligned):").pack(side=tk.LEFT)
-        ttk.Spinbox(bot, from_=30_000, to=600_000, increment=10_000, width=8,
-                    textvariable=self._regime_interval_ms).pack(side=tk.LEFT, padx=(4, 8))
+        ttk.Spinbox(
+            bot,
+            from_=30_000,
+            to=600_000,
+            increment=10_000,
+            width=8,
+            textvariable=self._regime_interval_ms,
+        ).pack(side=tk.LEFT, padx=(4, 8))
         ttk.Label(bot, text=f"IBKR client id={_dashboard_client_id()}").pack(side=tk.RIGHT)
 
     def _make_tree(self, parent: ttk.Frame, columns: tuple[str, ...]) -> ttk.Treeview:
@@ -471,8 +485,9 @@ class LiveTradingDashboard:
         fr.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         ys = ttk.Scrollbar(fr, orient=tk.VERTICAL)
         xs = ttk.Scrollbar(fr, orient=tk.HORIZONTAL)
-        tree = ttk.Treeview(fr, columns=columns, show="headings", yscrollcommand=ys.set,
-                            xscrollcommand=xs.set)
+        tree = ttk.Treeview(
+            fr, columns=columns, show="headings", yscrollcommand=ys.set, xscrollcommand=xs.set
+        )
         ys.config(command=tree.yview)
         xs.config(command=tree.xview)
         for c in columns:
@@ -680,10 +695,15 @@ class LiveTradingDashboard:
 def main() -> None:
     import argparse
 
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--symbol", default=None, help="Default ticker for regime panels")
-    ap.add_argument("--no-auto-regime", action="store_true",
-                    help="Only refresh regimes when you click the button (still loads logs on a timer)")
+    ap.add_argument(
+        "--no-auto-regime",
+        action="store_true",
+        help="Only refresh regimes when you click the button (still loads logs on a timer)",
+    )
     ap.add_argument("--options-log", type=Path, default=None)
     ap.add_argument("--equity-log", type=Path, default=None)
     ap.add_argument("--plans", type=Path, default=None)
@@ -693,9 +713,13 @@ def main() -> None:
     if args.symbol:
         app._symbol_var.set(args.symbol.strip().upper())
     if args.options_log:
-        app._options_log = args.options_log if args.options_log.is_absolute() else ROOT / args.options_log
+        app._options_log = (
+            args.options_log if args.options_log.is_absolute() else ROOT / args.options_log
+        )
     if args.equity_log:
-        app._equity_log = args.equity_log if args.equity_log.is_absolute() else ROOT / args.equity_log
+        app._equity_log = (
+            args.equity_log if args.equity_log.is_absolute() else ROOT / args.equity_log
+        )
     if args.plans:
         app._plans_path = args.plans if args.plans.is_absolute() else ROOT / args.plans
 

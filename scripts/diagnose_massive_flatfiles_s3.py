@@ -54,7 +54,9 @@ def main() -> int:
     try:
         lst = client.list_objects_v2(Bucket=cfg.bucket, Prefix=prefix, MaxKeys=3)
         n = lst.get("KeyCount", 0)
-        print(f"list_objects_v2 bucket={cfg.bucket!r} prefix={prefix!r} -> KeyCount={n}", flush=True)
+        print(
+            f"list_objects_v2 bucket={cfg.bucket!r} prefix={prefix!r} -> KeyCount={n}", flush=True
+        )
         for o in lst.get("Contents", []) or []:
             print(" ", o["Key"], flush=True)
     except ClientError as e:
@@ -72,7 +74,9 @@ def main() -> int:
     try:
         r = client.get_object(Bucket=cfg.bucket, Key=key)
         blob = r["Body"].read(256)
-        print(f"get_object OK, first {len(blob)} bytes read, ContentLength={r.get('ContentLength')}")
+        print(
+            f"get_object OK, first {len(blob)} bytes read, ContentLength={r.get('ContentLength')}"
+        )
     except ClientError as e:
         err = e.response.get("Error", {})
         print("get_object FAILED:", err, file=sys.stderr)

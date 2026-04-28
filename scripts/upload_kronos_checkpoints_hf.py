@@ -81,10 +81,13 @@ def _regime_table(checkpoints: list[dict]) -> str:
         return "_No per-regime checkpoints found._"
     rows = ["| State | Label | Val loss | Bars |", "|-------|-------|----------|------|"]
     for ck in sorted(regime_ckpts, key=lambda c: c["state"]):
-        val = f"{ck.get('best_val_loss', 'N/A'):.5f}" if isinstance(ck.get("best_val_loss"), float) else "N/A"
-        rows.append(
-            f"| {ck['state']} | {ck.get('label', f'state_{ck[\"state\"]}')} | {val} | {ck.get('n_samples', 'N/A'):,} |"
+        val = (
+            f"{ck.get('best_val_loss', 'N/A'):.5f}"
+            if isinstance(ck.get("best_val_loss"), float)
+            else "N/A"
         )
+        label = ck.get("label") or f"state_{ck['state']}"
+        rows.append(f"| {ck['state']} | {label} | {val} | {ck.get('n_samples', 'N/A'):,} |")
     return "\n".join(rows)
 
 
@@ -97,10 +100,10 @@ def generate_model_card(
     checkpoints = metadata.get("checkpoints", [])
     table = _regime_table(checkpoints)
     base_model = metadata.get("model_base", "NeoQuasar/Kronos-mini")
-    tok_base   = metadata.get("tokenizer_base", "NeoQuasar/Kronos-Tokenizer-2k")
-    hp         = metadata.get("hyperparams", {})
-    n_states   = metadata.get("hmm_states", "?")
-    generated  = metadata.get("generated_at", datetime.now(timezone.utc).isoformat())
+    tok_base = metadata.get("tokenizer_base", "NeoQuasar/Kronos-Tokenizer-2k")
+    hp = metadata.get("hyperparams", {})
+    n_states = metadata.get("hmm_states", "?")
+    generated = metadata.get("generated_at", datetime.now(timezone.utc).isoformat())
 
     return textwrap.dedent(f"""\
     ---
@@ -216,10 +219,7 @@ def _upload(
     try:
         from huggingface_hub import HfApi, CommitOperationAdd
     except ImportError:
-        raise SystemExit(
-            "huggingface-hub is not installed.\n"
-            "Run: pip install -e \".[kronos]\""
-        )
+        raise SystemExit("huggingface-hub is not installed.\n" 'Run: pip install -e ".[kronos]"')
 
     upload_files = _collect_upload_files(checkpoint_dir, symbol)
 
@@ -324,10 +324,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--checkpoint-dir",
         default=None,
-        help=(
-            "Root directory of the checkpoint tree "
-            "(default: data/models/kronos/{SYMBOL})"
-        ),
+        help=("Root directory of the checkpoint tree " "(default: data/models/kronos/{SYMBOL})"),
     )
     p.add_argument(
         "--token",

@@ -34,8 +34,6 @@ from rlm.execution.ibkr_combo_orders import (
     ibkr_order_connection,
     legs_from_ibkr_combo_spec,
     load_ibkr_order_socket_config,
-    place_options_combo_order,
-    reverse_legs_for_close,
 )
 
 
@@ -64,7 +62,9 @@ def _mark_opened(plans_path: Path, plan_id: str) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--plans", type=Path, required=True)
     p.add_argument("--max", type=int, default=20, help="Max opening orders (safety cap)")
     p.add_argument("--dry-run", action="store_true", help="Print only; no IBKR calls")
@@ -125,7 +125,9 @@ def main() -> int:
     n = 0
     host, port, client_id = load_ibkr_order_socket_config()
     try:
-        with ibkr_order_connection(host=host, port=port, client_id=client_id, timeout_sec=60.0) as app:
+        with ibkr_order_connection(
+            host=host, port=port, client_id=client_id, timeout_sec=60.0
+        ) as app:
             for row in to_open:
                 spec = row.get("ibkr_combo_spec")
                 if not isinstance(spec, dict):
@@ -149,11 +151,11 @@ def main() -> int:
 
                 try:
                     from rlm.execution.ibkr_combo_orders import (
+                        _get_bundle,
                         _resolve_option_on_app,
                         _wait_order_terminal,
                         assert_paper_or_live_acknowledged,
                     )
-                    from rlm.execution.ibkr_combo_orders import _get_bundle
 
                     _, _, Contract, ComboLeg, Order = _get_bundle()
 

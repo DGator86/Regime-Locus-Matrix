@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import duckdb as _duckdb
+
     _HAS_DUCKDB = True
 except ImportError:
     _HAS_DUCKDB = False
@@ -247,14 +248,15 @@ class MicrostructureDB:
         by_time = by_time.sort_values("timestamp").reset_index(drop=True)
         by_time["prev_net_gex"] = by_time["net_gex"].shift(1)
         flips = by_time[
-            (by_time["prev_net_gex"] * by_time["net_gex"] < 0)
-            & by_time["prev_net_gex"].notna()
+            (by_time["prev_net_gex"] * by_time["net_gex"] < 0) & by_time["prev_net_gex"].notna()
         ].copy()
         flips["flip_direction"] = flips.apply(
             lambda r: "positive_to_negative" if r["prev_net_gex"] > 0 else "negative_to_positive",
             axis=1,
         )
-        return flips[["timestamp", "prev_net_gex", "net_gex", "flip_direction"]].reset_index(drop=True)
+        return flips[["timestamp", "prev_net_gex", "net_gex", "flip_direction"]].reset_index(
+            drop=True
+        )
 
     # ------------------------------------------------------------------
     # IV surface
@@ -326,6 +328,7 @@ class MicrostructureDB:
             return ctx
 
         from rlm.data.microstructure.calculators.gex import build_gex_surface_from_df
+
         gex_df = build_gex_surface_from_df(snapshot, underlying_symbol=symbol, timestamp=timestamp)
         profile = aggregate_gex_profile(gex_df)
         ctx["gex_net_total"] = profile["total_net_gex"]

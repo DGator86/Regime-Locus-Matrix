@@ -26,10 +26,11 @@ import pandas as pd
 @dataclass(frozen=True)
 class DegradationThresholds:
     """Thresholds that trigger a degradation alert."""
-    expectancy_floor: float = 0.0       # halt if rolling expectancy < this
-    winrate_floor: float = 0.3          # alert if win rate < this
-    drawdown_floor: float = -0.15       # alert if rolling drawdown < this (e.g. -15%)
-    min_trades: int = 10                # require at least this many trades before alerting
+
+    expectancy_floor: float = 0.0  # halt if rolling expectancy < this
+    winrate_floor: float = 0.3  # alert if win rate < this
+    drawdown_floor: float = -0.15  # alert if rolling drawdown < this (e.g. -15%)
+    min_trades: int = 10  # require at least this many trades before alerting
 
 
 @dataclass(frozen=True)
@@ -134,17 +135,11 @@ def check_degradation(
         )
 
     if np.isfinite(expectancy) and expectancy < t.expectancy_floor:
-        reasons.append(
-            f"Rolling expectancy {expectancy:.2f} < floor {t.expectancy_floor:.2f}"
-        )
+        reasons.append(f"Rolling expectancy {expectancy:.2f} < floor {t.expectancy_floor:.2f}")
     if np.isfinite(winrate) and winrate < t.winrate_floor:
-        reasons.append(
-            f"Rolling win rate {winrate:.2%} < floor {t.winrate_floor:.2%}"
-        )
+        reasons.append(f"Rolling win rate {winrate:.2%} < floor {t.winrate_floor:.2%}")
     if np.isfinite(drawdown) and drawdown < t.drawdown_floor:
-        reasons.append(
-            f"Rolling drawdown {drawdown:.2%} < floor {t.drawdown_floor:.2%}"
-        )
+        reasons.append(f"Rolling drawdown {drawdown:.2%} < floor {t.drawdown_floor:.2%}")
 
     degraded = len(reasons) > 0
     if not degraded:

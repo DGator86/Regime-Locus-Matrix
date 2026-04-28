@@ -20,7 +20,9 @@ import pandas as pd
 from rlm.data.massive import MassiveClient
 
 
-def collect_paged_results(client: MassiveClient, first_page: dict[str, Any]) -> list[dict[str, Any]]:
+def collect_paged_results(
+    client: MassiveClient, first_page: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Append all ``results`` from ``first_page`` and every ``next_url`` page."""
     if not isinstance(first_page, dict):
         return []
@@ -91,9 +93,7 @@ def massive_aggs_payload_to_bars_df(payload: Any) -> pd.DataFrame:
         )
 
     if not records:
-        return pd.DataFrame(
-            columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"]
-        )
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"])
 
     out = pd.DataFrame.from_records(records)
     return out.sort_values("timestamp").reset_index(drop=True)
@@ -292,4 +292,6 @@ def bars_with_flow_from_massive(
     bars = massive_aggs_payload_to_bars_df(aggs_payload)
     trades_df = massive_trades_payload_to_dataframe({"results": trades_list}, time_field=time_field)
     tagged = trades_tick_rule_buy_sell(trades_df)
-    return aggregate_trade_flow_to_bars(bars, tagged, bar_time_col=bar_time_col, bar_duration=bar_duration)
+    return aggregate_trade_flow_to_bars(
+        bars, tagged, bar_time_col=bar_time_col, bar_duration=bar_duration
+    )

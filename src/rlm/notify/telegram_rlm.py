@@ -100,13 +100,24 @@ def build_status_brief(root: Path) -> str:
     gen = str(data.get("generated_at_utc", "?"))
     results = data.get("results") or []
     n_active = sum(1 for r in results if r.get("status") == "active")
-    mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat() if p.is_file() else "?"
+    mtime = (
+        datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+        if p.is_file()
+        else "?"
+    )
     return f"generated_at: {gen}\nfile mtime (UTC): {mtime}\nactive: {n_active}"
 
 
-def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
+def build_universe_and_positions(
+    root: Path, *, max_active: int = 12, max_positions: int = 20
+) -> str:
     """Universe summary plus open option rows (trade_log) and open equity rows (state json)."""
-    lines: list[str] = ["=== Universe ===", build_universe_report(root, max_active=max_active), "", "=== Options (trade_log, open) ==="]
+    lines: list[str] = [
+        "=== Universe ===",
+        build_universe_report(root, max_active=max_active),
+        "",
+        "=== Options (trade_log, open) ===",
+    ]
     p = default_paths(root)
     latest = _latest_rows_per_plan_csv(p["trade_log"])
     opts: list[tuple[str, dict[str, str]]] = []
@@ -129,7 +140,9 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
     eq = _read_equity_state(p["equity_state"])
-    eq_open = [(str(k), v or {}) for k, v in eq.items() if str((v or {}).get("status") or "") == "open"]
+    eq_open = [
+        (str(k), v or {}) for k, v in eq.items() if str((v or {}).get("status") or "") == "open"
+    ]
     lines.extend(["", "=== Equity (state file, open) ==="])
     if not eq_open:
         lines.append("  (none open)")
@@ -183,7 +196,11 @@ def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
     if not data:
         return f"Empty or unreadable: {p.name}"
     gen = str(data.get("generated_at_utc", "?"))
-    mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat() if p.is_file() else "?"
+    mtime = (
+        datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+        if p.is_file()
+        else "?"
+    )
     head = f"=== session_brief.json ===\ngenerated_at: {gen}\nfile mtime (UTC): {mtime}\n\n"
     return head + build_universe_report_from_data(data, max_active=max_active)
 
@@ -415,14 +432,16 @@ def _ibkr_balance_section() -> str:
                     return f"{row.value} {row.currency or ''}".strip()
         return "—"
 
-    return "\n".join([
-        "--- IBKR ACCOUNT ---",
-        f"Net liq:    {_tag('NetLiquidation')}",
-        f"Cash:       {_tag('TotalCashValue')}",
-        f"Buying pwr: {_tag('BuyingPower')}",
-        f"Unreal PnL: {_tag('UnrealizedPnL')}",
-        f"Real PnL:   {_tag('RealizedPnL')}",
-    ])
+    return "\n".join(
+        [
+            "--- IBKR ACCOUNT ---",
+            f"Net liq:    {_tag('NetLiquidation')}",
+            f"Cash:       {_tag('TotalCashValue')}",
+            f"Buying pwr: {_tag('BuyingPower')}",
+            f"Unreal PnL: {_tag('UnrealizedPnL')}",
+            f"Real PnL:   {_tag('RealizedPnL')}",
+        ]
+    )
 
 
 def build_pnl_text(root: Path) -> str:
@@ -432,25 +451,33 @@ def build_pnl_text(root: Path) -> str:
 
     eq_rows = _load_all_csv_rows(p["equity_trade_log"])
     eq_d, eq_w, eq_a, eq_mtm = _pnl_aggregates_from_log(eq_rows)
-    sections.append("\n".join([
-        "",
-        "--- EQUITIES ---",
-        f"Today:     {_fmt_pnl(eq_d)}",
-        f"This week: {_fmt_pnl(eq_w)}",
-        f"All-time:  {_fmt_pnl(eq_a)}",
-        f"Open MTM:  {_fmt_pnl(eq_mtm)}",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "",
+                "--- EQUITIES ---",
+                f"Today:     {_fmt_pnl(eq_d)}",
+                f"This week: {_fmt_pnl(eq_w)}",
+                f"All-time:  {_fmt_pnl(eq_a)}",
+                f"Open MTM:  {_fmt_pnl(eq_mtm)}",
+            ]
+        )
+    )
 
     opt_rows = _load_all_csv_rows(p["trade_log"])
     opt_d, opt_w, opt_a, opt_mtm = _pnl_aggregates_from_log(opt_rows)
-    sections.append("\n".join([
-        "",
-        "--- OPTIONS (Large Acct) ---",
-        f"Today:     {_fmt_pnl(opt_d)}",
-        f"This week: {_fmt_pnl(opt_w)}",
-        f"All-time:  {_fmt_pnl(opt_a)}",
-        f"Open MTM:  {_fmt_pnl(opt_mtm)}",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "",
+                "--- OPTIONS (Large Acct) ---",
+                f"Today:     {_fmt_pnl(opt_d)}",
+                f"This week: {_fmt_pnl(opt_w)}",
+                f"All-time:  {_fmt_pnl(opt_a)}",
+                f"Open MTM:  {_fmt_pnl(opt_mtm)}",
+            ]
+        )
+    )
 
     sections.append("")
     sections.append(_challenge_pnl_section(root))
@@ -483,8 +510,14 @@ def build_balances_text(root: Path) -> str:
     bp = _tag("BuyingPower")
     u_pnl = _tag("UnrealizedPnL")
 
-    stk: list[IbkrPositionRow] = [x for x in snap.positions if str(x.sec_type).upper() == "STK" and abs(x.position) > 0]
-    opt: list[IbkrPositionRow] = [x for x in snap.positions if str(x.sec_type).upper() in {"OPT", "BAG", "BOND"} and abs(x.position) > 0]
+    stk: list[IbkrPositionRow] = [
+        x for x in snap.positions if str(x.sec_type).upper() == "STK" and abs(x.position) > 0
+    ]
+    opt: list[IbkrPositionRow] = [
+        x
+        for x in snap.positions
+        if str(x.sec_type).upper() in {"OPT", "BAG", "BOND"} and abs(x.position) > 0
+    ]
 
     lines = [
         f"IBKR @ {snap.host}:{snap.port} (client {snap.client_id})",
@@ -575,9 +608,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             if sig == "take_profit":
                 st.announced_tp.add(pid)
         st.announced_trade_open = {
-            pid
-            for pid, row in latest.items()
-            if (row.get("closed") or "0").strip() != "1"
+            pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"
         }
         st.last_equity_open = set(now_open)
         plans_data0 = _read_plans(p["plans"])
@@ -589,9 +620,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
     # Upgrade older state files that used known_option_plans but not announced_trade_open
     if st.notify_seeded and "announced_trade_open" not in state_blob:
         st.announced_trade_open = {
-            pid
-            for pid, row in latest.items()
-            if (row.get("closed") or "0").strip() != "1"
+            pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"
         }
         merged = {**state_blob, **st.to_json()}
         return [], merged
@@ -618,9 +647,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
-            out.append(
-                f"Alert: Position now above profit target — {sym}  plan={pid}  mark={mark}"
-            )
+            out.append(f"Alert: Position now above profit target — {sym}  plan={pid}  mark={mark}")
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)

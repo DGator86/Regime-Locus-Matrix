@@ -36,8 +36,8 @@ import tkinter as tk
 from tkinter import ttk
 
 import pandas as pd
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import dates as mdates
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -218,7 +218,9 @@ def _local_day(ts: pd.Timestamp) -> date | None:
     return ts.tz_convert(_local_tzinfo()).date()
 
 
-def split_activity_for_day(life: pd.DataFrame, day: date) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def split_activity_for_day(
+    life: pd.DataFrame, day: date
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Opened on ``day``, closed on ``day``, and still open (latest log)."""
     if life.empty:
         return life.iloc[:0], life.iloc[:0], life.iloc[:0]
@@ -414,10 +416,14 @@ def _apply_ttk_dark(style: ttk.Style) -> None:
         borderwidth=0,
         rowheight=22,
     )
-    style.configure("Treeview.Heading", background=BORDER, foreground=TEXT, font=("Segoe UI", 9, "bold"))
+    style.configure(
+        "Treeview.Heading", background=BORDER, foreground=TEXT, font=("Segoe UI", 9, "bold")
+    )
     style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", TEXT)])
     style.configure("TLabelframe", background=BG, foreground=TEXT_DIM)
-    style.configure("TLabelframe.Label", background=BG, foreground=ACCENT, font=("Segoe UI", 9, "bold"))
+    style.configure(
+        "TLabelframe.Label", background=BG, foreground=ACCENT, font=("Segoe UI", 9, "bold")
+    )
 
 
 def _trunc_one_line(s: str, n: int = 140) -> str:
@@ -474,7 +480,9 @@ class KPICard(tk.Frame):
         self._value.pack(anchor=tk.W, padx=12, pady=(0, 10))
 
     def set_value(self, amount: float, *, neutral_ok: bool = False) -> None:
-        self._value.config(text=_fmt_money(amount), fg=_money_color(amount) if not neutral_ok else TEXT)
+        self._value.config(
+            text=_fmt_money(amount), fg=_money_color(amount) if not neutral_ok else TEXT
+        )
 
 
 class TradingTab(tk.Frame):
@@ -525,7 +533,9 @@ class TradingTab(tk.Frame):
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
     def _style_axes(self) -> None:
-        self.ax_eq.set_title("Cumulative realized P/L", color=TEXT, fontsize=11, fontweight="bold", pad=8)
+        self.ax_eq.set_title(
+            "Cumulative realized P/L", color=TEXT, fontsize=11, fontweight="bold", pad=8
+        )
         self.ax_eq.set_ylabel("USD", color=TEXT_DIM, fontsize=9)
         self.ax_bar.set_ylabel("Daily $", color=TEXT_DIM, fontsize=9)
         self.ax_bar.set_xlabel("Date (local)", color=TEXT_DIM, fontsize=9)
@@ -576,8 +586,12 @@ class TradingTab(tk.Frame):
             final = float(y.iloc[-1])
             line_color = PROFIT if final >= 0 else LOSS
             self.ax_eq.plot(x, y, color=line_color, linewidth=2.2, solid_capstyle="round")
-            self.ax_eq.fill_between(x, y, 0, where=(y >= 0), color=PROFIT, alpha=0.12, interpolate=True)
-            self.ax_eq.fill_between(x, y, 0, where=(y < 0), color=LOSS, alpha=0.12, interpolate=True)
+            self.ax_eq.fill_between(
+                x, y, 0, where=(y >= 0), color=PROFIT, alpha=0.12, interpolate=True
+            )
+            self.ax_eq.fill_between(
+                x, y, 0, where=(y < 0), color=LOSS, alpha=0.12, interpolate=True
+            )
             self.ax_eq.axhline(0, color=TEXT_DIM, linewidth=0.7, linestyle="--", alpha=0.5)
             self.ax_eq.xaxis.set_major_formatter(mdates.DateFormatter("%b %d", tz=tz))
             self.ax_eq.xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -591,12 +605,22 @@ class TradingTab(tk.Frame):
                 days = days_naive.dt.tz_convert(tz)
             heights = daily["pnl"].astype(float)
             colors = [PROFIT if h >= 0 else LOSS for h in heights]
-            self.ax_bar.bar(days, heights, width=0.7, color=colors, edgecolor=BORDER, linewidth=0.4, alpha=0.9)
+            self.ax_bar.bar(
+                days, heights, width=0.7, color=colors, edgecolor=BORDER, linewidth=0.4, alpha=0.9
+            )
             self.ax_bar.axhline(0, color=TEXT_DIM, linewidth=0.6, alpha=0.4)
             self.ax_bar.xaxis.set_major_formatter(mdates.DateFormatter("%b %d", tz=tz))
             self.ax_bar.xaxis.set_major_locator(mdates.AutoDateLocator())
         else:
-            self.ax_bar.text(0.5, 0.5, "No daily realized bars yet", ha="center", va="center", transform=self.ax_bar.transAxes, color=TEXT_DIM)
+            self.ax_bar.text(
+                0.5,
+                0.5,
+                "No daily realized bars yet",
+                ha="center",
+                va="center",
+                transform=self.ax_bar.transAxes,
+                color=TEXT_DIM,
+            )
 
         self.fig.autofmt_xdate()
         self.canvas.draw()
@@ -609,17 +633,28 @@ class DailyActivityTab(tk.Frame):
         super().__init__(parent, bg=BG)
         top = tk.Frame(self, bg=BG)
         top.pack(fill=tk.X, padx=8, pady=8)
-        tk.Label(top, text="Calendar day (local):", bg=BG, fg=TEXT_DIM, font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        tk.Label(top, text="Calendar day (local):", bg=BG, fg=TEXT_DIM, font=("Segoe UI", 10)).pack(
+            side=tk.LEFT
+        )
         self._date_var = tk.StringVar(value=date.today().isoformat())
         ttk.Entry(top, textvariable=self._date_var, width=12).pack(side=tk.LEFT, padx=6)
         ttk.Button(top, text="Apply date", command=self._on_apply).pack(side=tk.LEFT, padx=(0, 12))
         self._summary = tk.StringVar(value="")
-        tk.Label(top, textvariable=self._summary, bg=BG, fg=TEXT, font=("Consolas", 10)).pack(side=tk.LEFT)
+        tk.Label(top, textvariable=self._summary, bg=BG, fg=TEXT, font=("Consolas", 10)).pack(
+            side=tk.LEFT
+        )
 
         self._opened_tv, f1 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "opened", "strategy", "open_reason"),
-            ("Book", "Symbol", "Plan ID", "Opened (local)", "Strategy (log)", "Open reason (universe)"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Opened (local)",
+                "Strategy (log)",
+                "Open reason (universe)",
+            ),
             (70, 70, 200, 130, 100, 360),
             height=5,
         )
@@ -630,7 +665,15 @@ class DailyActivityTab(tk.Frame):
         self._closed_tv, f2 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "closed", "exit", "pnl", "open_reason"),
-            ("Book", "Symbol", "Plan ID", "Closed (local)", "Exit signal", "Realized $", "Open reason (universe)"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Closed (local)",
+                "Exit signal",
+                "Realized $",
+                "Open reason (universe)",
+            ),
             (70, 70, 200, 130, 110, 90, 320),
             height=5,
         )
@@ -641,7 +684,15 @@ class DailyActivityTab(tk.Frame):
         self._hold_tv, f3 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "opened", "strategy", "open_reason", "mtm"),
-            ("Book", "Symbol", "Plan ID", "Opened (local)", "Strategy (log)", "Open reason (universe)", "MTM $"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Opened (local)",
+                "Strategy (log)",
+                "Open reason (universe)",
+                "MTM $",
+            ),
             (70, 70, 200, 130, 100, 320, 80),
             height=5,
         )
@@ -668,7 +719,11 @@ class DailyActivityTab(tk.Frame):
         tz = _local_tzinfo()
         lo = lifecycles_from_log(opt_rows, "OPT")
         le = lifecycles_from_log(eq_rows, "EQ")
-        life = pd.concat([lo, le], ignore_index=True) if not lo.empty or not le.empty else pd.DataFrame()
+        life = (
+            pd.concat([lo, le], ignore_index=True)
+            if not lo.empty or not le.empty
+            else pd.DataFrame()
+        )
         opened, closed, holding = split_activity_for_day(life, day)
         self._summary.set(
             f"Day {day.isoformat()}  ·  opened={len(opened)}  closed={len(closed)}  holding_now={len(holding)}"
@@ -741,9 +796,14 @@ class UniverseDataTab(tk.Frame):
         meta = tk.Frame(self, bg=BG)
         meta.pack(fill=tk.X, padx=8, pady=6)
         self._meta_var = tk.StringVar(value="")
-        tk.Label(meta, textvariable=self._meta_var, bg=BG, fg=TEXT_DIM, font=("Consolas", 9), justify=tk.LEFT).pack(
-            anchor=tk.W
-        )
+        tk.Label(
+            meta,
+            textvariable=self._meta_var,
+            bg=BG,
+            fg=TEXT_DIM,
+            font=("Consolas", 9),
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W)
 
         cols = (
             "symbol",
@@ -773,15 +833,24 @@ class UniverseDataTab(tk.Frame):
         lf.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
         uf.pack(in_=lf, fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        tk.Label(self, text="Full rationale (selected row):", bg=BG, fg=TEXT_DIM, font=("Segoe UI", 9)).pack(
-            anchor=tk.W, padx=10
+        tk.Label(
+            self, text="Full rationale (selected row):", bg=BG, fg=TEXT_DIM, font=("Segoe UI", 9)
+        ).pack(anchor=tk.W, padx=10)
+        self._rat_text = tk.Text(
+            self, height=5, bg=BG_ELEV, fg=TEXT, insertbackground=TEXT, wrap=tk.WORD
         )
-        self._rat_text = tk.Text(self, height=5, bg=BG_ELEV, fg=TEXT, insertbackground=TEXT, wrap=tk.WORD)
         self._rat_text.pack(fill=tk.X, padx=10, pady=(0, 6))
         self._univ_tv.bind("<<TreeviewSelect>>", self._on_select_univ)
 
         dcols = ("symbol", "bars", "chain", "features", "forecast", "bt_equity")
-        dheads = ("Symbol", "bars_*.csv", "option_chain_*.csv", "features_*.csv", "forecast_features_*.csv", "backtest_equity_*.csv")
+        dheads = (
+            "Symbol",
+            "bars_*.csv",
+            "option_chain_*.csv",
+            "features_*.csv",
+            "forecast_features_*.csv",
+            "backtest_equity_*.csv",
+        )
         dwidths = (70, 90, 90, 90, 110, 110)
         self._disk_tv, df = _make_tree_frame(self, dcols, dheads, dwidths, height=8)
         lf2 = ttk.LabelFrame(self, text="Data on disk (processed + raw)")
@@ -893,7 +962,9 @@ class IbkrLiveTab(tk.Frame):
 
         top = tk.Frame(self, bg=BG)
         top.pack(fill=tk.X, padx=10, pady=(10, 6))
-        ttk.Button(top, text="Refresh IBKR snapshot", command=self.request_refresh).pack(side=tk.LEFT)
+        ttk.Button(top, text="Refresh IBKR snapshot", command=self.request_refresh).pack(
+            side=tk.LEFT
+        )
         self._conn_var = tk.StringVar(value="")
         tk.Label(top, textvariable=self._conn_var, bg=BG, fg=TEXT_DIM, font=("Consolas", 9)).pack(
             side=tk.LEFT, padx=(16, 0)
@@ -1141,10 +1212,17 @@ class PnLChartDashboard:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--options-log", type=Path, default=DEFAULT_OPTIONS_LOG)
     ap.add_argument("--equity-log", type=Path, default=DEFAULT_EQUITY_LOG)
-    ap.add_argument("--universe-plans", type=Path, default=DEFAULT_UNIVERSE_PLANS, help="universe_trade_plans.json")
+    ap.add_argument(
+        "--universe-plans",
+        type=Path,
+        default=DEFAULT_UNIVERSE_PLANS,
+        help="universe_trade_plans.json",
+    )
     ap.add_argument(
         "--refresh-ms",
         type=int,

@@ -6,7 +6,6 @@ import argparse
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,14 +48,16 @@ def main() -> None:
         print("TCP: OK (port is accepting connections)")
     except OSError as e:
         print(f"TCP: FAILED — {e}")
-        print("  → Start TWS or IB Gateway, log in, and match this port in Global Configuration → API → Settings.")
+        print(
+            "  → Start TWS or IB Gateway, log in, and match this port in Global Configuration → API → Settings."
+        )
         sys.exit(1)
 
     try:
         from ibapi.client import EClient
         from ibapi.wrapper import EWrapper
     except ImportError:
-        print("ibapi: not installed. Run: python -m pip install -e \".[ibkr]\"")
+        print('ibapi: not installed. Run: python -m pip install -e ".[ibkr]"')
         sys.exit(2)
 
     errors: list[tuple[int, int, str]] = []

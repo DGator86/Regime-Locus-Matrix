@@ -29,7 +29,21 @@ def main() -> None:
             "  morning    Run the Morning Briefing protocol (9:00 - 9:45 ET)\n"
         ),
     )
-    parser.add_argument("command", choices=["activate", "ingest", "forecast", "backtest", "trade", "challenge", "doctor", "status", "dashboard", "morning"])
+    parser.add_argument(
+        "command",
+        choices=[
+            "activate",
+            "ingest",
+            "forecast",
+            "backtest",
+            "trade",
+            "challenge",
+            "doctor",
+            "status",
+            "dashboard",
+            "morning",
+        ],
+    )
     parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
 
     if len(sys.argv) == 1:
@@ -57,7 +71,9 @@ def main() -> None:
     elif ns.command == "dashboard":
         import subprocess
         import webbrowser
+
         from rlm.data.paths import get_repo_root
+
         dashboard_dir = get_repo_root() / "dashboard"
         url = "http://2.24.28.77:3000"
         print(f"Opening dashboard: {url}")
@@ -67,7 +83,9 @@ def main() -> None:
 
     elif ns.command == "morning":
         import subprocess
+
         from rlm.data.paths import get_repo_root
+
         script_path = get_repo_root() / "scripts" / "morning_briefing.py"
         cmd = [sys.executable, str(script_path)]
         print(f"Running morning briefing: {' '.join(cmd)}")

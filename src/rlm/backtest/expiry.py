@@ -6,6 +6,7 @@ This module handles:
 - Assignment/exercise simulation for short ITM legs
 - Cash impact of settlement
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

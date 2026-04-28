@@ -12,7 +12,9 @@ from rlm.backtest.portfolio import Portfolio
 from rlm.types.options import TradeDecision
 
 
-def _decision_with_one_leg(expiry: str = "2025-01-12", size_fraction: float | None = None) -> TradeDecision:
+def _decision_with_one_leg(
+    expiry: str = "2025-01-12", size_fraction: float | None = None
+) -> TradeDecision:
     return TradeDecision(
         action="enter",
         strategy_name="test",
@@ -169,9 +171,16 @@ def test_engine_forces_close_before_expiry(monkeypatch) -> None:
         )
     chain = pd.DataFrame(chain_rows)
 
-    monkeypatch.setattr("rlm.backtest.engine.decide_trade_for_bar", lambda row, **_: _decision_with_one_leg())
-    monkeypatch.setattr("rlm.backtest.engine.match_legs_to_chain", lambda decision, chain_slice: decision)
-    monkeypatch.setattr("rlm.backtest.engine.select_nearest_expiry_slice", lambda row_chain, dte_min, dte_max: row_chain)
+    monkeypatch.setattr(
+        "rlm.backtest.engine.decide_trade_for_bar", lambda row, **_: _decision_with_one_leg()
+    )
+    monkeypatch.setattr(
+        "rlm.backtest.engine.match_legs_to_chain", lambda decision, chain_slice: decision
+    )
+    monkeypatch.setattr(
+        "rlm.backtest.engine.select_nearest_expiry_slice",
+        lambda row_chain, dte_min, dte_max: row_chain,
+    )
 
     engine = BacktestEngine(
         lifecycle_config=LifecycleConfig(

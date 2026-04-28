@@ -68,8 +68,13 @@ def options_flatfiles_dataset_dir(symbol: str, dataset: str, *, root: Path | Non
     return options_underlying_dir(symbol, root=root) / "flatfiles" / str(dataset).strip().lower()
 
 
-def options_flatfile_daily_parquet(symbol: str, dataset: str, trade_date: date, *, root: Path | None = None) -> Path:
-    return options_flatfiles_dataset_dir(symbol, dataset, root=root) / f"{trade_date.isoformat()}.parquet"
+def options_flatfile_daily_parquet(
+    symbol: str, dataset: str, trade_date: date, *, root: Path | None = None
+) -> Path:
+    return (
+        options_flatfiles_dataset_dir(symbol, dataset, root=root)
+        / f"{trade_date.isoformat()}.parquet"
+    )
 
 
 def option_ticker_file_slug(option_ticker: str) -> str:

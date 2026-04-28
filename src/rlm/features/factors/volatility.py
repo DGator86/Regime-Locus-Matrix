@@ -109,7 +109,9 @@ class VolatilityFactors(FactorCalculator):
         out["realized_volatility"] = ret.rolling(20, min_periods=5).std()
 
         if "options_volume" in df.columns:
-            options_volume_avg = df["options_volume"].rolling(20, min_periods=5).mean().replace(0, np.nan)
+            options_volume_avg = (
+                df["options_volume"].rolling(20, min_periods=5).mean().replace(0, np.nan)
+            )
             out["abnormal_options_volume"] = df["options_volume"] / options_volume_avg
         else:
             out["abnormal_options_volume"] = pd.NA

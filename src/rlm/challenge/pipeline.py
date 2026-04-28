@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from rlm.challenge.models import (
     ChallengeAccountState,
-    ChallengePipelineConfig,
     ChallengeDirective,
+    ChallengePipelineConfig,
     ContractProfileRecommendation,
     PDTTracker,
     RiskPlan,
@@ -61,7 +61,9 @@ class ChallengeDecisionPipeline:
         # 2. Setup scoring
         score_result = self._score_setup(persona)
         if not score_result.passed_threshold:
-            return self._no_trade(symbol, pdt, f"setup score {score_result.setup_score:.2f} below min")
+            return self._no_trade(
+                symbol, pdt, f"setup score {score_result.setup_score:.2f} below min"
+            )
 
         # 3. Trade mode (scalp vs swing)
         mode_decision = self._decide_mode(score_result, pdt)
@@ -121,7 +123,7 @@ class ChallengeDecisionPipeline:
             + cfg.weight_signal_alignment * s.signal_alignment
             + cfg.weight_historical_edge * d.historical_edge
             + cfg.weight_dealer_support * dealer_support
-            - 0.30 * g.trap_risk          # trap penalty
+            - 0.30 * g.trap_risk  # trap penalty
         )
         score = max(0.0, min(1.0, raw_score))
 
@@ -216,15 +218,23 @@ class ChallengeDecisionPipeline:
     def _no_trade(self, symbol: str, pdt: PDTTracker, reason: str) -> ChallengeDirective:
         cfg = self._cfg
         empty_profile = ContractProfileRecommendation(
-            target_delta_min=0.0, target_delta_max=0.0,
-            preferred_dte_min=0, preferred_dte_max=0,
-            max_spread_pct=0.0, liquidity_tier="low", note="n/a",
+            target_delta_min=0.0,
+            target_delta_max=0.0,
+            preferred_dte_min=0,
+            preferred_dte_max=0,
+            max_spread_pct=0.0,
+            liquidity_tier="low",
+            note="n/a",
         )
         empty_risk = RiskPlan(
-            premium_outlay_pct=0.0, max_account_loss_pct=0.0,
-            hard_stop_pct=cfg.hard_stop_pct, trail_activate_pct=cfg.trail_activate_pct,
-            trail_drawdown_pct=cfg.trail_drawdown_pct, profit_target_pct=cfg.profit_target_pct,
-            partial_take_pct=cfg.partial_take_pct, use_underlying_invalidation=False,
+            premium_outlay_pct=0.0,
+            max_account_loss_pct=0.0,
+            hard_stop_pct=cfg.hard_stop_pct,
+            trail_activate_pct=cfg.trail_activate_pct,
+            trail_drawdown_pct=cfg.trail_drawdown_pct,
+            profit_target_pct=cfg.profit_target_pct,
+            partial_take_pct=cfg.partial_take_pct,
+            use_underlying_invalidation=False,
             force_close_dte_threshold=1,
         )
         return ChallengeDirective(

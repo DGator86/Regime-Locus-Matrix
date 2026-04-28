@@ -36,6 +36,7 @@ Examples
         --bars data/raw/bars_QQQ.csv \\
         --out data/processed/kronos_forecast_QQQ.csv
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,13 +49,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.factors.pipeline import FactorPipeline
+
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_forecast_features_csv
-from rlm.factors.pipeline import FactorPipeline
+from rlm.forecasting.engines import HybridKronosForecastPipeline
 from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
-from rlm.forecasting.engines import HybridKronosForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
 
@@ -139,7 +141,9 @@ def parse_args() -> argparse.Namespace:
     # Regime overlay
     p.add_argument("--use-hmm", action="store_true", help="Overlay HMM regime model.")
     p.add_argument("--hmm-states", type=int, default=6, help="Number of HMM states.")
-    p.add_argument("--use-markov", action="store_true", help="Overlay Markov-switching regime model.")
+    p.add_argument(
+        "--use-markov", action="store_true", help="Overlay Markov-switching regime model."
+    )
     p.add_argument("--markov-states", type=int, default=3, help="Number of Markov states.")
 
     # RLM distributional config
@@ -157,9 +161,8 @@ def main() -> None:
     out_path = (
         Path(args.out)
         if args.out
-        else ROOT / rel_forecast_features_csv(symbol).replace(
-            "forecast_features", "kronos_forecast"
-        )
+        else ROOT
+        / rel_forecast_features_csv(symbol).replace("forecast_features", "kronos_forecast")
     )
 
     # ------------------------------------------------------------------

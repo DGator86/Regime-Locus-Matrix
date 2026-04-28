@@ -5,18 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class StageSizingRule:
     """Premium outlay and max-loss limits for a given equity stage."""
+
     equity_min: float
     equity_max: float
-    premium_outlay_pct: float   # fraction of equity to spend on premium
-    max_loss_pct: float         # max tolerated loss per trade as % of equity
+    premium_outlay_pct: float  # fraction of equity to spend on premium
+    max_loss_pct: float  # max tolerated loss per trade as % of equity
 
 
 @dataclass
@@ -38,26 +39,28 @@ class ChallengePipelineConfig:
     allowed_universe: list[str] = field(default_factory=lambda: ["SPY", "QQQ"])
 
     # Setup quality gates
-    min_setup_score: float = 0.55        # below this → no_trade
-    elite_setup_score: float = 0.70      # above this → scalp eligible (was 0.78 — too restrictive)
-    top_setups_per_session: int = 2      # max entries per session
+    min_setup_score: float = 0.55  # below this → no_trade
+    elite_setup_score: float = 0.70  # above this → scalp eligible (was 0.78 — too restrictive)
+    top_setups_per_session: int = 2  # max entries per session
 
     # PDT
-    max_day_trades_per_5d: int = 3       # conservative PDT ceiling
+    max_day_trades_per_5d: int = 3  # conservative PDT ceiling
 
     # Stage sizing tiers
-    stage_sizing: list[StageSizingRule] = field(default_factory=lambda: [
-        StageSizingRule(1_000,  2_500, premium_outlay_pct=0.12, max_loss_pct=0.025),
-        StageSizingRule(2_500,  7_500, premium_outlay_pct=0.15, max_loss_pct=0.030),
-        StageSizingRule(7_500, 25_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
-    ])
+    stage_sizing: list[StageSizingRule] = field(
+        default_factory=lambda: [
+            StageSizingRule(1_000, 2_500, premium_outlay_pct=0.12, max_loss_pct=0.025),
+            StageSizingRule(2_500, 7_500, premium_outlay_pct=0.15, max_loss_pct=0.030),
+            StageSizingRule(7_500, 25_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
+        ]
+    )
 
     # Stop / trailing stop
-    hard_stop_pct: float = 0.28          # -28% of premium paid
-    trail_activate_pct: float = 0.18     # activate trail after +18% gain
-    trail_drawdown_pct: float = 0.12     # trail permits -12% from peak
-    profit_target_pct: float = 0.22      # first profit target
-    partial_take_pct: float = 0.50       # take 50% at first target
+    hard_stop_pct: float = 0.28  # -28% of premium paid
+    trail_activate_pct: float = 0.18  # activate trail after +18% gain
+    trail_drawdown_pct: float = 0.12  # trail permits -12% from peak
+    profit_target_pct: float = 0.22  # first profit target
+    partial_take_pct: float = 0.50  # take 50% at first target
 
     # Contract preferences (swing)
     swing_delta_min: float = 0.45
@@ -66,10 +69,10 @@ class ChallengePipelineConfig:
     swing_dte_max: int = 21
 
     # Contract preferences (scalp)
-    scalp_delta_min: float = 0.40        # ATM-ish; matches engine's 0DTE ATM play
+    scalp_delta_min: float = 0.40  # ATM-ish; matches engine's 0DTE ATM play
     scalp_delta_max: float = 0.60
-    scalp_dte_min: int = 0               # true 0DTE allowed (was 3)
-    scalp_dte_max: int = 3               # short-dated cap (was 10)
+    scalp_dte_min: int = 0  # true 0DTE allowed (was 3)
+    scalp_dte_max: int = 3  # short-dated cap (was 10)
 
     # Max bid-ask spread as fraction of mid-price
     max_spread_pct: float = 0.06
@@ -85,12 +88,14 @@ class ChallengePipelineConfig:
 # Account state
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ChallengeAccountState:
     """Mutable account state persisted to data/challenge/state.json."""
+
     current_equity: float = 1_000.0
     peak_equity: float = 1_000.0
-    milestone_stage: int = 1            # 1, 2, or 3 matching stage_sizing tiers
+    milestone_stage: int = 1  # 1, 2, or 3 matching stage_sizing tiers
     open_positions_count: int = 0
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
@@ -112,9 +117,11 @@ class ChallengeAccountState:
 # PDT tracker
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PDTTracker:
     """Track intraday round-trips for PDT compliance simulation."""
+
     day_trades_used_last_5d: list[int] = field(default_factory=list)
     # Each element = count of day-trades used on that calendar date (last 5)
 
@@ -149,9 +156,11 @@ class PDTTracker:
 # Derived decision types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SetupScoreResult:
     """Setup ranking output."""
+
     setup_score: float
     conviction: Literal["low", "medium", "high", "elite"]
     passed_threshold: bool
@@ -161,6 +170,7 @@ class SetupScoreResult:
 @dataclass(frozen=True)
 class TradeModeDecision:
     """Determines scalp vs swing_candidate vs no_trade."""
+
     trade_mode: Literal["scalp", "swing_candidate", "no_trade"]
     same_day_exit_allowed: bool
     pdt_reason: str
@@ -169,6 +179,7 @@ class TradeModeDecision:
 @dataclass(frozen=True)
 class ContractProfileRecommendation:
     """Lightweight contract selection guidance."""
+
     target_delta_min: float
     target_delta_max: float
     preferred_dte_min: int
@@ -181,6 +192,7 @@ class ContractProfileRecommendation:
 @dataclass(frozen=True)
 class RiskPlan:
     """Complete risk plan for a single challenge trade."""
+
     premium_outlay_pct: float
     max_account_loss_pct: float
     hard_stop_pct: float
@@ -195,6 +207,7 @@ class RiskPlan:
 @dataclass(frozen=True)
 class ChallengeDirective:
     """Final challenge decision artifact."""
+
     symbol: str
     setup_score: float
     conviction: Literal["low", "medium", "high", "elite"]

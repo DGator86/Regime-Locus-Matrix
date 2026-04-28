@@ -45,16 +45,15 @@ class QuantileLinearModelArtifact:
             quantiles=tuple(float(x) for x in payload["quantiles"]),
             feature_columns=tuple(str(x) for x in payload["feature_columns"]),
             intercepts=tuple(float(x) for x in payload["intercepts"]),
-            coefficients=tuple(
-                tuple(float(v) for v in row)
-                for row in payload["coefficients"]
-            ),
+            coefficients=tuple(tuple(float(v) for v in row) for row in payload["coefficients"]),
         )
 
     def predict(self, feature_frame: pd.DataFrame) -> pd.DataFrame:
         x = feature_frame.loc[:, list(self.feature_columns)].fillna(0.0).to_numpy(dtype=float)
         preds: dict[str, np.ndarray] = {}
-        for quantile, intercept, coefs in zip(self.quantiles, self.intercepts, self.coefficients, strict=True):
+        for quantile, intercept, coefs in zip(
+            self.quantiles, self.intercepts, self.coefficients, strict=True
+        ):
             preds[f"{quantile:.4f}"] = intercept + x @ np.asarray(coefs, dtype=float)
         return pd.DataFrame(preds, index=feature_frame.index)
 
@@ -124,10 +123,7 @@ class ProbabilisticForecastPipeline:
             feature_columns=self.model.feature_columns,
         )
         raw_preds = self.model.predict(features)
-        q_map = {
-            float(key): raw_preds[key]
-            for key in raw_preds.columns
-        }
+        q_map = {float(key): raw_preds[key] for key in raw_preds.columns}
         lower_q = self.config.probabilistic_lower_quantile
         upper_q = self.config.probabilistic_upper_quantile
         if lower_q not in q_map or 0.5 not in q_map or upper_q not in q_map:

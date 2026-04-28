@@ -21,9 +21,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
-from rlm.challenge.config import ChallengeConfig, MILESTONES
+from rlm.challenge.config import MILESTONES, ChallengeConfig
 from rlm.challenge.engine import ChallengeEngine
 from rlm.challenge.tracker import ChallengeTracker
 from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
@@ -46,19 +45,27 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--run", action="store_true", help="Run one session (loads data + persona)")
     p.add_argument("--status", action="store_true", help="Print challenge dashboard")
     p.add_argument(
-        "--capital", type=float, default=1_000.0,
+        "--capital",
+        type=float,
+        default=1_000.0,
         help="Seed capital for --reset (default: $1,000)",
     )
     p.add_argument(
-        "--target", type=float, default=25_000.0,
+        "--target",
+        type=float,
+        default=25_000.0,
         help="Target capital (default: $25,000)",
     )
     p.add_argument(
-        "--underlying-price", type=float, default=None,
+        "--underlying-price",
+        type=float,
+        default=None,
         help="Override underlying price (skips live data fetch for --run)",
     )
     p.add_argument(
-        "--iv", type=float, default=None,
+        "--iv",
+        type=float,
+        default=None,
         help="Override implied volatility, e.g. 0.18 for 18%% (default: auto-estimate)",
     )
     p.add_argument(
@@ -84,7 +91,9 @@ def main() -> None:  # noqa: C901
     # ---- Reset --------------------------------------------------------------
     if args.reset:
         state = tracker.reset(cfg)
-        print(f"Challenge reset.  Starting balance: ${state.balance:,.2f}  Target: ${state.target:,.2f}")
+        print(
+            f"Challenge reset.  Starting balance: ${state.balance:,.2f}  Target: ${state.target:,.2f}"
+        )
         print(f"State file: {tracker.state_path()}")
         return
 
@@ -138,6 +147,7 @@ def main() -> None:  # noqa: C901
 # ---------------------------------------------------------------------------
 # Signal acquisition
 # ---------------------------------------------------------------------------
+
 
 def _get_signals(
     *,
@@ -201,6 +211,7 @@ def _get_signals(
 # Output formatting
 # ---------------------------------------------------------------------------
 
+
 def _print_dashboard(tracker: ChallengeTracker) -> None:
     state = tracker.load()
     m = state.current_milestone
@@ -218,7 +229,9 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print(f"  Stage     : {getattr(m, 'label', '—')}")
     print()
     print(f"  Sessions  : {state.session_count}")
-    print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
+    print(
+        f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})"
+    )
     print()
 
     # Milestones
@@ -247,6 +260,7 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
 
 def _print_summary(summary: object, symbol: str) -> None:
     from rlm.challenge.engine import SessionSummary
+
     s: SessionSummary = summary  # type: ignore[assignment]
 
     delta = s.balance_after - s.balance_before
@@ -266,6 +280,7 @@ def _print_summary(summary: object, symbol: str) -> None:
 
 def _print_summary_json(summary: object) -> None:
     from rlm.challenge.engine import SessionSummary
+
     s: SessionSummary = summary  # type: ignore[assignment]
     out = {
         "session_date": s.session_date,

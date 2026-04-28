@@ -28,13 +28,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-
 
 # ---------------------------------------------------------------------------
 # In-memory GEX surface (from a greeks snapshot DataFrame)
 # ---------------------------------------------------------------------------
+
 
 def build_gex_surface_from_df(
     snapshot: pd.DataFrame,
@@ -66,7 +65,9 @@ def build_gex_surface_from_df(
     df = snapshot.copy()
     df["option_type"] = df["option_type"].str.lower()
 
-    spot = float(df["underlying_price"].iloc[0]) if "underlying_price" in df.columns else float("nan")
+    spot = (
+        float(df["underlying_price"].iloc[0]) if "underlying_price" in df.columns else float("nan")
+    )
 
     # Per-contract GEX
     df["_gex_raw"] = df["gamma"] * df["open_interest"] * 100.0 * spot
@@ -83,18 +84,20 @@ def build_gex_surface_from_df(
         put_gex = -float(puts["_gex_raw"].sum())  # Negative: dealers are short puts
         total_gamma = float(grp["gamma"].sum())
         gex = call_gex + put_gex  # = net dealer GEX
-        rows.append({
-            "timestamp": timestamp,
-            "underlying_symbol": underlying_symbol,
-            "underlying_price": spot,
-            "strike": float(strike),
-            "expiration": expiration,
-            "total_gamma": total_gamma,
-            "call_gex": call_gex,
-            "put_gex": put_gex,
-            "net_gex": call_gex - abs(put_gex),
-            "gex": gex,
-        })
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "underlying_symbol": underlying_symbol,
+                "underlying_price": spot,
+                "strike": float(strike),
+                "expiration": expiration,
+                "total_gamma": total_gamma,
+                "call_gex": call_gex,
+                "put_gex": put_gex,
+                "net_gex": call_gex - abs(put_gex),
+                "gex": gex,
+            }
+        )
 
     result = pd.DataFrame(rows)
     if result.empty:
@@ -156,6 +159,7 @@ def build_gex_surface(
 # ---------------------------------------------------------------------------
 # GEX analytics helpers
 # ---------------------------------------------------------------------------
+
 
 def gex_flip_level(gex_df: pd.DataFrame) -> float | None:
     """
@@ -223,7 +227,10 @@ def aggregate_gex_profile(gex_df: pd.DataFrame) -> dict[str, float]:
 # Persistence helpers
 # ---------------------------------------------------------------------------
 
-def save_gex_surface(gex_df: pd.DataFrame, symbol: str, data_path: str = "data/microstructure") -> None:
+
+def save_gex_surface(
+    gex_df: pd.DataFrame, symbol: str, data_path: str = "data/microstructure"
+) -> None:
     """Persist GEX surface to date-partitioned Parquet."""
     if gex_df.empty:
         return

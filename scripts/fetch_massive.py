@@ -16,7 +16,9 @@ from rlm.data.massive import MassiveClient
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch JSON from Massive REST API")
-    parser.add_argument("ticker", nargs="?", default="SPY", help="Underlying for options snapshot / stock aggs")
+    parser.add_argument(
+        "ticker", nargs="?", default="SPY", help="Underlying for options snapshot / stock aggs"
+    )
     parser.add_argument(
         "--endpoint",
         choices=(
@@ -74,7 +76,9 @@ def main() -> None:
 
     if args.endpoint == "raw":
         if not args.path.startswith("/v") and not args.path.startswith("/"):
-            print("error: --path should start with / (e.g. /v3/snapshot/options/SPY)", file=sys.stderr)
+            print(
+                "error: --path should start with / (e.g. /v3/snapshot/options/SPY)", file=sys.stderr
+            )
             sys.exit(2)
         path = args.path if args.path.startswith("/") else "/" + args.path
         data = client.get(path)

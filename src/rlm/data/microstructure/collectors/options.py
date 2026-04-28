@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from ib_insync import IB, Contract, ContractDetails, Option, Stock, util
+
     _HAS_IB_INSYNC = True
 except ImportError:
     _HAS_IB_INSYNC = False
@@ -104,6 +105,7 @@ def _append_parquet(df: pd.DataFrame, path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Main collector
 # ---------------------------------------------------------------------------
+
 
 class OptionsCollector:
     """
@@ -188,9 +190,7 @@ class OptionsCollector:
                 if not (lo_strike <= strike <= hi_strike):
                     continue
                 for right in ("C", "P"):
-                    contracts.append(
-                        Option(self.symbol, expiry_str, strike, right, "SMART", "USD")
-                    )
+                    contracts.append(Option(self.symbol, expiry_str, strike, right, "SMART", "USD"))
         return contracts
 
     def _fetch_market_data(self, ib: IB, contracts: list[Any], spot: float) -> pd.DataFrame:
@@ -219,7 +219,9 @@ class OptionsCollector:
                     continue
 
                 try:
-                    exp_date = datetime.strptime(contract.lastTradeDateOrContractMonth, "%Y%m%d").date()
+                    exp_date = datetime.strptime(
+                        contract.lastTradeDateOrContractMonth, "%Y%m%d"
+                    ).date()
                 except (ValueError, AttributeError):
                     ib.cancelMktData(contract)
                     continue
@@ -235,22 +237,25 @@ class OptionsCollector:
                     risk_free=self.risk_free,
                 )
 
-                records.append({
-                    "timestamp": now,
-                    "underlying_symbol": self.symbol,
-                    "underlying_price": spot,
-                    "contract_symbol": contract.localSymbol or f"{self.symbol}_{contract.lastTradeDateOrContractMonth}_{contract.strike}{contract.right}",
-                    "expiration": exp_date,
-                    "dte": dte,
-                    "strike": float(contract.strike),
-                    "option_type": "call" if is_call else "put",
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": mid,
-                    "volume": volume,
-                    "open_interest": oi,
-                    "implied_vol": iv,
-                })
+                records.append(
+                    {
+                        "timestamp": now,
+                        "underlying_symbol": self.symbol,
+                        "underlying_price": spot,
+                        "contract_symbol": contract.localSymbol
+                        or f"{self.symbol}_{contract.lastTradeDateOrContractMonth}_{contract.strike}{contract.right}",
+                        "expiration": exp_date,
+                        "dte": dte,
+                        "strike": float(contract.strike),
+                        "option_type": "call" if is_call else "put",
+                        "bid": bid,
+                        "ask": ask,
+                        "mid": mid,
+                        "volume": volume,
+                        "open_interest": oi,
+                        "implied_vol": iv,
+                    }
+                )
                 ib.cancelMktData(contract)
 
         return pd.DataFrame(records)
@@ -339,6 +344,7 @@ class OptionsCollector:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _main() -> None:
     import argparse
 
@@ -372,7 +378,11 @@ def _main() -> None:
         df = collector.fetch_snapshot()
         print(f"Snapshot: {len(df)} contracts for {args.symbol}")
         if not df.empty:
-            print(df[["strike", "option_type", "dte", "mid", "implied_vol", "delta", "gamma"]].head(10).to_string())
+            print(
+                df[["strike", "option_type", "dte", "mid", "implied_vol", "delta", "gamma"]]
+                .head(10)
+                .to_string()
+            )
 
 
 if __name__ == "__main__":

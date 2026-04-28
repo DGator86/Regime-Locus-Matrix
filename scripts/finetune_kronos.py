@@ -27,8 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.kronos.config import KronosConfig
 from rlm.kronos.model.kronos import Kronos, KronosTokenizer
+
+from rlm.kronos.config import KronosConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class RLMKlineDataset(Dataset):
     ) -> None:
         """
         Initialize the dataset as sliding windows of numeric features and time components derived from the input bars DataFrame.
-        
+
         Parameters:
             df (pd.DataFrame): DataFrame of historical bars. Expected columns include
                 "open", "high", "low", "close", "volume" and optionally "amount" and "timestamp".
@@ -61,7 +62,7 @@ class RLMKlineDataset(Dataset):
             lookback (int): Number of past steps included in each input window.
             pred_len (int): Number of future steps reserved for prediction in each window.
             clip (float): Absolute value used to clip standardized feature values.
-        
+
         Behavior:
             - Parses timestamps and adds time component columns: minute, hour, weekday, day, month.
             - Builds numpy arrays:
@@ -93,7 +94,7 @@ class RLMKlineDataset(Dataset):
     def __len__(self) -> int:
         """
         Number of sliding-window samples available in the dataset.
-        
+
         Returns:
             int: Count of available samples (max(len(df) - window + 1, 0)).
         """
@@ -102,13 +103,13 @@ class RLMKlineDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Return a sliding-window sample: standardized/clipped numeric features and corresponding time features.
-        
+
         Parameters:
-        	idx (int): Index of the sample window; wrapped via modulo to stay inside valid range.
-        
+                idx (int): Index of the sample window; wrapped via modulo to stay inside valid range.
+
         Returns:
-        	x (torch.Tensor): Float tensor of shape (window, num_feature_cols) containing per-window standardized and clipped feature values.
-        	x_stamp (torch.Tensor): Float tensor of shape (window, num_time_cols) containing the time-derived features for the same window.
+                x (torch.Tensor): Float tensor of shape (window, num_feature_cols) containing per-window standardized and clipped feature values.
+                x_stamp (torch.Tensor): Float tensor of shape (window, num_time_cols) containing the time-derived features for the same window.
         """
         start = idx % (len(self.features) - self.window + 1)
         end = start + self.window
@@ -135,16 +136,16 @@ def _train_one_epoch(
 ) -> float:
     """
     Runs a single training epoch: processes all batches from `loader`, updates tokenizer and model parameters, and returns the average training loss.
-    
+
     Processes each batch by computing the tokenizer reconstruction and quantization losses, computing the predictor's loss using teacher forcing on latent token indices, summing these losses, performing backpropagation with gradient clipping, and stepping `optimizer`.
-    
+
     Parameters:
         tokenizer (KronosTokenizer): Tokenizer being fine-tuned; its parameters are updated.
         model (Kronos): Predictor being fine-tuned; its parameters are updated.
         loader (DataLoader): Iterable DataLoader yielding (features, time-stamps) batches.
         optimizer (torch.optim.Optimizer): Optimizer stepping both tokenizer and model parameters.
         device (str): Torch device identifier where tensors and models are located.
-    
+
     Returns:
         float: Average training loss computed over all processed batches.
     """
@@ -176,9 +177,7 @@ def _train_one_epoch(
         loss = tok_loss + pred_loss
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            list(tokenizer.parameters()) + list(model.parameters()), 1.0
-        )
+        torch.nn.utils.clip_grad_norm_(list(tokenizer.parameters()) + list(model.parameters()), 1.0)
         optimizer.step()
 
         total_loss += loss.item()
@@ -193,7 +192,7 @@ def _train_one_epoch(
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for the Kronos fine-tuning script.
-    
+
     Returns:
         args (argparse.Namespace): Parsed arguments with attributes:
             symbol (str): Ticker symbol to train on (default "SPY").
@@ -220,9 +219,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """
     Run the CLI fine-tuning pipeline that trains a Kronos tokenizer and predictor on historical bar data and saves the best checkpoint.
-    
+
     Reads and time-sorts a bars CSV (path from CLI args or data/raw/bars_{SYMBOL}.csv), splits into train/validation, constructs datasets/loaders, loads pre-trained Kronos tokenizer and model from KronosConfig, runs epoch-wise training and validation, and saves the tokenizer and model to data/models/kronos/{SYMBOL}/ when validation improves. Seeds Python/NumPy/torch from CLI `--seed` and uses the device specified by KronosConfig.
-    
+
     Raises:
         SystemExit: if the specified bars CSV file cannot be found.
     """
@@ -251,7 +250,11 @@ def main() -> None:
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
-    logger.info("Loading pre-trained Kronos tokenizer (%s) and model (%s)", cfg.tokenizer_name, cfg.model_name)
+    logger.info(
+        "Loading pre-trained Kronos tokenizer (%s) and model (%s)",
+        cfg.tokenizer_name,
+        cfg.model_name,
+    )
     tokenizer = KronosTokenizer.from_pretrained(cfg.tokenizer_name).to(device)
     model = Kronos.from_pretrained(cfg.model_name).to(device)
 
@@ -280,8 +283,11 @@ def main() -> None:
                 recon_loss = nn.functional.mse_loss(recon, x_batch)
                 s1_ids, s2_ids = z_indices[0], z_indices[1]
                 s1_logits, s2_logits = model(
-                    s1_ids[:, :-1], s2_ids[:, :-1], stamp_batch[:, :-1],
-                    use_teacher_forcing=True, s1_targets=s1_ids[:, 1:],
+                    s1_ids[:, :-1],
+                    s2_ids[:, :-1],
+                    stamp_batch[:, :-1],
+                    use_teacher_forcing=True,
+                    s1_targets=s1_ids[:, 1:],
                 )
                 pred_loss, _, _ = model.head.compute_loss(
                     s1_logits, s2_logits, s1_ids[:, 1:], s2_ids[:, 1:]
@@ -298,7 +304,10 @@ def main() -> None:
 
         logger.info(
             "Epoch %d/%d  train_loss=%.5f  val_loss=%.5f%s",
-            epoch, args.epochs, train_loss, val_loss,
+            epoch,
+            args.epochs,
+            train_loss,
+            val_loss,
             "  *saved*" if improved else "",
         )
 

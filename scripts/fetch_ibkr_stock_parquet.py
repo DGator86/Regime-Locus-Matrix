@@ -40,7 +40,9 @@ def main() -> int:
         help="Folder layout under data/stocks/{SYM}/",
     )
     p.add_argument("--out", default=None, help="Override output Parquet path")
-    p.add_argument("--end-datetime", default="", dest="end_datetime", help="IB end anchor; empty = now")
+    p.add_argument(
+        "--end-datetime", default="", dest="end_datetime", help="IB end anchor; empty = now"
+    )
     args = p.parse_args()
 
     slug = args.duration_slug

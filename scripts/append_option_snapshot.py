@@ -30,12 +30,12 @@ except ImportError:
 
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chain_from_client
-from rlm.datasets.paths import DEFAULT_SYMBOL, rel_option_chain_csv
 from rlm.datasets.option_history import (
     merge_option_chain_history,
     read_option_chain_csv,
     write_option_chain_csv,
 )
+from rlm.datasets.paths import DEFAULT_SYMBOL, rel_option_chain_csv
 
 
 def main() -> int:
@@ -75,9 +75,7 @@ def main() -> int:
         as_of = pd.Timestamp.utcnow().normalize()
 
     client = MassiveClient()
-    chain = massive_option_chain_from_client(
-        client, sym, timestamp=as_of, limit=250
-    )
+    chain = massive_option_chain_from_client(client, sym, timestamp=as_of, limit=250)
 
     if chain.empty:
         print("No option chain rows returned from Massive.", file=sys.stderr)

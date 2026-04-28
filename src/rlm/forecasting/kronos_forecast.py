@@ -30,6 +30,7 @@ Install the required extras before use::
 
     pip install -e ".[kronos]"
 """
+
 from __future__ import annotations
 
 import warnings
@@ -196,15 +197,15 @@ class KronosForecastPipeline:
         out["forecast_return_upper"] = kronos_df["upper"].values
         out["forecast_return"] = out["forecast_return_median"]
         out["forecast_uncertainty"] = (
-            (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
-        )
+            out["forecast_return_upper"] - out["forecast_return_lower"]
+        ).clip(lower=0.0)
         out["mu"] = out["forecast_return_median"]
 
         z_span = float(norm.ppf(cfg.upper_quantile) - norm.ppf(cfg.lower_quantile))
         if abs(z_span) > 1e-9:
             sigma_series = (
-                (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
-            )
+                out["forecast_return_upper"] - out["forecast_return_lower"]
+            ).abs() / z_span
         else:
             sigma_series = pd.Series(cfg.sigma_floor, index=out.index)
         out["sigma"] = sigma_series.clip(lower=cfg.sigma_floor)
@@ -252,7 +253,9 @@ class KronosForecastPipeline:
             if current_close == 0.0:
                 continue
 
-            med, lo, hi = self._single_forecast(predictor, x_df, x_ts, y_ts, current_close, df, ctx_start, i)
+            med, lo, hi = self._single_forecast(
+                predictor, x_df, x_ts, y_ts, current_close, df, ctx_start, i
+            )
 
             # Fill this result forward across the stride window
             end_j = min(i + stride, n)
@@ -394,6 +397,7 @@ class KronosForecastPipeline:
 # Composable blend helpers
 # ---------------------------------------------------------------------------
 
+
 def apply_kronos_blend(
     forecast_df: pd.DataFrame,
     config: KronosConfig | None = None,
@@ -461,7 +465,9 @@ def apply_kronos_blend(
     base_source = str(out.get("forecast_source", pd.Series(["unknown"])).iloc[-1])
 
     def _blend(base_col: str, kronos_col: str) -> pd.Series:
-        base = pd.to_numeric(out.get(base_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+        base = pd.to_numeric(
+            out.get(base_col, pd.Series(0.0, index=out.index)), errors="coerce"
+        ).fillna(0.0)
         kron = kronos_df[kronos_col].fillna(base)
         return (1.0 - w) * base + w * kron
 
@@ -470,16 +476,14 @@ def apply_kronos_blend(
     out["forecast_return_upper"] = _blend("forecast_return_upper", "upper")
     out["forecast_return"] = out["forecast_return_median"]
     out["forecast_uncertainty"] = (
-        (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
-    )
+        out["forecast_return_upper"] - out["forecast_return_lower"]
+    ).clip(lower=0.0)
     out["mu"] = out["forecast_return_median"]
 
     # Recompute sigma from blended interval
     z_span = float(norm.ppf(cfg.upper_quantile) - norm.ppf(cfg.lower_quantile))
     if abs(z_span) > 1e-9:
-        sigma_series = (
-            (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
-        )
+        sigma_series = (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
     else:
         sigma_series = pd.Series(cfg.sigma_floor, index=out.index)
     out["sigma"] = sigma_series.clip(lower=cfg.sigma_floor)
@@ -538,6 +542,7 @@ class KronosBlendPipeline:
     def run(self, df: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
         """Run the base pipeline then blend in Kronos forecasts."""
         import inspect
+
         sig = inspect.signature(self.base_pipeline.run)
         if "train_mask" in sig.parameters:
             base_out = self.base_pipeline.run(df, **kwargs)

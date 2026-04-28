@@ -306,7 +306,9 @@ def main() -> int:
         if args.equity_risk_usd > 0:
             ecmd.extend(["--risk-usd", str(args.equity_risk_usd)])
         if args.equity_use_account_scale:
-            ecmd.extend(["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)])
+            ecmd.extend(
+                ["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)]
+            )
         if args.equity_dry_run:
             ecmd.append("--dry-run")
         return ecmd
@@ -392,7 +394,10 @@ def main() -> int:
 
     if args.telegram_bot:
         tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
-        print(f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)", flush=True)
+        print(
+            f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)",
+            flush=True,
+        )
         try:
             subprocess.Popen(
                 [py, str(tscript)],

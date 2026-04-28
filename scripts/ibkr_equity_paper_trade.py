@@ -28,11 +28,10 @@ import argparse
 import csv
 import json
 import os
-import sys
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Type
@@ -44,15 +43,17 @@ load_dotenv()
 # Optional ibapi dependency — required for live IBKR connectivity, not needed for --dry-run.
 try:
     from ibapi.client import EClient as _EClient
-    from ibapi.wrapper import EWrapper as _EWrapper
     from ibapi.contract import Contract as _IbkrContract
     from ibapi.order import Order as _IbkrOrder
+    from ibapi.wrapper import EWrapper as _EWrapper
+
     _IBAPI_OK = True
 except ImportError:
     _EClient = _EWrapper = _IbkrContract = _IbkrOrder = None  # type: ignore[assignment,misc]
     _IBAPI_OK = False
 
 from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
+
 apply_compute_thread_env()
 
 from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
@@ -76,15 +77,35 @@ IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
 #   10349      "Order TIF was set to DAY based on order preset"
 #   10314      "Order modified to comply with …"
 #   10197      "No market data during competing session"
-_IBKR_ADVISORY_CODES: frozenset[int] = frozenset({
-    2104, 2106, 2107, 2108, 2158, 2174,
-    10197, 10314, 10349,
-})
+_IBKR_ADVISORY_CODES: frozenset[int] = frozenset(
+    {
+        2104,
+        2106,
+        2107,
+        2108,
+        2158,
+        2174,
+        10197,
+        10314,
+        10349,
+    }
+)
 
 _LOG_COLUMNS = [
-    "timestamp_utc", "plan_id", "symbol", "strategy", "action",
-    "quantity", "current_mark", "entry_debit", "order_id",
-    "unrealized_pnl", "unrealized_pnl_pct", "signal", "closed", "note",
+    "timestamp_utc",
+    "plan_id",
+    "symbol",
+    "strategy",
+    "action",
+    "quantity",
+    "current_mark",
+    "entry_debit",
+    "order_id",
+    "unrealized_pnl",
+    "unrealized_pnl_pct",
+    "signal",
+    "closed",
+    "note",
 ]
 
 
@@ -92,18 +113,19 @@ _LOG_COLUMNS = [
 # State dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class EquityPosition:
     plan_id: str
     symbol: str
-    direction: str          # "bull" | "bear"
-    side: str               # "long" | "short"
+    direction: str  # "bull" | "bear"
+    side: str  # "long" | "short"
     quantity: int
     entry_price: float
-    entry_ts: str           # ISO UTC
+    entry_ts: str  # ISO UTC
     ibkr_order_id: int | None = None
     close_order_id: int | None = None
-    status: str = "open"    # "open" | "closed"
+    status: str = "open"  # "open" | "closed"
     exit_price: float | None = None
     exit_ts: str | None = None
     exit_reason: str | None = None
@@ -135,6 +157,7 @@ def _save_state(positions: dict[str, EquityPosition], path: Path) -> None:
 # CSV trade log
 # ---------------------------------------------------------------------------
 
+
 def _append_log(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not path.is_file()
@@ -148,6 +171,7 @@ def _append_log(path: Path, row: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # IBKR connectivity (stock orders)
 # ---------------------------------------------------------------------------
+
 
 def _load_equity_socket_config() -> tuple[str, int, int]:
     host = (os.environ.get("IBKR_HOST") or "127.0.0.1").strip()
@@ -188,16 +212,28 @@ class _EquityApp:
 
         original_error = self._app.error.__func__ if hasattr(self._app.error, "__func__") else None
 
-        def _error(reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = "") -> None:
+        def _error(
+            reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = ""
+        ) -> None:
             if errorCode in _IBKR_ADVISORY_CODES:
                 return  # purely informational — do not record or print
             print(f"  [ibkr-err] reqId={reqId} code={errorCode} {errorString}", flush=True)
             if reqId != -1:
                 self._app._error_lines.append((reqId, errorCode, errorString))
 
-        def _order_status(orderId: int, status: str, filled: float, remaining: float,
-                          avgFillPrice: float, permId: int, parentId: int, lastFillPrice: float,
-                          clientId: int, whyHeld: str, mktCapPrice: float = 0.0) -> None:
+        def _order_status(
+            orderId: int,
+            status: str,
+            filled: float,
+            remaining: float,
+            avgFillPrice: float,
+            permId: int,
+            parentId: int,
+            lastFillPrice: float,
+            clientId: int,
+            whyHeld: str,
+            mktCapPrice: float = 0.0,
+        ) -> None:
             self._app._order_status.setdefault(orderId, []).append(status)
 
         def _next_valid_id(orderId: int) -> None:
@@ -227,8 +263,11 @@ class _EquityApp:
             time.sleep(0.1)
         if self._app._next_order_id is None:
             raise RuntimeError("IBKR handshake timed out — is TWS/Gateway running?")
-        print(f"  [equity-ibkr] connected client_id={self._app.clientId}, "
-              f"next_order_id={self._app._next_order_id}", flush=True)
+        print(
+            f"  [equity-ibkr] connected client_id={self._app.clientId}, "
+            f"next_order_id={self._app._next_order_id}",
+            flush=True,
+        )
 
     def disconnect(self) -> None:
         try:
@@ -272,9 +311,7 @@ class _EquityApp:
         self._app._ticker_events[req_id] = ev
 
         # Clear any stale error for this reqId before subscribing.
-        self._app._error_lines = [
-            (r, c, m) for r, c, m in self._app._error_lines if r != req_id
-        ]
+        self._app._error_lines = [(r, c, m) for r, c, m in self._app._error_lines if r != req_id]
 
         self._app.reqMktData(req_id, contract, "", True, False, [])
 
@@ -347,7 +384,8 @@ class _EquityApp:
             # Raise only on hard (non-advisory) error codes — advisory codes are
             # already filtered at the _error callback, but guard here too.
             hard_errs = [
-                (c, m) for r, c, m in self._app._error_lines
+                (c, m)
+                for r, c, m in self._app._error_lines
                 if r == order_id and c not in _IBKR_ADVISORY_CODES
             ]
             if hard_errs:
@@ -375,6 +413,7 @@ def ibkr_equity_connection() -> Generator[_EquityApp, None, None]:
 # ---------------------------------------------------------------------------
 # Plan reading helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_plans(path: Path) -> list[dict]:
     if not path.is_file():
@@ -418,6 +457,7 @@ def _mark_equity_opened(plan_id: str, plans_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
 
 def _quantity_for_symbol(
     price: float,
@@ -497,10 +537,7 @@ def open_equity_positions(
         # Determine entry price — pipeline stores it under plan["pipeline"]["close"]
         pipeline_data = plan.get("pipeline") or {}
         entry_price = float(
-            pipeline_data.get("close")
-            or plan.get("close")
-            or plan.get("current_price")
-            or 0.0
+            pipeline_data.get("close") or plan.get("close") or plan.get("current_price") or 0.0
         )
         if entry_price <= 0 and app is not None:
             print(f"  [equity] {sym}: fetching live price …", flush=True)
@@ -569,22 +606,25 @@ def open_equity_positions(
         if not dry_run and order_id is not None:
             _mark_equity_opened(plan_id, plans_path)
 
-        _append_log(log_path, {
-            "timestamp_utc": pos.entry_ts,
-            "plan_id": plan_id,
-            "symbol": sym,
-            "strategy": direction,
-            "action": action,
-            "quantity": qty,
-            "current_mark": entry_price,
-            "entry_debit": entry_price,
-            "order_id": order_id or "",
-            "unrealized_pnl": 0.0,
-            "unrealized_pnl_pct": 0.0,
-            "signal": "open",
-            "closed": "0",
-            "note": "dry_run" if dry_run else "placed",
-        })
+        _append_log(
+            log_path,
+            {
+                "timestamp_utc": pos.entry_ts,
+                "plan_id": plan_id,
+                "symbol": sym,
+                "strategy": direction,
+                "action": action,
+                "quantity": qty,
+                "current_mark": entry_price,
+                "entry_debit": entry_price,
+                "order_id": order_id or "",
+                "unrealized_pnl": 0.0,
+                "unrealized_pnl_pct": 0.0,
+                "signal": "open",
+                "closed": "0",
+                "note": "dry_run" if dry_run else "placed",
+            },
+        )
 
 
 def evaluate_equity_positions(
@@ -634,22 +674,25 @@ def evaluate_equity_positions(
             flush=True,
         )
 
-        _append_log(log_path, {
-            "timestamp_utc": datetime.now(tz=timezone.utc).isoformat(),
-            "plan_id": plan_id,
-            "symbol": pos.symbol,
-            "strategy": pos.direction,
-            "action": "hold",
-            "quantity": pos.quantity,
-            "current_mark": current_price,
-            "entry_debit": pos.entry_price,
-            "order_id": pos.ibkr_order_id or "",
-            "unrealized_pnl": round(pnl, 2),
-            "unrealized_pnl_pct": round(pnl_pct, 4),
-            "signal": signal,
-            "closed": "0",
-            "note": "",
-        })
+        _append_log(
+            log_path,
+            {
+                "timestamp_utc": datetime.now(tz=timezone.utc).isoformat(),
+                "plan_id": plan_id,
+                "symbol": pos.symbol,
+                "strategy": pos.direction,
+                "action": "hold",
+                "quantity": pos.quantity,
+                "current_mark": current_price,
+                "entry_debit": pos.entry_price,
+                "order_id": pos.ibkr_order_id or "",
+                "unrealized_pnl": round(pnl, 2),
+                "unrealized_pnl_pct": round(pnl_pct, 4),
+                "signal": signal,
+                "closed": "0",
+                "note": "",
+            },
+        )
 
         if exit_reason is None:
             continue
@@ -664,7 +707,10 @@ def evaluate_equity_positions(
 
         # Close position
         close_action = "SELL" if pos.side == "long" else "BUY"
-        print(f"  [equity] CLOSING {pos.symbol}: {close_action} {pos.quantity} shares — {exit_reason} [dry={dry_run}]", flush=True)
+        print(
+            f"  [equity] CLOSING {pos.symbol}: {close_action} {pos.quantity} shares — {exit_reason} [dry={dry_run}]",
+            flush=True,
+        )
 
         close_order_id: int | None = None
         if not dry_run and app is not None:
@@ -681,49 +727,78 @@ def evaluate_equity_positions(
         pos.exit_reason = exit_reason
         pos.close_order_id = close_order_id
 
-        _append_log(log_path, {
-            "timestamp_utc": pos.exit_ts,
-            "plan_id": plan_id,
-            "symbol": pos.symbol,
-            "strategy": pos.direction,
-            "action": close_action,
-            "quantity": pos.quantity,
-            "current_mark": current_price,
-            "entry_debit": pos.entry_price,
-            "order_id": close_order_id or "",
-            "unrealized_pnl": round(pnl, 2),
-            "unrealized_pnl_pct": round(pnl_pct, 4),
-            "signal": "closed",
-            "closed": "1",
-            "note": exit_reason,
-        })
+        _append_log(
+            log_path,
+            {
+                "timestamp_utc": pos.exit_ts,
+                "plan_id": plan_id,
+                "symbol": pos.symbol,
+                "strategy": pos.direction,
+                "action": close_action,
+                "quantity": pos.quantity,
+                "current_mark": current_price,
+                "entry_debit": pos.entry_price,
+                "order_id": close_order_id or "",
+                "unrealized_pnl": round(pnl, 2),
+                "unrealized_pnl_pct": round(pnl_pct, 4),
+                "signal": "closed",
+                "closed": "1",
+                "note": exit_reason,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="IBKR equity paper trade from regime plans")
-    parser.add_argument("--plans", default=str(PLANS_PATH), help="Path to universe_trade_plans.json")
-    parser.add_argument("--state", default=str(EQUITY_STATE_PATH), help="Path to equity positions state JSON")
+    parser.add_argument(
+        "--plans", default=str(PLANS_PATH), help="Path to universe_trade_plans.json"
+    )
+    parser.add_argument(
+        "--state", default=str(EQUITY_STATE_PATH), help="Path to equity positions state JSON"
+    )
     parser.add_argument("--log", default=str(EQUITY_LOG_PATH), help="Path to equity trade log CSV")
-    parser.add_argument("--position-usd", type=float, default=10_000.0,
-                        help="Target notional USD per position (default: $10,000; ignored if --risk-usd is set)")
-    parser.add_argument("--risk-usd", type=float, default=None,
-                        help="Dollar amount to risk per trade (e.g. 500). If set, overrides --position-usd.")
-    parser.add_argument("--use-account-scale", action="store_true",
-                        help="Scale position size based on account balance (NLV).")
-    parser.add_argument("--max-account-pct", type=float, default=10.0,
-                        help="Max percentage of account balance per position (default: 10.0)")
-    parser.add_argument("--stop-pct", type=float, default=5.0,
-                        help="Hard stop loss %% below entry (default: 5)")
-    parser.add_argument("--target-pct", type=float, default=10.0,
-                        help="Take-profit %% above entry (default: 10)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Paper-mode without IBKR orders (log only)")
-    parser.add_argument("--monitor-only", action="store_true",
-                        help="Skip opening new positions; only evaluate existing ones")
+    parser.add_argument(
+        "--position-usd",
+        type=float,
+        default=10_000.0,
+        help="Target notional USD per position (default: $10,000; ignored if --risk-usd is set)",
+    )
+    parser.add_argument(
+        "--risk-usd",
+        type=float,
+        default=None,
+        help="Dollar amount to risk per trade (e.g. 500). If set, overrides --position-usd.",
+    )
+    parser.add_argument(
+        "--use-account-scale",
+        action="store_true",
+        help="Scale position size based on account balance (NLV).",
+    )
+    parser.add_argument(
+        "--max-account-pct",
+        type=float,
+        default=10.0,
+        help="Max percentage of account balance per position (default: 10.0)",
+    )
+    parser.add_argument(
+        "--stop-pct", type=float, default=5.0, help="Hard stop loss %% below entry (default: 5)"
+    )
+    parser.add_argument(
+        "--target-pct", type=float, default=10.0, help="Take-profit %% above entry (default: 10)"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Paper-mode without IBKR orders (log only)"
+    )
+    parser.add_argument(
+        "--monitor-only",
+        action="store_true",
+        help="Skip opening new positions; only evaluate existing ones",
+    )
     parser.add_argument(
         "--no-rth-gate",
         action="store_true",
@@ -738,13 +813,21 @@ def main() -> None:
     log_path = Path(args.log)
 
     print(f"\n{'='*60}", flush=True)
-    print(f"  IBKR Equity Paper Trade  |  {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
+    print(
+        f"  IBKR Equity Paper Trade  |  {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        flush=True,
+    )
     print(f"  plans       : {plans_path}", flush=True)
-    print(f"  position_usd: ${args.position_usd:,.0f}{' (ignored)' if args.risk_usd or args.use_account_scale else ''}", flush=True)
+    print(
+        f"  position_usd: ${args.position_usd:,.0f}{' (ignored)' if args.risk_usd or args.use_account_scale else ''}",
+        flush=True,
+    )
     if args.risk_usd:
         print(f"  risk_usd    : ${args.risk_usd:,.0f}", flush=True)
     if args.use_account_scale:
-        print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
+        print(
+            f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True
+        )
     print(f"  stop / target: -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  dry_run     : {args.dry_run}", flush=True)
     print(f"  rth_gate    : {rth_gate}", flush=True)
@@ -768,26 +851,45 @@ def main() -> None:
                     except (ValueError, TypeError):
                         pass
             if account_nlv is None:
-                print("  [equity] [warn] Could not find NetLiquidation in account summary. Falling back to default sizing.", flush=True)
+                print(
+                    "  [equity] [warn] Could not find NetLiquidation in account summary. Falling back to default sizing.",
+                    flush=True,
+                )
         except Exception as e:
-            print(f"  [equity] [error] Could not fetch account snapshot: {e}. Falling back to default sizing.", flush=True)
+            print(
+                f"  [equity] [error] Could not fetch account snapshot: {e}. Falling back to default sizing.",
+                flush=True,
+            )
 
-    print(f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True)
+    print(
+        f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True
+    )
 
     if args.dry_run:
         # No IBKR connection needed — work in dry-run mode
         if not args.monitor_only:
             open_equity_positions(
-                plans=plans, positions=positions, position_usd=args.position_usd,
-                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
-                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
-                dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
+                plans=plans,
+                positions=positions,
+                position_usd=args.position_usd,
+                risk_usd=args.risk_usd,
+                stop_pct=args.stop_pct,
+                account_nlv=account_nlv,
+                max_account_pct=args.max_account_pct,
+                dry_run=True,
+                app=None,
+                plans_path=plans_path,
+                log_path=log_path,
                 rth_gate=rth_gate,
             )
         evaluate_equity_positions(
-            positions=positions, active_plan_ids=active_plan_ids,
-            stop_pct=args.stop_pct, target_pct=args.target_pct,
-            dry_run=True, app=None, log_path=log_path,
+            positions=positions,
+            active_plan_ids=active_plan_ids,
+            stop_pct=args.stop_pct,
+            target_pct=args.target_pct,
+            dry_run=True,
+            app=None,
+            log_path=log_path,
             rth_gate=rth_gate,
         )
         _save_state(positions, state_path)
@@ -798,16 +900,27 @@ def main() -> None:
     with ibkr_equity_connection() as app:
         if not args.monitor_only:
             open_equity_positions(
-                plans=plans, positions=positions, position_usd=args.position_usd,
-                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
-                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
-                dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
+                plans=plans,
+                positions=positions,
+                position_usd=args.position_usd,
+                risk_usd=args.risk_usd,
+                stop_pct=args.stop_pct,
+                account_nlv=account_nlv,
+                max_account_pct=args.max_account_pct,
+                dry_run=False,
+                app=app,
+                plans_path=plans_path,
+                log_path=log_path,
                 rth_gate=rth_gate,
             )
         evaluate_equity_positions(
-            positions=positions, active_plan_ids=active_plan_ids,
-            stop_pct=args.stop_pct, target_pct=args.target_pct,
-            dry_run=False, app=app, log_path=log_path,
+            positions=positions,
+            active_plan_ids=active_plan_ids,
+            stop_pct=args.stop_pct,
+            target_pct=args.target_pct,
+            dry_run=False,
+            app=app,
+            log_path=log_path,
             rth_gate=rth_gate,
         )
 

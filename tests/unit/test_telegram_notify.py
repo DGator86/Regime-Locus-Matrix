@@ -18,7 +18,9 @@ def test_notify_seed_silent(tmp_path: Path) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
     (dproc / "universe_trade_plans.json").write_text(
-        json.dumps({"results": [{"status": "active", "plan_id": "p1", "symbol": "SPY", "strategy": "s"}]}),
+        json.dumps(
+            {"results": [{"status": "active", "plan_id": "p1", "symbol": "SPY", "strategy": "s"}]}
+        ),
         encoding="utf-8",
     )
     (dproc / "trade_log.csv").write_text(

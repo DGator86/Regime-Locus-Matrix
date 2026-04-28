@@ -23,6 +23,7 @@ try:
 except ImportError:
     _dateutil_gettz = None  # type: ignore[assignment]
 
+
 # DST-aware US/Eastern timezone used to convert market-close times to UTC.
 # Choosing the correct UTC offset (EDT = UTC-4, EST = UTC-5) matters: an
 # April expiry at 16:00 ET is 20:00 UTC, not 21:00 UTC.
@@ -83,12 +84,13 @@ def days_to_expiry(
             else:
                 # Date-only / midnight: pin to US Eastern market close (16:00 ET)
                 # and convert to UTC respecting DST (EDT = UTC-4, EST = UTC-5).
-                expiry_utc = (
-                    expiry.replace(
-                        hour=_US_MARKET_CLOSE_HOUR, minute=0, second=0, microsecond=0,
-                        tzinfo=_EASTERN,
-                    ).astimezone(timezone.utc)
-                )
+                expiry_utc = expiry.replace(
+                    hour=_US_MARKET_CLOSE_HOUR,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                    tzinfo=_EASTERN,
+                ).astimezone(timezone.utc)
         else:
             expiry_utc = expiry
     else:

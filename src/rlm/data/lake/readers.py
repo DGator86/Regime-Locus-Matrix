@@ -7,7 +7,9 @@ import pandas as pd
 from rlm.data.lake.metadata import lake_bars_path, lake_option_chain_path
 
 
-def lake_has_bars(symbol: str, data_root: str | Path | None = None, interval: str | None = None) -> bool:
+def lake_has_bars(
+    symbol: str, data_root: str | Path | None = None, interval: str | None = None
+) -> bool:
     return lake_bars_path(symbol, data_root, interval).is_file()
 
 
@@ -15,7 +17,9 @@ def lake_has_option_chain(symbol: str, data_root: str | Path | None = None) -> b
     return lake_option_chain_path(symbol, data_root).is_file()
 
 
-def load_lake_bars(symbol: str, data_root: str | Path | None = None, interval: str | None = None) -> pd.DataFrame:
+def load_lake_bars(
+    symbol: str, data_root: str | Path | None = None, interval: str | None = None
+) -> pd.DataFrame:
     path = lake_bars_path(symbol, data_root, interval)
     if not path.is_file():
         raise FileNotFoundError(f"Lake bars not found for {symbol}: {path}")

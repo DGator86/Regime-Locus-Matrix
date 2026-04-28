@@ -79,9 +79,14 @@ def build_legs_from_candidate(
     # ------------------------------------------------------------------
     # Level 2 long debit spreads (replace diagonals / credit verticals)
     # ------------------------------------------------------------------
-    elif name in {"long_call_spread", "bull_call_debit_spread", "small_bull_debit_spread",
-                  "bull_call_spread", "debit_spread_call",
-                  "0dte_bull_call_spread"}:
+    elif name in {
+        "long_call_spread",
+        "bull_call_debit_spread",
+        "small_bull_debit_spread",
+        "bull_call_spread",
+        "debit_spread_call",
+        "0dte_bull_call_spread",
+    }:
         long_strike = target_strike_from_sigma(
             current_price, sigma, candidate.long_sigma or 0.5, strike_increment
         )
@@ -93,9 +98,14 @@ def build_legs_from_candidate(
             OptionLeg(side="short", option_type="call", strike=short_strike),
         ]
 
-    elif name in {"long_put_spread", "bear_put_debit_spread", "small_bear_debit_spread",
-                  "bear_put_spread", "debit_spread_put",
-                  "0dte_bear_put_spread"}:
+    elif name in {
+        "long_put_spread",
+        "bear_put_debit_spread",
+        "small_bear_debit_spread",
+        "bear_put_spread",
+        "debit_spread_put",
+        "0dte_bear_put_spread",
+    }:
         long_strike = target_strike_from_sigma(
             current_price, sigma, candidate.long_sigma or -0.5, strike_increment
         )

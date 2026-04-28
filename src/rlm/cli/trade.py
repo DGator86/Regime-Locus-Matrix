@@ -10,7 +10,9 @@ from rlm.core.services.trade_service import TradeRequest, TradeService
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="rlm trade", description="Generate and optionally execute live/paper trade plans.")
+    p = argparse.ArgumentParser(
+        prog="rlm trade", description="Generate and optionally execute live/paper trade plans."
+    )
     p.add_argument("--symbol", required=True, help="Ticker symbol (e.g. SPY)")
     p.add_argument("--mode", choices=["plan", "paper", "live"], default="plan")
     p.add_argument("--no-kronos", action="store_true", help="Disable Kronos overlay")
@@ -54,11 +56,14 @@ def main() -> None:
     print(f"  size:     {result.decision.size_fraction}")
     print("Execution records:")
     for entry in result.executions:
-        print(f"  success={entry.success} broker={entry.broker} order_id={entry.order_id} message={entry.message}")
+        print(
+            f"  success={entry.success} broker={entry.broker} order_id={entry.order_id} message={entry.message}"
+        )
     if result.artifacts.manifest_path:
         print(f"Artifacts: {result.artifacts.manifest_path.parent}")
 
     if result.persona:
         import json
+
         print("\nPersona interpretation:")
         print(json.dumps(result.persona.to_dict(), indent=2))

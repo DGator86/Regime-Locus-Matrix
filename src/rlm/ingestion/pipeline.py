@@ -155,7 +155,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mtf", action="store_true")
     p.add_argument("--higher-tfs", default="1W,1M")
     p.add_argument("--jobs", type=int, default=1)
-    p.add_argument("--parallel-backend", default="process", choices=("serial", "thread", "process", "ray"))
+    p.add_argument(
+        "--parallel-backend", default="process", choices=("serial", "thread", "process", "ray")
+    )
     return p
 
 
@@ -167,8 +169,20 @@ def main(argv: list[str] | None = None) -> int:
 
 def _stock_task(task: tuple[str, str, str, str, str]) -> int:
     symbol, stock_1d_duration, stock_1d_slug, stock_1m_duration, stock_1m_slug = task
-    write_ibkr_stock_parquet(symbol, duration=stock_1d_duration, bar_size="1 day", duration_slug=stock_1d_slug, interval_dir="1d")
-    write_ibkr_stock_parquet(symbol, duration=stock_1m_duration, bar_size="1 min", duration_slug=stock_1m_slug, interval_dir="1m")
+    write_ibkr_stock_parquet(
+        symbol,
+        duration=stock_1d_duration,
+        bar_size="1 day",
+        duration_slug=stock_1d_slug,
+        interval_dir="1d",
+    )
+    write_ibkr_stock_parquet(
+        symbol,
+        duration=stock_1m_duration,
+        bar_size="1 min",
+        duration_slug=stock_1m_slug,
+        interval_dir="1m",
+    )
     return 0
 
 
@@ -196,13 +210,17 @@ def _option_bars_task(task: tuple[str, str, str, str, str]) -> int:
 
 def _option_quotes_task(task: tuple[str, str, str, str]) -> int:
     ot, underlying, ts_gte, ts_lt = task
-    write_massive_option_quotes_parquet(ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt)
+    write_massive_option_quotes_parquet(
+        ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt
+    )
     return 0
 
 
 def _option_trades_task(task: tuple[str, str, str, str]) -> int:
     ot, underlying, ts_gte, ts_lt = task
-    write_massive_option_trades_parquet(ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt)
+    write_massive_option_trades_parquet(
+        ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt
+    )
     return 0
 
 

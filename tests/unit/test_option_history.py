@@ -38,9 +38,7 @@ def test_merge_appends_and_dedupes() -> None:
 def test_replace_same_day() -> None:
     existing = pd.DataFrame(
         {
-            "timestamp": pd.to_datetime(
-                ["2024-01-15 10:00", "2024-01-16 00:00"], format="mixed"
-            ),
+            "timestamp": pd.to_datetime(["2024-01-15 10:00", "2024-01-16 00:00"], format="mixed"),
             "underlying": ["SPY", "SPY"],
             "expiry": pd.to_datetime(["2024-02-16", "2024-02-16"]),
             "option_type": ["call", "call"],

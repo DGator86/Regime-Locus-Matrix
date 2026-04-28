@@ -16,8 +16,8 @@ from typing import Any, Collection, Mapping
 import pandas as pd
 
 from rlm.data.massive import MassiveClient
-from rlm.data.option_chain import normalize_option_chain
 from rlm.data.occ_symbol import parse_occ_option_symbol
+from rlm.data.option_chain import normalize_option_chain
 
 OptionSnapshotParam = str | int | float | bool | None
 DEFAULT_HOT_CHAIN_CACHE_SYMBOLS = frozenset({"SPY", "QQQ"})
@@ -389,11 +389,7 @@ def _should_use_ram_cache(
     raw_hot_symbols = (
         DEFAULT_HOT_CHAIN_CACHE_SYMBOLS if hot_cache_symbols is None else hot_cache_symbols
     )
-    hot = {
-        str(sym).upper().strip()
-        for sym in raw_hot_symbols
-        if str(sym).strip()
-    }
+    hot = {str(sym).upper().strip() for sym in raw_hot_symbols if str(sym).strip()}
     return symbol in hot
 
 

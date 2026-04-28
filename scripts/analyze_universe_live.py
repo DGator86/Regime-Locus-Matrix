@@ -30,12 +30,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.factors.pipeline import FactorPipeline
+
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
-from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.engines import ForecastPipeline
+from rlm.forecasting.live_model import (
+    LiveKronosParameters,
+    LiveRegimeModelConfig,
+    load_live_regime_model,
+)
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
@@ -190,8 +195,12 @@ def main() -> int:
         action="store_true",
         help="Blend Kronos foundation-model return forecasts into every symbol's pipeline output.",
     )
-    p.add_argument("--kronos-weight", type=float, default=0.35,
-                   help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    p.add_argument(
+        "--kronos-weight",
+        type=float,
+        default=0.35,
+        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
+    )
     p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
     p.add_argument("--kronos-stride", type=int, default=1)
     p.add_argument("--kronos-samples", type=int, default=5)
@@ -217,9 +226,7 @@ def main() -> int:
             weight=args.kronos_weight,
         )
         if live_model is not None:
-            live_model = live_model.model_copy(
-                update={"use_kronos": True, "kronos": kronos_params}
-            )
+            live_model = live_model.model_copy(update={"use_kronos": True, "kronos": kronos_params})
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")

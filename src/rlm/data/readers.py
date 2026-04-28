@@ -8,7 +8,12 @@ from pathlib import Path
 import pandas as pd
 
 from rlm.data.backend import DataBackend
-from rlm.data.lake.readers import lake_has_bars, lake_has_option_chain, load_lake_bars, load_lake_option_chain
+from rlm.data.lake.readers import (
+    lake_has_bars,
+    lake_has_option_chain,
+    load_lake_bars,
+    load_lake_option_chain,
+)
 from rlm.data.option_chain import option_chain_is_usable
 from rlm.data.paths import get_raw_data_dir
 
@@ -28,7 +33,9 @@ def load_bars(
 
     if selected == DataBackend.LAKE:
         return load_lake_bars(symbol, data_root=data_root, interval=interval)
-    if selected == DataBackend.AUTO and lake_has_bars(symbol, data_root=data_root, interval=interval):
+    if selected == DataBackend.AUTO and lake_has_bars(
+        symbol, data_root=data_root, interval=interval
+    ):
         return load_lake_bars(symbol, data_root=data_root, interval=interval)
 
     csv_path = _resolve_bars_csv_path(symbol, data_root)

@@ -211,6 +211,7 @@ def fetch_historical_stock_bars(
     h = host if host is not None else h
     p = port if port is not None else p
     import random
+
     cid = (client_id if client_id is not None else cid) + random.randint(1000, 9999)
 
     app = app_cls()
@@ -230,9 +231,7 @@ def fetch_historical_stock_bars(
             if app._handshake_failed.is_set() and app._last_error is not None:
                 code, msg = app._last_error
                 tail = _format_ib_error_tail(app._error_lines)
-                raise RuntimeError(
-                    f"IBKR handshake failed ({code}): {msg}.{tail}"
-                )
+                raise RuntimeError(f"IBKR handshake failed ({code}): {msg}.{tail}")
             time.sleep(0.05)
         else:
             tail = _format_ib_error_tail(app._error_lines)
@@ -242,7 +241,9 @@ def fetch_historical_stock_bars(
                 f"and trusted IPs allow 127.0.0.1.{tail}"
             )
 
-        contract = _us_stock_contract(symbol, exchange=exchange, currency=currency, contract_cls=Contract)
+        contract = _us_stock_contract(
+            symbol, exchange=exchange, currency=currency, contract_cls=Contract
+        )
         app.reqHistoricalData(
             app._req_id,
             contract,

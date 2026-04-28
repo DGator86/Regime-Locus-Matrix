@@ -6,14 +6,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
 )
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.roee.engine import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
@@ -152,7 +152,12 @@ class LiveRegimeModelConfig(BaseModel):
 
     def build_pipeline(
         self,
-    ) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline | KronosBlendPipeline:
+    ) -> (
+        ForecastPipeline
+        | HybridForecastPipeline
+        | HybridMarkovForecastPipeline
+        | KronosBlendPipeline
+    ):
         """Build the active forecast pipeline, optionally wrapped in a Kronos blend layer.
 
         When ``use_kronos=True`` the returned pipeline is a ``KronosBlendPipeline``
@@ -200,7 +205,9 @@ class LiveRegimeModelConfig(BaseModel):
         return self.roee.decision_kwargs()
 
 
-def apply_nightly_hyperparam_overlay(cfg: LiveRegimeModelConfig, repo_root: Path) -> LiveRegimeModelConfig:
+def apply_nightly_hyperparam_overlay(
+    cfg: LiveRegimeModelConfig, repo_root: Path
+) -> LiveRegimeModelConfig:
     """Merge ``data/processed/live_nightly_hyperparams.json`` into a live config when present.
 
     Keys produced by :class:`rlm.optimization.nightly.NightlyMTFOptimizer` are mapped onto

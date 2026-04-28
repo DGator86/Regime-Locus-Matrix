@@ -44,10 +44,7 @@ class LifecycleConfig:
         # default.  If the caller explicitly supplied commission_config, that
         # wins.  If only the legacy scalar differs from the default, build a
         # matching CommissionConfig so both sources agree.
-        if (
-            self.commission_config == CommissionConfig()
-            and self.commission_per_contract != 0.65
-        ):
+        if self.commission_config == CommissionConfig() and self.commission_per_contract != 0.65:
             object.__setattr__(
                 self,
                 "commission_config",

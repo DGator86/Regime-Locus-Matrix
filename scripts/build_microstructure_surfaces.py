@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
-
-import pandas as pd
 
 
 def _parse_symbols(s: str) -> list[str]:
@@ -49,7 +47,10 @@ def build_surfaces_for_date(
 ) -> None:
     """Build and persist GEX + IV surfaces for *symbol* on *target_date*."""
     from rlm.microstructure.calculators.gex import build_gex_surface, save_gex_surface
-    from rlm.microstructure.calculators.iv_surface import build_iv_surface_from_parquet, save_iv_surface
+    from rlm.microstructure.calculators.iv_surface import (
+        build_iv_surface_from_parquet,
+        save_iv_surface,
+    )
     from rlm.microstructure.database.query import MicrostructureDB
 
     db = MicrostructureDB(data_path=data_root)
@@ -80,18 +81,23 @@ def build_surfaces_for_date(
 
     # ── GEX surface ──────────────────────────────────────────────────────────
     try:
-        gex_df = build_gex_surface(duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root)
+        gex_df = build_gex_surface(
+            duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root
+        )
         if gex_df.empty:
             print(f"  [WARN] GEX surface is empty for {symbol} @ {timestamp}")
         else:
             save_gex_surface(gex_df, symbol=symbol, data_path=data_root)
             from rlm.microstructure.calculators.gex import aggregate_gex_profile, gex_flip_level
+
             profile = aggregate_gex_profile(gex_df)
             flip = gex_flip_level(gex_df)
             print(
                 f"  GEX: net={profile['total_net_gex']:+.2e}  "
                 f"regime={profile['dominant_regime']}  "
-                f"flip={flip:.2f}" if flip else f"  GEX: net={profile['total_net_gex']:+.2e}  regime={profile['dominant_regime']}"
+                f"flip={flip:.2f}"
+                if flip
+                else f"  GEX: net={profile['total_net_gex']:+.2e}  regime={profile['dominant_regime']}"
             )
     except Exception as exc:
         print(f"  [ERROR] GEX build failed for {symbol}: {exc}")
@@ -106,6 +112,7 @@ def build_surfaces_for_date(
         else:
             save_iv_surface(iv_df, symbol=symbol, data_path=data_root)
             from rlm.microstructure.calculators.iv_surface import query_iv_surface, skew_at_dte
+
             atm_iv = query_iv_surface(iv_df, moneyness=1.0, dte=30.0)
             skew = skew_at_dte(iv_df, dte=30.0)
             print(f"  IV:  ATM 30d={atm_iv:.1%}  skew 25d={skew:+.1%}")
@@ -120,15 +127,18 @@ def main() -> None:
     )
     p.add_argument("--symbols", default="SPY", help="Comma-separated tickers")
     p.add_argument(
-        "--date", default="today",
+        "--date",
+        default="today",
         help="Target date YYYY-MM-DD or 'today' (default: today)",
     )
     p.add_argument(
-        "--snapshot-time", default="16:00:00",
+        "--snapshot-time",
+        default="16:00:00",
         help="Preferred snapshot time HH:MM:SS (closest to close, default: 16:00:00)",
     )
     p.add_argument(
-        "--data-root", default="data/microstructure",
+        "--data-root",
+        default="data/microstructure",
         help="Root of microstructure lake (relative to repo root)",
     )
     args = p.parse_args()
@@ -139,11 +149,11 @@ def main() -> None:
 
     try:
         import duckdb
+
         conn = duckdb.connect()
     except ImportError:
         raise SystemExit(
-            "DuckDB is required.\n"
-            "Install: pip install 'regime-locus-matrix[microstructure]'"
+            "DuckDB is required.\n" "Install: pip install 'regime-locus-matrix[microstructure]'"
         )
 
     print(f"\nBuilding microstructure surfaces for {', '.join(symbols)} on {target_date}\n")

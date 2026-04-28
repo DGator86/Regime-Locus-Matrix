@@ -1,21 +1,23 @@
 import logging
 
 import numpy as np
-import pytest
 import pandas as pd
+import pytest
 
-from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.forecasting.engines import HybridForecastPipeline
+from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 
 
 def _synthetic_scores(n: int = 300) -> pd.DataFrame:
     rng = np.random.default_rng(7)
-    means = np.array([
-        [1.2, -0.9, 0.7, 0.6],
-        [-1.0, 1.1, -0.5, -0.8],
-        [0.2, 0.3, -1.1, 0.9],
-    ])
+    means = np.array(
+        [
+            [1.2, -0.9, 0.7, 0.6],
+            [-1.0, 1.1, -0.5, -0.8],
+            [0.2, 0.3, -1.1, 0.9],
+        ]
+    )
     labels = rng.integers(0, len(means), size=n)
     obs = means[labels] + rng.normal(0, 0.25, size=(n, 4))
 
@@ -29,9 +31,9 @@ def _synthetic_scores(n: int = 300) -> pd.DataFrame:
 
 def test_rlm_hmm_fit_and_predict_shape() -> None:
     df = _synthetic_scores(250)
-    model = RLMHMM(
-        HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")
-    ).fit(df, verbose=False)
+    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")).fit(
+        df, verbose=False
+    )
 
     probs = model.predict_proba(df)
     states = model.most_likely_state(df)
@@ -65,13 +67,15 @@ def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
     assert "hmm_most_likely_next_prob" in out.columns
 
 
-def test_rlm_hmm_fit_suppresses_hmmlearn_nonmonotone_warnings(caplog: pytest.LogCaptureFixture) -> None:
+def test_rlm_hmm_fit_suppresses_hmmlearn_nonmonotone_warnings(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """hmmlearn logs WARNING when a single EM step dips; we silence it during fit (journal noise)."""
     caplog.set_level(logging.WARNING, logger="hmmlearn.base")
     df = _synthetic_scores(400)
-    RLMHMM(
-        HMMConfig(n_states=6, n_iter=40, random_state=99, filter_backend="numpy")
-    ).fit(df, verbose=False)
+    RLMHMM(HMMConfig(n_states=6, n_iter=40, random_state=99, filter_backend="numpy")).fit(
+        df, verbose=False
+    )
     noisy = [r for r in caplog.records if "Model is not converging" in r.getMessage()]
     assert not noisy
 
@@ -79,7 +83,13 @@ def test_rlm_hmm_fit_suppresses_hmmlearn_nonmonotone_warnings(caplog: pytest.Log
 def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     df = _synthetic_scores(200)
     m = RLMHMM(
-        HMMConfig(n_states=4, n_iter=20, random_state=0, filter_backend="numpy", transition_pseudocount=0.05)
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=0,
+            filter_backend="numpy",
+            transition_pseudocount=0.05,
+        )
     )
     m.fit(df, verbose=False)
     t = m.calibrated_transmat()

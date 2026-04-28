@@ -166,9 +166,21 @@ class DiagnosticsService:
                 provider_dep_ok = False
                 provider_dep_detail = str(exc)
         return [
-            CheckResult(name=f"ingest: provider={provider}", passed=provider_valid, detail="supported: yfinance, ibkr"),
-            CheckResult(name=f"ingest: deps for {provider}", passed=provider_dep_ok if provider_valid else False, detail=provider_dep_detail),
-            CheckResult(name=f"ingest: backend={backend}", passed=backend in {"auto", "csv", "lake"}, detail="supported: auto, csv, lake"),
+            CheckResult(
+                name=f"ingest: provider={provider}",
+                passed=provider_valid,
+                detail="supported: yfinance, ibkr",
+            ),
+            CheckResult(
+                name=f"ingest: deps for {provider}",
+                passed=provider_dep_ok if provider_valid else False,
+                detail=provider_dep_detail,
+            ),
+            CheckResult(
+                name=f"ingest: backend={backend}",
+                passed=backend in {"auto", "csv", "lake"},
+                detail="supported: auto, csv, lake",
+            ),
             CheckResult(
                 name="ingest: artifacts dir writable",
                 passed=(
@@ -234,7 +246,11 @@ class DiagnosticsService:
             except Exception as exc:
                 ib_dep_ok = False
                 ib_dep_detail = str(exc)
-            checks.append(CheckResult(name="trade: ibkr dependency import", passed=ib_dep_ok, detail=ib_dep_detail))
+            checks.append(
+                CheckResult(
+                    name="trade: ibkr dependency import", passed=ib_dep_ok, detail=ib_dep_detail
+                )
+            )
             checks.append(
                 CheckResult(
                     name=f"trade: mode={mode} prerequisites",

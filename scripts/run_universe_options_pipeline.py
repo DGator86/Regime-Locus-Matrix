@@ -47,7 +47,6 @@ import numpy as np
 import pandas as pd
 
 # ruff: noqa: E402
-
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
@@ -57,6 +56,7 @@ from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors import FactorPipeline
+from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
     LiveRegimeModelConfig,
@@ -64,7 +64,6 @@ from rlm.forecasting.live_model import (
     load_live_regime_model,
     save_live_regime_model,
 )
-from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
     estimate_entry_cost_from_matched_legs,
     estimate_mark_value_from_matched_legs,
@@ -75,7 +74,6 @@ from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
 from rlm.utils.market_hours import entry_window_open, session_label
-
 
 _IBKR_HIST_LOCK = threading.Lock()
 
@@ -165,9 +163,7 @@ def _prepare_symbol(
         active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
-    out["has_major_event"] = bool(
-        has_major_event_today(sym, lookahead_days=event_lookahead_days)
-    )
+    out["has_major_event"] = bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
     out = attach_regime_safety_columns(
         out,
         min_regime_train_samples=min_regime_train_samples,
@@ -289,14 +285,10 @@ def _finalize_symbol(
         return base
 
     dte_min = (
-        int(dte_min_override)
-        if dte_min_override is not None
-        else int(candidate.target_dte_min)
+        int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
     )
     dte_max = (
-        int(dte_max_override)
-        if dte_max_override is not None
-        else int(candidate.target_dte_max)
+        int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
     )
     expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
     if expiry_slice.empty:
@@ -499,7 +491,12 @@ def main() -> int:
         default=0,
         help="If >0, only keep N highest rank_score among active plans",
     )
-    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--purge-bars",
+        type=int,
+        default=0,
+        help="Exclude the most recent bars from regime training counts.",
+    )
     p.add_argument(
         "--min-regime-train-samples",
         type=int,
@@ -512,7 +509,9 @@ def main() -> int:
         default=Path("data/processed/live_regime_model.json"),
         help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
     )
-    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
+    p.add_argument(
+        "--ignore-live-model", action="store_true", help="Ignore any promoted live model config."
+    )
     p.add_argument(
         "--out",
         type=Path,
@@ -525,8 +524,12 @@ def main() -> int:
         action="store_true",
         help="Blend Kronos foundation-model return forecasts into every symbol's pipeline output.",
     )
-    p.add_argument("--kronos-weight", type=float, default=0.35,
-                   help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    p.add_argument(
+        "--kronos-weight",
+        type=float,
+        default=0.35,
+        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
+    )
     p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
     p.add_argument("--kronos-stride", type=int, default=1)
     p.add_argument("--kronos-samples", type=int, default=5)
@@ -553,7 +556,11 @@ def main() -> int:
     live_model_bootstrapped = False
     live_model_path: Path | None = None
     if not args.ignore_live_model:
-        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        live_model_path = (
+            ROOT / args.live_model_config
+            if not args.live_model_config.is_absolute()
+            else args.live_model_config
+        )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
@@ -574,9 +581,7 @@ def main() -> int:
             weight=args.kronos_weight,
         )
         if live_model is not None:
-            live_model = live_model.model_copy(
-                update={"use_kronos": True, "kronos": kronos_params}
-            )
+            live_model = live_model.model_copy(update={"use_kronos": True, "kronos": kronos_params})
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")

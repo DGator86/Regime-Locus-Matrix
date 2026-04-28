@@ -12,10 +12,18 @@ class MassiveOptionQuotesFetcher:
     def __init__(self, client: MassiveClient | None = None) -> None:
         self.client = client or MassiveClient()
 
-    def fetch(self, option_ticker: str, *, ts_gte: str, ts_lt: str, limit: int = 50_000) -> pd.DataFrame:
+    def fetch(
+        self, option_ticker: str, *, ts_gte: str, ts_lt: str, limit: int = 50_000
+    ) -> pd.DataFrame:
         first = self.client.option_quotes(
             option_ticker,
-            **{"timestamp.gte": ts_gte, "timestamp.lt": ts_lt, "limit": limit, "sort": "timestamp", "order": "asc"},
+            **{
+                "timestamp.gte": ts_gte,
+                "timestamp.lt": ts_lt,
+                "limit": limit,
+                "sort": "timestamp",
+                "order": "asc",
+            },
         )
         rows = collect_massive_results(self.client, first if isinstance(first, dict) else {})
         return pd.DataFrame(rows)

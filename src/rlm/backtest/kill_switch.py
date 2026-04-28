@@ -44,6 +44,7 @@ class KillSwitch:
     consecutive_loss_limit:
         Halt after this many consecutive losing trades. Set to None to disable.
     """
+
     max_drawdown: float = -0.15
     anomaly_vol_multiplier: float | None = 3.0
     consecutive_loss_limit: int | None = 5

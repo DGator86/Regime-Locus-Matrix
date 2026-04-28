@@ -25,9 +25,7 @@ class TransactionCostBreakdown:
     @property
     def total(self) -> float:
         return float(
-            self.extra_spread_cost
-            + self.underlying_slippage_cost
-            + self.market_impact_cost
+            self.extra_spread_cost + self.underlying_slippage_cost + self.market_impact_cost
         )
 
     def to_dict(self) -> dict[str, float]:

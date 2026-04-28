@@ -32,7 +32,9 @@ from rlm.ingestion.writers import write_massive_option_bars_parquet
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--option-ticker", required=True, help="e.g. O:SPY260619C00650000")
-    p.add_argument("--underlying-path", required=True, help="Folder name under data/options/, e.g. SPY")
+    p.add_argument(
+        "--underlying-path", required=True, help="Folder name under data/options/, e.g. SPY"
+    )
     p.add_argument("--multiplier", type=int, default=1)
     p.add_argument("--timespan", choices=("minute", "day", "hour"), default="day")
     p.add_argument("--from", dest="from_date", required=True)

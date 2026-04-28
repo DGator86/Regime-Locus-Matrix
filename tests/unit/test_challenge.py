@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from rlm.challenge.config import ChallengeConfig, MILESTONES
+from rlm.challenge.config import ChallengeConfig
 from rlm.challenge.engine import ChallengeEngine, _days_between
 from rlm.challenge.pricing import (
     atm_premium,
@@ -19,13 +18,13 @@ from rlm.challenge.pricing import (
 )
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
-from rlm.challenge.strategy import ChallengeStrategy, PlaySpec
+from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def cfg() -> ChallengeConfig:
@@ -45,6 +44,7 @@ def fresh_state(cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> Challeng
 # ---------------------------------------------------------------------------
 # Pricing tests
 # ---------------------------------------------------------------------------
+
 
 class TestPricing:
     def test_atm_premium_positive(self) -> None:
@@ -127,6 +127,7 @@ class TestPricing:
 # Sizing tests
 # ---------------------------------------------------------------------------
 
+
 class TestAggressiveSizer:
     def test_stage1_spends_25_pct(self, cfg: ChallengeConfig) -> None:
         sizer = AggressiveSizer()
@@ -164,6 +165,7 @@ class TestAggressiveSizer:
 # ---------------------------------------------------------------------------
 # Strategy tests
 # ---------------------------------------------------------------------------
+
 
 class TestChallengeStrategy:
     def test_long_directive_buys_call(self, cfg: ChallengeConfig) -> None:
@@ -213,6 +215,7 @@ class TestChallengeStrategy:
 # ---------------------------------------------------------------------------
 # State / persistence tests
 # ---------------------------------------------------------------------------
+
 
 class TestChallengeTracker:
     def test_reset_creates_fresh_state(
@@ -267,6 +270,7 @@ class TestChallengeTracker:
 # ---------------------------------------------------------------------------
 # Engine integration tests
 # ---------------------------------------------------------------------------
+
 
 class TestChallengeEngine:
     def test_bullish_session_opens_call(
@@ -392,6 +396,7 @@ class TestChallengeEngine:
 # Milestone and progress tests
 # ---------------------------------------------------------------------------
 
+
 class TestChallengeState:
     def test_progress_zero_at_seed(self, cfg: ChallengeConfig) -> None:
         state = ChallengeState.fresh(cfg, "2026-01-01")
@@ -413,12 +418,21 @@ class TestChallengeState:
         for pnl in (100.0, -50.0, 200.0, -75.0, 150.0):
             state.trade_history.append(
                 ChallengeTradeRecord(
-                    trade_id="x", symbol="SPY", option_type="call", direction="long",
-                    strike=500.0, dte_at_entry=7, entry_date="2026-01-01",
-                    exit_date="2026-01-05", premium_paid=200.0,
-                    proceeds=200.0 + pnl, pnl=pnl, pnl_pct=pnl / 200.0 * 100,
+                    trade_id="x",
+                    symbol="SPY",
+                    option_type="call",
+                    direction="long",
+                    strike=500.0,
+                    dte_at_entry=7,
+                    entry_date="2026-01-01",
+                    exit_date="2026-01-05",
+                    premium_paid=200.0,
+                    proceeds=200.0 + pnl,
+                    pnl=pnl,
+                    pnl_pct=pnl / 200.0 * 100,
                     exit_reason="target" if pnl > 0 else "stop",
-                    balance_before=1_000.0, balance_after=1_000.0 + pnl,
+                    balance_before=1_000.0,
+                    balance_after=1_000.0 + pnl,
                 )
             )
         assert state.wins == 3
@@ -429,6 +443,7 @@ class TestChallengeState:
 # ---------------------------------------------------------------------------
 # Utility tests
 # ---------------------------------------------------------------------------
+
 
 class TestHelpers:
     def test_days_between_same_date(self) -> None:

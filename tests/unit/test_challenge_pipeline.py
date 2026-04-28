@@ -100,7 +100,7 @@ class TestSetupScoring:
     def test_strong_bullish_no_pdt_gives_swing(self):
         d = _run(
             symbol="SPY",
-            pdt_slots=0,       # PDT exhausted
+            pdt_slots=0,  # PDT exhausted
             regime_confidence=0.82,
             signal_alignment=0.78,
         )
@@ -120,7 +120,7 @@ class TestSetupScoring:
     def test_garak_veto_gives_no_trade(self):
         d = _run(
             symbol="QQQ",
-            veto=True,          # Garak hard veto
+            veto=True,  # Garak hard veto
             directive="no_trade",
         )
         assert d.directive == "no_trade"
@@ -166,13 +166,15 @@ class TestContractProfile:
     def test_scalp_mode_has_tighter_delta_and_short_dte(self):
         # Elite setup to force scalp (elite_setup_score now 0.70)
         d = _run(
-            symbol="SPY", pdt_slots=3,
-            regime_confidence=0.92, signal_alignment=0.90,
+            symbol="SPY",
+            pdt_slots=3,
+            regime_confidence=0.92,
+            signal_alignment=0.90,
             historical_edge=0.75,
         )
         if d.trade_mode == "scalp":
             assert d.contract_profile.target_delta_max <= 0.65
-            assert d.contract_profile.preferred_dte_max <= 3   # scalp_dte_max=3 now
+            assert d.contract_profile.preferred_dte_max <= 3  # scalp_dte_max=3 now
 
     def test_swing_mode_has_wider_delta(self):
         d = _run(symbol="SPY", pdt_slots=0)  # no PDT → swing
@@ -182,22 +184,37 @@ class TestContractProfile:
 
 class TestStageSizing:
     def test_stage1_sizing_applied(self):
-        d = _run(symbol="SPY", equity=1_200.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=1_200.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.12)
 
     def test_stage2_sizing_applied(self):
-        d = _run(symbol="SPY", equity=4_500.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=4_500.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.15)
 
     def test_stage3_sizing_applied(self):
-        d = _run(symbol="SPY", equity=12_000.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=12_000.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.18)

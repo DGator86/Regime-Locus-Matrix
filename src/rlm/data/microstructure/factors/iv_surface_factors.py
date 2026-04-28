@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 
 from rlm.features.factors.base import FactorCalculator
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_IV_VOL_WINDOW = 20   # rolling window for vol-of-vol calculation
+_IV_VOL_WINDOW = 20  # rolling window for vol-of-vol calculation
 
 
 class IVSurfaceFactors(FactorCalculator):
@@ -75,43 +74,43 @@ class IVSurfaceFactors(FactorCalculator):
                 name="iv_atm_30d",
                 category=FactorCategory.VOLATILITY,
                 transform_kind=TransformKind.RATIO,
-                neutral_value=0.20,   # 20% IV is neutral baseline
+                neutral_value=0.20,  # 20% IV is neutral baseline
                 k=1.5,
-                invert=True,          # Higher IV → lower score (bearish environment)
+                invert=True,  # Higher IV → lower score (bearish environment)
             ),
             # Put-call skew: VOLATILITY (skew surge → regime shift)
             FactorSpec(
                 name="iv_skew_25d",
                 category=FactorCategory.VOLATILITY,
                 transform_kind=TransformKind.SIGNED,
-                scale_value=0.05,     # 5 vol-point skew is "significant"
+                scale_value=0.05,  # 5 vol-point skew is "significant"
                 k=1.0,
-                invert=True,          # Higher skew → downside fear → bearish
+                invert=True,  # Higher skew → downside fear → bearish
             ),
             # Term structure: VOLATILITY (inverted term = stress)
             FactorSpec(
                 name="iv_term_ratio",
                 category=FactorCategory.VOLATILITY,
                 transform_kind=TransformKind.RATIO,
-                neutral_value=1.0,    # Flat term structure
+                neutral_value=1.0,  # Flat term structure
                 k=2.0,
-                invert=True,          # ratio > 1 → front elevated → bearish
+                invert=True,  # ratio > 1 → front elevated → bearish
             ),
             # Day-over-day IV change: DIRECTION (IV rising → bearish pressure)
             FactorSpec(
                 name="iv_surface_change",
                 category=FactorCategory.DIRECTION,
                 transform_kind=TransformKind.SIGNED,
-                scale_value=0.02,     # 2 vol-point move is 1 standard-scale unit
+                scale_value=0.02,  # 2 vol-point move is 1 standard-scale unit
                 k=1.0,
-                invert=True,          # Rising IV → negative direction signal
+                invert=True,  # Rising IV → negative direction signal
             ),
             # Vol-of-vol: VOLATILITY regime (elevated = unstable)
             FactorSpec(
                 name="iv_vol_of_vol",
                 category=FactorCategory.VOLATILITY,
                 transform_kind=TransformKind.RATIO,
-                neutral_value=0.03,   # 3% vol-of-vol baseline
+                neutral_value=0.03,  # 3% vol-of-vol baseline
                 k=1.5,
                 invert=True,
             ),
@@ -134,7 +133,9 @@ class IVSurfaceFactors(FactorCalculator):
             return _empty_iv_columns(df)
 
         if iv_surfaces.empty:
-            logger.warning("IVSurfaceFactors: no IV surfaces for %s %s→%s", self._symbol, start, end)
+            logger.warning(
+                "IVSurfaceFactors: no IV surfaces for %s %s→%s", self._symbol, start, end
+            )
             return _empty_iv_columns(df)
 
         # Build per-date IV metrics from the stored surface grid
@@ -147,12 +148,14 @@ class IVSurfaceFactors(FactorCalculator):
             iv_short = query_iv_surface(surface, moneyness=1.0, dte=self._short_dte)
             iv_long = query_iv_surface(surface, moneyness=1.0, dte=self._long_dte)
             term_ratio = (iv_short / iv_long) if (iv_long and iv_long > 0) else float("nan")
-            daily_metrics.append({
-                "date": pd.Timestamp(ts).date(),
-                "iv_atm_30d": iv_atm,
-                "iv_skew_25d": iv_skew,
-                "iv_term_ratio": term_ratio,
-            })
+            daily_metrics.append(
+                {
+                    "date": pd.Timestamp(ts).date(),
+                    "iv_atm_30d": iv_atm,
+                    "iv_skew_25d": iv_skew,
+                    "iv_term_ratio": term_ratio,
+                }
+            )
 
         metrics_df = pd.DataFrame(daily_metrics).set_index("date")
         metrics_df.index = pd.DatetimeIndex(metrics_df.index)
@@ -163,15 +166,19 @@ class IVSurfaceFactors(FactorCalculator):
 
         # Rolling vol-of-vol (std of ATM IV over window)
         metrics_df["iv_vol_of_vol"] = (
-            metrics_df["iv_atm_30d"]
-            .rolling(_IV_VOL_WINDOW, min_periods=5)
-            .std()
+            metrics_df["iv_atm_30d"].rolling(_IV_VOL_WINDOW, min_periods=5).std()
         )
 
         # Reindex to df's dates, forward-fill
         out = df.copy()
         df_dates = pd.to_datetime(df.index.date)
-        for col in ("iv_atm_30d", "iv_skew_25d", "iv_term_ratio", "iv_surface_change", "iv_vol_of_vol"):
+        for col in (
+            "iv_atm_30d",
+            "iv_skew_25d",
+            "iv_term_ratio",
+            "iv_surface_change",
+            "iv_vol_of_vol",
+        ):
             series = metrics_df[col].reindex(df_dates).ffill()
             out[col] = series.values
 
@@ -181,6 +188,7 @@ class IVSurfaceFactors(FactorCalculator):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _empty_iv_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()

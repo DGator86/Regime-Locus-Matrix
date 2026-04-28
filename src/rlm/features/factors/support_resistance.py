@@ -88,9 +88,7 @@ class SupportResistanceFactors(FactorCalculator):
         resistance = high.rolling(
             self.swing_window, min_periods=max(5, self.swing_window // 2)
         ).max()
-        support = low.rolling(
-            self.swing_window, min_periods=max(5, self.swing_window // 2)
-        ).min()
+        support = low.rolling(self.swing_window, min_periods=max(5, self.swing_window // 2)).min()
 
         out["dist_to_nearest_support"] = ((close - support).clip(lower=0.0)) / atr
         out["dist_to_nearest_resistance"] = ((resistance - close).clip(lower=0.0)) / atr

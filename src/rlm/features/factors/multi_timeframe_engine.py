@@ -93,8 +93,7 @@ class MultiTimeframeEngine(FactorCalculator):
                     return parsed
 
         raise ValueError(
-            "MultiTimeframeEngine requires a DatetimeIndex or one of: "
-            "timestamp/datetime/ts/date"
+            "MultiTimeframeEngine requires a DatetimeIndex or one of: " "timestamp/datetime/ts/date"
         )
 
     def _mtf_name(self, feature: str, timeframe: str) -> str:

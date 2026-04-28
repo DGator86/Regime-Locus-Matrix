@@ -52,7 +52,9 @@ class MassiveClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = float(timeout_s)
-        self._api_key = api_key if api_key is not None else load_massive_api_key(env_var=api_key_env_var)
+        self._api_key = (
+            api_key if api_key is not None else load_massive_api_key(env_var=api_key_env_var)
+        )
 
     def get(
         self,

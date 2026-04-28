@@ -103,7 +103,11 @@ def reprice_matched_legs_detailed(
                 mid=mid,
                 mark_value=mark_value,
                 exit_value=exit_value,
-                symbol=str(row["contract_symbol"]) if "contract_symbol" in row and pd.notna(row["contract_symbol"]) else None,
+                symbol=(
+                    str(row["contract_symbol"])
+                    if "contract_symbol" in row and pd.notna(row["contract_symbol"])
+                    else None
+                ),
             )
         )
 

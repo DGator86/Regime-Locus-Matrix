@@ -23,6 +23,7 @@ from rlm.persona.models import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
@@ -35,6 +36,7 @@ def _norm_score(score: float) -> float:
 # ---------------------------------------------------------------------------
 # Stage 1 — Seven
 # ---------------------------------------------------------------------------
+
 
 def run_seven(inputs: PersonaInputs, cfg: PersonaConfig) -> SevenStageOutput:
     """Normalise raw factor scores into a structured bias/alignment/confidence triple."""
@@ -76,6 +78,7 @@ def run_seven(inputs: PersonaInputs, cfg: PersonaConfig) -> SevenStageOutput:
 # ---------------------------------------------------------------------------
 # Stage 2 — Garak
 # ---------------------------------------------------------------------------
+
 
 def run_garak(
     inputs: PersonaInputs,
@@ -132,6 +135,7 @@ def run_garak(
 # Stage 3 — Sisko
 # ---------------------------------------------------------------------------
 
+
 def run_sisko(
     inputs: PersonaInputs,
     seven: SevenStageOutput,
@@ -180,6 +184,7 @@ def run_sisko(
 # Stage 4 — Data
 # ---------------------------------------------------------------------------
 
+
 def run_data(
     inputs: PersonaInputs,
     sisko: SiskoStageOutput,
@@ -195,11 +200,7 @@ def run_data(
         historical_edge = _clamp(0.5 * _clamp(sharpe / 2.0) + 0.5 * win_rate)
     else:
         # Conservative estimate from factor score magnitudes
-        mag = _clamp(
-            0.5 * abs(inputs.s_d)
-            + 0.3 * abs(inputs.s_l)
-            + 0.2 * abs(inputs.s_g)
-        )
+        mag = _clamp(0.5 * abs(inputs.s_d) + 0.3 * abs(inputs.s_l) + 0.2 * abs(inputs.s_g))
         # Anchor near 0.5; deviate proportionally to factor conviction
         historical_edge = _clamp(0.35 + 0.30 * mag)
 
@@ -214,9 +215,7 @@ def run_data(
     # Adaptation note keyed on volatility regime
     vr = inputs.volatility_regime.lower()
     if "high" in vr:
-        adaptation_note = (
-            "similar setups show reduced edge in elevated vol; size conservatively"
-        )
+        adaptation_note = "similar setups show reduced edge in elevated vol; size conservatively"
     elif "low" in vr:
         adaptation_note = (
             "similar setups perform best in expanding vol; watch for vol expansion trigger"

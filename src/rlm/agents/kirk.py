@@ -56,9 +56,9 @@ _RISK_TO_POSTURE = {
 @dataclass
 class CommandDecision:
     timestamp: str
-    system_status: str        # NOMINAL | DEGRADED | CRITICAL
-    market_posture: str       # AGGRESSIVE | NORMAL | DEFENSIVE | STAND-DOWN
-    command: str              # GO | HOLD | STAND-DOWN | ALERT OPERATOR
+    system_status: str  # NOMINAL | DEGRADED | CRITICAL
+    market_posture: str  # AGGRESSIVE | NORMAL | DEFENSIVE | STAND-DOWN
+    command: str  # GO | HOLD | STAND-DOWN | ALERT OPERATOR
     rationale: str
     crew_orders: dict[str, str] = field(default_factory=dict)
     llm_text: str = ""
@@ -118,9 +118,13 @@ class KirkAgent:
 
         try:
             llm_text = self.llm.chat(
-                [Message("user",
-                    f"Here are your crew reports:\n\n{context}\n\n"
-                    "Issue your command decision.")],
+                [
+                    Message(
+                        "user",
+                        f"Here are your crew reports:\n\n{context}\n\n"
+                        "Issue your command decision.",
+                    )
+                ],
                 system=_KIRK_SYSTEM,
             )
         except Exception as exc:
@@ -209,8 +213,6 @@ class KirkAgent:
                 existing = json.loads(self._decisions_path.read_text(encoding="utf-8"))
             existing.append(decision.to_json())
             existing = existing[-500:]  # keep last 500 decisions
-            self._decisions_path.write_text(
-                json.dumps(existing, indent=2), encoding="utf-8"
-            )
+            self._decisions_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         except Exception:
             pass
