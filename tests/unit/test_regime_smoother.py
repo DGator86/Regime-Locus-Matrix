@@ -17,6 +17,4 @@ def test_smoothing_reduces_flip_noise() -> None:
     smooth = smooth_regime_probabilities(raw, alpha=0.2)
     raw_labels = raw.argmax(axis=1).tolist()
     smooth_labels = smooth.argmax(axis=1).tolist()
-    assert regime_flip_rate([str(x) for x in smooth_labels]) <= regime_flip_rate(
-        [str(x) for x in raw_labels]
-    )
+    assert regime_flip_rate([str(x) for x in smooth_labels]) <= regime_flip_rate([str(x) for x in raw_labels])

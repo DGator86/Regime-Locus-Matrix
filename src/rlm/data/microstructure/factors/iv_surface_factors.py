@@ -133,9 +133,7 @@ class IVSurfaceFactors(FactorCalculator):
             return _empty_iv_columns(df)
 
         if iv_surfaces.empty:
-            logger.warning(
-                "IVSurfaceFactors: no IV surfaces for %s %s→%s", self._symbol, start, end
-            )
+            logger.warning("IVSurfaceFactors: no IV surfaces for %s %s→%s", self._symbol, start, end)
             return _empty_iv_columns(df)
 
         # Build per-date IV metrics from the stored surface grid
@@ -165,9 +163,7 @@ class IVSurfaceFactors(FactorCalculator):
         metrics_df["iv_surface_change"] = metrics_df["iv_atm_30d"].diff()
 
         # Rolling vol-of-vol (std of ATM IV over window)
-        metrics_df["iv_vol_of_vol"] = (
-            metrics_df["iv_atm_30d"].rolling(_IV_VOL_WINDOW, min_periods=5).std()
-        )
+        metrics_df["iv_vol_of_vol"] = metrics_df["iv_atm_30d"].rolling(_IV_VOL_WINDOW, min_periods=5).std()
 
         # Reindex to df's dates, forward-fill
         out = df.copy()

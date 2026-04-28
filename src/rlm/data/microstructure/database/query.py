@@ -247,16 +247,12 @@ class MicrostructureDB:
         by_time = gex.groupby("timestamp")["net_gex"].sum().reset_index()
         by_time = by_time.sort_values("timestamp").reset_index(drop=True)
         by_time["prev_net_gex"] = by_time["net_gex"].shift(1)
-        flips = by_time[
-            (by_time["prev_net_gex"] * by_time["net_gex"] < 0) & by_time["prev_net_gex"].notna()
-        ].copy()
+        flips = by_time[(by_time["prev_net_gex"] * by_time["net_gex"] < 0) & by_time["prev_net_gex"].notna()].copy()
         flips["flip_direction"] = flips.apply(
             lambda r: "positive_to_negative" if r["prev_net_gex"] > 0 else "negative_to_positive",
             axis=1,
         )
-        return flips[["timestamp", "prev_net_gex", "net_gex", "flip_direction"]].reset_index(
-            drop=True
-        )
+        return flips[["timestamp", "prev_net_gex", "net_gex", "flip_direction"]].reset_index(drop=True)
 
     # ------------------------------------------------------------------
     # IV surface
@@ -314,7 +310,7 @@ class MicrostructureDB:
             skew_at_dte,
         )
 
-        date = str(timestamp)[:10]
+        str(timestamp)[:10]
         snapshot = self.load_greeks_snapshot(symbol, timestamp)
 
         ctx: dict[str, float] = {

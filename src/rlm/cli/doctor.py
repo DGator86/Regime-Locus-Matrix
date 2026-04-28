@@ -15,9 +15,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--verbose", "-v", action="store_true")
     p.add_argument("--json", action="store_true", help="Emit JSON report")
-    p.add_argument(
-        "--strict", action="store_true", help="Exit non-zero when any required check fails"
-    )
+    p.add_argument("--strict", action="store_true", help="Exit non-zero when any required check fails")
     p.add_argument("--symbol", default=None, help="Validate data availability for symbol")
     p.add_argument("--provider", choices=["yfinance", "ibkr"], default=None)
     p.add_argument("--mode", choices=["plan", "paper", "live"], default="plan")

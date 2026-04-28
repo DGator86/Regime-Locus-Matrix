@@ -31,9 +31,7 @@ def _synthetic_scores(n: int = 300) -> pd.DataFrame:
 
 def test_rlm_hmm_fit_and_predict_shape() -> None:
     df = _synthetic_scores(250)
-    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")).fit(
-        df, verbose=False
-    )
+    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")).fit(df, verbose=False)
 
     probs = model.predict_proba(df)
     states = model.most_likely_state(df)
@@ -73,9 +71,7 @@ def test_rlm_hmm_fit_suppresses_hmmlearn_nonmonotone_warnings(
     """hmmlearn logs WARNING when a single EM step dips; we silence it during fit (journal noise)."""
     caplog.set_level(logging.WARNING, logger="hmmlearn.base")
     df = _synthetic_scores(400)
-    RLMHMM(HMMConfig(n_states=6, n_iter=40, random_state=99, filter_backend="numpy")).fit(
-        df, verbose=False
-    )
+    RLMHMM(HMMConfig(n_states=6, n_iter=40, random_state=99, filter_backend="numpy")).fit(df, verbose=False)
     noisy = [r for r in caplog.records if "Model is not converging" in r.getMessage()]
     assert not noisy
 

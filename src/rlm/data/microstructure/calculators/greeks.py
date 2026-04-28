@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import pandas as pd
 from scipy.stats import norm
 
 _LOG2PI_HALF = 0.5 * math.log(2 * math.pi)  # pre-computed constant
@@ -166,9 +167,7 @@ def full_greeks_row(
 
     # Veta: ∂vega/∂T per calendar day
     if T > 1e-10 and sig_sqrt_T > 1e-12:
-        bundle.veta = (
-            -S * phi_d1 * sqrt_T * (r * d1 / sig_sqrt_T - (1.0 + d1 * d2) / (2.0 * T))
-        ) / 365.0
+        bundle.veta = (-S * phi_d1 * sqrt_T * (r * d1 / sig_sqrt_T - (1.0 + d1 * d2) / (2.0 * T))) / 365.0
 
     # ── Third order ──────────────────────────────────────────────────────────
     # Speed: ∂gamma/∂S
@@ -248,11 +247,7 @@ def solve_iv(
     # Newton-Raphson
     for _ in range(max_iter):
         price = _bs_price(S, K, T, r, sig, is_call)
-        vega_ = (
-            S
-            * float(norm.pdf((math.log(S / K) + (r + 0.5 * sig * sig) * T) / (sig * sqrt_T)))
-            * sqrt_T
-        )
+        vega_ = S * float(norm.pdf((math.log(S / K) + (r + 0.5 * sig * sig) * T) / (sig * sqrt_T))) * sqrt_T
         if abs(vega_) < 1e-12:
             break
         diff = price - market_price
@@ -299,8 +294,6 @@ def compute_greeks_dataframe(
 
     Returns the input DataFrame with all Greek columns appended.
     """
-    import pandas as pd
-
     out = chain.copy()
 
     # Ensure IV

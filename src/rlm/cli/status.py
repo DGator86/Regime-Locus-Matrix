@@ -108,11 +108,7 @@ def main() -> None:
                     ]
                 )
             print(f"  Open Positions: {len(open_eq)}")
-            print(
-                tabulate(
-                    eq_data, headers=["Symbol", "Side", "Qty", "Entry", "Opened"], tablefmt="simple"
-                )
-            )
+            print(tabulate(eq_data, headers=["Symbol", "Side", "Qty", "Entry", "Opened"], tablefmt="simple"))
         else:
             print("  No open equity positions.")
     else:
@@ -126,12 +122,8 @@ def main() -> None:
         realized = swing_df[swing_df["closed"] == 1]
         unrealized = swing_df[swing_df["closed"] == 0]
 
-        total_realized = (
-            realized["unrealized_pnl"].sum() if "unrealized_pnl" in realized.columns else 0
-        )
-        total_unrealized = (
-            unrealized["unrealized_pnl"].sum() if "unrealized_pnl" in unrealized.columns else 0
-        )
+        total_realized = realized["unrealized_pnl"].sum() if "unrealized_pnl" in realized.columns else 0
+        total_unrealized = unrealized["unrealized_pnl"].sum() if "unrealized_pnl" in unrealized.columns else 0
 
         print(f"  Realized PnL   : ${total_realized:>10,.2f}")
         print(f"  Unrealized PnL : ${total_unrealized:>10,.2f}")
@@ -139,9 +131,7 @@ def main() -> None:
         if not unrealized.empty:
             print("\n  Open Swing Trades:")
             # Limit to top 5 for brevity
-            display_df = unrealized.tail(5)[
-                ["symbol", "strategy", "entry_mid", "current_mark", "unrealized_pnl"]
-            ]
+            display_df = unrealized.tail(5)[["symbol", "strategy", "entry_mid", "current_mark", "unrealized_pnl"]]
             print(tabulate(display_df, headers="keys", showindex=False, tablefmt="simple"))
     else:
         print("  No swing trade logs found.")

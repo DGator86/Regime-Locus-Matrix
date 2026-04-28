@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from rlm.agents.base import LLMClient, LLMConfig
+from rlm.agents.gate import SystemGate
 from rlm.agents.kirk import CommandDecision, KirkAgent
 from rlm.agents.scotty import HealthReport, ScottyAgent
 from rlm.agents.spock import SpockAgent, SpockBriefing
@@ -247,10 +248,7 @@ class StarfleetCrew:
                     )
                     self._execute_orders(decision, gate)
                     # ONLY NOTIFY if it's a critical system failure that requires human manual bypass
-                    if (
-                        decision.system_status == "CRITICAL"
-                        and decision.command == "ALERT OPERATOR"
-                    ):
+                    if decision.system_status == "CRITICAL" and decision.command == "ALERT OPERATOR":
                         self._send(decision.to_telegram_message(), force_notify=True)
                 except Exception as exc:
                     print(f"[Kirk ERROR] {exc}", flush=True)
@@ -275,8 +273,6 @@ class StarfleetCrew:
 
     def _execute_orders(self, decision: CommandDecision, gate: Optional[SystemGate] = None) -> None:
         """Translate Kirk's decision into system-level state."""
-        from rlm.agents.gate import SystemGate
-
         g = gate or SystemGate(self.root)
         g.update(
             posture=decision.market_posture,

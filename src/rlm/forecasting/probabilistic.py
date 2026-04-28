@@ -51,9 +51,7 @@ class QuantileLinearModelArtifact:
     def predict(self, feature_frame: pd.DataFrame) -> pd.DataFrame:
         x = feature_frame.loc[:, list(self.feature_columns)].fillna(0.0).to_numpy(dtype=float)
         preds: dict[str, np.ndarray] = {}
-        for quantile, intercept, coefs in zip(
-            self.quantiles, self.intercepts, self.coefficients, strict=True
-        ):
+        for quantile, intercept, coefs in zip(self.quantiles, self.intercepts, self.coefficients, strict=True):
             preds[f"{quantile:.4f}"] = intercept + x @ np.asarray(coefs, dtype=float)
         return pd.DataFrame(preds, index=feature_frame.index)
 
@@ -99,11 +97,7 @@ class ProbabilisticForecastPipeline:
         self.vol_window = vol_window
         self.model_path = Path(model_path) if model_path is not None else None
         self.feature_columns = feature_columns
-        self.model = (
-            QuantileLinearModelArtifact.load(self.model_path)
-            if self.model_path is not None
-            else None
-        )
+        self.model = QuantileLinearModelArtifact.load(self.model_path) if self.model_path is not None else None
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         base = estimate_distribution(

@@ -95,13 +95,9 @@ def settle_legs_at_expiry(
         itm = intrinsic != 0.0
         if itm and side == "short":
             assignment_occurred = True
-            notes_parts.append(
-                f"short {option_type} K={strike} assigned (intrinsic={intrinsic:.4f})"
-            )
+            notes_parts.append(f"short {option_type} K={strike} assigned (intrinsic={intrinsic:.4f})")
         elif itm and side == "long":
-            notes_parts.append(
-                f"long {option_type} K={strike} exercised (intrinsic={intrinsic:.4f})"
-            )
+            notes_parts.append(f"long {option_type} K={strike} exercised (intrinsic={intrinsic:.4f})")
         else:
             notes_parts.append(f"{side} {option_type} K={strike} expired worthless")
 

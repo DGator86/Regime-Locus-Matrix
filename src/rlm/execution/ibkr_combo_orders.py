@@ -141,9 +141,7 @@ def _get_bundle() -> tuple[Type[Any], Type[Any], Any, Any, Any]:
         from ibapi.order import Order
         from ibapi.wrapper import EWrapper
     except ImportError as e:
-        raise ImportError(
-            "IBKR orders require ibapi. Install: pip install 'regime-locus-matrix[ibkr]'"
-        ) from e
+        raise ImportError("IBKR orders require ibapi. Install: pip install 'regime-locus-matrix[ibkr]'") from e
     return EWrapper, EClient, Contract, ComboLeg, Order
 
 
@@ -164,11 +162,7 @@ def _pick_resolved_contract(Contract: Any, details_list: list[Any]) -> Any:
     if not details_list:
         raise RuntimeError("No contract details returned from IBKR.")
     contracts = [d.contract for d in details_list]
-    smart = [
-        x
-        for x in contracts
-        if getattr(x, "exchange", "") == "SMART" and getattr(x, "secType", "") == "OPT"
-    ]
+    smart = [x for x in contracts if getattr(x, "exchange", "") == "SMART" and getattr(x, "secType", "") == "OPT"]
     chosen = smart[0] if smart else contracts[0]
     if not getattr(chosen, "conId", 0):
         raise RuntimeError(f"Resolved contract has no conId: {chosen}")
@@ -265,9 +259,7 @@ def _wait_handshake(app: Any, host: str, port: int, timeout: float) -> None:
     )
 
 
-def _connect_run(
-    app: Any, host: str, port: int, client_id: int, timeout: float
-) -> threading.Thread:
+def _connect_run(app: Any, host: str, port: int, client_id: int, timeout: float) -> threading.Thread:
     app.connect(host, port, client_id)
     thread = threading.Thread(target=app.run, daemon=False, name="ibkr-order-run")
     thread.start()
@@ -318,15 +310,11 @@ def resolve_option_contract(
 ) -> Any:
     """One-shot: connect, resolve, disconnect. Returns ``Contract`` with ``conId``."""
     _, _, Contract, _, _ = _get_bundle()
-    with ibkr_order_connection(
-        host=host, port=port, client_id=client_id, timeout_sec=timeout_sec
-    ) as app:
+    with ibkr_order_connection(host=host, port=port, client_id=client_id, timeout_sec=timeout_sec) as app:
         return _resolve_option_on_app(app, Contract, spec, timeout_sec)
 
 
-def _resolve_option_on_app(
-    app: Any, Contract: Any, spec: IBKROptionLegSpec, timeout_sec: float
-) -> Any:
+def _resolve_option_on_app(app: Any, Contract: Any, spec: IBKROptionLegSpec, timeout_sec: float) -> Any:
     bare = _bare_option_contract(Contract, spec)
     app._cd_seq += 1
     req_id = app._cd_seq
@@ -498,9 +486,7 @@ def place_options_combo_market_order(
     )
 
 
-def _wait_order_terminal(
-    app: Any, order_id: int, *, transmit: bool, timeout_sec: float
-) -> list[str]:
+def _wait_order_terminal(app: Any, order_id: int, *, transmit: bool, timeout_sec: float) -> list[str]:
     deadline = time.monotonic() + timeout_sec
     trail: list[str] = []
     while time.monotonic() < deadline:

@@ -31,9 +31,7 @@ class MicrostructureVPFactors:
             out["vp_lvn_count"] = 0
             return out
 
-        vp = vp.set_index(pd.to_datetime(vp["timestamp"], utc=True, errors="coerce")).drop(
-            columns=["timestamp"]
-        )
+        vp = vp.set_index(pd.to_datetime(vp["timestamp"], utc=True, errors="coerce")).drop(columns=["timestamp"])
         data_idx = pd.DatetimeIndex(pd.to_datetime(data.index, utc=True, errors="coerce"))
         aligned = vp.reindex(data_idx, method="ffill")
         aligned.index = data.index

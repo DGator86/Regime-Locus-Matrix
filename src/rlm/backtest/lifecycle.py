@@ -28,9 +28,7 @@ class ExpiryLiquidationPolicy(str, Enum):
 class LifecycleConfig:
     force_close_dte: int = 1
     close_at_expiry_if_open: bool = True
-    expiry_liquidation_policy: ExpiryLiquidationPolicy = (
-        ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
-    )
+    expiry_liquidation_policy: ExpiryLiquidationPolicy = ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
     max_holding_bars: int | None = None
     min_hold_bars: int = 2
     one_trade_per_bar: bool = True

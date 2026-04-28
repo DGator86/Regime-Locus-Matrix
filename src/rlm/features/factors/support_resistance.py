@@ -79,15 +79,9 @@ class SupportResistanceFactors(FactorCalculator):
         tr2 = (high - close.shift(1)).abs()
         tr3 = (low - close.shift(1)).abs()
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = (
-            tr.rolling(self.atr_window, min_periods=max(5, self.atr_window // 2))
-            .mean()
-            .replace(0, np.nan)
-        )
+        atr = tr.rolling(self.atr_window, min_periods=max(5, self.atr_window // 2)).mean().replace(0, np.nan)
 
-        resistance = high.rolling(
-            self.swing_window, min_periods=max(5, self.swing_window // 2)
-        ).max()
+        resistance = high.rolling(self.swing_window, min_periods=max(5, self.swing_window // 2)).max()
         support = low.rolling(self.swing_window, min_periods=max(5, self.swing_window // 2)).min()
 
         out["dist_to_nearest_support"] = ((close - support).clip(lower=0.0)) / atr
@@ -109,12 +103,8 @@ class SupportResistanceFactors(FactorCalculator):
 
         prior_resistance = resistance.shift(1)
         prior_support = support.shift(1)
-        breakout_up = (
-            close > (prior_resistance + atr * self.breakout_atr_threshold)
-        ) & volume_confirmed
-        breakout_down = (
-            close < (prior_support - atr * self.breakout_atr_threshold)
-        ) & volume_confirmed
+        breakout_up = (close > (prior_resistance + atr * self.breakout_atr_threshold)) & volume_confirmed
+        breakout_down = (close < (prior_support - atr * self.breakout_atr_threshold)) & volume_confirmed
 
         out["breakout_confirmed"] = np.where(
             breakout_up,

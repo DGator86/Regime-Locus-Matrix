@@ -21,6 +21,10 @@ import argparse
 import sys
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import duckdb
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -43,7 +47,7 @@ def build_surfaces_for_date(
     target_date: str,
     snapshot_time: str = "16:00:00",
     data_root: str,
-    duckdb_conn: "duckdb.DuckDBPyConnection",
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> None:
     """Build and persist GEX + IV surfaces for *symbol* on *target_date*."""
     from rlm.microstructure.calculators.gex import build_gex_surface, save_gex_surface
@@ -81,9 +85,7 @@ def build_surfaces_for_date(
 
     # ── GEX surface ──────────────────────────────────────────────────────────
     try:
-        gex_df = build_gex_surface(
-            duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root
-        )
+        gex_df = build_gex_surface(duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root)
         if gex_df.empty:
             print(f"  [WARN] GEX surface is empty for {symbol} @ {timestamp}")
         else:
@@ -104,9 +106,7 @@ def build_surfaces_for_date(
 
     # ── IV surface ───────────────────────────────────────────────────────────
     try:
-        iv_df = build_iv_surface_from_parquet(
-            duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root
-        )
+        iv_df = build_iv_surface_from_parquet(duckdb_conn, symbol=symbol, timestamp=timestamp, data_path=data_root)
         if iv_df.empty:
             print(f"  [WARN] IV surface is empty for {symbol} @ {timestamp}")
         else:
@@ -152,9 +152,7 @@ def main() -> None:
 
         conn = duckdb.connect()
     except ImportError:
-        raise SystemExit(
-            "DuckDB is required.\n" "Install: pip install 'regime-locus-matrix[microstructure]'"
-        )
+        raise SystemExit("DuckDB is required.\n" "Install: pip install 'regime-locus-matrix[microstructure]'")
 
     print(f"\nBuilding microstructure surfaces for {', '.join(symbols)} on {target_date}\n")
     for sym in symbols:

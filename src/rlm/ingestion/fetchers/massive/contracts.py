@@ -13,8 +13,6 @@ class MassiveContractsFetcher:
         self.client = client or MassiveClient()
 
     def fetch(self, underlying: str, **params) -> pd.DataFrame:
-        first = self.client.option_contracts_reference(
-            underlying_ticker=str(underlying).upper(), **params
-        )
+        first = self.client.option_contracts_reference(underlying_ticker=str(underlying).upper(), **params)
         rows = collect_massive_results(self.client, first if isinstance(first, dict) else {})
         return pd.DataFrame(rows)

@@ -193,9 +193,7 @@ class SpockAgent:
             gen_dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
             age_min = (datetime.now(tz=timezone.utc) - gen_dt).total_seconds() / 60
             if age_min > self._STALE_THRESHOLD_MINUTES:
-                stale_tag = (
-                    f" [STALE: {age_min:.0f}min old — scores may not reflect current market]"
-                )
+                stale_tag = f" [STALE: {age_min:.0f}min old — scores may not reflect current market]"
         except Exception:
             pass
         lines: list[str] = [
@@ -222,9 +220,7 @@ class SpockAgent:
         if not artifacts_dir.is_dir():
             return ""
         try:
-            files = sorted(
-                artifacts_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True
-            )
+            files = sorted(artifacts_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
             if not files:
                 return ""
             latest = json.loads(files[0].read_text(encoding="utf-8"))

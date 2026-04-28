@@ -74,34 +74,24 @@ class MassiveFlatfilesConfig:
 
 def load_massive_flatfiles_config() -> MassiveFlatfilesConfig:
     load_dotenv()
-    endpoint = (
-        os.environ.get("MASSIVE_S3_ENDPOINT") or os.environ.get("POLYGON_S3_ENDPOINT") or ""
-    ).strip()
+    endpoint = (os.environ.get("MASSIVE_S3_ENDPOINT") or os.environ.get("POLYGON_S3_ENDPOINT") or "").strip()
     if not endpoint:
         raise ValueError(
             "Set MASSIVE_S3_ENDPOINT to the S3-compatible flat-files URL from your Massive dashboard "
             "(Flat Files access is separate from REST apiKey-only usage)."
         )
-    key = (
-        os.environ.get("MASSIVE_S3_ACCESS_KEY") or os.environ.get("POLYGON_S3_ACCESS_KEY") or ""
-    ).strip()
-    secret = (
-        os.environ.get("MASSIVE_S3_SECRET_KEY") or os.environ.get("POLYGON_S3_SECRET_KEY") or ""
-    ).strip()
+    key = (os.environ.get("MASSIVE_S3_ACCESS_KEY") or os.environ.get("POLYGON_S3_ACCESS_KEY") or "").strip()
+    secret = (os.environ.get("MASSIVE_S3_SECRET_KEY") or os.environ.get("POLYGON_S3_SECRET_KEY") or "").strip()
     if not key or not secret:
         raise ValueError(
             "Set MASSIVE_S3_ACCESS_KEY and MASSIVE_S3_SECRET_KEY for flat-file downloads "
             "(dashboard S3 credentials; not MASSIVE_API_KEY)."
         )
-    bucket = (
-        os.environ.get("MASSIVE_S3_BUCKET") or os.environ.get("POLYGON_S3_BUCKET") or "flatfiles"
-    ).strip()
+    bucket = (os.environ.get("MASSIVE_S3_BUCKET") or os.environ.get("POLYGON_S3_BUCKET") or "flatfiles").strip()
     # Massive OPRA layout uses ``.../YYYY/MM/YYYY-MM-DD.csv.gz`` (see bucket listing).
     style = (os.environ.get("MASSIVE_FLATFILES_KEY_STYLE") or "year_month_date").strip().lower()
     if style not in _KEY_BUILDERS:
-        raise ValueError(
-            f"Unknown MASSIVE_FLATFILES_KEY_STYLE={style!r}; use year_date or year_month_date"
-        )
+        raise ValueError(f"Unknown MASSIVE_FLATFILES_KEY_STYLE={style!r}; use year_date or year_month_date")
     region = (os.environ.get("MASSIVE_S3_REGION") or "us-east-1").strip()
     return MassiveFlatfilesConfig(
         endpoint_url=endpoint.rstrip("/"),
@@ -128,11 +118,7 @@ def options_flatfile_object_key(
     key_style: str | None = None,
 ) -> str:
     prefix = options_flatfile_prefix(dataset)
-    style = (
-        (key_style or os.environ.get("MASSIVE_FLATFILES_KEY_STYLE") or "year_month_date")
-        .strip()
-        .lower()
-    )
+    style = (key_style or os.environ.get("MASSIVE_FLATFILES_KEY_STYLE") or "year_month_date").strip().lower()
     builder = _KEY_BUILDERS.get(style)
     if builder is None:
         raise ValueError(f"Unknown key style {style!r}")

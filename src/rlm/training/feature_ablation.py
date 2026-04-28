@@ -64,7 +64,5 @@ def summarize_ablation(results: dict[str, dict]) -> dict[str, float]:
         out[f"{name}_selected_realized_delta"] = float(
             metrics["selected_realized_average"] - base["selected_realized_average"]
         )
-        out[f"{name}_flip_rate_delta"] = float(
-            metrics["regime_flip_rate"] - base["regime_flip_rate"]
-        )
+        out[f"{name}_flip_rate_delta"] = float(metrics["regime_flip_rate"] - base["regime_flip_rate"])
     return out

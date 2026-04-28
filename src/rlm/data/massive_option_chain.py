@@ -69,11 +69,7 @@ def massive_option_snapshot_results_to_dataframe(
 ) -> pd.DataFrame:
     """Convert snapshot ``results`` array to a frame ready for normalization."""
     und = str(underlying).upper()
-    ts = (
-        pd.Timestamp(timestamp)
-        if timestamp is not None
-        else pd.Timestamp.now(tz="UTC").tz_localize(None)
-    )
+    ts = pd.Timestamp(timestamp) if timestamp is not None else pd.Timestamp.now(tz="UTC").tz_localize(None)
 
     records: list[dict[str, Any]] = []
     for row in results:
@@ -217,9 +213,7 @@ def massive_option_snapshot_to_normalized_chain(
     timestamp: pd.Timestamp | str | None = None,
 ) -> pd.DataFrame:
     """Parse one page of option snapshot JSON and return RLM-normalized chain."""
-    raw = massive_option_snapshot_payload_to_dataframe(
-        payload, underlying=underlying, timestamp=timestamp
-    )
+    raw = massive_option_snapshot_payload_to_dataframe(payload, underlying=underlying, timestamp=timestamp)
     if raw.empty:
         return raw
     return normalize_option_chain(raw)
@@ -342,9 +336,7 @@ def _massive_option_chain_from_client_with_cache_state(
             return cached, True
 
     rows = collect_option_snapshot_pages(client, underlying, **snapshot_params)
-    raw = massive_option_snapshot_results_to_dataframe(
-        rows, underlying=underlying, timestamp=timestamp
-    )
+    raw = massive_option_snapshot_results_to_dataframe(rows, underlying=underlying, timestamp=timestamp)
     chain = raw if raw.empty else normalize_option_chain(raw)
     if cache_enabled:
         _store_cached_chain(cache_key, chain)
@@ -386,9 +378,7 @@ def _should_use_ram_cache(
         return False
     if use_ram_cache is not None:
         return bool(use_ram_cache)
-    raw_hot_symbols = (
-        DEFAULT_HOT_CHAIN_CACHE_SYMBOLS if hot_cache_symbols is None else hot_cache_symbols
-    )
+    raw_hot_symbols = DEFAULT_HOT_CHAIN_CACHE_SYMBOLS if hot_cache_symbols is None else hot_cache_symbols
     hot = {str(sym).upper().strip() for sym in raw_hot_symbols if str(sym).strip()}
     return symbol in hot
 

@@ -22,16 +22,12 @@ from rlm.utils.run_id import generate_run_id
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog="rlm forecast", description="Run factor + regime + ROEE forecast pipeline."
-    )
+    p = argparse.ArgumentParser(prog="rlm forecast", description="Run factor + regime + ROEE forecast pipeline.")
     p.add_argument("--symbol", default="SPY", help="Ticker symbol (default: SPY)")
     p.add_argument("--bars", default=None, help="Path to bars CSV")
     p.add_argument("--chain", default=None, help="Path to option chain CSV (optional)")
     p.add_argument("--out", default=None, help="Output CSV path")
-    p.add_argument(
-        "--run-backtest", action="store_true", help="Also run BacktestEngine (requires --chain)"
-    )
+    p.add_argument("--run-backtest", action="store_true", help="Also run BacktestEngine (requires --chain)")
     add_pipeline_args(p)
     add_data_root_arg(p)
     add_backend_arg(p)
@@ -53,9 +49,7 @@ def main() -> None:
     )
 
     bars_df = load_bars(sym, bars_path=args.bars, data_root=args.data_root, backend=args.backend)
-    chain_df = load_option_chain(
-        sym, chain_path=args.chain, data_root=args.data_root, backend=args.backend
-    )
+    chain_df = load_option_chain(sym, chain_path=args.chain, data_root=args.data_root, backend=args.backend)
 
     cfg = build_pipeline_config(args, sym)
     cfg.run_backtest = args.run_backtest

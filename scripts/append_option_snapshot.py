@@ -90,10 +90,7 @@ def main() -> int:
     )
     write_option_chain_csv(merged, out_path)
 
-    print(
-        f"Wrote {len(merged)} rows to {out_path} "
-        f"(+{len(chain)} from snapshot as_of={as_of.date()})"
-    )
+    print(f"Wrote {len(merged)} rows to {out_path} " f"(+{len(chain)} from snapshot as_of={as_of.date()})")
     return 0
 
 

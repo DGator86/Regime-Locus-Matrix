@@ -26,8 +26,7 @@ def load_massive_api_key(*, env_var: str = "MASSIVE_API_KEY") -> str:
     key = os.environ.get(env_var, "").strip()
     if not key:
         raise ValueError(
-            f"Missing {env_var}. Add it to your environment or .env file "
-            "(never commit real keys to git)."
+            f"Missing {env_var}. Add it to your environment or .env file " "(never commit real keys to git)."
         )
     return key
 
@@ -52,9 +51,7 @@ class MassiveClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = float(timeout_s)
-        self._api_key = (
-            api_key if api_key is not None else load_massive_api_key(env_var=api_key_env_var)
-        )
+        self._api_key = api_key if api_key is not None else load_massive_api_key(env_var=api_key_env_var)
 
     def get(
         self,

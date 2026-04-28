@@ -55,7 +55,7 @@ class MultiTimeframeEngine(FactorCalculator):
                 if tf[-1] == "d" and (len(tf) == 1 or tf[:-1].isdigit()):
                     tf = tf[:-1] + "D"
                 tf_delta = pd.Timedelta(tf)
-                tf_label = self._sanitize_tf(tf)
+                self._sanitize_tf(tf)
                 mtf_col = self._mtf_name(feature, tf)
                 mtf_cols.append(mtf_col)
 
@@ -92,9 +92,7 @@ class MultiTimeframeEngine(FactorCalculator):
                 if parsed.notna().any():
                     return parsed
 
-        raise ValueError(
-            "MultiTimeframeEngine requires a DatetimeIndex or one of: " "timestamp/datetime/ts/date"
-        )
+        raise ValueError("MultiTimeframeEngine requires a DatetimeIndex or one of: " "timestamp/datetime/ts/date")
 
     def _mtf_name(self, feature: str, timeframe: str) -> str:
         return f"mtf_{self._sanitize_tf(timeframe)}{feature}"

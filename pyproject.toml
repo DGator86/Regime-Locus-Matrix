@@ -127,11 +127,20 @@ all = [
 ]
 
 [tool.black]
-line-length = 100
+line-length = 120
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+# Line length is handled by Black; long docstrings / help strings are allowed.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# CLI / tests often tweak sys.path before importing project modules.
+"scripts/**" = ["E402"]
+"tests/**" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

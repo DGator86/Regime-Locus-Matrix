@@ -63,8 +63,7 @@ from rlm.types.forecast import ForecastConfig
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Kronos foundation-model forecast pipeline. "
-            "Reads bars CSV → runs Kronos → writes forecast-features CSV."
+            "Kronos foundation-model forecast pipeline. " "Reads bars CSV → runs Kronos → writes forecast-features CSV."
         )
     )
     # I/O
@@ -141,9 +140,7 @@ def parse_args() -> argparse.Namespace:
     # Regime overlay
     p.add_argument("--use-hmm", action="store_true", help="Overlay HMM regime model.")
     p.add_argument("--hmm-states", type=int, default=6, help="Number of HMM states.")
-    p.add_argument(
-        "--use-markov", action="store_true", help="Overlay Markov-switching regime model."
-    )
+    p.add_argument("--use-markov", action="store_true", help="Overlay Markov-switching regime model.")
     p.add_argument("--markov-states", type=int, default=3, help="Number of Markov states.")
 
     # RLM distributional config
@@ -161,8 +158,7 @@ def main() -> None:
     out_path = (
         Path(args.out)
         if args.out
-        else ROOT
-        / rel_forecast_features_csv(symbol).replace("forecast_features", "kronos_forecast")
+        else ROOT / rel_forecast_features_csv(symbol).replace("forecast_features", "kronos_forecast")
     )
 
     # ------------------------------------------------------------------
@@ -202,19 +198,14 @@ def main() -> None:
         markov_config = MarkovSwitchingConfig(k_regimes=args.markov_states)
 
     if hmm_config is not None or markov_config is not None:
-        print(
-            f"[kronos] Using HybridKronosForecastPipeline "
-            f"({'HMM' if hmm_config else 'Markov'} overlay)"
-        )
-        pipeline: KronosForecastPipeline | HybridKronosForecastPipeline = (
-            HybridKronosForecastPipeline(
-                kronos_config=kronos_cfg,
-                rlm_config=rlm_cfg,
-                move_window=args.move_window,
-                vol_window=args.vol_window,
-                hmm_config=hmm_config,
-                markov_config=markov_config,
-            )
+        print(f"[kronos] Using HybridKronosForecastPipeline " f"({'HMM' if hmm_config else 'Markov'} overlay)")
+        pipeline: KronosForecastPipeline | HybridKronosForecastPipeline = HybridKronosForecastPipeline(
+            kronos_config=kronos_cfg,
+            rlm_config=rlm_cfg,
+            move_window=args.move_window,
+            vol_window=args.vol_window,
+            hmm_config=hmm_config,
+            markov_config=markov_config,
         )
     else:
         print("[kronos] Using KronosForecastPipeline (no regime overlay)")

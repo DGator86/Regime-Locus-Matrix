@@ -83,9 +83,7 @@ def compute_rolling_metrics(
     out["rolling_avg_return"] = rolling_mean
 
     if pnl_pct_col in trades_frame.columns:
-        out["rolling_avg_return_pct"] = (
-            trades_frame[pnl_pct_col].rolling(window, min_periods=1).mean()
-        )
+        out["rolling_avg_return_pct"] = trades_frame[pnl_pct_col].rolling(window, min_periods=1).mean()
 
     return out
 

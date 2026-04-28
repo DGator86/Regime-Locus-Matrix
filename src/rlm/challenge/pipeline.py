@@ -61,9 +61,7 @@ class ChallengeDecisionPipeline:
         # 2. Setup scoring
         score_result = self._score_setup(persona)
         if not score_result.passed_threshold:
-            return self._no_trade(
-                symbol, pdt, f"setup score {score_result.setup_score:.2f} below min"
-            )
+            return self._no_trade(symbol, pdt, f"setup score {score_result.setup_score:.2f} below min")
 
         # 3. Trade mode (scalp vs swing)
         mode_decision = self._decide_mode(score_result, pdt)
@@ -152,7 +150,6 @@ class ChallengeDecisionPipeline:
     # ------------------------------------------------------------------
 
     def _decide_mode(self, score: SetupScoreResult, pdt: PDTTracker) -> TradeModeDecision:
-        cfg = self._cfg
 
         if score.conviction == "elite" and pdt.same_day_exit_allowed:
             return TradeModeDecision(

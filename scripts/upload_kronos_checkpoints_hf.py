@@ -81,11 +81,7 @@ def _regime_table(checkpoints: list[dict]) -> str:
         return "_No per-regime checkpoints found._"
     rows = ["| State | Label | Val loss | Bars |", "|-------|-------|----------|------|"]
     for ck in sorted(regime_ckpts, key=lambda c: c["state"]):
-        val = (
-            f"{ck.get('best_val_loss', 'N/A'):.5f}"
-            if isinstance(ck.get("best_val_loss"), float)
-            else "N/A"
-        )
+        val = f"{ck.get('best_val_loss', 'N/A'):.5f}" if isinstance(ck.get("best_val_loss"), float) else "N/A"
         label = ck.get("label") or f"state_{ck['state']}"
         rows.append(f"| {ck['state']} | {label} | {val} | {ck.get('n_samples', 'N/A'):,} |")
     return "\n".join(rows)
@@ -217,7 +213,7 @@ def _upload(
     dry_run: bool,
 ) -> None:
     try:
-        from huggingface_hub import HfApi, CommitOperationAdd
+        from huggingface_hub import CommitOperationAdd, HfApi
     except ImportError:
         raise SystemExit("huggingface-hub is not installed.\n" 'Run: pip install -e ".[kronos]"')
 
@@ -348,11 +344,7 @@ def main() -> None:
     args = parse_args()
     sym = args.symbol.upper().strip()
 
-    ckpt_dir = (
-        Path(args.checkpoint_dir)
-        if args.checkpoint_dir
-        else ROOT / "data" / "models" / "kronos" / sym
-    )
+    ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else ROOT / "data" / "models" / "kronos" / sym
 
     if not ckpt_dir.is_dir():
         raise SystemExit(

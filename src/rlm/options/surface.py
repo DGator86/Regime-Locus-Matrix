@@ -7,9 +7,7 @@ import pandas as pd
 from scipy.optimize import curve_fit
 
 
-def svi_raw(
-    k: np.ndarray | float, a: float, b: float, rho: float, m: float, sigma: float
-) -> np.ndarray:
+def svi_raw(k: np.ndarray | float, a: float, b: float, rho: float, m: float, sigma: float) -> np.ndarray:
     x = np.asarray(k, dtype=float)
     return a + b * (rho * (x - m) + np.sqrt((x - m) ** 2 + sigma**2))
 
@@ -93,12 +91,7 @@ def fit_svi_for_expiry(
     spot: float,
     min_points: int = 5,
 ) -> SVIParams | None:
-    if (
-        expiry_slice.empty
-        or not np.isfinite(spot)
-        or spot <= 0.0
-        or "iv" not in expiry_slice.columns
-    ):
+    if expiry_slice.empty or not np.isfinite(spot) or spot <= 0.0 or "iv" not in expiry_slice.columns:
         return None
 
     tau_years = float(pd.to_numeric(expiry_slice["dte"], errors="coerce").median()) / 365.0
@@ -200,12 +193,8 @@ def extract_surface_features(
         return neutral
 
     selected = min(fits, key=lambda x: (abs(x.dte - target_dte), x.dte))
-    short_ivs = [
-        fit.atm_iv() for fit in fits if 14.0 <= fit.dte <= 45.0 and np.isfinite(fit.atm_iv())
-    ]
-    long_ivs = [
-        fit.atm_iv() for fit in fits if 46.0 <= fit.dte <= 120.0 and np.isfinite(fit.atm_iv())
-    ]
+    short_ivs = [fit.atm_iv() for fit in fits if 14.0 <= fit.dte <= 45.0 and np.isfinite(fit.atm_iv())]
+    long_ivs = [fit.atm_iv() for fit in fits if 46.0 <= fit.dte <= 120.0 and np.isfinite(fit.atm_iv())]
     if short_ivs and long_ivs and float(np.nanmedian(long_ivs)) > 1e-9:
         term_structure = float(np.nanmedian(short_ivs) / np.nanmedian(long_ivs))
     else:
@@ -244,9 +233,7 @@ def build_surface_feature_frame(
     work["_d"] = work["timestamp"].dt.normalize()
 
     if "underlying_price" in work.columns:
-        spot_by_day = (
-            pd.to_numeric(work["underlying_price"], errors="coerce").groupby(work["_d"]).median()
-        )
+        spot_by_day = pd.to_numeric(work["underlying_price"], errors="coerce").groupby(work["_d"]).median()
     else:
         spot_by_day = pd.Series(dtype=float)
 

@@ -241,9 +241,7 @@ def fetch_historical_stock_bars(
                 f"and trusted IPs allow 127.0.0.1.{tail}"
             )
 
-        contract = _us_stock_contract(
-            symbol, exchange=exchange, currency=currency, contract_cls=Contract
-        )
+        contract = _us_stock_contract(symbol, exchange=exchange, currency=currency, contract_cls=Contract)
         app.reqHistoricalData(
             app._req_id,
             contract,

@@ -23,9 +23,7 @@ def _fwd(prices: list[float]) -> pd.DataFrame:
 
 
 def test_strategy_targets_v2_produces_all_columns_and_no_trade_zero() -> None:
-    out = simulate_strategy_target_row_v2(
-        _row(), _fwd([101, 102, 103]), strike_increment=5.0, horizon=3
-    )
+    out = simulate_strategy_target_row_v2(_row(), _fwd([101, 102, 103]), strike_increment=5.0, horizon=3)
     assert set(out) == {
         "bull_call_spread",
         "bear_put_spread",

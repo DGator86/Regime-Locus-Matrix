@@ -210,11 +210,9 @@ class _EquityApp:
         # keeping them well away from the order-ID sequence in both directions.
         self._mkt_req_counter: int = 10_000
 
-        original_error = self._app.error.__func__ if hasattr(self._app.error, "__func__") else None
+        self._app.error.__func__ if hasattr(self._app.error, "__func__") else None
 
-        def _error(
-            reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = ""
-        ) -> None:
+        def _error(reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = "") -> None:
             if errorCode in _IBKR_ADVISORY_CODES:
                 return  # purely informational — do not record or print
             print(f"  [ibkr-err] reqId={reqId} code={errorCode} {errorString}", flush=True)
@@ -264,8 +262,7 @@ class _EquityApp:
         if self._app._next_order_id is None:
             raise RuntimeError("IBKR handshake timed out — is TWS/Gateway running?")
         print(
-            f"  [equity-ibkr] connected client_id={self._app.clientId}, "
-            f"next_order_id={self._app._next_order_id}",
+            f"  [equity-ibkr] connected client_id={self._app.clientId}, " f"next_order_id={self._app._next_order_id}",
             flush=True,
         )
 
@@ -376,17 +373,13 @@ class _EquityApp:
                 last = trail[-1]
                 if last == "Rejected":
                     errs = [(c, m) for r, c, m in self._app._error_lines if r == order_id]
-                    raise RuntimeError(
-                        f"IBKR order {order_id} rejected: {errs[-1] if errs else 'Rejected'}"
-                    )
+                    raise RuntimeError(f"IBKR order {order_id} rejected: {errs[-1] if errs else 'Rejected'}")
                 if last in ("Filled", "Cancelled", "ApiCancelled", "Submitted", "PreSubmitted"):
                     return trail
             # Raise only on hard (non-advisory) error codes — advisory codes are
             # already filtered at the _error callback, but guard here too.
             hard_errs = [
-                (c, m)
-                for r, c, m in self._app._error_lines
-                if r == order_id and c not in _IBKR_ADVISORY_CODES
+                (c, m) for r, c, m in self._app._error_lines if r == order_id and c not in _IBKR_ADVISORY_CODES
             ]
             if hard_errs:
                 raise RuntimeError(f"IBKR order {order_id} rejected: {hard_errs[-1]}")
@@ -536,9 +529,7 @@ def open_equity_positions(
 
         # Determine entry price — pipeline stores it under plan["pipeline"]["close"]
         pipeline_data = plan.get("pipeline") or {}
-        entry_price = float(
-            pipeline_data.get("close") or plan.get("close") or plan.get("current_price") or 0.0
-        )
+        entry_price = float(pipeline_data.get("close") or plan.get("close") or plan.get("current_price") or 0.0)
         if entry_price <= 0 and app is not None:
             print(f"  [equity] {sym}: fetching live price …", flush=True)
             lp = app.get_last_price(sym)
@@ -552,10 +543,7 @@ def open_equity_positions(
         decision_data = plan.get("decision") or {}
         meta = decision_data.get("metadata") or {}
         confidence = float(
-            meta.get("regime_confidence")
-            or meta.get("confidence")
-            or decision_data.get("size_fraction")
-            or 1.0
+            meta.get("regime_confidence") or meta.get("confidence") or decision_data.get("size_fraction") or 1.0
         )
 
         qty = _quantity_for_symbol(
@@ -755,12 +743,8 @@ def evaluate_equity_positions(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="IBKR equity paper trade from regime plans")
-    parser.add_argument(
-        "--plans", default=str(PLANS_PATH), help="Path to universe_trade_plans.json"
-    )
-    parser.add_argument(
-        "--state", default=str(EQUITY_STATE_PATH), help="Path to equity positions state JSON"
-    )
+    parser.add_argument("--plans", default=str(PLANS_PATH), help="Path to universe_trade_plans.json")
+    parser.add_argument("--state", default=str(EQUITY_STATE_PATH), help="Path to equity positions state JSON")
     parser.add_argument("--log", default=str(EQUITY_LOG_PATH), help="Path to equity trade log CSV")
     parser.add_argument(
         "--position-usd",
@@ -785,15 +769,9 @@ def main() -> None:
         default=10.0,
         help="Max percentage of account balance per position (default: 10.0)",
     )
-    parser.add_argument(
-        "--stop-pct", type=float, default=5.0, help="Hard stop loss %% below entry (default: 5)"
-    )
-    parser.add_argument(
-        "--target-pct", type=float, default=10.0, help="Take-profit %% above entry (default: 10)"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Paper-mode without IBKR orders (log only)"
-    )
+    parser.add_argument("--stop-pct", type=float, default=5.0, help="Hard stop loss %% below entry (default: 5)")
+    parser.add_argument("--target-pct", type=float, default=10.0, help="Take-profit %% above entry (default: 10)")
+    parser.add_argument("--dry-run", action="store_true", help="Paper-mode without IBKR orders (log only)")
     parser.add_argument(
         "--monitor-only",
         action="store_true",
@@ -825,9 +803,7 @@ def main() -> None:
     if args.risk_usd:
         print(f"  risk_usd    : ${args.risk_usd:,.0f}", flush=True)
     if args.use_account_scale:
-        print(
-            f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True
-        )
+        print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
     print(f"  stop / target: -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  dry_run     : {args.dry_run}", flush=True)
     print(f"  rth_gate    : {rth_gate}", flush=True)
@@ -861,9 +837,7 @@ def main() -> None:
                 flush=True,
             )
 
-    print(
-        f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True
-    )
+    print(f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True)
 
     if args.dry_run:
         # No IBKR connection needed — work in dry-run mode

@@ -113,9 +113,7 @@ def _parse_symbols(s: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _build_incremental_snapshot_params(
-    plans: list[dict], *, massive_limit: int
-) -> dict[str, object]:
+def _build_incremental_snapshot_params(plans: list[dict], *, massive_limit: int) -> dict[str, object]:
     params: dict[str, object] = {
         "limit": int(massive_limit),
         "sort": "expiration_date",
@@ -259,9 +257,7 @@ def _evaluate_plan(
         # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
         pnl = v - entry_debit
         pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
-        exit_signals_set = frozenset(
-            {"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"}
-        )
+        exit_signals_set = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
         _append_trade_log(
             trade_log_path,
             {
@@ -302,10 +298,7 @@ def _evaluate_plan(
         close_parent = "BUY" if oa == "SELL" else "SELL"
 
         if paper_close_dry_run:
-            print(
-                f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT "
-                f"{close_parent} qty={qty} legs={len(close_legs)}"
-            )
+            print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
             st["paper_close_sent"] = True
             return
 

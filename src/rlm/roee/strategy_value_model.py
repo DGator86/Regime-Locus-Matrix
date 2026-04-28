@@ -53,9 +53,7 @@ class StrategyValueModel:
         model._coef = coef
         return model
 
-    def fit(
-        self, X: pd.DataFrame | np.ndarray, Y: pd.DataFrame | np.ndarray, l2: float = 1e-3
-    ) -> "StrategyValueModel":
+    def fit(self, X: pd.DataFrame | np.ndarray, Y: pd.DataFrame | np.ndarray, l2: float = 1e-3) -> "StrategyValueModel":
         x_mat = self._to_design_matrix(X)
         y_mat = self._to_target_matrix(Y)
         return self.fit_design_matrix(x_mat, y_mat, l2=l2)
@@ -67,9 +65,7 @@ class StrategyValueModel:
     def score_row(self, row: Mapping[str, float]) -> StrategyScores:
         x_row = self._to_design_matrix(pd.DataFrame([row]))
         scores = self.predict_expected_values_design_matrix(x_row)[0]
-        return StrategyScores(
-            scores={self.strategies[i]: float(scores[i]) for i in range(len(self.strategies))}
-        )
+        return StrategyScores(scores={self.strategies[i]: float(scores[i]) for i in range(len(self.strategies))})
 
     def fit_design_matrix(
         self,

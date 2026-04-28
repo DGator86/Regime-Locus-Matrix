@@ -67,16 +67,8 @@ def main() -> None:
     if not bars_path.is_file():
         raise SystemExit(f"Bars file not found: {bars_path}")
 
-    bars = (
-        pd.read_csv(bars_path, parse_dates=["timestamp"])
-        .sort_values("timestamp")
-        .set_index("timestamp")
-    )
-    chain = (
-        pd.read_csv(chain_path, parse_dates=["timestamp", "expiry"])
-        if chain_path.is_file()
-        else None
-    )
+    bars = pd.read_csv(bars_path, parse_dates=["timestamp"]).sort_values("timestamp").set_index("timestamp")
+    chain = pd.read_csv(chain_path, parse_dates=["timestamp", "expiry"]) if chain_path.is_file() else None
 
     enriched = prepare_bars_for_factors(bars, chain, underlying=sym, attach_vix=not args.no_vix)
     factors = FactorPipeline().run(enriched)

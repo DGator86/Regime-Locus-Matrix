@@ -84,12 +84,8 @@ def test_no_backtest_fields_without_flag(pipeline_result: PipelineResult) -> Non
     assert pipeline_result.backtest_metrics is None
 
 
-def test_factors_df_length_matches_bars(
-    bars_df: pd.DataFrame, pipeline_result: PipelineResult
-) -> None:
-    assert len(pipeline_result.factors_df) <= len(
-        bars_df
-    ), "factors_df should not be longer than input bars"
+def test_factors_df_length_matches_bars(bars_df: pd.DataFrame, pipeline_result: PipelineResult) -> None:
+    assert len(pipeline_result.factors_df) <= len(bars_df), "factors_df should not be longer than input bars"
     assert len(pipeline_result.factors_df) > 0
 
 

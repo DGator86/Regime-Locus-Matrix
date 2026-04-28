@@ -28,10 +28,7 @@ def derive_outcome_regime_label(strategy_target_row: Mapping[str, float]) -> str
     if margin < 0.08:
         if scores["no_trade"] >= max(non_no_trade):
             return "no_trade"
-        if (
-            scores["iron_condor"] >= 0
-            and scores["bull_call_spread"] * scores["bear_put_spread"] < 0
-        ):
+        if scores["iron_condor"] >= 0 and scores["bull_call_spread"] * scores["bear_put_spread"] < 0:
             return "mean_reversion"
 
     mapping = {

@@ -63,10 +63,7 @@ def write_massive_option_contracts_parquet(
     df = MassiveContractsFetcher().fetch(underlying, **params)
     if out_path is None:
         slug = str(params.get("expiration_date") or "all").replace("-", "")
-        out_path = (
-            options_contracts_dir(underlying, root=repo_root)
-            / f"{underlying.lower()}_{slug}_contracts.parquet"
-        )
+        out_path = options_contracts_dir(underlying, root=repo_root) / f"{underlying.lower()}_{slug}_contracts.parquet"
     save_parquet(df, Path(out_path))
     return Path(out_path)
 
@@ -119,9 +116,7 @@ def write_massive_option_quotes_parquet(
     if out_path is None:
         stem = option_ticker_file_slug(option_ticker)
         day_slug = ts_gte[:10].replace("-", "_")
-        out_path = (
-            options_quotes_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
-        )
+        out_path = options_quotes_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
     save_parquet(df, Path(out_path))
     return Path(out_path)
 
@@ -140,8 +135,6 @@ def write_massive_option_trades_parquet(
     if out_path is None:
         stem = option_ticker_file_slug(option_ticker)
         day_slug = ts_gte[:10].replace("-", "_")
-        out_path = (
-            options_trades_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
-        )
+        out_path = options_trades_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
     save_parquet(df, Path(out_path))
     return Path(out_path)

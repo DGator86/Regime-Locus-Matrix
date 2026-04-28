@@ -58,9 +58,7 @@ def test_replace_same_day() -> None:
             "ask": [5.1],
         }
     )
-    out = merge_option_chain_history(
-        existing, new_rows, replace_calendar_date=pd.Timestamp("2024-01-15")
-    )
+    out = merge_option_chain_history(existing, new_rows, replace_calendar_date=pd.Timestamp("2024-01-15"))
     assert len(out) == 2
     jan15 = out[out["timestamp"].dt.date == pd.Timestamp("2024-01-15").date()]
     assert float(jan15["bid"].iloc[0]) == 5.0

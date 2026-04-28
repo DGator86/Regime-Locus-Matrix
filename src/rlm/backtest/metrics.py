@@ -66,9 +66,7 @@ def summarize_backtest(
 
     out = {
         "final_equity": float(equity.iloc[-1]),
-        "total_return_pct": (
-            float(equity.iloc[-1] / equity.iloc[0] - 1.0) if equity.iloc[0] != 0 else np.nan
-        ),
+        "total_return_pct": (float(equity.iloc[-1] / equity.iloc[0] - 1.0) if equity.iloc[0] != 0 else np.nan),
         "max_drawdown": compute_max_drawdown(equity),
         "sharpe": compute_sharpe(returns),
     }
@@ -117,9 +115,7 @@ def summarize_by_regime(
             "avg_return": float(pnl.mean()),
             "expectancy": compute_expectancy(pnl),
             "profit_factor": compute_profit_factor(pnl),
-            "max_drawdown": (
-                float(pnl.cumsum().sub(pnl.cumsum().cummax()).min()) if len(pnl) > 1 else np.nan
-            ),
+            "max_drawdown": (float(pnl.cumsum().sub(pnl.cumsum().cummax()).min()) if len(pnl) > 1 else np.nan),
         }
         if pnl_pct_col is not None:
             pnl_pct = group[pnl_pct_col]

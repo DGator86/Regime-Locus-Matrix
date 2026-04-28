@@ -89,9 +89,7 @@ def _fmt(val: str, width: int, align: str = ">") -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--log",
         type=Path,
@@ -103,14 +101,10 @@ def main() -> int:
         action="store_true",
         help="Show equity trade log (data/processed/equity_trade_log.csv)",
     )
-    ap.add_argument(
-        "--equity-log", type=Path, default=None, help="Explicit path to equity trade log CSV"
-    )
+    ap.add_argument("--equity-log", type=Path, default=None, help="Explicit path to equity trade log CSV")
     ap.add_argument("--closed", action="store_true", help="Show only closed trades")
     ap.add_argument("--open", dest="open_only", action="store_true", help="Show only open trades")
-    ap.add_argument(
-        "--all-rows", action="store_true", help="Show every log row, not just latest per plan"
-    )
+    ap.add_argument("--all-rows", action="store_true", help="Show every log row, not just latest per plan")
     args = ap.parse_args()
 
     if args.equity or args.equity_log:

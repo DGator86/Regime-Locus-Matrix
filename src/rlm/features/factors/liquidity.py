@@ -80,9 +80,7 @@ class LiquidityFactors(FactorCalculator):
             out["spread_pct_mid"] = np.nan
 
         if "bid_ask_spread" in df.columns:
-            spread_base = (
-                df["bid_ask_spread"].rolling(20, min_periods=5).median().replace(0, np.nan)
-            )
+            spread_base = df["bid_ask_spread"].rolling(20, min_periods=5).median().replace(0, np.nan)
             out["spread_shock"] = df["bid_ask_spread"] / spread_base
         else:
             out["spread_shock"] = np.nan

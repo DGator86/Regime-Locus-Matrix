@@ -46,7 +46,7 @@ from rlm.data.microstructure.calculators.greeks import compute_greeks_dataframe,
 logger = logging.getLogger(__name__)
 
 try:
-    from ib_insync import IB, Contract, ContractDetails, Option, Stock, util
+    from ib_insync import IB, Option, Stock
 
     _HAS_IB_INSYNC = True
 except ImportError:
@@ -96,9 +96,7 @@ def _append_parquet(df: pd.DataFrame, path: Path) -> None:
     if path.exists():
         existing = pd.read_parquet(path)
         df = pd.concat([existing, df], ignore_index=True)
-        df = df.drop_duplicates(subset=["timestamp", "contract_symbol"]).sort_values(
-            ["timestamp", "contract_symbol"]
-        )
+        df = df.drop_duplicates(subset=["timestamp", "contract_symbol"]).sort_values(["timestamp", "contract_symbol"])
     df.to_parquet(path, index=False)
 
 
@@ -219,9 +217,7 @@ class OptionsCollector:
                     continue
 
                 try:
-                    exp_date = datetime.strptime(
-                        contract.lastTradeDateOrContractMonth, "%Y%m%d"
-                    ).date()
+                    exp_date = datetime.strptime(contract.lastTradeDateOrContractMonth, "%Y%m%d").date()
                 except (ValueError, AttributeError):
                     ib.cancelMktData(contract)
                     continue
@@ -352,13 +348,9 @@ def _main() -> None:
         description="Collect IBKR option chain snapshots with full Greeks into the microstructure lake."
     )
     parser.add_argument("--symbol", required=True, help="Underlying ticker (e.g. SPY)")
-    parser.add_argument(
-        "--continuous", action="store_true", help="Run continuously (default: single snapshot)"
-    )
+    parser.add_argument("--continuous", action="store_true", help="Run continuously (default: single snapshot)")
     parser.add_argument("--interval", type=float, default=5.0, help="Seconds between snapshots")
-    parser.add_argument(
-        "--strike-band", type=float, default=0.15, help="ATM band as decimal (default 0.15 = ±15%%)"
-    )
+    parser.add_argument("--strike-band", type=float, default=0.15, help="ATM band as decimal (default 0.15 = ±15%%)")
     parser.add_argument("--max-dte", type=int, default=90, help="Maximum DTE to include")
     parser.add_argument("--min-oi", type=int, default=10, help="Minimum open interest filter")
     parser.add_argument("--data-root", default="data/microstructure")
@@ -378,11 +370,7 @@ def _main() -> None:
         df = collector.fetch_snapshot()
         print(f"Snapshot: {len(df)} contracts for {args.symbol}")
         if not df.empty:
-            print(
-                df[["strike", "option_type", "dte", "mid", "implied_vol", "delta", "gamma"]]
-                .head(10)
-                .to_string()
-            )
+            print(df[["strike", "option_type", "dte", "mid", "implied_vol", "delta", "gamma"]].head(10).to_string())
 
 
 if __name__ == "__main__":

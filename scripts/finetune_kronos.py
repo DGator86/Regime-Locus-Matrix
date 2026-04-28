@@ -170,9 +170,7 @@ def _train_one_epoch(
             use_teacher_forcing=True,
             s1_targets=s1_ids[:, 1:],
         )
-        pred_loss, _, _ = model.head.compute_loss(
-            s1_logits, s2_logits, s1_ids[:, 1:], s2_ids[:, 1:]
-        )
+        pred_loss, _, _ = model.head.compute_loss(s1_logits, s2_logits, s1_ids[:, 1:], s2_ids[:, 1:])
 
         loss = tok_loss + pred_loss
         optimizer.zero_grad()
@@ -289,9 +287,7 @@ def main() -> None:
                     use_teacher_forcing=True,
                     s1_targets=s1_ids[:, 1:],
                 )
-                pred_loss, _, _ = model.head.compute_loss(
-                    s1_logits, s2_logits, s1_ids[:, 1:], s2_ids[:, 1:]
-                )
+                pred_loss, _, _ = model.head.compute_loss(s1_logits, s2_logits, s1_ids[:, 1:], s2_ids[:, 1:])
                 val_loss += (recon_loss + bsq_loss + pred_loss).item()
                 n_val += 1
         val_loss /= max(n_val, 1)

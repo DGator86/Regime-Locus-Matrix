@@ -16,9 +16,7 @@ if str(SRC) not in sys.path:
 from rlm.notify.pnl_report import calculate_daily_pnl  # noqa: E402
 
 
-def test_eod_report_open_closed_and_worst_symbols(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_eod_report_open_closed_and_worst_symbols(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
     h = (
@@ -54,9 +52,7 @@ def _ts(y: int, m: int, d: int, hour: int, minute: int = 0) -> str:
     return datetime(y, m, d, hour, minute, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def test_small_session_exits_line_has_newline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_small_session_exits_line_has_newline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exits line must end with newline even when n_plan <= 30 (mtm_note suppressed)."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -120,9 +116,7 @@ def test_concentration_warning_shown(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "83%" in text  # 500 / 600 = 83.3%
 
 
-def test_concentration_warning_not_shown_when_spread(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_concentration_warning_not_shown_when_spread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No concentration warning when no single symbol dominates."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -143,9 +137,7 @@ def test_concentration_warning_not_shown_when_spread(
     assert "Concentration" not in text
 
 
-def test_eod_includes_challenge_when_state_exists(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_eod_includes_challenge_when_state_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
     (dproc / "trade_log.csv").write_text(
@@ -155,10 +147,7 @@ def test_eod_includes_challenge_when_state_exists(
     )
     ch = tmp_path / "data" / "challenge"
     ch.mkdir(parents=True)
-    ch_state = (
-        '{"balance": 1100, "seed": 1000, "target": 25000, '
-        '"open_positions": [], "trade_history": []}'
-    )
+    ch_state = '{"balance": 1100, "seed": 1000, "target": 25000, ' '"open_positions": [], "trade_history": []}'
     (ch / "state.json").write_text(ch_state, encoding="utf-8")
     fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
     monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)

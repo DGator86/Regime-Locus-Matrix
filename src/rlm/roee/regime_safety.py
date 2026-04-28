@@ -42,8 +42,7 @@ def attach_regime_safety_columns(
     dummy_counts = pd.get_dummies(regime_keys)
     prior_counts = dummy_counts.cumsum().shift(purge + 1, fill_value=0)
     sample_counts = [
-        int(prior_counts.iloc[i].get(regime_keys.iat[i], 0)) if regime_keys.iat[i] else 0
-        for i in range(len(out))
+        int(prior_counts.iloc[i].get(regime_keys.iat[i], 0)) if regime_keys.iat[i] else 0 for i in range(len(out))
     ]
 
     count_series = pd.Series(sample_counts, index=out.index, dtype="int64")

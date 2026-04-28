@@ -221,9 +221,7 @@ except Exception as e:
 if pipeline_result is not None:
     pdf = pipeline_result.policy_df
     check(not pdf.empty, "policy_df is not empty", "policy_df is empty")
-    check(
-        "roee_action" in pdf.columns, "policy_df has roee_action", "policy_df MISSING roee_action"
-    )
+    check("roee_action" in pdf.columns, "policy_df has roee_action", "policy_df MISSING roee_action")
     check(
         "roee_size_fraction" in pdf.columns,
         "policy_df has roee_size_fraction",
@@ -277,9 +275,7 @@ if nightly_json_path.exists():
 opt_result: dict | None = None
 try:
     opt_result = NightlyMTFOptimizer.run(symbols=["SPY"], trials=2)
-    ok(
-        f"Optimizer completed — keys in result: {sorted(opt_result.keys()) if opt_result else '(empty — all pruned)'}"
-    )
+    ok(f"Optimizer completed — keys in result: {sorted(opt_result.keys()) if opt_result else '(empty — all pruned)'}")
 except Exception as e:
     fail(f"NightlyMTFOptimizer.run: {e}")
 

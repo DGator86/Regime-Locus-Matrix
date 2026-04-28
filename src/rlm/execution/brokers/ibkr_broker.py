@@ -10,9 +10,7 @@ from rlm.execution.brokers.base import BrokerAdapter
 class IBKRBrokerAdapter(BrokerAdapter):
     broker = "ibkr"
 
-    def submit_trade_decision(
-        self, symbol: str, decision: dict[str, Any], paper: bool
-    ) -> dict[str, Any]:
+    def submit_trade_decision(self, symbol: str, decision: dict[str, Any], paper: bool) -> dict[str, Any]:
         try:
             if str(decision.get("roee_action", "hold")).lower() == "hold":
                 return {

@@ -103,10 +103,7 @@ class IngestionPipeline:
             bad = _first_bad(
                 parallel_map(
                     _option_quotes_task,
-                    [
-                        (ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
-                        for ot in tickers
-                    ],
+                    [(ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt) for ot in tickers],
                     max_workers=args.jobs,
                     backend=args.parallel_backend,
                 )
@@ -118,10 +115,7 @@ class IngestionPipeline:
             bad = _first_bad(
                 parallel_map(
                     _option_trades_task,
-                    [
-                        (ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
-                        for ot in tickers
-                    ],
+                    [(ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt) for ot in tickers],
                     max_workers=args.jobs,
                     backend=args.parallel_backend,
                 )
@@ -155,9 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mtf", action="store_true")
     p.add_argument("--higher-tfs", default="1W,1M")
     p.add_argument("--jobs", type=int, default=1)
-    p.add_argument(
-        "--parallel-backend", default="process", choices=("serial", "thread", "process", "ray")
-    )
+    p.add_argument("--parallel-backend", default="process", choices=("serial", "thread", "process", "ray"))
     return p
 
 
@@ -210,17 +202,13 @@ def _option_bars_task(task: tuple[str, str, str, str, str]) -> int:
 
 def _option_quotes_task(task: tuple[str, str, str, str]) -> int:
     ot, underlying, ts_gte, ts_lt = task
-    write_massive_option_quotes_parquet(
-        ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt
-    )
+    write_massive_option_quotes_parquet(ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt)
     return 0
 
 
 def _option_trades_task(task: tuple[str, str, str, str]) -> int:
     ot, underlying, ts_gte, ts_lt = task
-    write_massive_option_trades_parquet(
-        ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt
-    )
+    write_massive_option_trades_parquet(ot, underlying_for_path=underlying, ts_gte=ts_gte, ts_lt=ts_lt)
     return 0
 
 

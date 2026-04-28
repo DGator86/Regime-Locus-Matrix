@@ -169,9 +169,7 @@ def main() -> None:
         prefix = "us_options_opra/trades_v1/"
         lst = s3.list_objects_v2(Bucket=cfg.bucket, Prefix=prefix, MaxKeys=2)
         n = int(lst.get("KeyCount") or 0)
-        _line(
-            "PASS", "Massive S3 list_objects", f"bucket={cfg.bucket!r} prefix={prefix!r} keys={n}"
-        )
+        _line("PASS", "Massive S3 list_objects", f"bucket={cfg.bucket!r} prefix={prefix!r} keys={n}")
         contents = lst.get("Contents") or []
         if contents:
             key0 = contents[0]["Key"]

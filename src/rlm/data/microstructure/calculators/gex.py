@@ -27,8 +27,12 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    import duckdb
 
 # ---------------------------------------------------------------------------
 # In-memory GEX surface (from a greeks snapshot DataFrame)
@@ -65,9 +69,7 @@ def build_gex_surface_from_df(
     df = snapshot.copy()
     df["option_type"] = df["option_type"].str.lower()
 
-    spot = (
-        float(df["underlying_price"].iloc[0]) if "underlying_price" in df.columns else float("nan")
-    )
+    spot = float(df["underlying_price"].iloc[0]) if "underlying_price" in df.columns else float("nan")
 
     # Per-contract GEX
     df["_gex_raw"] = df["gamma"] * df["open_interest"] * 100.0 * spot
@@ -109,7 +111,7 @@ def build_gex_surface_from_df(
 
 
 def build_gex_surface(
-    conn: "duckdb.DuckDBPyConnection",
+    conn: duckdb.DuckDBPyConnection,
     *,
     symbol: str,
     timestamp: "str | pd.Timestamp",
@@ -228,9 +230,7 @@ def aggregate_gex_profile(gex_df: pd.DataFrame) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def save_gex_surface(
-    gex_df: pd.DataFrame, symbol: str, data_path: str = "data/microstructure"
-) -> None:
+def save_gex_surface(gex_df: pd.DataFrame, symbol: str, data_path: str = "data/microstructure") -> None:
     """Persist GEX surface to date-partitioned Parquet."""
     if gex_df.empty:
         return

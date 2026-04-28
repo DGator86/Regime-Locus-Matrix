@@ -181,9 +181,7 @@ def main() -> None:
     # Full symbol set: main universe + challenge symbols (deduped)
     from rlm.data.liquidity_universe import EXPANDED_LIQUID_UNIVERSE
 
-    all_symbols: tuple[str, ...] = tuple(
-        dict.fromkeys(EXPANDED_LIQUID_UNIVERSE + CHALLENGE_SYMBOLS)
-    )
+    all_symbols: tuple[str, ...] = tuple(dict.fromkeys(EXPANDED_LIQUID_UNIVERSE + CHALLENGE_SYMBOLS))
 
     if not args.no_ingest:
         phase1_ingest(all_symbols, data_root=args.data_root, workers=args.ingest_workers)

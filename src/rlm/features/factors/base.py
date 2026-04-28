@@ -82,18 +82,10 @@ def compute_composite_scores(
         category_to_names[spec.category].append(spec.name)
 
     score_df = pd.DataFrame(index=standardized_factors.index)
-    score_df["S_D"] = standardized_factors[category_to_names[FactorCategory.DIRECTION]].mean(
-        axis=1, skipna=True
-    )
-    score_df["S_V"] = standardized_factors[category_to_names[FactorCategory.VOLATILITY]].mean(
-        axis=1, skipna=True
-    )
-    score_df["S_L"] = standardized_factors[category_to_names[FactorCategory.LIQUIDITY]].mean(
-        axis=1, skipna=True
-    )
+    score_df["S_D"] = standardized_factors[category_to_names[FactorCategory.DIRECTION]].mean(axis=1, skipna=True)
+    score_df["S_V"] = standardized_factors[category_to_names[FactorCategory.VOLATILITY]].mean(axis=1, skipna=True)
+    score_df["S_L"] = standardized_factors[category_to_names[FactorCategory.LIQUIDITY]].mean(axis=1, skipna=True)
     score_df["S_G"] = (
-        standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]]
-        .mean(axis=1, skipna=True)
-        .fillna(0.0)
+        standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]].mean(axis=1, skipna=True).fillna(0.0)
     )
     return score_df

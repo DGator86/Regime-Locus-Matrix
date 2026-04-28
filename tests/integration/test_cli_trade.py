@@ -17,9 +17,7 @@ def test_cli_trade_invokes_service(monkeypatch, capsys):
             assert req.backend == "csv"
             return TradeResult(
                 decision=TradeDecision("hold", "none", 0.0, False, {}),
-                executions=[
-                    TradeExecutionRecord(success=True, broker="none", order_id=None, message="ok")
-                ],
+                executions=[TradeExecutionRecord(success=True, broker="none", order_id=None, message="ok")],
                 artifacts=TradeArtifacts(),
                 duration_s=0.0,
                 run_id="abc",

@@ -59,9 +59,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Output JSON path (default: processed/regime_transition_calibration.json)",
     )
-    p.add_argument(
-        "--min-rows", type=int, default=80, help="Minimum aligned rows per symbol before merging"
-    )
+    p.add_argument("--min-rows", type=int, default=80, help="Minimum aligned rows per symbol before merging")
     return p.parse_args()
 
 
@@ -136,8 +134,7 @@ def main() -> int:
     )
     if payload is None:
         print(
-            "Calibration fit failed (need scikit-learn and enough samples). "
-            "Install: pip install scikit-learn",
+            "Calibration fit failed (need scikit-learn and enough samples). " "Install: pip install scikit-learn",
             file=sys.stderr,
         )
         return 1

@@ -67,9 +67,7 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
     _maybe_apply_transition_calibrations(df, "hmm")
 
 
-def _annotate_markov_transition_fields(
-    markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray
-) -> None:
+def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Markov-switching analogue of :func:`_annotate_hmm_transition_fields` (in-place)."""
     t = markov.calibrated_transition_matrix()
     next_p = RLMHMM.one_step_predictive_probs(probs, t)
@@ -199,9 +197,7 @@ class HybridForecastPipeline:
                         if sampled.empty or len(sampled) >= len(df):
                             continue
                         sampled_mask = (
-                            train_mask.reindex(sampled.index, fill_value=False)
-                            if train_mask is not None
-                            else None
+                            train_mask.reindex(sampled.index, fill_value=False) if train_mask is not None else None
                         )
                         micro_hmm = RLMHMM(deepcopy(self.hmm.config))
                         try:
@@ -224,11 +220,7 @@ class HybridForecastPipeline:
 
                 if _is_datetime_index(df):
                     macro = _resample_for_regime(df, "1D")
-                    macro_mask = (
-                        train_mask.reindex(macro.index, fill_value=False)
-                        if train_mask is not None
-                        else None
-                    )
+                    macro_mask = train_mask.reindex(macro.index, fill_value=False) if train_mask is not None else None
                     if not macro.empty:
                         macro_hmm = RLMHMM(deepcopy(self.hmm.config))
                         try:
@@ -243,10 +235,7 @@ class HybridForecastPipeline:
                                 df.index,
                                 shift_for_safety=True,
                             )
-                            probs = (
-                                self.macro_weight * macro_aligned
-                                + (1.0 - self.macro_weight) * micro_probs
-                            )
+                            probs = self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
                             df["hmm_macro_probs"] = macro_aligned.tolist()
                             df["hmm_micro_probs"] = micro_probs.tolist()
                         except Exception:
@@ -308,11 +297,7 @@ class HybridMarkovForecastPipeline:
                 sampled = _resample_for_regime(df, rule)
                 if sampled.empty or len(sampled) >= len(df):
                     continue
-                sampled_mask = (
-                    train_mask.reindex(sampled.index, fill_value=False)
-                    if train_mask is not None
-                    else None
-                )
+                sampled_mask = train_mask.reindex(sampled.index, fill_value=False) if train_mask is not None else None
                 micro_model = RLMMarkovSwitching(deepcopy(self.markov.config))
                 try:
                     micro_model.fit(
@@ -333,16 +318,10 @@ class HybridMarkovForecastPipeline:
             micro_probs = np.mean(np.stack(micro_sources, axis=0), axis=0)
             macro = _resample_for_regime(df, "1D")
             if not macro.empty:
-                macro_mask = (
-                    train_mask.reindex(macro.index, fill_value=False)
-                    if train_mask is not None
-                    else None
-                )
+                macro_mask = train_mask.reindex(macro.index, fill_value=False) if train_mask is not None else None
                 macro_model = RLMMarkovSwitching(deepcopy(self.markov.config))
                 try:
-                    macro_model.fit(
-                        macro.loc[macro_mask] if macro_mask is not None else macro, verbose=False
-                    )
+                    macro_model.fit(macro.loc[macro_mask] if macro_mask is not None else macro, verbose=False)
                     macro_probs = macro_model.filter(macro).to_numpy(dtype=float)
                     macro_aligned = _align_probs_to_index(
                         macro_probs,
@@ -350,9 +329,7 @@ class HybridMarkovForecastPipeline:
                         df.index,
                         shift_for_safety=True,
                     )
-                    probs = (
-                        self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
-                    )
+                    probs = self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
                 except Exception:
                     probs = micro_probs
             else:
@@ -365,17 +342,13 @@ class HybridMarkovForecastPipeline:
             out["markov_micro_probs"] = micro_probs.tolist()
             if _is_datetime_index(df):
                 out["markov_macro_probs"] = (
-                    np.full_like(micro_probs, np.nan)
-                    if "macro_aligned" not in locals()
-                    else macro_aligned
+                    np.full_like(micro_probs, np.nan) if "macro_aligned" not in locals() else macro_aligned
                 ).tolist()
         out["markov_probs"] = probs.tolist()
         out["markov_state"] = np.argmax(probs, axis=1).astype(int)
         out["markov_confidence"] = probs.max(axis=1).astype(float)
         if self.markov.state_labels:
-            out["markov_state_label"] = [
-                self.markov.state_labels[int(s)] for s in out["markov_state"]
-            ]
+            out["markov_state_label"] = [self.markov.state_labels[int(s)] for s in out["markov_state"]]
         _annotate_markov_transition_fields(self.markov, out, probs)
         return out
 
@@ -490,9 +463,7 @@ class HybridKronosForecastPipeline:
         markov_config: MarkovSwitchingConfig | None = None,
     ) -> None:
         if hmm_config is not None and markov_config is not None:
-            raise ValueError(
-                "Provide at most one regime overlay: either hmm_config or markov_config."
-            )
+            raise ValueError("Provide at most one regime overlay: either hmm_config or markov_config.")
         self.forecast = KronosForecastPipeline(
             config=kronos_config,
             rlm_config=rlm_config,
@@ -549,9 +520,7 @@ class HybridKronosForecastPipeline:
             df["markov_state"] = np.argmax(probs, axis=1).astype(int)
             df["markov_confidence"] = probs.max(axis=1).astype(float)
             if self.markov.state_labels:
-                df["markov_state_label"] = [
-                    self.markov.state_labels[int(s)] for s in df["markov_state"]
-                ]
+                df["markov_state_label"] = [self.markov.state_labels[int(s)] for s in df["markov_state"]]
             _annotate_markov_transition_fields(self.markov, df, probs)
 
         return df

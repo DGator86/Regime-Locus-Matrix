@@ -70,17 +70,13 @@ class CandlePatternFactors(FactorCalculator):
         morning_star = talib.CDLMORNINGSTAR(open_, high, low, close).astype(float) / 100.0
         evening_star = talib.CDLEVENINGSTAR(open_, high, low, close).astype(float) / 100.0
 
-        out["candle_bullish_reversal"] = (
-            engulfing.clip(lower=0) + hammer.clip(lower=0) + morning_star.clip(lower=0)
-        )
+        out["candle_bullish_reversal"] = engulfing.clip(lower=0) + hammer.clip(lower=0) + morning_star.clip(lower=0)
         out["candle_bearish_reversal"] = (
             (-engulfing.clip(upper=0)) + shooting_star.clip(lower=0) + evening_star.clip(lower=0)
         )
 
         marubozu = talib.CDLMARUBOZU(open_, high, low, close).astype(float) / 100.0
-        rising_falling_three = (
-            talib.CDLRISEFALL3METHODS(open_, high, low, close).astype(float) / 100.0
-        )
+        rising_falling_three = talib.CDLRISEFALL3METHODS(open_, high, low, close).astype(float) / 100.0
         out["candle_continuation"] = marubozu + rising_falling_three
 
         doji = talib.CDLDOJI(open_, high, low, close).abs().astype(float) / 100.0

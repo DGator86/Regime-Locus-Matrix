@@ -58,9 +58,7 @@ from rlm.datasets.paths import walkforward_summary_filename  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
         "--symbols",
         default=None,
@@ -114,7 +112,7 @@ def _concat_universe_summaries(proc: Path) -> pd.DataFrame | None:
 def main() -> int:
     args = _parse_args()
     symbols = _resolve_symbols(args)
-    data_root = get_data_root(args.data_root)
+    get_data_root(args.data_root)
     out_dir = get_processed_data_dir(args.data_root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -182,9 +180,7 @@ def main() -> int:
 
     cross_sharpe = float(np.mean(sharpes)) if sharpes else None
     ts = datetime.now(timezone.utc).isoformat()
-    failed_compact = [
-        {"symbol": f["symbol"], "error": (f.get("error") or "")[:500]} for f in failed
-    ]
+    failed_compact = [{"symbol": f["symbol"], "error": (f.get("error") or "")[:500]} for f in failed]
     snapshot = {
         "ts_utc": ts,
         "symbols_attempted": len(symbols),
@@ -202,8 +198,7 @@ def main() -> int:
     _append_jsonl(out_dir / "walkforward_universe_runs.jsonl", snapshot)
 
     print(
-        f"[walkforward-universe] done — ok={len(ok)} failed={len(failed)} "
-        f"mean_window_sharpe={cross_sharpe}",
+        f"[walkforward-universe] done — ok={len(ok)} failed={len(failed)} " f"mean_window_sharpe={cross_sharpe}",
         flush=True,
     )
     return 0 if ok else 1

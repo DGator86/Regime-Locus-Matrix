@@ -328,9 +328,7 @@ class LiveTradingDashboard:
         self._schedule_log_refresh()
         if self._auto_regime:
             rperiod = max(30_000, int(self._regime_interval_ms.get()))
-            self.root.after(
-                _delay_ms_to_next_system_tick(rperiod), self._tick_regime_then_reschedule
-            )
+            self.root.after(_delay_ms_to_next_system_tick(rperiod), self._tick_regime_then_reschedule)
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=6)
@@ -338,9 +336,7 @@ class LiveTradingDashboard:
 
         ttk.Label(top, text="Regime symbol:").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Entry(top, textvariable=self._symbol_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(top, text="Refresh regimes now", command=self._start_regime_fetch).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
+        ttk.Button(top, text="Refresh regimes now", command=self._start_regime_fetch).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Label(top, textvariable=self._status_var).pack(side=tk.LEFT, padx=(8, 0))
 
         regime_row = ttk.Frame(self.root, padding=(6, 0, 6, 6))
@@ -350,13 +346,9 @@ class LiveTradingDashboard:
             fr = ttk.LabelFrame(regime_row, text=f" {label} ", padding=8)
             fr.grid(row=0, column=col, padx=4, sticky=tk.NSEW)
             regime_row.columnconfigure(col, weight=1)
-            dir_l = tk.Label(
-                fr, text="—", font=("Segoe UI", 18, "bold"), fg=_DIRECTION_COLORS["unknown"]
-            )
+            dir_l = tk.Label(fr, text="—", font=("Segoe UI", 18, "bold"), fg=_DIRECTION_COLORS["unknown"])
             dir_l.pack()
-            sub = ttk.Label(
-                fr, text="(connect TWS / Gateway for IBKR)", font=("Segoe UI", 9), wraplength=320
-            )
+            sub = ttk.Label(fr, text="(connect TWS / Gateway for IBKR)", font=("Segoe UI", 9), wraplength=320)
             sub.pack()
             self._regime_labels[label] = (dir_l, sub)
 
@@ -417,9 +409,7 @@ class LiveTradingDashboard:
         algo_split = ttk.Panedwindow(algo_outer, orient=tk.VERTICAL)
         algo_split.pack(fill=tk.BOTH, expand=True)
         tree_fr = ttk.Frame(algo_split)
-        detail_fr = ttk.LabelFrame(
-            algo_split, text="Selected — full entry / pipeline detail", padding=4
-        )
+        detail_fr = ttk.LabelFrame(algo_split, text="Selected — full entry / pipeline detail", padding=4)
         algo_split.add(tree_fr, weight=3)
         algo_split.add(detail_fr, weight=2)
         ys_a = ttk.Scrollbar(tree_fr, orient=tk.VERTICAL)
@@ -466,9 +456,9 @@ class LiveTradingDashboard:
         self._log_interval_ms = tk.IntVar(value=5000)
         self._regime_interval_ms = tk.IntVar(value=120_000)
         ttk.Label(bot, text="Log period (ms, wall-clock aligned):").pack(side=tk.LEFT)
-        ttk.Spinbox(
-            bot, from_=2000, to=120_000, increment=1000, width=8, textvariable=self._log_interval_ms
-        ).pack(side=tk.LEFT, padx=(4, 16))
+        ttk.Spinbox(bot, from_=2000, to=120_000, increment=1000, width=8, textvariable=self._log_interval_ms).pack(
+            side=tk.LEFT, padx=(4, 16)
+        )
         ttk.Label(bot, text="Regime period (ms, wall-clock aligned):").pack(side=tk.LEFT)
         ttk.Spinbox(
             bot,
@@ -485,9 +475,7 @@ class LiveTradingDashboard:
         fr.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         ys = ttk.Scrollbar(fr, orient=tk.VERTICAL)
         xs = ttk.Scrollbar(fr, orient=tk.HORIZONTAL)
-        tree = ttk.Treeview(
-            fr, columns=columns, show="headings", yscrollcommand=ys.set, xscrollcommand=xs.set
-        )
+        tree = ttk.Treeview(fr, columns=columns, show="headings", yscrollcommand=ys.set, xscrollcommand=xs.set)
         ys.config(command=tree.yview)
         xs.config(command=tree.xview)
         for c in columns:
@@ -695,9 +683,7 @@ class LiveTradingDashboard:
 def main() -> None:
     import argparse
 
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--symbol", default=None, help="Default ticker for regime panels")
     ap.add_argument(
         "--no-auto-regime",
@@ -713,13 +699,9 @@ def main() -> None:
     if args.symbol:
         app._symbol_var.set(args.symbol.strip().upper())
     if args.options_log:
-        app._options_log = (
-            args.options_log if args.options_log.is_absolute() else ROOT / args.options_log
-        )
+        app._options_log = args.options_log if args.options_log.is_absolute() else ROOT / args.options_log
     if args.equity_log:
-        app._equity_log = (
-            args.equity_log if args.equity_log.is_absolute() else ROOT / args.equity_log
-        )
+        app._equity_log = args.equity_log if args.equity_log.is_absolute() else ROOT / args.equity_log
     if args.plans:
         app._plans_path = args.plans if args.plans.is_absolute() else ROOT / args.plans
 

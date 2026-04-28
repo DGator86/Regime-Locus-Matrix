@@ -74,7 +74,7 @@ def main() -> None:
 
         from rlm.data.paths import get_repo_root
 
-        dashboard_dir = get_repo_root() / "dashboard"
+        get_repo_root() / "dashboard"
         url = "http://2.24.28.77:3000"
         print(f"Opening dashboard: {url}")
         webbrowser.open(url)

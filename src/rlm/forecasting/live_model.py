@@ -152,12 +152,7 @@ class LiveRegimeModelConfig(BaseModel):
 
     def build_pipeline(
         self,
-    ) -> (
-        ForecastPipeline
-        | HybridForecastPipeline
-        | HybridMarkovForecastPipeline
-        | KronosBlendPipeline
-    ):
+    ) -> ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline | KronosBlendPipeline:
         """Build the active forecast pipeline, optionally wrapped in a Kronos blend layer.
 
         When ``use_kronos=True`` the returned pipeline is a ``KronosBlendPipeline``
@@ -166,16 +161,14 @@ class LiveRegimeModelConfig(BaseModel):
         """
         forecast_config = self.forecast.to_forecast_config()
         if self.model == "hmm":
-            base: ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline = (
-                HybridForecastPipeline(
-                    config=forecast_config,
-                    move_window=self.forecast.move_window,
-                    vol_window=self.forecast.vol_window,
-                    hmm_config=self.hmm.to_hmm_config(),
-                    hierarchical=self.hmm.hierarchical,
-                    macro_weight=self.hmm.macro_weight,
-                    micro_timeframes=self.hmm.micro_timeframes,
-                )
+            base: ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline = HybridForecastPipeline(
+                config=forecast_config,
+                move_window=self.forecast.move_window,
+                vol_window=self.forecast.vol_window,
+                hmm_config=self.hmm.to_hmm_config(),
+                hierarchical=self.hmm.hierarchical,
+                macro_weight=self.hmm.macro_weight,
+                micro_timeframes=self.hmm.micro_timeframes,
             )
         elif self.model == "markov":
             base = HybridMarkovForecastPipeline(
@@ -205,9 +198,7 @@ class LiveRegimeModelConfig(BaseModel):
         return self.roee.decision_kwargs()
 
 
-def apply_nightly_hyperparam_overlay(
-    cfg: LiveRegimeModelConfig, repo_root: Path
-) -> LiveRegimeModelConfig:
+def apply_nightly_hyperparam_overlay(cfg: LiveRegimeModelConfig, repo_root: Path) -> LiveRegimeModelConfig:
     """Merge ``data/processed/live_nightly_hyperparams.json`` into a live config when present.
 
     Keys produced by :class:`rlm.optimization.nightly.NightlyMTFOptimizer` are mapped onto

@@ -50,27 +50,19 @@ def build_legs_from_candidate(
     # Level 2 single-leg strategies
     # ------------------------------------------------------------------
     if name == "long_call":
-        long_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or 0.5, strike_increment
-        )
+        long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.5, strike_increment)
         legs = [OptionLeg(side="long", option_type="call", strike=long_strike)]
 
     elif name == "long_put":
-        long_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or -0.5, strike_increment
-        )
+        long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or -0.5, strike_increment)
         legs = [OptionLeg(side="long", option_type="put", strike=long_strike)]
 
     # ------------------------------------------------------------------
     # Level 2 long straddle — buy ATM call + ATM put
     # ------------------------------------------------------------------
     elif name in {"long_straddle", "scalp_long_straddle"}:
-        atm_call = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or 0.0, strike_increment
-        )
-        atm_put = target_strike_from_sigma(
-            current_price, sigma, candidate.hedge_sigma or 0.0, strike_increment
-        )
+        atm_call = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.0, strike_increment)
+        atm_put = target_strike_from_sigma(current_price, sigma, candidate.hedge_sigma or 0.0, strike_increment)
         legs = [
             OptionLeg(side="long", option_type="call", strike=atm_call),
             OptionLeg(side="long", option_type="put", strike=atm_put),
@@ -87,12 +79,8 @@ def build_legs_from_candidate(
         "debit_spread_call",
         "0dte_bull_call_spread",
     }:
-        long_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or 0.5, strike_increment
-        )
-        short_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.short_sigma or 1.5, strike_increment
-        )
+        long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.5, strike_increment)
+        short_strike = target_strike_from_sigma(current_price, sigma, candidate.short_sigma or 1.5, strike_increment)
         legs = [
             OptionLeg(side="long", option_type="call", strike=long_strike),
             OptionLeg(side="short", option_type="call", strike=short_strike),
@@ -106,21 +94,15 @@ def build_legs_from_candidate(
         "debit_spread_put",
         "0dte_bear_put_spread",
     }:
-        long_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or -0.5, strike_increment
-        )
-        short_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.short_sigma or -1.5, strike_increment
-        )
+        long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or -0.5, strike_increment)
+        short_strike = target_strike_from_sigma(current_price, sigma, candidate.short_sigma or -1.5, strike_increment)
         legs = [
             OptionLeg(side="long", option_type="put", strike=long_strike),
             OptionLeg(side="short", option_type="put", strike=short_strike),
         ]
 
     elif name == "long_strangle":
-        call_strike = target_strike_from_sigma(
-            current_price, sigma, abs(candidate.long_sigma or 0.5), strike_increment
-        )
+        call_strike = target_strike_from_sigma(current_price, sigma, abs(candidate.long_sigma or 0.5), strike_increment)
         put_strike = target_strike_from_sigma(
             current_price,
             sigma,
@@ -133,24 +115,16 @@ def build_legs_from_candidate(
         ]
 
     elif name == "long_call_plus_put_hedge":
-        call_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or 0.5, strike_increment
-        )
-        put_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.hedge_sigma or -0.5, strike_increment
-        )
+        call_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.5, strike_increment)
+        put_strike = target_strike_from_sigma(current_price, sigma, candidate.hedge_sigma or -0.5, strike_increment)
         legs = [
             OptionLeg(side="long", option_type="call", strike=call_strike),
             OptionLeg(side="long", option_type="put", strike=put_strike),
         ]
 
     elif name == "long_put_plus_call_hedge":
-        put_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or -0.5, strike_increment
-        )
-        call_strike = target_strike_from_sigma(
-            current_price, sigma, candidate.hedge_sigma or 0.5, strike_increment
-        )
+        put_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or -0.5, strike_increment)
+        call_strike = target_strike_from_sigma(current_price, sigma, candidate.hedge_sigma or 0.5, strike_increment)
         legs = [
             OptionLeg(side="long", option_type="put", strike=put_strike),
             OptionLeg(side="long", option_type="call", strike=call_strike),
@@ -199,9 +173,7 @@ def build_legs_from_candidate(
             OptionLeg(side="short", option_type="call", strike=sell_call),
         ]
     elif name == "calendar_spread":
-        atm = target_strike_from_sigma(
-            current_price, sigma, candidate.long_sigma or 0.0, strike_increment
-        )
+        atm = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.0, strike_increment)
         legs = [
             OptionLeg(side="short", option_type="call", strike=atm),
             OptionLeg(side="long", option_type="call", strike=atm),

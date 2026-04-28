@@ -100,17 +100,11 @@ def build_status_brief(root: Path) -> str:
     gen = str(data.get("generated_at_utc", "?"))
     results = data.get("results") or []
     n_active = sum(1 for r in results if r.get("status") == "active")
-    mtime = (
-        datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
-        if p.is_file()
-        else "?"
-    )
+    mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat() if p.is_file() else "?"
     return f"generated_at: {gen}\nfile mtime (UTC): {mtime}\nactive: {n_active}"
 
 
-def build_universe_and_positions(
-    root: Path, *, max_active: int = 12, max_positions: int = 20
-) -> str:
+def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
     """Universe summary plus open option rows (trade_log) and open equity rows (state json)."""
     lines: list[str] = [
         "=== Universe ===",
@@ -140,9 +134,7 @@ def build_universe_and_positions(
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
     eq = _read_equity_state(p["equity_state"])
-    eq_open = [
-        (str(k), v or {}) for k, v in eq.items() if str((v or {}).get("status") or "") == "open"
-    ]
+    eq_open = [(str(k), v or {}) for k, v in eq.items() if str((v or {}).get("status") or "") == "open"]
     lines.extend(["", "=== Equity (state file, open) ==="])
     if not eq_open:
         lines.append("  (none open)")
@@ -161,11 +153,7 @@ def _iter_active_plan_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     ranked = data.get("active_ranked") or []
     if ranked:
         return [r for r in ranked if isinstance(r, dict)]
-    return [
-        r
-        for r in (data.get("results") or [])
-        if isinstance(r, dict) and r.get("status") == "active"
-    ]
+    return [r for r in (data.get("results") or []) if isinstance(r, dict) and r.get("status") == "active"]
 
 
 def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
@@ -196,11 +184,7 @@ def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
     if not data:
         return f"Empty or unreadable: {p.name}"
     gen = str(data.get("generated_at_utc", "?"))
-    mtime = (
-        datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
-        if p.is_file()
-        else "?"
-    )
+    mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat() if p.is_file() else "?"
     head = f"=== session_brief.json ===\ngenerated_at: {gen}\nfile mtime (UTC): {mtime}\n\n"
     return head + build_universe_report_from_data(data, max_active=max_active)
 
@@ -213,8 +197,7 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
     actives: list[dict[str, Any]] = list(_iter_active_plan_rows(data))
     actives.sort(key=lambda x: float(x.get("rank_score") or 0.0), reverse=True)
     lines = [
-        f"Universe report (top {min(max_active, len(actives))} of {len(actives)} active)\n"
-        f"generated_at: {gen}\n"
+        f"Universe report (top {min(max_active, len(actives))} of {len(actives)} active)\n" f"generated_at: {gen}\n"
     ]
     for r in actives[:max_active]:
         sym = r.get("symbol", "?")
@@ -510,13 +493,9 @@ def build_balances_text(root: Path) -> str:
     bp = _tag("BuyingPower")
     u_pnl = _tag("UnrealizedPnL")
 
-    stk: list[IbkrPositionRow] = [
-        x for x in snap.positions if str(x.sec_type).upper() == "STK" and abs(x.position) > 0
-    ]
+    stk: list[IbkrPositionRow] = [x for x in snap.positions if str(x.sec_type).upper() == "STK" and abs(x.position) > 0]
     opt: list[IbkrPositionRow] = [
-        x
-        for x in snap.positions
-        if str(x.sec_type).upper() in {"OPT", "BAG", "BOND"} and abs(x.position) > 0
+        x for x in snap.positions if str(x.sec_type).upper() in {"OPT", "BAG", "BOND"} and abs(x.position) > 0
     ]
 
     lines = [
@@ -526,15 +505,11 @@ def build_balances_text(root: Path) -> str:
         f"Equity positions (STK): {len(stk)}  |  Option legs / non-stock: {len(opt)}",
     ]
     for pr in stk[:8]:
-        lines.append(
-            f"  STK: {pr.symbol}  qty={pr.position}  avg={pr.avg_cost:.2f}  ccy={pr.currency}"
-        )
+        lines.append(f"  STK: {pr.symbol}  qty={pr.position}  avg={pr.avg_cost:.2f}  ccy={pr.currency}")
     if len(stk) > 8:
         lines.append(f"  … {len(stk) - 8} more stock rows")
     for pr in opt[:8]:
-        lines.append(
-            f"  OPT: {pr.symbol}  qty={pr.position}  avg={pr.avg_cost:.2f}  ccy={pr.currency}"
-        )
+        lines.append(f"  OPT: {pr.symbol}  qty={pr.position}  avg={pr.avg_cost:.2f}  ccy={pr.currency}")
     if len(opt) > 8:
         lines.append(f"  … {len(opt) - 8} more option rows")
     return "\n".join(lines)
@@ -607,9 +582,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
                 st.announced_exit.add(pid)
             if sig == "take_profit":
                 st.announced_tp.add(pid)
-        st.announced_trade_open = {
-            pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"
-        }
+        st.announced_trade_open = {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
         st.last_equity_open = set(now_open)
         plans_data0 = _read_plans(p["plans"])
         st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data0)
@@ -619,9 +592,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
     # Upgrade older state files that used known_option_plans but not announced_trade_open
     if st.notify_seeded and "announced_trade_open" not in state_blob:
-        st.announced_trade_open = {
-            pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"
-        }
+        st.announced_trade_open = {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
         merged = {**state_blob, **st.to_json()}
         return [], merged
 
@@ -641,9 +612,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if not closed and pid not in st.announced_trade_open:
             st.announced_trade_open.add(pid)
             ed = row.get("entry_debit", row.get("entry_mid", ""))
-            out.append(
-                f"Alert: New position — {sym}  plan={pid}  mark={mark}  entry~{ed}  signal={sig}"
-            )
+            out.append(f"Alert: New position — {sym}  plan={pid}  mark={mark}  entry~{ed}  signal={sig}")
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
@@ -651,9 +620,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
-            out.append(
-                f"Alert: Exited position — {sym}  plan={pid}  reason={_exit_reason_human(sig)}  mark={mark}"
-            )
+            out.append(f"Alert: Exited position — {sym}  plan={pid}  reason={_exit_reason_human(sig)}  mark={mark}")
         st.last_opt_signal[pid] = sig
 
     for gone in set(st.announced_tp) - set(latest.keys()):
@@ -667,7 +634,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
     plans_data = _read_plans(p["plans"])
     cur_u = _active_plan_ids_from_plans(plans_data)
-    sym_by_u = _symbol_by_plan_id(plans_data)
+    _symbol_by_plan_id(plans_data)
     # Disabling universe idea alerts to reduce chatter per user request
     # for pid in sorted(cur_u - st.last_universe_active_ids):
     #     out.append(
@@ -691,9 +658,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
             ex = pdat.get("exit_reason") or pdat.get("note") or "—"
-            out.append(
-                f"Alert: Exited position — {pdat.get('symbol', '?')}  plan_id={pkey}  reason={ex}  (equity)"
-            )
+            out.append(f"Alert: Exited position — {pdat.get('symbol', '?')}  plan_id={pkey}  reason={ex}  (equity)")
 
     st.last_equity_open = now_open
     return out, {**state_blob, **st.to_json()}

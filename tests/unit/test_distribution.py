@@ -99,9 +99,7 @@ def test_band_ordering_is_valid() -> None:
         vol_window=50,
     ).run(factor_out)
 
-    valid = forecast_out.dropna(
-        subset=["lower_2s", "lower_1s", "mean_price", "upper_1s", "upper_2s"]
-    )
+    valid = forecast_out.dropna(subset=["lower_2s", "lower_1s", "mean_price", "upper_1s", "upper_2s"])
 
     assert (valid["lower_2s"] <= valid["lower_1s"]).all()
     assert (valid["lower_1s"] <= valid["mean_price"]).all()

@@ -9,13 +9,9 @@ from rlm.core.services.ingestion_service import IngestionRequest, IngestionServi
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog="rlm ingest", description="Fetch and normalize market data into local storage."
-    )
+    p = argparse.ArgumentParser(prog="rlm ingest", description="Fetch and normalize market data into local storage.")
     p.add_argument("--symbol", required=True, help="Ticker symbol (e.g. SPY)")
-    p.add_argument(
-        "--source", choices=["ibkr", "yfinance"], default="yfinance", help="Data provider"
-    )
+    p.add_argument("--source", choices=["ibkr", "yfinance"], default="yfinance", help="Data provider")
     p.add_argument("--start", default=None, help="Start date YYYY-MM-DD")
     p.add_argument("--end", default=None, help="End date YYYY-MM-DD")
     p.add_argument("--interval", default="1d", help="Bar interval (default: 1d)")

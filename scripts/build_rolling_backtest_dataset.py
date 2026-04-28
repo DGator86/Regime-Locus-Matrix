@@ -58,9 +58,7 @@ def parse_args() -> argparse.Namespace:
         help="Use in-memory demo bars instead of IBKR (for CI / no TWS).",
     )
     p.add_argument("--warmup-days", type=int, default=800, help="Demo mode: number of daily bars")
-    p.add_argument(
-        "--chunk-days", type=int, default=365, help="IBKR chunk size per historical request"
-    )
+    p.add_argument("--chunk-days", type=int, default=365, help="IBKR chunk size per historical request")
     p.add_argument("--is-window", type=int, default=100)
     p.add_argument("--oos-window", type=int, default=50)
     p.add_argument("--step-size", type=int, default=50)
@@ -107,9 +105,7 @@ def main() -> None:
         bars = synthetic_bars_demo(end, periods=periods)
         bars = bars[(bars.index >= start) & (bars.index <= end)]
     elif args.fetch_ibkr:
-        print(
-            f"Fetching IBKR daily {sym} {start.date()} .. {end.date()} (chunk={args.chunk_days}d)..."
-        )
+        print(f"Fetching IBKR daily {sym} {start.date()} .. {end.date()} (chunk={args.chunk_days}d)...")
         bars = fetch_ibkr_daily_bars_range(
             sym,
             start=start,
@@ -143,11 +139,7 @@ def main() -> None:
     print(f"Wrote {bars_path.relative_to(ROOT)}")
     print(f"Wrote {chain_path.relative_to(ROOT)} ({len(chain)} chain rows)")
     print(f"Wrote {manifest_path.relative_to(ROOT)} ({len(manifest)} walk-forward windows)")
-    print(
-        "Next: python scripts/run_walkforward.py --bars {0} --chain {1}".format(
-            bars_path, chain_path
-        )
-    )
+    print("Next: python scripts/run_walkforward.py --bars {0} --chain {1}".format(bars_path, chain_path))
 
 
 if __name__ == "__main__":

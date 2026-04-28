@@ -175,9 +175,7 @@ class ScottyAgent:
                 service_issues.append(s.name)
 
         degraded = (
-            bool(service_issues)
-            or any(d.pct > 90 for d in report.disk)
-            or (scanner_open and bool(report.stale_files))
+            bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
         )
         report.overall_ok = not degraded
         return report
@@ -287,10 +285,7 @@ class ScottyAgent:
                 )
                 for line in r.stdout.splitlines():
                     low = line.lower()
-                    if any(
-                        kw in low
-                        for kw in ("error", "traceback", "exception", "critical", "failed")
-                    ):
+                    if any(kw in low for kw in ("error", "traceback", "exception", "critical", "failed")):
                         errors.append(line[-180:])  # trim long lines
             except Exception:
                 pass
@@ -379,9 +374,7 @@ class ScottyAgent:
                 if r.returncode == 0:
                     actions.append(f"[auto] systemctl restart {key}.service — ok")
                 else:
-                    actions.append(
-                        f"[auto] systemctl restart {key}.service — failed: {tail or r.returncode}"
-                    )
+                    actions.append(f"[auto] systemctl restart {key}.service — failed: {tail or r.returncode}")
             except Exception as exc:
                 actions.append(f"[auto] restart {key}.service error: {exc}")
         return actions

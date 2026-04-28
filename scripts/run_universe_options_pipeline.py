@@ -171,11 +171,7 @@ def _prepare_symbol(
     )
 
     last = out.iloc[-1]
-    ts = (
-        last.name
-        if isinstance(last.name, pd.Timestamp)
-        else pd.Timestamp.now(tz="UTC").tz_localize(None)
-    )
+    ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.now(tz="UTC").tz_localize(None)
 
     pipeline_row = {
         "live_model": active_model,
@@ -216,9 +212,7 @@ def _prepare_symbol(
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
         base["skip_reason"] = (
-            "regime_safety_check"
-            if decision.strategy_name == "regime_safety_check"
-            else "roee_skip_or_no_legs"
+            "regime_safety_check" if decision.strategy_name == "regime_safety_check" else "roee_skip_or_no_legs"
         )
         return base, None, None
     return base, decision, ts
@@ -242,12 +236,8 @@ def _build_incremental_snapshot_params(
         if anchor.tzinfo is not None:
             anchor = anchor.tz_localize(None)
         anchor = anchor.normalize()
-        params["expiration_date.gte"] = str(
-            (anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date()
-        )
-        params["expiration_date.lte"] = str(
-            (anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date()
-        )
+        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date())
+        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date())
 
     strikes = [float(leg.strike) for leg in decision.legs]
     if strikes:
@@ -284,12 +274,8 @@ def _finalize_symbol(
         base["skip_reason"] = "no_tradable_option_quotes"
         return base
 
-    dte_min = (
-        int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
-    )
-    dte_max = (
-        int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
-    )
+    dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
+    dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
     expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
     if expiry_slice.empty:
         base["skip_reason"] = "no_contracts_in_dte_window"
@@ -509,9 +495,7 @@ def main() -> int:
         default=Path("data/processed/live_regime_model.json"),
         help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
     )
-    p.add_argument(
-        "--ignore-live-model", action="store_true", help="Ignore any promoted live model config."
-    )
+    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
     p.add_argument(
         "--out",
         type=Path,
@@ -557,9 +541,7 @@ def main() -> int:
     live_model_path: Path | None = None
     if not args.ignore_live_model:
         live_model_path = (
-            ROOT / args.live_model_config
-            if not args.live_model_config.is_absolute()
-            else args.live_model_config
+            ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
         )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)

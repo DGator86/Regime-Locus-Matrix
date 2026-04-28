@@ -54,9 +54,7 @@ class IngestionService:
         provider = resolve_provider(req.source)
         backend = self._resolve_backend(req.backend)
 
-        bars = provider.fetch_bars(
-            symbol=req.symbol, start=req.start, end=req.end, interval=req.interval
-        )
+        bars = provider.fetch_bars(symbol=req.symbol, start=req.start, end=req.end, interval=req.interval)
         bars_path = self._write_frame(
             bars.bars_df, kind="bars", symbol=req.symbol, data_root=req.data_root, backend=backend
         )
@@ -90,9 +88,7 @@ class IngestionService:
         metadata_path: Path | None = None
         manifest_path: Path | None = None
         if req.write_manifest:
-            metadata_path = self._write_ingest_metadata(
-                req, run_id, metadata, bars_path, chain_path, backend
-            )
+            metadata_path = self._write_ingest_metadata(req, run_id, metadata, bars_path, chain_path, backend)
             manifest_path = self._write_manifest(
                 req,
                 run_id,
@@ -125,9 +121,7 @@ class IngestionService:
             raise ValueError(f"Unsupported backend: {backend!r}")
         return "csv" if key == "auto" else key
 
-    def _write_frame(
-        self, df: pd.DataFrame, *, kind: str, symbol: str, data_root: str | None, backend: str
-    ) -> Path:
+    def _write_frame(self, df: pd.DataFrame, *, kind: str, symbol: str, data_root: str | None, backend: str) -> Path:
         raw_dir = get_raw_data_dir(data_root)
         raw_dir.mkdir(parents=True, exist_ok=True)
         sym = symbol.upper()
@@ -147,9 +141,7 @@ class IngestionService:
 
     @staticmethod
     def _write_csv(df: pd.DataFrame, raw_dir: Path, kind: str, symbol: str) -> Path:
-        out_path = raw_dir / (
-            f"bars_{symbol}.csv" if kind == "bars" else f"option_chain_{symbol}.csv"
-        )
+        out_path = raw_dir / (f"bars_{symbol}.csv" if kind == "bars" else f"option_chain_{symbol}.csv")
         df.to_csv(out_path, index=False)
         return out_path
 

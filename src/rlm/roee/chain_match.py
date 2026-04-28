@@ -34,11 +34,7 @@ def _row_to_matched_leg(row: pd.Series, side: str) -> MatchedLeg:
         bid=float(row["bid"]),
         ask=float(row["ask"]),
         mid=float(row["mid"]),
-        symbol=(
-            str(row["contract_symbol"])
-            if "contract_symbol" in row and pd.notna(row["contract_symbol"])
-            else None
-        ),
+        symbol=(str(row["contract_symbol"]) if "contract_symbol" in row and pd.notna(row["contract_symbol"]) else None),
         delta=float(row["delta"]) if "delta" in row and pd.notna(row["delta"]) else None,
         gamma=float(row["gamma"]) if "gamma" in row and pd.notna(row["gamma"]) else None,
         theta=float(row["theta"]) if "theta" in row and pd.notna(row["theta"]) else None,

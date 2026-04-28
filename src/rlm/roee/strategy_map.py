@@ -179,11 +179,7 @@ def get_strategy_for_regime(
 
     # Bull states
     if direction == "bull":
-        if (
-            volatility == "low_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "low_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long call spread — Level 2 debit spread
             return _candidate(
                 "long_call_spread",
@@ -210,11 +206,7 @@ def get_strategy_for_regime(
                 long_sigma=0.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "high_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long call spread still valid in high vol — pay defined debit
             return _candidate(
                 "long_call_spread",
@@ -228,11 +220,7 @@ def get_strategy_for_regime(
                 short_sigma=1.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "low_liquidity"
-            and dealer_flow == "destabilizing"
-        ):
+        if volatility == "high_vol" and liquidity == "low_liquidity" and dealer_flow == "destabilizing":
             # Long straddle — own convexity in both directions, Level 2
             return _candidate(
                 "long_straddle",
@@ -262,11 +250,7 @@ def get_strategy_for_regime(
 
     # Bear states
     if direction == "bear":
-        if (
-            volatility == "low_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "low_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long put spread — Level 2 debit spread
             return _candidate(
                 "long_put_spread",
@@ -293,11 +277,7 @@ def get_strategy_for_regime(
                 long_sigma=-0.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "high_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             return _candidate(
                 "long_put_spread",
                 regime_key,
@@ -310,11 +290,7 @@ def get_strategy_for_regime(
                 short_sigma=-1.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "low_liquidity"
-            and dealer_flow == "destabilizing"
-        ):
+        if volatility == "high_vol" and liquidity == "low_liquidity" and dealer_flow == "destabilizing":
             return _candidate(
                 "long_straddle",
                 regime_key,

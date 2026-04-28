@@ -32,9 +32,7 @@ def normalize_dataset_arg(raw: str) -> str:
     return aliases[x]
 
 
-def underlying_for_lake_path(
-    *, underlying: str | None, allow_full_file: bool, prefixes: list[str]
-) -> str:
+def underlying_for_lake_path(*, underlying: str | None, allow_full_file: bool, prefixes: list[str]) -> str:
     if allow_full_file and not prefixes:
         return "BULK"
     if underlying:

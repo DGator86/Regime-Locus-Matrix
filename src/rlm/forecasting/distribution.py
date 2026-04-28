@@ -30,7 +30,7 @@ def compute_baseline_vol_scale(
     """
     returns = close.pct_change()
 
-    rolling_med = returns.rolling(window=window, min_periods=max(10, window // 3)).median()
+    returns.rolling(window=window, min_periods=max(10, window // 3)).median()
 
     def _mad(x: np.ndarray) -> float:
         x = np.asarray(x, dtype=float)

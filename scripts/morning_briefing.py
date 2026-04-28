@@ -7,6 +7,9 @@ Coordinates data collection, news ingestion, and 09:45 ET execution.
 
 import datetime
 import time
+from typing import Any
+
+import pandas as pd
 
 from rlm.core.morning_pipeline import MorningBriefingPipeline
 from rlm.core.pipeline import FullRLMConfig
@@ -26,8 +29,6 @@ class PremarketMonitor:
 
     def get_final_data(self) -> dict[str, Any]:
         # Return empty dataframes for now
-        import pandas as pd
-
         return {sym: pd.DataFrame() for sym in self.symbols}
 
 
@@ -43,7 +44,7 @@ def main():
 
     # 1. Load configuration
     root = get_repo_root()
-    config_path = root / "configs" / "default.yaml"
+    root / "configs" / "default.yaml"
     # Assuming FullRLMConfig.from_yaml exists or we can load manually
     # For now, we'll use a default config and populate from env if needed
     config = FullRLMConfig()
@@ -103,9 +104,7 @@ def main():
 
             # Log results
             policy = result.policy_df.iloc[-1]
-            logger.info(
-                f"RESULT {sym}: Action={policy.get('roee_action')} Strategy={policy.get('roee_strategy')}"
-            )
+            logger.info(f"RESULT {sym}: Action={policy.get('roee_action')} Strategy={policy.get('roee_strategy')}")
 
         except Exception as e:
             logger.error(f"Error processing {sym}: {e}")

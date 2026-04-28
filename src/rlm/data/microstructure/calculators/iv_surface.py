@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    import duckdb
 from scipy.interpolate import griddata
 
 # ---------------------------------------------------------------------------
@@ -153,7 +156,7 @@ def build_iv_surface(
 
 
 def build_iv_surface_from_parquet(
-    conn: "duckdb.DuckDBPyConnection",
+    conn: duckdb.DuckDBPyConnection,
     *,
     symbol: str,
     timestamp: "str | pd.Timestamp",
@@ -245,9 +248,7 @@ def term_structure(surface: pd.DataFrame, moneyness: float = 1.0) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
-def save_iv_surface(
-    surface: pd.DataFrame, symbol: str, data_path: str = "data/microstructure"
-) -> None:
+def save_iv_surface(surface: pd.DataFrame, symbol: str, data_path: str = "data/microstructure") -> None:
     """Persist IV surface to date-partitioned Parquet."""
     if surface.empty:
         return

@@ -141,16 +141,14 @@ class ForecastService:
             return {}
 
         available = [c for c in _OUTPUT_COLUMNS if c in result.forecast_df.columns]
-        tail = result.forecast_df[available].tail(1)
+        result.forecast_df[available].tail(1)
 
         last_policy = result.policy_df.iloc[-1] if not result.policy_df.empty else None
         summary: dict = {
             "rows": len(result.forecast_df),
             "action": last_policy.get("roee_action") if last_policy is not None else None,
             "strategy": last_policy.get("roee_strategy") if last_policy is not None else None,
-            "size_fraction": (
-                last_policy.get("roee_size_fraction") if last_policy is not None else None
-            ),
+            "size_fraction": (last_policy.get("roee_size_fraction") if last_policy is not None else None),
         }
         if result.backtest_metrics:
             summary["backtest"] = result.backtest_metrics

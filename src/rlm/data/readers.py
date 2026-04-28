@@ -33,9 +33,7 @@ def load_bars(
 
     if selected == DataBackend.LAKE:
         return load_lake_bars(symbol, data_root=data_root, interval=interval)
-    if selected == DataBackend.AUTO and lake_has_bars(
-        symbol, data_root=data_root, interval=interval
-    ):
+    if selected == DataBackend.AUTO and lake_has_bars(symbol, data_root=data_root, interval=interval):
         return load_lake_bars(symbol, data_root=data_root, interval=interval)
 
     csv_path = _resolve_bars_csv_path(symbol, data_root)

@@ -237,9 +237,7 @@ class Portfolio:
             contract_multiplier=self.contract_multiplier,
             entry_cost=entry_cost,
         )
-        capital_per_unit = (
-            max(max(entry_cost, 0.0), risk_capital_per_unit) + entry_friction_per_unit
-        )
+        capital_per_unit = max(max(entry_cost, 0.0), risk_capital_per_unit) + entry_friction_per_unit
         if capital_per_unit <= 1e-9:
             return min_quantity
 
@@ -316,9 +314,7 @@ class Portfolio:
 
         expiry = matched[0]["expiry"] if matched else None
         position_id = str(uuid.uuid4())
-        init_mark, init_exit = self._initial_marks_from_matched_legs(
-            matched_legs=matched, fill_config=cfg
-        )
+        init_mark, init_exit = self._initial_marks_from_matched_legs(matched_legs=matched, fill_config=cfg)
         meta = dict(decision.metadata)
         meta["reprice_ok"] = True
         meta["last_reprice"] = {"full": True, "missing_leg_count": 0, "stale": False}
@@ -339,9 +335,7 @@ class Portfolio:
             underlying_symbol=underlying_symbol,
             entry_underlying_price=float(underlying_price),
             expiry=expiry,
-            entry_cost=float(
-                entry_cost + ((entry_commission + entry_transaction_cost.total) / actual_quantity)
-            ),
+            entry_cost=float(entry_cost + ((entry_commission + entry_transaction_cost.total) / actual_quantity)),
             quantity=int(actual_quantity),
             matched_legs=matched,
             target_profit_pct=float(decision.target_profit_pct or 0.5),
@@ -418,16 +412,12 @@ class Portfolio:
             contract_multiplier=self.contract_multiplier,
             config=self.lifecycle_config.transaction_cost_config,
         )
-        exit_value = pos.exit_value() - (
-            (exit_commission + exit_transaction_cost.total) / pos.quantity
-        )
+        exit_value = pos.exit_value() - ((exit_commission + exit_transaction_cost.total) / pos.quantity)
         total_exit_value = exit_value * pos.quantity
         self.cash += total_exit_value
 
         pnl = (exit_value - pos.entry_cost) * pos.quantity
-        pnl_pct = (
-            pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
-        )
+        pnl_pct = pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
         metadata = dict(pos.metadata)
         metadata["exit_cost_breakdown"] = {
             "commission": float(exit_commission),
@@ -493,9 +483,7 @@ class Portfolio:
         # Normalize exit_value to per-unit for the trade record
         exit_value_per_unit = settlement.intrinsic_value * self.contract_multiplier
         pnl = (exit_value_per_unit - pos.entry_cost) * pos.quantity
-        pnl_pct = (
-            pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
-        )
+        pnl_pct = pnl / (abs(pos.entry_cost) * pos.quantity) if abs(pos.entry_cost) > 1e-9 else np.nan
 
         metadata = dict(pos.metadata)
         metadata["settlement_notes"] = settlement.notes
@@ -536,9 +524,7 @@ class Portfolio:
 
     def equity_frame(self) -> pd.DataFrame:
         if not self.equity_history:
-            return pd.DataFrame(
-                columns=["timestamp", "cash", "mark_value", "equity", "open_positions"]
-            )
+            return pd.DataFrame(columns=["timestamp", "cash", "mark_value", "equity", "open_positions"])
         return pd.DataFrame(self.equity_history).set_index("timestamp").sort_index()
 
     def closed_trades_frame(self) -> pd.DataFrame:

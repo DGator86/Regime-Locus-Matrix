@@ -36,11 +36,7 @@ class MultiTimeframeRegimeModel:
     ) -> None:
         self.model_name = model
         self.hmm = RLMHMM(hmm_config or HMMConfig()) if model == "hmm" else None
-        self.markov = (
-            RLMMarkovSwitching(markov_config or MarkovSwitchingConfig())
-            if model == "markov"
-            else None
-        )
+        self.markov = RLMMarkovSwitching(markov_config or MarkovSwitchingConfig()) if model == "markov" else None
         self.htf_prob_paths = {k: Path(v) for k, v in (htf_prob_paths or {}).items()}
         self.htf_weights = htf_weights or {}
         self.ltf_weight = float(ltf_weight)

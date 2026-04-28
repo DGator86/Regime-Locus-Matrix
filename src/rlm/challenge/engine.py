@@ -111,10 +111,7 @@ class ChallengeEngine:
 
         # 2. Consider new entry (if slots available and challenge not yet complete)
         new_position: ChallengePosition | None = None
-        if (
-            state.balance < self.cfg.target_capital
-            and len(state.open_positions) < self.cfg.max_concurrent_positions
-        ):
+        if state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
             play = self._strategy.select(
                 directive,
                 underlying_price,
@@ -150,10 +147,7 @@ class ChallengeEngine:
 
         # Detect milestone clears
         milestone_cleared: str | None = None
-        if (
-            state.current_milestone_idx > prev_milestone_idx
-            or state.balance >= self.cfg.target_capital
-        ):
+        if state.current_milestone_idx > prev_milestone_idx or state.balance >= self.cfg.target_capital:
             from rlm.challenge.config import MILESTONES
 
             idx = min(prev_milestone_idx, len(MILESTONES) - 1)

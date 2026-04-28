@@ -68,9 +68,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override implied volatility, e.g. 0.18 for 18%% (default: auto-estimate)",
     )
-    p.add_argument(
-        "--no-kronos", action="store_true", help="Disable Kronos overlay in persona pipeline"
-    )
+    p.add_argument("--no-kronos", action="store_true", help="Disable Kronos overlay in persona pipeline")
     p.add_argument("--json", action="store_true", help="Output session summary as JSON")
     add_data_root_arg(p)
     add_backend_arg(p)
@@ -91,9 +89,7 @@ def main() -> None:  # noqa: C901
     # ---- Reset --------------------------------------------------------------
     if args.reset:
         state = tracker.reset(cfg)
-        print(
-            f"Challenge reset.  Starting balance: ${state.balance:,.2f}  Target: ${state.target:,.2f}"
-        )
+        print(f"Challenge reset.  Starting balance: ${state.balance:,.2f}  Target: ${state.target:,.2f}")
         print(f"State file: {tracker.state_path()}")
         return
 
@@ -229,9 +225,7 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print(f"  Stage     : {getattr(m, 'label', '—')}")
     print()
     print(f"  Sessions  : {state.session_count}")
-    print(
-        f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})"
-    )
+    print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
     print()
 
     # Milestones

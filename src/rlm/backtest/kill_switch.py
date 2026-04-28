@@ -107,16 +107,10 @@ class KillSwitch:
         if self._high_water_mark > 0:
             drawdown = (equity - self._high_water_mark) / self._high_water_mark
             if drawdown < self.max_drawdown:
-                return self._trigger(
-                    f"Drawdown {drawdown:.2%} breached limit {self.max_drawdown:.2%}."
-                )
+                return self._trigger(f"Drawdown {drawdown:.2%} breached limit {self.max_drawdown:.2%}.")
 
         # --- Anomaly: realized vol spike ---
-        if (
-            realized_vol is not None
-            and np.isfinite(realized_vol)
-            and self.anomaly_vol_multiplier is not None
-        ):
+        if realized_vol is not None and np.isfinite(realized_vol) and self.anomaly_vol_multiplier is not None:
             vol = float(realized_vol)
             if self._baseline_vol is None:
                 self._baseline_vol = vol
@@ -136,8 +130,7 @@ class KillSwitch:
                 self._consecutive_losses = 0
             if self._consecutive_losses >= self.consecutive_loss_limit:
                 return self._trigger(
-                    f"{self._consecutive_losses} consecutive losing trades "
-                    f"(limit {self.consecutive_loss_limit})."
+                    f"{self._consecutive_losses} consecutive losing trades " f"(limit {self.consecutive_loss_limit})."
                 )
 
         return False

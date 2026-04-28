@@ -158,10 +158,7 @@ class RLMHMM:
         with _silence_hmmlearn_nonmonotone_em_warnings():
             self.model.fit(obs)
         if verbose:
-            print(
-                f"HMM fitted with {self.config.n_states} states, "
-                f"log-likelihood: {self.model.score(obs):.2f}"
-            )
+            print(f"HMM fitted with {self.config.n_states} states, " f"log-likelihood: {self.model.score(obs):.2f}")
         self._auto_label_states(df_train)
         self._align_states_by_volatility(df_train)
         return self
@@ -262,13 +259,9 @@ class RLMHMM:
         log_trans = np.log(model.transmat_ + 1e-300).astype(np.float64)
         backend = self._resolve_filter_backend()
         if backend == "numba":
-            log_alpha = _forward_filter_logspace_numba(
-                log_frame.astype(np.float64), log_start, log_trans
-            )
+            log_alpha = _forward_filter_logspace_numba(log_frame.astype(np.float64), log_start, log_trans)
         else:
-            log_alpha = _forward_filter_logspace_numpy(
-                log_frame.astype(np.float64), log_start, log_trans
-            )
+            log_alpha = _forward_filter_logspace_numpy(log_frame.astype(np.float64), log_start, log_trans)
         out = np.zeros((n_samples, n_components), dtype=np.float64)
         for t in range(n_samples):
             out[t] = softmax(log_alpha[t])

@@ -78,9 +78,7 @@ def synthetic_option_chain_from_bars(
         expiry = pd.Timestamp(ts) + pd.Timedelta(days=dte_days)
         dte = max((expiry.normalize() - pd.Timestamp(ts).normalize()).days, 1)
         t_y = dte / 365.0
-        iv = float(
-            0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts).toordinal() % 400)) / 400.0 * np.pi))
-        )
+        iv = float(0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts).toordinal() % 400)) / 400.0 * np.pi)))
         for opt_type in ("call", "put"):
             is_call = opt_type == "call"
             for off in strike_offsets:
@@ -151,9 +149,7 @@ def synthetic_option_chain_intraday_from_bars(
         expiry = pd.Timestamp(ts0) + pd.Timedelta(days=dte_days)
         dte = max((expiry.normalize() - pd.Timestamp(ts0).normalize()).days, 1)
         t_y = dte / 365.0
-        iv = float(
-            0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts0).toordinal() % 400)) / 400.0 * np.pi))
-        )
+        iv = float(0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts0).toordinal() % 400)) / 400.0 * np.pi)))
 
         day_templates: list[dict[str, Any]] = []
         for opt_type in ("call", "put"):
@@ -347,9 +343,7 @@ def synthetic_5m_bars_range(
     high = np.maximum(close + noise_h, close)
     low = np.minimum(close - noise_l, close)
     open_ = np.r_[close[0], close[:-1]]
-    vol = (1_000_000 + (np.arange(n) % 40) * 25_000 + rng.integers(-50_000, 50_000, n)).clip(
-        100_000
-    )
+    vol = (1_000_000 + (np.arange(n) % 40) * 25_000 + rng.integers(-50_000, 50_000, n)).clip(100_000)
     vwap = (high + low + close) / 3.0
 
     df = pd.DataFrame(
@@ -428,9 +422,7 @@ def fetch_ibkr_5m_bars_range(
     out = pd.concat(parts, ignore_index=True)
     out = out.drop_duplicates(subset=["timestamp"], keep="last").sort_values("timestamp")
     out["timestamp"] = pd.to_datetime(out["timestamp"])
-    out = out.loc[
-        (out["timestamp"] >= start_ts) & (out["timestamp"] <= end_ts + pd.Timedelta(days=1))
-    ]
+    out = out.loc[(out["timestamp"] >= start_ts) & (out["timestamp"] <= end_ts + pd.Timedelta(days=1))]
     out = out.set_index("timestamp").sort_index()
     out.index.name = "timestamp"
     return out

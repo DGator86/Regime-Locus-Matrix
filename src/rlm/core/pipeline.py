@@ -278,13 +278,9 @@ class FullRLMPipeline:
             vp_metrics = MicrostructureVPFactors(symbol=cfg.symbol).compute(factors_df)
             factors_df = pd.concat([factors_df, vp_metrics], axis=1)
         if use_wyckoff:
-            factors_df = pd.concat(
-                [factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1
-            )
+            factors_df = pd.concat([factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1)
         if use_confluence:
-            factors_df = pd.concat(
-                [factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1
-            )
+            factors_df = pd.concat([factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1)
         if {"open", "vp_va_low", "vp_va_high", "vp_poc"}.issubset(factors_df.columns):
             ep_signal = factors_df.apply(
                 lambda row: bool(
@@ -447,9 +443,7 @@ class FullRLMPipeline:
             underlying_symbol=cfg.symbol,
             quantity_per_trade=cfg.quantity_per_trade,
             roee_config=cfg.roee_config,
-            config=BacktestConfig(
-                use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled
-            ),
+            config=BacktestConfig(use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled),
         )
         trades_df, equity_df, metrics = engine.run(result.policy_df, option_chain_df)
         return PipelineResult(

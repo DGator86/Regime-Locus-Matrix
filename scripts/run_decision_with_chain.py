@@ -43,9 +43,7 @@ def _load_table(path: Path) -> pd.DataFrame:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--chain", type=Path, required=True, help="CSV or Parquet option chain")
     p.add_argument("--underlying", default="SPY")
     p.add_argument("--close", type=float, required=True)
@@ -60,9 +58,7 @@ def main() -> int:
     p.add_argument("--dealer", default="supportive", dest="dealer_flow_regime")
     p.add_argument("--bid-ask-spread-pct", type=float, default=0.02, dest="bid_ask_spread_pct")
     p.add_argument("--strike-increment", type=float, default=0.5)
-    p.add_argument(
-        "--no-expiry-slice", action="store_true", help="Use full chain (all expiries) for matching"
-    )
+    p.add_argument("--no-expiry-slice", action="store_true", help="Use full chain (all expiries) for matching")
     p.add_argument(
         "--write-ibkr-spec",
         type=Path,

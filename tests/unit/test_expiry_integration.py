@@ -57,9 +57,7 @@ class TestExpirySettlePosition:
 
     def test_long_call_itm_settlement_increases_cash(self) -> None:
         portfolio = self._make_portfolio()
-        decision = _single_leg_decision(
-            strike=95.0, option_type="call", side="long", bid=5.0, ask=5.4
-        )
+        decision = _single_leg_decision(strike=95.0, option_type="call", side="long", bid=5.0, ask=5.4)
         position_id = portfolio.open_from_decision(
             timestamp=pd.Timestamp("2025-01-10"),
             underlying_symbol="SPY",
@@ -84,9 +82,7 @@ class TestExpirySettlePosition:
 
     def test_long_call_otm_expires_worthless(self) -> None:
         portfolio = self._make_portfolio()
-        decision = _single_leg_decision(
-            strike=110.0, option_type="call", side="long", bid=0.5, ask=0.7
-        )
+        decision = _single_leg_decision(strike=110.0, option_type="call", side="long", bid=0.5, ask=0.7)
         position_id = portfolio.open_from_decision(
             timestamp=pd.Timestamp("2025-01-10"),
             underlying_symbol="SPY",
@@ -112,9 +108,7 @@ class TestExpirySettlePosition:
     def test_short_call_itm_assignment_debits_cash(self) -> None:
         portfolio = self._make_portfolio()
         # Short call: portfolio receives premium on entry (negative entry cost)
-        decision = _single_leg_decision(
-            strike=100.0, option_type="call", side="short", bid=3.0, ask=3.4
-        )
+        decision = _single_leg_decision(strike=100.0, option_type="call", side="short", bid=3.0, ask=3.4)
         position_id = portfolio.open_from_decision(
             timestamp=pd.Timestamp("2025-01-10"),
             underlying_symbol="SPY",
@@ -138,9 +132,7 @@ class TestExpirySettlePosition:
 
     def test_short_call_otm_full_profit(self) -> None:
         portfolio = self._make_portfolio()
-        decision = _single_leg_decision(
-            strike=110.0, option_type="call", side="short", bid=1.0, ask=1.4
-        )
+        decision = _single_leg_decision(strike=110.0, option_type="call", side="short", bid=1.0, ask=1.4)
         position_id = portfolio.open_from_decision(
             timestamp=pd.Timestamp("2025-01-10"),
             underlying_symbol="SPY",

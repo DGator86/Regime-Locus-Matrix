@@ -53,10 +53,7 @@ class MorningBriefingPipeline:
                 for fut_sym, change in overnight["futures"].items():
                     df[f"overnight_future_{fut_sym.lower()}_change"] = change
 
-            if (
-                "symbol_changes" in overnight.columns
-                and symbol in overnight["symbol_changes"].index
-            ):
+            if "symbol_changes" in overnight.columns and symbol in overnight["symbol_changes"].index:
                 df["overnight_symbol_change_pct"] = overnight["symbol_changes"].loc[symbol]
 
         # Add News Metrics
@@ -79,15 +76,11 @@ class MorningBriefingPipeline:
                 else df["close"].iloc[-1]
             )
             df["premarket_gap_pct"] = (
-                (premarket["close"].iloc[-1] / bars["close"].iloc[-1]) - 1
-                if not premarket.empty
-                else 0.0
+                (premarket["close"].iloc[-1] / bars["close"].iloc[-1]) - 1 if not premarket.empty else 0.0
             )
 
         # Fill NAs for the new morning columns
-        morning_cols = [
-            c for c in df.columns if c.startswith(("overnight_", "news_", "premarket_"))
-        ]
+        morning_cols = [c for c in df.columns if c.startswith(("overnight_", "news_", "premarket_"))]
         df[morning_cols] = df[morning_cols].fillna(0.0)
 
         return df

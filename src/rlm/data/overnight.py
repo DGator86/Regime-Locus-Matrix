@@ -62,6 +62,4 @@ def fetch_overnight_data(config: Any) -> pd.DataFrame:
         except Exception as e:
             logger.warning(f"Could not fetch after-hours data for {sym}: {e}")
 
-    return pd.DataFrame(
-        {"futures": pd.Series(futures_data), "symbol_changes": pd.Series(symbol_changes)}
-    )
+    return pd.DataFrame({"futures": pd.Series(futures_data), "symbol_changes": pd.Series(symbol_changes)})

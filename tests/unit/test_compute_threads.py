@@ -39,9 +39,7 @@ def test_apply_sets_blas_when_unset(clean_blas_env: None, monkeypatch: pytest.Mo
     assert report["effective_cap"] == 2
 
 
-def test_rlm_max_cpu_threads_override(
-    clean_blas_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rlm_max_cpu_threads_override(clean_blas_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RLM_MAX_CPU_THREADS", "3")
     import importlib
 

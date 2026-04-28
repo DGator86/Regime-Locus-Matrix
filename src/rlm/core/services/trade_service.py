@@ -163,9 +163,7 @@ class TradeService:
             return decision, result
         return decision
 
-    def execute_decision(
-        self, req: TradeRequest, decision: TradeDecision
-    ) -> list[TradeExecutionRecord]:
+    def execute_decision(self, req: TradeRequest, decision: TradeDecision) -> list[TradeExecutionRecord]:
         if req.mode == "plan":
             return [
                 TradeExecutionRecord(
@@ -185,9 +183,7 @@ class TradeService:
             **decision.raw,
         }
         try:
-            rsp = self._broker.submit_trade_decision(
-                req.symbol, payload, paper=(req.mode == "paper")
-            )
+            rsp = self._broker.submit_trade_decision(req.symbol, payload, paper=(req.mode == "paper"))
             records = [
                 TradeExecutionRecord(
                     success=bool(rsp.get("success")),
@@ -295,9 +291,7 @@ class TradeService:
             data_root=req.data_root,
             out_path=manifest_path,
         )
-        return TradeArtifacts(
-            decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path
-        )
+        return TradeArtifacts(decision_path=decision_path, execution_path=execution_path, manifest_path=manifest_path)
 
     def summarize(self, result: TradeResult) -> dict[str, Any]:
         return {

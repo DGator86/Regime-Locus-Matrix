@@ -69,10 +69,7 @@ def _build_walkforward_windows(
         ):
             anchor_idx = nominal_is_end - 1
             anchor_regime = str(regime_keys.iloc[anchor_idx])
-            while (
-                effective_is_end > start
-                and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime
-            ):
+            while effective_is_end > start and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime:
                 effective_is_end -= 1
         if effective_is_end <= start:
             effective_is_end = nominal_is_end
@@ -229,9 +226,7 @@ def run_walkforward(
                 model_path=probabilistic_model_path,
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -254,9 +249,7 @@ def run_walkforward(
                 hmm_config=hmm_config or HMMConfig(),
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -345,9 +338,7 @@ def run_walkforward(
             "regime_aware": bool(cfg.regime_aware),
             "regime_boundary_aware_purge": bool(cfg.regime_boundary_aware_purge),
             "unsafe_oos_bars": int((~oos_features["regime_safety_ok"]).sum()),
-            "last_oos_regime_train_samples": int(
-                oos_features["regime_train_sample_count"].iloc[-1]
-            ),
+            "last_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].iloc[-1]),
             "min_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].min()),
             "regime_safety_fraction": round(float(oos_features["regime_safety_ok"].mean()), 3),
             "regime_safety_passed": float(oos_features["regime_safety_ok"].mean()) >= 0.70,
@@ -355,9 +346,7 @@ def run_walkforward(
         }
         if cfg.log_vp_metrics:
             balance_ratio = (
-                float(
-                    (oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean()
-                )
+                float((oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean())
                 if "vp_auction_state" in oos_features.columns and len(oos_features) > 0
                 else float("nan")
             )
@@ -365,28 +354,18 @@ def run_walkforward(
                 {
                     "avg_auction_state_balance_ratio": balance_ratio,
                     "avg_wyckoff_divergence": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["cumulative_wyckoff_score"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["cumulative_wyckoff_score"], errors="coerce").mean())
                         if "cumulative_wyckoff_score" in oos_features.columns
                         else float("nan")
                     ),
                     "avg_hybrid_strength": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["vp_hybrid_strength_max"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["vp_hybrid_strength_max"], errors="coerce").mean())
                         if "vp_hybrid_strength_max" in oos_features.columns
                         else float("nan")
                     ),
                     "eighty_percent_rule_hit_rate": (
                         float(
-                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce")
-                            .fillna(0.0)
-                            .mean()
+                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce").fillna(0.0).mean()
                         )
                         if "vp_eighty_percent_signal" in oos_features.columns
                         else float("nan")

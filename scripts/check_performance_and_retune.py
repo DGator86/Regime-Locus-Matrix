@@ -70,9 +70,7 @@ def _run(cmd: list[str], dry_run: bool) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--trade-log",
         type=Path,
@@ -97,9 +95,7 @@ def main() -> int:
         default=DEFAULT_CRITICAL_THRESHOLD,
         help=f"Win rate below this also fires regime re-calibration (default {DEFAULT_CRITICAL_THRESHOLD})",
     )
-    ap.add_argument(
-        "--nightly-trials", type=int, default=40, help="Optuna trials for nightly opt (default 40)"
-    )
+    ap.add_argument("--nightly-trials", type=int, default=40, help="Optuna trials for nightly opt (default 40)")
     ap.add_argument(
         "--dry-run",
         action="store_true",
@@ -109,9 +105,7 @@ def main() -> int:
 
     pnls = _read_closed_pnl(Path(args.trade_log), args.lookback)
     if not pnls:
-        print(
-            f"check_performance: no closed trades found in {args.trade_log} — skipping.", flush=True
-        )
+        print(f"check_performance: no closed trades found in {args.trade_log} — skipping.", flush=True)
         return 0
 
     wr = _win_rate(pnls)

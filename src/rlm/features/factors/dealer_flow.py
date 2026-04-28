@@ -78,11 +78,7 @@ class DealerFlowFactors(FactorCalculator):
         out["charm_signal"] = df["charm"] if "charm" in df.columns else pd.NA
         out["put_call_skew"] = df["put_call_skew"] if "put_call_skew" in df.columns else pd.NA
         out["iv_rank_ratio"] = df["iv_rank"] if "iv_rank" in df.columns else pd.NA
-        out["term_structure_ratio"] = (
-            df["term_structure_ratio"] if "term_structure_ratio" in df.columns else pd.NA
-        )
-        out["dealer_position_proxy"] = (
-            df["dealer_position_proxy"] if "dealer_position_proxy" in df.columns else pd.NA
-        )
+        out["term_structure_ratio"] = df["term_structure_ratio"] if "term_structure_ratio" in df.columns else pd.NA
+        out["dealer_position_proxy"] = df["dealer_position_proxy"] if "dealer_position_proxy" in df.columns else pd.NA
 
         return out

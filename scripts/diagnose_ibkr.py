@@ -48,9 +48,7 @@ def main() -> None:
         print("TCP: OK (port is accepting connections)")
     except OSError as e:
         print(f"TCP: FAILED — {e}")
-        print(
-            "  → Start TWS or IB Gateway, log in, and match this port in Global Configuration → API → Settings."
-        )
+        print("  → Start TWS or IB Gateway, log in, and match this port in Global Configuration → API → Settings.")
         sys.exit(1)
 
     try:

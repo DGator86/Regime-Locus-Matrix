@@ -28,7 +28,7 @@ Your role: make the final command decision and communicate it clearly to the cre
 
 SYSTEM HOURS:
 - Market State: [rth / pre_market / after_hours / weekend]
-- If the state is 'after_hours' or 'weekend', the starship is in power-save mode. 
+- If the state is 'after_hours' or 'weekend', the starship is in power-save mode.
 - "Everything being dark" (services offline) is INTENDED and NORMAL.
 - Maintain a STAND-DOWN posture and HOLD command.
 - Do not alert the operator for expected after-hours service closures.
@@ -121,8 +121,7 @@ class KirkAgent:
                 [
                     Message(
                         "user",
-                        f"Here are your crew reports:\n\n{context}\n\n"
-                        "Issue your command decision.",
+                        f"Here are your crew reports:\n\n{context}\n\n" "Issue your command decision.",
                     )
                 ],
                 system=_KIRK_SYSTEM,

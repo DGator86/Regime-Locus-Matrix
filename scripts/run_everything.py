@@ -58,9 +58,7 @@ def _run(cmd: list[str]) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--out",
         default="data/processed/universe_trade_plans.json",
@@ -93,21 +91,15 @@ def main() -> int:
         default=argparse.SUPPRESS,
         help="Re-run universe pipeline every N seconds in the background when --follow (default: 0, or 300 with --master)",
     )
-    ap.add_argument(
-        "--skip-monitor", action="store_true", help="Only run the universe options pipeline"
-    )
-    ap.add_argument(
-        "--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)"
-    )
+    ap.add_argument("--skip-monitor", action="store_true", help="Only run the universe options pipeline")
+    ap.add_argument("--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)")
     ap.add_argument(
         "--paper-trade",
         action="store_true",
         help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
     )
     ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
-    ap.add_argument(
-        "--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)"
-    )
+    ap.add_argument("--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)")
     ap.add_argument(
         "--paper-close",
         action="store_true",
@@ -306,9 +298,7 @@ def main() -> int:
         if args.equity_risk_usd > 0:
             ecmd.extend(["--risk-usd", str(args.equity_risk_usd)])
         if args.equity_use_account_scale:
-            ecmd.extend(
-                ["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)]
-            )
+            ecmd.extend(["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)])
         if args.equity_dry_run:
             ecmd.append("--dry-run")
         return ecmd
@@ -336,9 +326,7 @@ def main() -> int:
     if args.paper_trade:
         rc = _run(paper_cmd())
         if rc != 0:
-            print(
-                f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True
-            )
+            print(f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True)
 
     if args.with_equity:
         # Run equity book in a background thread so it doesn't block the monitor

@@ -95,9 +95,9 @@ class RLMMarkovSwitching:
                     df["vp_hybrid_strength_max"], errors="coerce"
                 ).fillna(0.0)
             if "vp_gex_confluence_poc" in df.columns:
-                features["vp_gex_confluence_poc"] = pd.to_numeric(
-                    df["vp_gex_confluence_poc"], errors="coerce"
-                ).fillna(0.0)
+                features["vp_gex_confluence_poc"] = pd.to_numeric(df["vp_gex_confluence_poc"], errors="coerce").fillna(
+                    0.0
+                )
 
         if features.empty:
             return None
@@ -188,9 +188,7 @@ class RLMMarkovSwitching:
         out[f"{prefix}_state"] = probs.to_numpy().argmax(axis=1).astype(int)
         out[f"{prefix}_confidence"] = probs.max(axis=1).astype(float).to_numpy()
         if self.state_labels:
-            out[f"{prefix}_state_label"] = [
-                self.state_labels[int(s)] for s in out[f"{prefix}_state"]
-            ]
+            out[f"{prefix}_state_label"] = [self.state_labels[int(s)] for s in out[f"{prefix}_state"]]
         return out
 
     def save(self, path: Path | None = None) -> None:

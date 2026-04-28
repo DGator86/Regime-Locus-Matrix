@@ -38,7 +38,7 @@ from rlm.data.ibkr_stocks import ibkr_bars_to_dataframe, load_ibkr_socket_config
 logger = logging.getLogger(__name__)
 
 try:
-    from ib_insync import IB, BarData, RealTimeBar, Stock
+    from ib_insync import IB, Stock
 
     _HAS_IB_INSYNC = True
 except ImportError:
@@ -47,9 +47,7 @@ except ImportError:
 _SCHEMA_COLS = ["timestamp", "open", "high", "low", "close", "volume", "vwap"]
 
 
-def _microstructure_underlying_path(
-    symbol: str, date: "datetime.date | str", data_root: str
-) -> Path:
+def _microstructure_underlying_path(symbol: str, date: "datetime.date | str", data_root: str) -> Path:
     return Path(data_root) / f"underlying/{symbol}/1s/{symbol}_{date}.parquet"
 
 
@@ -172,7 +170,7 @@ class UnderlyingCollector:
         contract = self._stock_contract()
         buffer: list[dict[str, Any]] = []
 
-        def _on_bar(bars: "BarDataList", has_new_bar: bool) -> None:
+        def _on_bar(bars: Any, has_new_bar: bool) -> None:
             if not has_new_bar or not bars:
                 return
             bar = bars[-1]
@@ -242,12 +240,8 @@ def _main() -> None:
         default="snapshot",
         help="'snapshot' fetches recent history; 'stream' runs continuously (default: snapshot)",
     )
-    parser.add_argument(
-        "--minutes", type=int, default=60, help="Minutes of history for snapshot mode"
-    )
-    parser.add_argument(
-        "--data-root", default="data/microstructure", help="Root of microstructure lake"
-    )
+    parser.add_argument("--minutes", type=int, default=60, help="Minutes of history for snapshot mode")
+    parser.add_argument("--data-root", default="data/microstructure", help="Root of microstructure lake")
     parser.add_argument("--bar-size", default="5 secs", help="IBKR bar size string")
     args = parser.parse_args()
 

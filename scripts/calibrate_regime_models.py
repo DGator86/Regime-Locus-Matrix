@@ -64,9 +64,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--chain", default=None)
     p.add_argument("--synthetic", action="store_true")
     p.add_argument("--warmup-days", type=int, default=260)
-    p.add_argument(
-        "--lookback-bars", type=int, default=520, help="Only calibrate on the most recent N bars"
-    )
+    p.add_argument("--lookback-bars", type=int, default=520, help="Only calibrate on the most recent N bars")
     p.add_argument("--no-vix", action="store_true")
     p.add_argument("--trials", type=int, default=24, help="Shared parameter samples per contender")
     p.add_argument("--mtf", action="store_true", help="Enable multi-timeframe factor augmentation.")
@@ -125,9 +123,7 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/live_regime_model.json",
         help="Promoted live-model config path (repo-relative)",
     )
-    p.add_argument(
-        "--no-promote", action="store_true", help="Write the report but do not update live model"
-    )
+    p.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
     return p.parse_args()
 
 
@@ -164,9 +160,7 @@ def _top_payload(
 def _resolve_state_sweeps(args: argparse.Namespace) -> tuple[list[int], list[int]]:
     hmm_candidates = sorted({int(args.hmm_states), 8, 10, 12, 15})
     markov_candidates = sorted({int(args.markov_states), 4, 5, 7})
-    return [s for s in hmm_candidates if 2 <= s <= 15], [
-        s for s in markov_candidates if 2 <= s <= 15
-    ]
+    return [s for s in hmm_candidates if 2 <= s <= 15], [s for s in markov_candidates if 2 <= s <= 15]
 
 
 def _compute_model_criteria(
@@ -312,9 +306,7 @@ def _build_live_config(
             micro_timeframes=tuple(str(x) for x in args.micro_timeframes),
         ),
         markov=LiveMarkovParameters(
-            n_states=int(
-                champion_state_count if champion_model == "markov" else args.markov_states
-            ),
+            n_states=int(champion_state_count if champion_model == "markov" else args.markov_states),
             hierarchical=bool(args.hierarchical),
             macro_weight=float(args.macro_weight),
             micro_timeframes=tuple(str(x) for x in args.micro_timeframes),
@@ -421,6 +413,10 @@ def main() -> int:
     if not args.no_promote:
         save_live_regime_model(live_config, promote_path)
 
+    ch_summary = champion["best_summary"]
+    ch_params = champion["best_params"]
+    chal_summary = challenger["best_summary"]
+    chal_params = challenger["best_params"]
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "symbol": sym,
@@ -443,46 +439,11 @@ def main() -> int:
         },
         "champion": {
             "model": champion_model,
-            "score": champion_score,
-            "sharpe": _finite_metric(champion_summary, "sharpe"),
-            "summary": {
-                k: float(v) for k, v in champion_summary.items() if isinstance(v, (int, float))
-            },
-            "params": champion_params,
-        },
-        "challenger": {
-            "model": challenger_model,
-            "score": challenger_score,
-            "sharpe": _finite_metric(challenger_summary, "sharpe"),
-            "summary": {
-                k: float(v) for k, v in challenger_summary.items() if isinstance(v, (int, float))
-            },
-            "params": challenger_params,
-        },
-        "contenders": {
-            "hmm": {
-                "best_score": float(hmm_best_score),
-                "best_summary": {
-                    k: float(v) for k, v in hmm_best_summary.items() if isinstance(v, (int, float))
-                },
-                "best_params": hmm_best_params,
-                "top": _top_payload(hmm_results, top_n=min(args.top, len(hmm_results))),
-            },
-            "markov": {
-                "best_score": float(markov_best_score),
-                "best_summary": {
-                    k: float(v)
-                    for k, v in markov_best_summary.items()
-                    if isinstance(v, (int, float))
-                },
-                "best_params": markov_best_params,
-                "top": _top_payload(markov_results, top_n=min(args.top, len(markov_results))),
-            },
             "states": int(champion["states"]),
             "score": float(champion["best_score"]),
             "sharpe": float(champion["best_sharpe"]),
-            "summary": champion["best_summary"],
-            "params": champion["best_params"],
+            "summary": {k: float(v) for k, v in ch_summary.items() if isinstance(v, (int, float))},
+            "params": ch_params,
             "criteria": champion["criteria"],
         },
         "challenger": {
@@ -490,8 +451,8 @@ def main() -> int:
             "states": int(challenger["states"]),
             "score": float(challenger["best_score"]),
             "sharpe": float(challenger["best_sharpe"]),
-            "summary": challenger["best_summary"],
-            "params": challenger["best_params"],
+            "summary": {k: float(v) for k, v in chal_summary.items() if isinstance(v, (int, float))},
+            "params": chal_params,
             "criteria": challenger["criteria"],
         },
         "contenders": {
@@ -501,8 +462,8 @@ def main() -> int:
     }
     export_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
-    champion_sharpe = _finite_metric(champion_summary, "sharpe")
-    challenger_sharpe = _finite_metric(challenger_summary, "sharpe")
+    champion_sharpe = _finite_metric(ch_summary, "sharpe")
+    challenger_sharpe = _finite_metric(chal_summary, "sharpe")
     print(f"Champion: {champion_model.upper()}  sharpe={champion_sharpe:.6g}")
     print(f"Challenger: {challenger_model.upper()}  sharpe={challenger_sharpe:.6g}")
     print(

@@ -26,12 +26,7 @@ class TestLegIntrinsicValue:
         ) == pytest.approx(10.0)
 
     def test_long_call_otm(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="long", option_type="call", strike=100.0, underlying_price=90.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="long", option_type="call", strike=100.0, underlying_price=90.0) == 0.0
 
     def test_short_call_itm(self) -> None:
         # Short ITM call: negative contribution (portfolio owes)
@@ -40,12 +35,7 @@ class TestLegIntrinsicValue:
         ) == pytest.approx(-15.0)
 
     def test_short_call_otm(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="short", option_type="call", strike=100.0, underlying_price=95.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="short", option_type="call", strike=100.0, underlying_price=95.0) == 0.0
 
     def test_long_put_itm(self) -> None:
         assert leg_intrinsic_value(
@@ -53,12 +43,7 @@ class TestLegIntrinsicValue:
         ) == pytest.approx(15.0)
 
     def test_long_put_otm(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="long", option_type="put", strike=100.0, underlying_price=105.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="long", option_type="put", strike=100.0, underlying_price=105.0) == 0.0
 
     def test_short_put_itm(self) -> None:
         assert leg_intrinsic_value(
@@ -66,28 +51,13 @@ class TestLegIntrinsicValue:
         ) == pytest.approx(-10.0)
 
     def test_short_put_otm(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="short", option_type="put", strike=100.0, underlying_price=110.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="short", option_type="put", strike=100.0, underlying_price=110.0) == 0.0
 
     def test_at_the_money_call(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="long", option_type="call", strike=100.0, underlying_price=100.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="long", option_type="call", strike=100.0, underlying_price=100.0) == 0.0
 
     def test_at_the_money_put(self) -> None:
-        assert (
-            leg_intrinsic_value(
-                side="long", option_type="put", strike=100.0, underlying_price=100.0
-            )
-            == 0.0
-        )
+        assert leg_intrinsic_value(side="long", option_type="put", strike=100.0, underlying_price=100.0) == 0.0
 
 
 # ---------------------------------------------------------------------------

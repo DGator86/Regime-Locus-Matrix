@@ -97,9 +97,7 @@ def run_garak(
     dealer_risk = 1.0 if inputs.dealer_flow_regime.lower() == "opposed" else 0.0
 
     trap_risk = _clamp(
-        cfg.vol_risk_weight * vol_risk
-        + cfg.liq_risk_weight * liq_risk
-        + cfg.dealer_risk_weight * dealer_risk
+        cfg.vol_risk_weight * vol_risk + cfg.liq_risk_weight * liq_risk + cfg.dealer_risk_weight * dealer_risk
     )
 
     # Dealer alignment label
@@ -217,9 +215,7 @@ def run_data(
     if "high" in vr:
         adaptation_note = "similar setups show reduced edge in elevated vol; size conservatively"
     elif "low" in vr:
-        adaptation_note = (
-            "similar setups perform best in expanding vol; watch for vol expansion trigger"
-        )
+        adaptation_note = "similar setups perform best in expanding vol; watch for vol expansion trigger"
     else:
         adaptation_note = "similar setups perform in line with historical averages"
 

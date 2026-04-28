@@ -79,9 +79,7 @@ def _resolve_state_path() -> Path:
 def _api(token: str, method: str, **params: Any) -> dict[str, Any]:
     url = f"https://api.telegram.org/bot{token}/{method}"
     body = urlencode({k: v for k, v in params.items() if v is not None}).encode("utf-8")
-    req = Request(
-        url, data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"}
-    )
+    req = Request(url, data=body, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
     with urlopen(req, timeout=65) as resp:
         raw = json.loads(resp.read().decode("utf-8"))
     if not raw.get("ok"):
@@ -258,9 +256,7 @@ def main() -> int:
     lp = _long_poll_timeout_sec()
     print(f"[rlm-telegram] long-poll timeout={lp}s", flush=True)
 
-    nt = threading.Thread(
-        target=_notify_thread_main, args=(token,), name="rlm-telegram-notify", daemon=True
-    )
+    nt = threading.Thread(target=_notify_thread_main, args=(token,), name="rlm-telegram-notify", daemon=True)
     nt.start()
 
     last_offset: int | None = None

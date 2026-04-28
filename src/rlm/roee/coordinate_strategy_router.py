@@ -38,9 +38,7 @@ def load_trained_value_model_or_bootstrap(
         artifact = load_strategy_value_model_artifact(artifact_path)
         if _has_valid_metadata(artifact):
             return StrategyValueModel.from_artifact(artifact)
-        logger.warning(
-            "Strategy artifact metadata missing/malformed at %s; using bootstrap", artifact_path
-        )
+        logger.warning("Strategy artifact metadata missing/malformed at %s; using bootstrap", artifact_path)
     return StrategyValueModel.with_bootstrap_coefficients()
 
 

@@ -28,9 +28,7 @@ from rlm.optimization.nightly import NightlyMTFOptimizer  # noqa: E402
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--trials",
         type=int,
