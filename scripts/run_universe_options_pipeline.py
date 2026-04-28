@@ -26,6 +26,7 @@ BLAS/OpenMP and PyTorch threads are capped automatically (see ``RLM_MAX_CPU_THRE
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -362,6 +363,75 @@ def _finalize_symbol(
     return base
 
 
+def _strategy_name_for_row(row: dict[str, object]) -> str:
+    strategy_name = str(row.get("strategy_name") or row.get("strategy") or "").strip()
+    if strategy_name:
+        return strategy_name
+    dec = row.get("decision")
+    if isinstance(dec, dict):
+        return str(dec.get("strategy_name") or dec.get("strategy") or "").strip()
+    return ""
+
+
+def _load_open_symbols_from_trade_log(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    latest_by_plan: dict[str, dict[str, str]] = {}
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest_by_plan[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return set()
+    open_symbols: set[str] = set()
+    for row in latest_by_plan.values():
+        if str(row.get("closed") or "0").strip() == "1":
+            continue
+        sym = str(row.get("symbol") or "").strip().upper()
+        if sym:
+            open_symbols.add(sym)
+    return open_symbols
+
+
+def _apply_active_plan_guards(
+    results: list[dict[str, object]],
+    *,
+    max_active_per_symbol: int,
+    open_symbols: set[str],
+) -> None:
+    active_rows = [r for r in results if r.get("status") == "active"]
+    active_rows.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
+    seen_symbol_strategy: set[tuple[str, str]] = set()
+    active_by_symbol: dict[str, int] = {}
+
+    for row in active_rows:
+        sym = str(row.get("symbol") or "").strip().upper()
+        strategy = _strategy_name_for_row(row)
+
+        if sym and sym in open_symbols:
+            row["status"] = "trimmed"
+            row["skip_reason"] = "symbol_already_open_in_trade_log"
+            continue
+
+        key = (sym, strategy)
+        if key in seen_symbol_strategy:
+            row["status"] = "trimmed"
+            row["skip_reason"] = "duplicate_symbol_strategy_or_max_active_per_symbol"
+            continue
+
+        n_active = active_by_symbol.get(sym, 0)
+        if sym and n_active >= int(max_active_per_symbol):
+            row["status"] = "trimmed"
+            row["skip_reason"] = "duplicate_symbol_strategy_or_max_active_per_symbol"
+            continue
+
+        seen_symbol_strategy.add(key)
+        if sym:
+            active_by_symbol[sym] = n_active + 1
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -476,6 +546,24 @@ def main() -> int:
         type=int,
         default=0,
         help="If >0, only keep N highest rank_score among active plans",
+    )
+    p.add_argument(
+        "--max-active-per-symbol",
+        type=int,
+        default=1,
+        help="Maximum active plans kept per symbol after rank sorting.",
+    )
+    p.add_argument(
+        "--respect-open-trade-log",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Trim new plans for symbols that already have open rows in --trade-log.",
+    )
+    p.add_argument(
+        "--trade-log",
+        type=Path,
+        default=Path("data/processed/trade_log.csv"),
+        help="Trade log CSV used for open-position gating when --respect-open-trade-log is enabled.",
     )
     p.add_argument(
         "--purge-bars",
@@ -723,6 +811,15 @@ def main() -> int:
 
     actives = [r for r in final_results if r.get("status") == "active"]
     actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
+    trade_log_path = ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
+    open_symbols = _load_open_symbols_from_trade_log(trade_log_path) if args.respect_open_trade_log else set()
+    _apply_active_plan_guards(
+        final_results,
+        max_active_per_symbol=max(1, int(args.max_active_per_symbol)),
+        open_symbols=open_symbols,
+    )
+    actives = [r for r in final_results if r.get("status") == "active"]
+    actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
     if args.top > 0 and actives:
         keep_ids = {id(x) for x in actives[: args.top]}
         for r in final_results:
@@ -742,7 +839,7 @@ def main() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    print(f"\nWrote {out_path}  (active setups: {len(actives)})")
+    print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0
 
 
