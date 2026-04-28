@@ -1,4 +1,7 @@
+import logging
+
 import numpy as np
+import pytest
 import pandas as pd
 
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
@@ -60,6 +63,17 @@ def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
     assert "hmm_expected_persistence" in out.columns
     assert "hmm_most_likely_next_state" in out.columns
     assert "hmm_most_likely_next_prob" in out.columns
+
+
+def test_rlm_hmm_fit_suppresses_hmmlearn_nonmonotone_warnings(caplog: pytest.LogCaptureFixture) -> None:
+    """hmmlearn logs WARNING when a single EM step dips; we silence it during fit (journal noise)."""
+    caplog.set_level(logging.WARNING, logger="hmmlearn.base")
+    df = _synthetic_scores(400)
+    RLMHMM(
+        HMMConfig(n_states=6, n_iter=40, random_state=99, filter_backend="numpy")
+    ).fit(df, verbose=False)
+    noisy = [r for r in caplog.records if "Model is not converging" in r.getMessage()]
+    assert not noisy
 
 
 def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:

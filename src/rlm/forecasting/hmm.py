@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Iterator, Literal
 
 import joblib
 import numpy as np
@@ -73,6 +75,24 @@ else:
         raise RuntimeError("Numba backend requested but numba is unavailable.")
 
 
+@contextmanager
+def _silence_hmmlearn_nonmonotone_em_warnings() -> Iterator[None]:
+    """hmmlearn logs a WARNING on any EM iteration where log-likelihood dips (numerical noise).
+
+    That is expected often enough to flood journald on universe batches; suppress for the fit only.
+    """
+    log = logging.getLogger("hmmlearn.base")
+    prev_level = log.level
+    prev_propagate = log.propagate
+    log.setLevel(logging.ERROR)
+    log.propagate = False
+    try:
+        yield
+    finally:
+        log.setLevel(prev_level)
+        log.propagate = prev_propagate
+
+
 class HMMConfig(BaseModel):
     n_states: int = Field(
         6,
@@ -133,8 +153,10 @@ class RLMHMM:
             n_iter=self.config.n_iter,
             random_state=self.config.random_state,
             init_params="stmc",
+            verbose=False,
         )
-        self.model.fit(obs)
+        with _silence_hmmlearn_nonmonotone_em_warnings():
+            self.model.fit(obs)
         if verbose:
             print(
                 f"HMM fitted with {self.config.n_states} states, "

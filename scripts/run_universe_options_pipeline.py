@@ -62,6 +62,7 @@ from rlm.forecasting.live_model import (
     LiveRegimeModelConfig,
     apply_nightly_hyperparam_overlay,
     load_live_regime_model,
+    save_live_regime_model,
 )
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
@@ -549,16 +550,22 @@ def main() -> int:
 
     syms = _parse_symbols(args.symbols)
     live_model: LiveRegimeModelConfig | None = None
+    live_model_bootstrapped = False
+    live_model_path: Path | None = None
     if not args.ignore_live_model:
         live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
         else:
-            # Bootstrap default so apply_nightly_hyperparam_overlay always fires.
-            # calibrate_regime_models.py will overwrite this file on first weekly run.
+            # Same defaults as versioned data/processed/live_regime_model.json; persist after overlay
+            # so hosts without that file match fresh-clone behavior. Weekly calibrate overwrites when run.
             live_model = LiveRegimeModelConfig(model="hmm")
-            print(f"[live_model] {live_model_path} not found — using defaults (run calibrate_regime_models.py to tune)")
+            live_model_bootstrapped = True
+            print(
+                f"[live_model] {live_model_path} missing — using defaults; "
+                "saving after nightly overlay (run calibrate_regime_models.py to tune)"
+            )
     if args.use_kronos:
         kronos_params = LiveKronosParameters(
             model_name=args.kronos_model,
@@ -575,6 +582,14 @@ def main() -> int:
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
+    if (
+        live_model is not None
+        and live_model_bootstrapped
+        and live_model_path is not None
+        and not args.ignore_live_model
+    ):
+        save_live_regime_model(live_model, live_model_path)
+        print(f"[live_model] saved bootstrap config to {live_model_path}")
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
