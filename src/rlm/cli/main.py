@@ -25,7 +25,7 @@ def main() -> None:
             "  challenge  $1K->$25K aggressive options dry-run challenge\n"
             "  doctor     Diagnose the environment, providers, and data lake\n"
             "  status     View consolidated PnL across all systems\n"
-            "  dashboard  Launch the Streamlit performance dashboard\n"
+            "  dashboard  Open the Next.js dashboard (local dev or VPS URL)\n"
             "  morning    Run the Morning Briefing protocol (9:00 - 9:45 ET)\n"
         ),
     )
@@ -56,14 +56,13 @@ def main() -> None:
         from rlm.cli.status import main as _main  # type: ignore[assignment]
     elif ns.command == "dashboard":
         import subprocess
+        import webbrowser
         from rlm.data.paths import get_repo_root
-        ui_path = get_repo_root() / "src" / "rlm" / "ui" / "dashboard.py"
-        cmd = [sys.executable, "-m", "streamlit", "run", str(ui_path)]
-        print(f"Launching dashboard: {' '.join(cmd)}")
-        try:
-            subprocess.run(cmd, check=True)
-        except KeyboardInterrupt:
-            pass
+        dashboard_dir = get_repo_root() / "dashboard"
+        url = "http://2.24.28.77:3000"
+        print(f"Opening dashboard: {url}")
+        webbrowser.open(url)
+        print("To run locally: cd dashboard && npm run dev")
         sys.exit(0)
 
     elif ns.command == "morning":

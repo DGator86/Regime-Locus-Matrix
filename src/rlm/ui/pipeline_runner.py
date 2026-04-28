@@ -1,4 +1,4 @@
-"""Shared bars → factors → state matrix → forecast stack for Streamlit apps."""
+"""Shared bars → factors → state matrix → forecast stack for UI/API consumers."""
 
 from __future__ import annotations
 
