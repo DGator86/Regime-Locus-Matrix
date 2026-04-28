@@ -31,6 +31,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { displayHmmState } from "@/lib/hmmDisplay";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,9 +99,10 @@ interface ForecastPoint {
   mean_price?: number;
   lower_1s?: number;
   upper_1s?: number;
-  hmm_state?: number;
-  hmm_confidence?: number;
-  hmm_state_label?: string;
+  hmm_state?: number | null;
+  hmm_confidence?: number | null;
+  hmm_state_label?: string | null;
+  sigma?: number | null;
   forecast_return?: number;
   forecast_uncertainty?: number;
 }
@@ -442,7 +444,7 @@ export default function CommandCenter() {
             <div>
               <p className="text-[10px] text-slate-500 uppercase tracking-wider font-[family-name:var(--font-mono)]">HMM State</p>
               <p className="text-lg font-bold font-[family-name:var(--font-mono)] text-violet-300">
-                {latestFc?.hmm_state != null ? String(latestFc.hmm_state) : "—"}
+                {latestFc ? displayHmmState(latestFc) : "—"}
               </p>
             </div>
             <div>
@@ -858,8 +860,7 @@ export default function CommandCenter() {
           <div className="flex items-baseline gap-2 mb-4">
             <span className="text-5xl font-black font-[family-name:var(--font-mono)] tracking-tight text-white drop-shadow-[0_0_24px_rgba(167,139,250,0.35)]">
               {forecast.length > 0
-                ? forecast[forecast.length - 1]?.hmm_state_label?.replace(/\s/g, "") ??
-                  `S${forecast[forecast.length - 1]?.hmm_state ?? "?"}`
+                ? displayHmmState(forecast[forecast.length - 1])
                 : spyPlan?.hmmState ?? "—"}
             </span>
           </div>

@@ -21,6 +21,7 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 import { PageHero, HudRefreshButton, HUD_CHART_TOOLTIP } from "@/components/PageHero";
+import { displayHmmState } from "@/lib/hmmDisplay";
 
 const STATE_COLORS: Record<string, string> = {
   "bull-quiet": "#22c55e",
@@ -56,6 +57,7 @@ interface ForecastPoint {
   S_V: number;
   S_L: number;
   S_G: number;
+  sigma: number | null;
   mean_price: number | null;
   lower_1s: number | null;
   upper_1s: number | null;
@@ -114,13 +116,14 @@ export default function StateMapPage() {
   const transitions = useMemo(() => {
     const result: { from: string; to: string; timestamp: string }[] = [];
     for (let i = 1; i < ts.length; i++) {
-      if (ts[i].hmm_state_label !== ts[i - 1].hmm_state_label) {
-        result.push({
-          from: ts[i - 1].hmm_state_label || "unknown",
-          to: ts[i].hmm_state_label || "unknown",
-          timestamp: ts[i].timestamp,
-        });
-      }
+      const prevIdx = ts[i - 1].hmm_state;
+      const curIdx = ts[i].hmm_state;
+      if (prevIdx === curIdx) continue;
+      result.push({
+        from: displayHmmState(ts[i - 1]),
+        to: displayHmmState(ts[i]),
+        timestamp: ts[i].timestamp,
+      });
     }
     return result.slice(-10).reverse();
   }, [ts]);
@@ -400,7 +403,7 @@ export default function StateMapPage() {
                       style={{ backgroundColor: stateColor(latest.hmm_state_label) }}
                     />
                     <span className="text-xl font-bold neon-text">
-                      {latest.hmm_state_label || "Unknown"}
+                      {displayHmmState(latest)}
                     </span>
                   </div>
                 </div>
@@ -516,8 +519,12 @@ export default function StateMapPage() {
                   <p className="font-bold text-primary">${fmt(latest.lower_1s)}</p>
                 </div>
                 <div className="col-span-2 bg-secondary/30 rounded-lg p-3 border border-border">
-                  <p className="text-xs text-muted-foreground">Sigma (σ)</p>
-                  <p className="font-bold text-accent">{fmt(latest.S_D, 4)}</p>
+                  <p className="text-xs text-muted-foreground">Forecast σ (price)</p>
+                  <p className="font-bold text-accent">
+                    {latest.sigma != null && !Number.isNaN(latest.sigma)
+                      ? fmt(latest.sigma, 4)
+                      : "—"}
+                  </p>
                 </div>
               </div>
             ) : (

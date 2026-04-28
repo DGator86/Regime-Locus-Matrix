@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import {
+  optionalNum,
+  parseHmmStateIndex,
+  sanitizeHmmStateLabel,
+} from "@/lib/hmmDisplay";
 
 export const dynamic = "force-dynamic";
 
@@ -314,24 +319,31 @@ function buildForecastTimeseries(dataDir: string) {
   if (rows.length === 0) return [];
 
   const tail = rows.slice(-60);
-  return tail.map((r) => ({
-    timestamp: r.timestamp || r.date || r.Date || "",
-    close: num(r.close || r.Close),
-    S_D: num(r.S_D),
-    S_V: num(r.S_V),
-    S_L: num(r.S_L),
-    S_G: num(r.S_G),
-    mean_price: r.mean_price ? num(r.mean_price) : null,
-    lower_1s: r.lower_1s ? num(r.lower_1s) : null,
-    upper_1s: r.upper_1s ? num(r.upper_1s) : null,
-    lower_2s: r.lower_2s ? num(r.lower_2s) : null,
-    upper_2s: r.upper_2s ? num(r.upper_2s) : null,
-    hmm_state: r.hmm_state ? num(r.hmm_state) : null,
-    hmm_confidence: r.hmm_confidence ? num(r.hmm_confidence) : null,
-    hmm_state_label: r.hmm_state_label || null,
-    forecast_return: r.forecast_return ? num(r.forecast_return) : null,
-    forecast_uncertainty: r.forecast_uncertainty ? num(r.forecast_uncertainty) : null,
-  }));
+  return tail.map((r) => {
+    const hmmIdx = parseHmmStateIndex(r.hmm_state ?? r.HMM_State);
+    const hmmLblRaw = r.hmm_state_label ?? r.HMM_State_Label;
+    return {
+      timestamp: r.timestamp || r.date || r.Date || "",
+      close: num(r.close || r.Close),
+      S_D: num(r.S_D),
+      S_V: num(r.S_V),
+      S_L: num(r.S_L),
+      S_G: num(r.S_G),
+      sigma: optionalNum(r.sigma),
+      mean_price: r.mean_price ? num(r.mean_price) : null,
+      lower_1s: r.lower_1s ? num(r.lower_1s) : null,
+      upper_1s: r.upper_1s ? num(r.upper_1s) : null,
+      lower_2s: r.lower_2s ? num(r.lower_2s) : null,
+      upper_2s: r.upper_2s ? num(r.upper_2s) : null,
+      hmm_state: hmmIdx,
+      hmm_confidence: optionalNum(r.hmm_confidence),
+      hmm_state_label: sanitizeHmmStateLabel(hmmLblRaw, hmmIdx),
+      forecast_return: r.forecast_return ? num(r.forecast_return) : null,
+      forecast_uncertainty: r.forecast_uncertainty
+        ? num(r.forecast_uncertainty)
+        : null,
+    };
+  });
 }
 
 function buildBacktestEquity(dataDir: string) {
