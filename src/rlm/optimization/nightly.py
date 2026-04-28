@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import optuna
+from optuna.trial import TrialState
 
 from .base import OptimizationBase
 
@@ -37,6 +38,13 @@ class NightlyMTFOptimizer:
             n_trials=trials,
             timeout=3600,
         )
+
+        completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+        if not completed:
+            if NIGHTLY_PATH.exists():
+                existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                return existing if isinstance(existing, dict) else {}
+            return {}
 
         best = study.best_params
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
