@@ -460,6 +460,7 @@ class WalkForwardEngine:
         if use_markov:
             markov_c = MarkovSwitchingConfig(
                 n_states=cfg.markov_states,
+                transition_pseudocount=cfg.markov_transition_pseudocount,
                 use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                 use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                 use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,

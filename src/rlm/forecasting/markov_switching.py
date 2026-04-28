@@ -21,6 +21,11 @@ class MarkovSwitchingConfig(BaseModel):
     switching_variance: bool = True
     trend: str = "c"
     model_path: Path | None = None
+    transition_pseudocount: float = Field(
+        0.1,
+        ge=0.0,
+        description="Symmetric smoothing on the Markov transition matrix rows (calibrated P(i→j)).",
+    )
     use_intraday_vp_features: bool = False
     use_wyckoff_features: bool = False
     use_confluence_features: bool = False
@@ -151,6 +156,30 @@ class RLMMarkovSwitching:
     def most_likely_state_filtered(self, df: pd.DataFrame) -> np.ndarray:
         probs = self.filter(df)
         return probs.to_numpy().argmax(axis=1).astype(int)
+
+    def transition_matrix(self) -> np.ndarray:
+        """Row-stochastic :math:`P(S_{t+1}=j \\mid S_t=i)` in statsmodels regime index order."""
+        if self.fit_result is None:
+            raise RuntimeError("Markov-switching model is not fitted")
+        t = np.asarray(
+            self.fit_result.model.regime_transition_matrix(self.fit_result.params),
+            dtype=np.float64,
+        )
+        t = np.squeeze(t)
+        if t.ndim != 2:
+            raise ValueError(f"Expected 2D transition matrix, got shape {t.shape}")
+        t = np.clip(t, 1e-12, 1.0)
+        row = t.sum(axis=1, keepdims=True)
+        row = np.where(row > 0.0, row, 1.0)
+        return (t / row).astype(np.float64)
+
+    def calibrated_transition_matrix(self, pseudocount: float | None = None) -> np.ndarray:
+        t = self.transition_matrix().copy()
+        alpha = float(self.config.transition_pseudocount if pseudocount is None else pseudocount)
+        if alpha > 0.0:
+            t = t + alpha
+        t = t / t.sum(axis=1, keepdims=True)
+        return np.clip(t, 1e-12, 1.0)
 
     def annotate(self, df: pd.DataFrame, prefix: str = "markov") -> pd.DataFrame:
         probs = self.filter(df)

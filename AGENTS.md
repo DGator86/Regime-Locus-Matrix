@@ -20,6 +20,7 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 | Forecast | `python3 scripts/run_forecast_pipeline.py --no-vix` |
 | Backtest | `python3 scripts/run_backtest.py --no-vix` |
 | Walk-forward (universe batch + history) | `python3 scripts/run_walkforward_universe.py` (writes `walkforward_universe_latest.json` + `walkforward_universe_runs.jsonl`). Timer: [deploy/systemd/rlm-walkforward-universe.timer](deploy/systemd/rlm-walkforward-universe.timer). Legacy: `python3 scripts/run_walkforward.py` |
+| Calibrate next-regime top-1 probabilities | `python3 scripts/fit_regime_transition_calibration.py --universe --regime-family hmm` → `data/processed/regime_transition_calibration.json` (optional `RLM_TRANSITION_CALIBRATION` path). Requires dev deps (`scikit-learn`). |
 | HMM forecast | `python3 scripts/run_forecast_pipeline.py --use-hmm --hmm-states 6 --no-vix` |
 | Forecast (no Kronos) | `python3 scripts/run_forecast_pipeline.py --no-kronos --no-vix` |
 | Backtest (no Kronos) | `python3 scripts/run_backtest.py --no-kronos --no-vix` |

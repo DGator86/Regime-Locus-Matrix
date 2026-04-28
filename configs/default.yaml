@@ -83,6 +83,7 @@ feature_engineering:
 regime:
   model: hmm  # hmm | markov
   hmm_transition_pseudocount: 0.1  # Dirichlet-style smoothing for P(i→j); raise for stickier regimes
+  markov_transition_pseudocount: 0.1
   markov_k_regimes: 3
   markov_switching_variance: true
 

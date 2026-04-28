@@ -2,6 +2,7 @@ regime_model: hmm
 hmm_states: 6
 hmm_transition_pseudocount: 0.1
 markov_states: 3
+markov_transition_pseudocount: 0.1
 use_kronos: true
 attach_vix: true
 run_backtest: false

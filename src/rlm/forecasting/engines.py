@@ -24,6 +24,33 @@ def _resample_for_regime(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return df.resample(rule).last().dropna(how="all")
 
 
+def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
+    """Apply ``regime_transition_calibration.json`` top-1 isotonic map when family matches."""
+    from rlm.data.paths import get_data_root
+    from rlm.regimes.transition_calibration import (
+        apply_top1_calibration_inplace,
+        load_transition_calibration,
+    )
+
+    cal = load_transition_calibration(data_root=get_data_root())
+    if cal is None or cal.regime_family != family:
+        return
+    if family == "hmm":
+        apply_top1_calibration_inplace(
+            df,
+            "hmm_most_likely_next_prob",
+            "hmm_most_likely_next_prob_calibrated",
+            cal,
+        )
+    elif family == "markov":
+        apply_top1_calibration_inplace(
+            df,
+            "markov_most_likely_next_prob",
+            "markov_most_likely_next_prob_calibrated",
+            cal,
+        )
+
+
 def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
     t = hmm.calibrated_transmat()
@@ -37,6 +64,23 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
     df["hmm_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
     if hmm.state_labels:
         df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
+    _maybe_apply_transition_calibrations(df, "hmm")
+
+
+def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
+    """Markov-switching analogue of :func:`_annotate_hmm_transition_fields` (in-place)."""
+    t = markov.calibrated_transition_matrix()
+    next_p = RLMHMM.one_step_predictive_probs(probs, t)
+    df["markov_next_probs"] = next_p.tolist()
+    df["markov_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
+    diag = np.diag(t).reshape(1, -1)
+    df["markov_expected_persistence"] = np.sum(probs * diag, axis=1)
+    top = np.argmax(next_p, axis=1).astype(int)
+    df["markov_most_likely_next_state"] = top
+    df["markov_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
+    if markov.state_labels:
+        df["markov_most_likely_next_label"] = [markov.state_labels[int(s)] for s in top]
+    _maybe_apply_transition_calibrations(df, "markov")
 
 
 def _align_probs_to_index(
@@ -329,6 +373,7 @@ class HybridMarkovForecastPipeline:
             out["markov_state_label"] = [
                 self.markov.state_labels[int(s)] for s in out["markov_state"]
             ]
+        _annotate_markov_transition_fields(self.markov, out, probs)
         return out
 
 
@@ -391,7 +436,12 @@ class HybridMarkovProbabilisticForecastPipeline:
     def run(self, df_features: pd.DataFrame, train_mask: pd.Series | None = None) -> pd.DataFrame:
         df = self.forecast.run(df_features)
         self.markov.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
-        return self.markov.annotate(df, prefix="markov")
+        out = self.markov.annotate(df, prefix="markov")
+        probs = np.asarray(out["markov_probs"].tolist(), dtype=float)
+        probs = np.clip(probs, 1e-12, None)
+        probs = probs / probs.sum(axis=1, keepdims=True)
+        _annotate_markov_transition_fields(self.markov, out, probs)
+        return out
 
 
 class HybridKronosForecastPipeline:
@@ -501,5 +551,6 @@ class HybridKronosForecastPipeline:
                 df["markov_state_label"] = [
                     self.markov.state_labels[int(s)] for s in df["markov_state"]
                 ]
+            _annotate_markov_transition_fields(self.markov, df, probs)
 
         return df

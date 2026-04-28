@@ -42,6 +42,7 @@ dev = [
     "black",
     "ruff",
     "mypy",
+    "scikit-learn>=1.3.0",
 ]
 # Kronos foundation-model forecast layer
 # Install: pip install -e ".[kronos]"

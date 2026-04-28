@@ -85,6 +85,8 @@ class FullRLMConfig:
     hmm_transition_pseudocount: float = 0.1
     """Smoothing on the HMM transition matrix for calibrated P(regime i → j)."""
     markov_states: int = 3
+    markov_transition_pseudocount: float = 0.1
+    """Smoothing on the Markov-switching transition matrix (statsmodels)."""
 
     # ---- Forecast -----------------------------------------------------------
     probabilistic: bool = False
@@ -396,6 +398,7 @@ class FullRLMPipeline:
                 **kw,
                 markov_config=MarkovSwitchingConfig(
                     n_states=cfg.markov_states,
+                    transition_pseudocount=cfg.markov_transition_pseudocount,
                     use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                     use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                     use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
@@ -409,6 +412,7 @@ class FullRLMPipeline:
                 **kw,
                 markov_config=MarkovSwitchingConfig(
                     n_states=cfg.markov_states,
+                    transition_pseudocount=cfg.markov_transition_pseudocount,
                     use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                     use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                     use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,

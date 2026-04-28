@@ -126,6 +126,7 @@ class LiveMarkovParameters(BaseModel):
     n_states: int = 3
     switching_variance: bool = True
     trend: str = "c"
+    transition_pseudocount: float = 0.1
     hierarchical: bool = True
     macro_weight: float = 0.45
     micro_timeframes: tuple[str, ...] = ("5min", "1min")
@@ -135,6 +136,7 @@ class LiveMarkovParameters(BaseModel):
             n_states=self.n_states,
             switching_variance=self.switching_variance,
             trend=self.trend,
+            transition_pseudocount=self.transition_pseudocount,
         )
 
 
