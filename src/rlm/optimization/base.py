@@ -136,6 +136,7 @@ class OptimizationBase:
         bars = pd.read_csv(bars_path)
         if "timestamp" in bars.columns:
             bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True, errors="coerce")
+            bars = bars.sort_values("timestamp").set_index("timestamp")
 
         return bars.tail(lookback_bars).copy()
 
@@ -180,17 +181,23 @@ class OptimizationBase:
         # Decimal fraction; 0.0005 = 5 bps, 0.003 = 30 bps
         transaction_cost_frac = trial.suggest_float("transaction_cost_frac", 0.0005, 0.003)
 
+        # mtf_regimes=True requires HTF parquet paths that don't exist at opt time;
+        # exclude it so the scoring run always uses the plain HMM path.
+        eval_params = {k: v for k, v in nightly.__dict__.items() if k != "mtf_regimes"}
         cfg = FullRLMConfig(
             regime_model=regime_model,
-            mtf=True,
-            roee_config=ROEEConfig(use_dynamic_sizing=True),
-            nightly_hyperparams=nightly.__dict__,
+            mtf=False,          # HTF resampling is too slow in the daily opt loop
+            mtf_regimes=False,  # no HTF parquet paths available during opt
+            use_kronos=False,   # no model download during nightly opt
+            attach_vix=False,   # no network call; VIX features absent is fine
+            roee_config=ROEEConfig(use_dynamic_sizing=False),
+            nightly_hyperparams=eval_params,
         )
 
         scores: list[float] = []
         for sym in symbols:
             try:
-                bars = OptimizationBase.load_bars(sym, lookback_bars=252 * 2)
+                bars = OptimizationBase.load_bars(sym, lookback_bars=252 * 6)
             except FileNotFoundError:
                 continue
             try:
