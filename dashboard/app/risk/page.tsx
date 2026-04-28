@@ -410,7 +410,7 @@ export default function RiskPage() {
                       borderRadius: "12px",
                       fontSize: 12,
                     }}
-                    formatter={(value: any) => [fmtDollar(Number(value)), "Equity"]}
+                    formatter={(value) => [fmtDollar(Number(value ?? 0)), "Equity"]}
                   />
                   <Area
                     type="monotone"

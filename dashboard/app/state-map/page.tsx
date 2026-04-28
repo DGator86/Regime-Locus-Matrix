@@ -223,7 +223,8 @@ export default function StateMapPage() {
                         fontSize: 12,
                       }}
                       labelStyle={{ color: "#94a3b8" }}
-                      formatter={(value: any, name: string) => {
+                      formatter={(value, name) => {
+                        const key = String(name ?? "");
                         const labels: Record<string, string> = {
                           upper_2s: "Upper 2σ",
                           lower_2s: "Lower 2σ",
@@ -231,7 +232,7 @@ export default function StateMapPage() {
                           lower_1s: "Lower 1σ",
                           close: "Close",
                         };
-                        return [`$${Number(value).toFixed(2)}`, labels[name] || name];
+                        return [`$${Number(value).toFixed(2)}`, labels[key] || key];
                       }}
                     />
 
@@ -356,8 +357,8 @@ export default function StateMapPage() {
                         borderRadius: "12px",
                         fontSize: 12,
                       }}
-                      formatter={(value: any) => [
-                        `${(Number(value) * 100).toFixed(1)}%`,
+                      formatter={(value) => [
+                        `${(Number(value ?? 0) * 100).toFixed(1)}%`,
                         "Confidence",
                       ]}
                     />
