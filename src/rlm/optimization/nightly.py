@@ -25,7 +25,13 @@ class NightlyMTFOptimizer:
             if isinstance(model, dict):
                 regime_model = str(model.get("model", model.get("regime_model", regime_model)))
 
-        study = optuna.create_study(direction="maximize", study_name="nightly_mtf")
+        study = optuna.create_study(
+            direction="maximize",
+            study_name="nightly_mtf",
+            sampler=optuna.samplers.TPESampler(seed=42),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=10),
+        )
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
         study.optimize(
             lambda trial: OptimizationBase.objective(trial, symbols, regime_model),
             n_trials=trials,
