@@ -101,6 +101,10 @@ class RLMHMM:
         # Populated by _align_states_by_volatility() during fit().
         self._state_permutation: dict[int, int] | None = None
 
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.__dict__.setdefault("_state_permutation", None)
+
     def prepare_observations(self, df: pd.DataFrame) -> np.ndarray:
         """Return (n_samples, 4) array of standardized scores."""
         required = ["S_D", "S_V", "S_L", "S_G"]
@@ -203,11 +207,12 @@ class RLMHMM:
 
     def _apply_state_permutation(self, probs: np.ndarray) -> np.ndarray:
         """Reorder probability columns according to ``_state_permutation``."""
-        if self._state_permutation is None:
+        permutation = getattr(self, "_state_permutation", None)
+        if permutation is None:
             return probs
         n_states = probs.shape[1]
         new_probs = np.zeros_like(probs)
-        for old_idx, new_idx in self._state_permutation.items():
+        for old_idx, new_idx in permutation.items():
             if old_idx < n_states and new_idx < n_states:
                 new_probs[:, new_idx] = probs[:, old_idx]
         return new_probs
@@ -256,9 +261,10 @@ class RLMHMM:
             raise RuntimeError("HMM model is not fitted")
         obs = self.prepare_observations(df)
         raw = self.model.predict(obs)
-        if self._state_permutation is None:
+        permutation = getattr(self, "_state_permutation", None)
+        if permutation is None:
             return raw
-        return np.array([self._state_permutation.get(int(s), int(s)) for s in raw])
+        return np.array([permutation.get(int(s), int(s)) for s in raw])
 
     def most_likely_state_filtered(self, df: pd.DataFrame) -> np.ndarray:
         probs = self.predict_proba_filtered(df)
