@@ -72,8 +72,8 @@ def test_signal_based_score_nan_when_no_trades():
 
 def test_signal_based_score_transaction_costs_reduce_score():
     df = _make_policy_df(200, action="enter")
-    score_no_cost = _signal_based_score(df, oos_start=150, transaction_cost_bps=0.0)
-    score_high_cost = _signal_based_score(df, oos_start=150, transaction_cost_bps=0.05)
+    score_no_cost = _signal_based_score(df, oos_start=150, transaction_cost_frac=0.0)
+    score_high_cost = _signal_based_score(df, oos_start=150, transaction_cost_frac=0.05)
     # High costs should produce a lower (or equal) score
     if np.isfinite(score_no_cost) and np.isfinite(score_high_cost):
         assert score_high_cost <= score_no_cost + 1e-9

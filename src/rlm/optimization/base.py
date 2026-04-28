@@ -31,7 +31,7 @@ def _compute_max_drawdown(returns: pd.Series) -> float:
 def _signal_based_score(
     policy_df: pd.DataFrame,
     oos_start: int,
-    transaction_cost_bps: float = 0.001,
+    transaction_cost_frac: float = 0.001,
 ) -> float:
     """Sharpe-minus-drawdown on OOS tail from ROEE signals with transaction costs.
 
@@ -40,6 +40,8 @@ def _signal_based_score(
     proportional transaction costs on position changes, then scores with:
 
         score = OOS Sharpe + OOS max-drawdown   (drawdown is negative)
+
+    ``transaction_cost_frac`` is a decimal fraction (e.g. 0.001 = 10 bps).
 
     Returns ``nan`` when there is insufficient OOS data or no trades.
     """
@@ -58,7 +60,7 @@ def _signal_based_score(
     gross = lagged * price_returns
 
     # Proportional transaction costs on position changes
-    costs = signals.diff().abs().fillna(0.0) * transaction_cost_bps
+    costs = signals.diff().abs().fillna(0.0) * transaction_cost_frac
     net = gross - costs
 
     sharpe = _compute_sharpe(net)
@@ -175,7 +177,8 @@ class OptimizationBase:
                 "direction_neutral_threshold", 0.26, 0.34
             ),
         )
-        transaction_cost_bps = trial.suggest_float("transaction_cost_bps", 0.0005, 0.003)
+        # Decimal fraction; 0.0005 = 5 bps, 0.003 = 30 bps
+        transaction_cost_frac = trial.suggest_float("transaction_cost_frac", 0.0005, 0.003)
 
         cfg = FullRLMConfig(
             regime_model=regime_model,
@@ -199,8 +202,10 @@ class OptimizationBase:
 
             n = len(result.policy_df)
             oos_start = int(n * 0.75)
-            score = _signal_based_score(result.policy_df, oos_start, transaction_cost_bps)
+            score = _signal_based_score(result.policy_df, oos_start, transaction_cost_frac)
             if np.isfinite(score):
                 scores.append(score)
 
-        return float(np.mean(scores)) if scores else -999.0
+        if not scores:
+            raise optuna.TrialPruned()
+        return float(np.mean(scores))
