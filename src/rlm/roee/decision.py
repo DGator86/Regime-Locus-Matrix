@@ -141,7 +141,9 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
-    trans_risk = 1.0 - composite
+    transition_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
+    transition_alert = min(max(transition_alert, 0.0), 1.0)
+    trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
     trade = composite >= confidence_threshold
     return {

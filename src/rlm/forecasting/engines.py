@@ -53,7 +53,7 @@ def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
 
 def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
-    t = hmm.calibrated_transmat()
+    t = hmm.online_transition_update(probs)
     next_p = RLMHMM.one_step_predictive_probs(probs, t)
     df["hmm_next_probs"] = next_p.tolist()
     df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
@@ -64,7 +64,37 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
     df["hmm_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
     if hmm.state_labels:
         df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
+    if "hmm_state_label" in df.columns:
+        bearish_shift = np.zeros(len(df), dtype=float)
+        for i, label in enumerate(df["hmm_state_label"].astype(str).tolist()):
+            if "bull" in label.lower() or "trend" in label.lower():
+                bearish_shift[i] = float(next_p[i].max() - probs[i].max())
+        df["hmm_transition_alert_probability"] = np.clip(bearish_shift, 0.0, 1.0)
     _maybe_apply_transition_calibrations(df, "hmm")
+
+
+def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
+    if "hmm_probs" not in df.columns and "markov_probs" not in df.columns:
+        return
+    n = len(df)
+    cp_score = np.zeros(n, dtype=float)
+    if "close" in df.columns:
+        r = pd.to_numeric(df["close"], errors="coerce").pct_change().fillna(0.0)
+        z = ((r - r.rolling(40, min_periods=10).mean()) / (r.rolling(40, min_periods=10).std() + 1e-12)).abs()
+        cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
+    probs_accum: list[np.ndarray] = []
+    if "hmm_probs" in df.columns:
+        probs_accum.append(np.asarray(df["hmm_probs"].tolist(), dtype=float))
+    if "markov_probs" in df.columns:
+        probs_accum.append(np.asarray(df["markov_probs"].tolist(), dtype=float))
+    base = np.mean(np.stack(probs_accum, axis=0), axis=0)
+    ensemble = 0.8 * base + 0.2 * (np.ones_like(base) / base.shape[1])
+    ensemble = (1.0 - cp_score[:, None]) * ensemble + cp_score[:, None] * (np.ones_like(base) / base.shape[1])
+    ensemble = np.clip(ensemble, 1e-12, None)
+    ensemble = ensemble / ensemble.sum(axis=1, keepdims=True)
+    df["regime_ensemble_probs"] = ensemble.tolist()
+    df["regime_ensemble_state"] = np.argmax(ensemble, axis=1).astype(int)
+    df["regime_ensemble_confidence"] = ensemble.max(axis=1).astype(float)
 
 
 def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
@@ -350,6 +380,7 @@ class HybridMarkovForecastPipeline:
         if self.markov.state_labels:
             out["markov_state_label"] = [self.markov.state_labels[int(s)] for s in out["markov_state"]]
         _annotate_markov_transition_fields(self.markov, out, probs)
+        _annotate_regime_ensemble(out)
         return out
 
 
@@ -389,6 +420,7 @@ class HybridProbabilisticForecastPipeline:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
             _annotate_hmm_transition_fields(self.hmm, df, probs)
 
+        _annotate_regime_ensemble(df)
         return df
 
 
@@ -417,6 +449,7 @@ class HybridMarkovProbabilisticForecastPipeline:
         probs = np.clip(probs, 1e-12, None)
         probs = probs / probs.sum(axis=1, keepdims=True)
         _annotate_markov_transition_fields(self.markov, out, probs)
+        _annotate_regime_ensemble(out)
         return out
 
 
@@ -523,4 +556,5 @@ class HybridKronosForecastPipeline:
                 df["markov_state_label"] = [self.markov.state_labels[int(s)] for s in df["markov_state"]]
             _annotate_markov_transition_fields(self.markov, df, probs)
 
+        _annotate_regime_ensemble(df)
         return df

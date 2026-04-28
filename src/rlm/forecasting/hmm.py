@@ -115,6 +115,12 @@ class HMMConfig(BaseModel):
         False,
         description="Request GPU acceleration metadata when a CUDA runtime is available.",
     )
+    online_em_step_size: float = Field(
+        0.02,
+        ge=0.0,
+        le=1.0,
+        description="EMA step-size for online transition updates from filtered state probabilities.",
+    )
 
 
 class RLMHMM:
@@ -319,6 +325,41 @@ class RLMHMM:
         row = np.where(row > 0.0, row, 1.0)
         t = t / row
         return np.clip(t, 1e-12, 1.0)
+
+    def online_transition_update(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
+        """Online EM-style transition update using adjacent filtered posteriors.
+
+        This performs a lightweight incremental update of ``model.transmat_`` without full retraining.
+        """
+        if self.model is None:
+            raise RuntimeError("HMM model is not fitted")
+        gamma = np.asarray(filtered_probs, dtype=np.float64)
+        if gamma.ndim != 2 or len(gamma) < 2:
+            return self.calibrated_transmat()
+        eta = float(self.config.online_em_step_size if step_size is None else step_size)
+        if eta <= 0.0:
+            return self.calibrated_transmat()
+
+        expected = gamma[:-1].T @ gamma[1:]
+        row = expected.sum(axis=1, keepdims=True)
+        row = np.where(row > 0.0, row, 1.0)
+        target = expected / row
+        old = self.permuted_transmat()
+        updated = (1.0 - eta) * old + eta * target
+        updated = np.clip(updated, 1e-12, None)
+        updated = updated / updated.sum(axis=1, keepdims=True)
+
+        if self._state_permutation is None:
+            self.model.transmat_ = updated
+            return self.calibrated_transmat()
+        inv = {new: old_i for old_i, new in self._state_permutation.items()}
+        t_old = np.zeros_like(updated)
+        n = updated.shape[0]
+        for i_new in range(n):
+            for j_new in range(n):
+                t_old[int(inv.get(i_new, i_new)), int(inv.get(j_new, j_new))] = updated[i_new, j_new]
+        self.model.transmat_ = t_old
+        return self.calibrated_transmat()
 
     @staticmethod
     def one_step_predictive_probs(filtered_probs: np.ndarray, transmat: np.ndarray) -> np.ndarray:
