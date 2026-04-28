@@ -51,6 +51,10 @@ pm2 save
 pm2 startup systemd -u root --hp /root 2>/dev/null || true
 "@
 
-$remote = $remote -replace "`r", ""
+# Strip CRLF so bash on Linux never sees $'\r' (PowerShell here-strings use CRLF on Windows).
+$remote = $remote -replace "`r`n", "`n" -replace "`r", ""
+
 ssh -o BatchMode=yes "$VpsUser@$VpsHost" "$remote"
-Write-Host "Dashboard deployed successfully at http://$VpsHost:3000" -ForegroundColor Green
+
+# Note: "${VpsHost}:3000" — literal ":3000" after $VpsHost alone is parsed as drive scope in PowerShell.
+Write-Host ("Dashboard deployed successfully at http://" + $VpsHost + ":3000") -ForegroundColor Green
