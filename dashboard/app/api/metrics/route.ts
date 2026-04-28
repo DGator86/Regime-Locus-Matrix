@@ -4,6 +4,66 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Resolve processed outputs directory.
+ * - Prefer `RLM_DATA_DIR` when set.
+ * - Else `RLM_DATA_ROOT/processed` (matches Python `RLM_DATA_ROOT`).
+ * - Else repo `data/processed` when Next cwd is `dashboard/` or repo root.
+ * - Fallback VPS path used only when nothing else exists.
+ */
+function resolveProcessedDir(): {
+  dir: string;
+  found: boolean;
+  tried: string[];
+  source: string;
+} {
+  const tried: string[] = [];
+  const candidates: { label: string; abs: string }[] = [];
+
+  const envDir = process.env.RLM_DATA_DIR?.trim();
+  if (envDir) {
+    candidates.push({ label: "RLM_DATA_DIR", abs: path.resolve(envDir) });
+  }
+
+  const dataRoot = process.env.RLM_DATA_ROOT?.trim();
+  if (dataRoot) {
+    candidates.push({
+      label: "RLM_DATA_ROOT/processed",
+      abs: path.resolve(path.join(dataRoot, "processed")),
+    });
+  }
+
+  const cwd = process.cwd();
+  candidates.push(
+    { label: "cwd/../data/processed", abs: path.resolve(cwd, "..", "data", "processed") },
+    { label: "cwd/data/processed", abs: path.resolve(cwd, "data", "processed") },
+    { label: "VPS default", abs: "/opt/Regime-Locus-Matrix/data/processed" },
+  );
+
+  for (const { label, abs } of candidates) {
+    tried.push(abs);
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
+        return { dir: abs, found: true, tried, source: label };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const fallback =
+    envDir ? path.resolve(envDir)
+    : dataRoot ? path.resolve(path.join(dataRoot, "processed"))
+    : path.resolve(cwd, "..", "data", "processed");
+
+  return {
+    dir: fallback,
+    found: false,
+    tried,
+    source: "fallback-unreadable",
+  };
+}
+
 function parseCsv(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
   if (lines.length < 2) return [];
@@ -319,8 +379,13 @@ function buildWalkforwardSummary(dataDir: string) {
 
 export async function GET() {
   try {
-    const dataDir =
-      process.env.RLM_DATA_DIR || "/opt/Regime-Locus-Matrix/data/processed";
+    const resolved = resolveProcessedDir();
+    const dataDir = resolved.dir;
+
+    const forecastPath = path.join(dataDir, "forecast_features_SPY.csv");
+    const plansPath = path.join(dataDir, "universe_trade_plans.json");
+    const hasForecast = fs.existsSync(forecastPath);
+    const hasPlans = fs.existsSync(plansPath);
 
     const marketState = buildMarketState(dataDir);
     const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
@@ -343,6 +408,14 @@ export async function GET() {
       walkforwardSummary,
       generatedAt: new Date().toISOString(),
       symbolsInUniverse,
+      dataMeta: {
+        processedDir: dataDir,
+        resolved: resolved.found,
+        resolutionSource: resolved.source,
+        hasForecastFeaturesCsv: hasForecast,
+        hasUniversePlansJson: hasPlans,
+        checkedPathsSample: resolved.tried.slice(0, 5),
+      },
     });
   } catch (error) {
     console.error("Dashboard metrics API error:", error);
