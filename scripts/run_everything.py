@@ -47,6 +47,7 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from rlm.data.paths import get_data_root  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
@@ -312,7 +313,15 @@ def main() -> int:
 
     def challenge_cmd() -> list[str]:
         rlm_bin = Path(py).parent / "rlm"
-        ccmd = [str(rlm_bin), "challenge", "--run", "--symbol", args.challenge_symbol]
+        ccmd = [
+            str(rlm_bin),
+            "challenge",
+            "--run",
+            "--symbol",
+            args.challenge_symbol,
+            "--data-root",
+            str(get_data_root()),
+        ]
         if args.challenge_no_kronos:
             ccmd.append("--no-kronos")
         return ccmd
