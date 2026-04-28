@@ -231,7 +231,7 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
+    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
         pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
     ):
         signal = "time_stop"
@@ -391,17 +391,17 @@ def main() -> int:
     p.add_argument(
         "--force-close-dte",
         type=float,
-        default=14.0,
+        default=0.0,
         help=(
             "Force-close positions when DTE falls below this threshold (fractional days). "
-            "Default 14.0 enables a two-week expiry safety close."
+            "0.0 = disabled. Recommended: 0.1 (~2.4 h) for 0DTE positions."
         ),
     )
     p.add_argument(
         "--soft-time-stop-dte",
         type=float,
-        default=21.0,
-        help="At/under this DTE, close low-conviction positions (see --min-profit-pct-for-soft-hold).",
+        default=0.0,
+        help="If >0, at/under this DTE close low-conviction positions (see --min-profit-pct-for-soft-hold).",
     )
     p.add_argument(
         "--min-profit-pct-for-soft-hold",
