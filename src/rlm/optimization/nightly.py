@@ -6,6 +6,7 @@ from pathlib import Path
 import optuna
 
 from .base import OptimizationBase
+from .config import NightlyHyperparams
 
 ROOT = Path(__file__).resolve().parents[3]
 REGIME_PATH = ROOT / "data/processed/live_regime_model.json"
@@ -38,7 +39,18 @@ class NightlyMTFOptimizer:
             timeout=3600,
         )
 
-        best = study.best_params
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        if completed:
+            best = study.best_params
+        elif NIGHTLY_PATH.exists():
+            try:
+                existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = None
+            best = existing if isinstance(existing, dict) and existing else NightlyHyperparams().__dict__
+        else:
+            best = NightlyHyperparams().__dict__
+
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         NIGHTLY_PATH.write_text(json.dumps(best, indent=2), encoding="utf-8")
         return best
