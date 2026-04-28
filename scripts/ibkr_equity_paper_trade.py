@@ -60,6 +60,8 @@ from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
 # ruff: noqa: E402
 from rlm.utils.market_hours import entry_window_open, is_rth_now, session_label
 
+ROOT = Path(__file__).resolve().parents[1]
+
 PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
 EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
 EQUITY_LOG_PATH = ROOT / "data" / "processed" / "equity_trade_log.csv"
