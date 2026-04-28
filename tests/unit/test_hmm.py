@@ -55,3 +55,23 @@ def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
     assert "hmm_state" in out.columns
     assert "hmm_state_label" in out.columns
     assert len(out["hmm_probs"].iloc[-1]) == 6
+    assert "hmm_next_probs" in out.columns
+    assert "hmm_regime_transition_entropy" in out.columns
+    assert "hmm_expected_persistence" in out.columns
+    assert "hmm_most_likely_next_state" in out.columns
+    assert "hmm_most_likely_next_prob" in out.columns
+
+
+def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(n_states=4, n_iter=20, random_state=0, filter_backend="numpy", transition_pseudocount=0.05)
+    )
+    m.fit(df, verbose=False)
+    t = m.calibrated_transmat()
+    assert t.shape == (4, 4)
+    assert np.allclose(t.sum(axis=1), 1.0, atol=1e-5)
+    gamma = m.predict_proba_filtered(df)
+    nxt = RLMHMM.one_step_predictive_probs(gamma, t)
+    assert nxt.shape == gamma.shape
+    assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)

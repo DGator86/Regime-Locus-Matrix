@@ -85,6 +85,12 @@ class HMMConfig(BaseModel):
     random_state: int = 42
     model_path: Path | None = None
     filter_backend: Literal["auto", "numpy", "numba"] = "auto"
+    transition_pseudocount: float = Field(
+        0.1,
+        ge=0.0,
+        description="Symmetric Dirichlet-style smoothing added to each transition row before "
+        "renormalization (calibrated P(i→j) from the fitted HMM).",
+    )
     prefer_gpu: bool = Field(
         False,
         description="Request GPU acceleration metadata when a CUDA runtime is available.",
@@ -263,6 +269,54 @@ class RLMHMM:
     def most_likely_state_filtered(self, df: pd.DataFrame) -> np.ndarray:
         probs = self.predict_proba_filtered(df)
         return np.argmax(probs, axis=1).astype(int)
+
+    def permuted_transmat(self) -> np.ndarray:
+        """Transition matrix :math:`P(S_{t+1}=j \\mid S_t=i)` in **vol-sorted** state space.
+
+        Rows/columns align with :meth:`predict_proba_filtered` columns (same order as ``hmm_probs``).
+        """
+        if self.model is None:
+            raise RuntimeError("HMM model is not fitted")
+        t_old = self.model.transmat_.astype(np.float64)
+        if self._state_permutation is None:
+            return t_old
+        n = t_old.shape[0]
+        t_new = np.zeros((n, n), dtype=np.float64)
+        for i_old in range(n):
+            for j_old in range(n):
+                i_new = int(self._state_permutation.get(i_old, i_old))
+                j_new = int(self._state_permutation.get(j_old, j_old))
+                t_new[i_new, j_new] = t_old[i_old, j_old]
+        return t_new
+
+    def calibrated_transmat(self, pseudocount: float | None = None) -> np.ndarray:
+        """Row-stochastic transition matrix with optional smoothing (calibrated dynamics).
+
+        Smoothing adds ``pseudocount`` to every element of each row, then renormalizes,
+        which pulls extreme 0/1 entries toward a more conservative, better-calibrated
+        view of regime persistence and cross-transitions.
+        """
+        t = self.permuted_transmat().copy()
+        alpha = float(self.config.transition_pseudocount if pseudocount is None else pseudocount)
+        if alpha > 0.0:
+            t = t + alpha
+        row = t.sum(axis=1, keepdims=True)
+        row = np.where(row > 0.0, row, 1.0)
+        t = t / row
+        return np.clip(t, 1e-12, 1.0)
+
+    @staticmethod
+    def one_step_predictive_probs(filtered_probs: np.ndarray, transmat: np.ndarray) -> np.ndarray:
+        """One-step-ahead regime distribution :math:`P(S_{t+1} \\mid x_{1:t})`.
+
+        For filtered marginal :math:`\\gamma_t(i)=P(S_t=i\\mid x_{1:t})` and calibrated
+        transitions :math:`T_{ij}=P(S_{t+1}=j\\mid S_t=i)`, returns
+        :math:`\\gamma_{t+1}^-(j)=\\sum_i \\gamma_t(i)\\,T_{ij}` (matrix form ``γ @ T``).
+        """
+        out = (filtered_probs @ transmat).astype(np.float64)
+        out = np.clip(out, 1e-12, None)
+        out = out / out.sum(axis=1, keepdims=True)
+        return out
 
     def save(self, path: Path | None = None) -> None:
         path = path or self.config.model_path or Path("models/rlm_hmm.pkl")

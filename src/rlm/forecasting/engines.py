@@ -24,6 +24,21 @@ def _resample_for_regime(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return df.resample(rule).last().dropna(how="all")
 
 
+def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
+    """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
+    t = hmm.calibrated_transmat()
+    next_p = RLMHMM.one_step_predictive_probs(probs, t)
+    df["hmm_next_probs"] = next_p.tolist()
+    df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
+    diag = np.diag(t).reshape(1, -1)
+    df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
+    top = np.argmax(next_p, axis=1).astype(int)
+    df["hmm_most_likely_next_state"] = top
+    df["hmm_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
+    if hmm.state_labels:
+        df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
+
+
 def _align_probs_to_index(
     probs: np.ndarray,
     src_index: pd.Index,
@@ -201,6 +216,7 @@ class HybridForecastPipeline:
             df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         if self.mtf is not None:
             self.mtf.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
@@ -343,10 +359,14 @@ class HybridProbabilisticForecastPipeline:
                 self.hmm.fit(df, verbose=False)
 
             probs = self.hmm.predict_proba_filtered(df)
+            probs = np.clip(probs, 1e-12, None)
+            probs = probs / probs.sum(axis=1, keepdims=True)
             df["hmm_probs"] = probs.tolist()
-            df["hmm_state"] = self.hmm.most_likely_state_filtered(df)
+            df["hmm_state"] = np.argmax(probs, axis=1).astype(int)
+            df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         return df
 
@@ -465,6 +485,7 @@ class HybridKronosForecastPipeline:
                 df["hmm_state_label"] = [
                     self.hmm.state_labels[int(s)] for s in df["hmm_state"]
                 ]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         if self.markov is not None:
             fit_df = df.loc[train_mask] if train_mask is not None else df

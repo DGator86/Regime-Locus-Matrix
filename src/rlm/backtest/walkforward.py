@@ -447,7 +447,14 @@ class WalkForwardEngine:
         )
         use_hmm = cfg.regime_model == "hmm"
         use_markov = cfg.regime_model == "markov"
-        hmm_c = HMMConfig(n_states=cfg.hmm_states) if use_hmm else None
+        hmm_c = (
+            HMMConfig(
+                n_states=cfg.hmm_states,
+                transition_pseudocount=cfg.hmm_transition_pseudocount,
+            )
+            if use_hmm
+            else None
+        )
         vp_cfg = cfg.volume_profile
         markov_c: MarkovSwitchingConfig | None
         if use_markov:

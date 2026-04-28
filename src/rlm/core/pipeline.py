@@ -82,6 +82,8 @@ class FullRLMConfig:
     """Which latent-regime model to layer on the forecast.  ``"none"`` runs the
     plain deterministic ``ForecastPipeline``."""
     hmm_states: int = 6
+    hmm_transition_pseudocount: float = 0.1
+    """Smoothing on the HMM transition matrix for calibrated P(regime i → j)."""
     markov_states: int = 3
 
     # ---- Forecast -----------------------------------------------------------
@@ -368,14 +370,20 @@ class FullRLMPipeline:
         if cfg.regime_model == "hmm" and cfg.probabilistic:
             return HybridProbabilisticForecastPipeline(
                 **kw,
-                hmm_config=HMMConfig(n_states=cfg.hmm_states),
+                hmm_config=HMMConfig(
+                    n_states=cfg.hmm_states,
+                    transition_pseudocount=cfg.hmm_transition_pseudocount,
+                ),
                 model_path=cfg.probabilistic_model_path,
             ).run(factors_df)
 
         if cfg.regime_model == "hmm":
             return HybridForecastPipeline(
                 **kw,
-                hmm_config=HMMConfig(n_states=cfg.hmm_states),
+                hmm_config=HMMConfig(
+                    n_states=cfg.hmm_states,
+                    transition_pseudocount=cfg.hmm_transition_pseudocount,
+                ),
                 mtf_regimes=cfg.mtf_regimes,
                 mtf_htf_prob_paths=cfg.mtf_htf_prob_paths,
                 mtf_htf_weights=cfg.mtf_htf_weights,

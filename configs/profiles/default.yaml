@@ -1,5 +1,6 @@
 regime_model: hmm
 hmm_states: 6
+hmm_transition_pseudocount: 0.1
 markov_states: 3
 use_kronos: true
 attach_vix: true

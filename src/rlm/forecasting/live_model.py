@@ -107,6 +107,7 @@ class LiveHMMParameters(BaseModel):
     n_iter: int = 100
     filter_backend: Literal["auto", "numpy", "numba"] = "auto"
     prefer_gpu: bool = False
+    transition_pseudocount: float = 0.1
     hierarchical: bool = True
     macro_weight: float = 0.45
     micro_timeframes: tuple[str, ...] = ("5min", "1min")
@@ -117,6 +118,7 @@ class LiveHMMParameters(BaseModel):
             n_iter=self.n_iter,
             filter_backend=self.filter_backend,
             prefer_gpu=self.prefer_gpu,
+            transition_pseudocount=self.transition_pseudocount,
         )
 
 
