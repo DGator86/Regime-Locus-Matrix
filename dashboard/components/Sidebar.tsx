@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
@@ -42,15 +42,61 @@ const secondaryNav: {
   { icon: Settings, label: "Settings" },
 ];
 
-const DATA_ROWS = [
-  { label: "IBKR", value: "live" },
-  { label: "Massive", value: "—" },
-  { label: "Lake", value: "—" },
-  { label: "Doctor", value: "—" },
-];
+type DataAgePayload = {
+  ibkrLastUpdated?: string | null;
+  massiveLastUpdated?: string | null;
+  lakeLastUpdated?: string | null;
+  doctorLastUpdated?: string | null;
+};
+
+function formatAge(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return "—";
+
+  const diffMs = Date.now() - ts;
+  if (diffMs < 0) return "now";
+
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [dataAge, setDataAge] = useState<DataAgePayload | null>(null);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch("/api/metrics");
+        const json = await res.json();
+        setDataAge(json?.dataAge ?? null);
+      } catch {
+        setDataAge(null);
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const dataRows = useMemo(
+    () => [
+      { label: "IBKR", value: formatAge(dataAge?.ibkrLastUpdated) },
+      { label: "Massive", value: formatAge(dataAge?.massiveLastUpdated) },
+      { label: "Lake", value: formatAge(dataAge?.lakeLastUpdated) },
+      { label: "Doctor", value: formatAge(dataAge?.doctorLastUpdated) },
+    ],
+    [dataAge],
+  );
 
   return (
     <aside className="w-[260px] shrink-0 glass border-r border-white/[0.06] flex flex-col h-full z-30">
@@ -169,7 +215,7 @@ export default function Sidebar() {
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
             <table className="w-full text-[11px] font-[family-name:var(--font-mono)]">
               <tbody>
-                {DATA_ROWS.map((row) => (
+                {dataRows.map((row) => (
                   <tr
                     key={row.label}
                     className="border-b border-white/[0.04] last:border-0"
