@@ -76,6 +76,7 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
 
     filt = loaded.predict_proba_filtered(df)
     transmat = loaded.calibrated_transmat()
+    updated_transmat = loaded.online_transition_update(filt)
     online_mats = loaded.causal_online_transition_matrices(filt)
     online = loaded.causal_online_transition_matrices(filt)
 
@@ -90,6 +91,7 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
     assert online.shape == (250, 6, 6)
     assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
     assert np.allclose(transmat.sum(axis=1), 1.0, atol=1e-5)
+    assert np.allclose(updated_transmat.sum(axis=1), 1.0, atol=1e-5)
     assert np.allclose(online_mats.sum(axis=2), 1.0, atol=1e-5)
 
 
