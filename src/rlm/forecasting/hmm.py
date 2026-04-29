@@ -141,7 +141,7 @@ class RLMHMM:
         self.__dict__.setdefault("last_filter_backend", None)
         if isinstance(self.config, HMMConfig):
             defaults = HMMConfig()
-            for name in ("filter_backend", "transition_pseudocount", "prefer_gpu"):
+            for name in ("filter_backend", "transition_pseudocount", "prefer_gpu", "online_em_step_size"):
                 if not hasattr(self.config, name):
                     setattr(self.config, name, getattr(defaults, name))
 
