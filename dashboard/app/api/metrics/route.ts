@@ -107,6 +107,19 @@ function num(v: any): number {
   return isNaN(n) ? 0 : n;
 }
 
+function parseTimestampMs(v: string | undefined): number {
+  if (!v) return 0;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function inferRepoRootFromCwd(): string {
+  const cwd = process.cwd();
+  return path.basename(cwd).toLowerCase() === "dashboard"
+    ? path.resolve(cwd, "..")
+    : cwd;
+}
+
 function fileMtimeIso(filePath: string): string | null {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -382,10 +395,32 @@ function buildEquityTradeSummary(dataDir: string) {
 
 function buildForecastTimeseries(dataDir: string) {
   const rows = readCsvFile(path.join(dataDir, "forecast_features_SPY.csv"));
-  if (rows.length === 0) return [];
+  const fallbackBarsRows = readCsvFile(
+    path.join(inferRepoRootFromCwd(), "data", "raw", "bars_SPY.csv")
+  );
+  const fallbackSeries = fallbackBarsRows.slice(-60).map((r) => ({
+    timestamp: r.timestamp || r.date || r.Date || "",
+    close: num(r.close || r.Close),
+    S_D: 0,
+    S_V: 0,
+    S_L: 0,
+    S_G: 0,
+    sigma: null,
+    mean_price: null,
+    lower_1s: null,
+    upper_1s: null,
+    lower_2s: null,
+    upper_2s: null,
+    hmm_state: null,
+    hmm_confidence: null,
+    hmm_state_label: null,
+    forecast_return: null,
+    forecast_uncertainty: null,
+  }));
 
-  const tail = rows.slice(-60);
-  return tail.map((r) => {
+  if (rows.length === 0) return fallbackSeries;
+
+  const fromForecast = rows.slice(-60).map((r) => {
     const hmmIdx = parseHmmStateIndex(r.hmm_state ?? r.HMM_State);
     const hmmLblRaw = r.hmm_state_label ?? r.HMM_State_Label;
     return {
@@ -410,6 +445,13 @@ function buildForecastTimeseries(dataDir: string) {
         : null,
     };
   });
+
+  const forecastLastTs = parseTimestampMs(fromForecast[fromForecast.length - 1]?.timestamp);
+  const barsLastTs = parseTimestampMs(fallbackSeries[fallbackSeries.length - 1]?.timestamp);
+  const staleByMs = barsLastTs - forecastLastTs;
+  const staleThresholdMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+  return staleByMs > staleThresholdMs ? fallbackSeries : fromForecast;
 }
 
 function buildBacktestEquity(dataDir: string) {
