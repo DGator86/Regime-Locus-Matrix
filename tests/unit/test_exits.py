@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from rlm.roee.exits import (
     should_exit_for_profit,
     should_exit_for_regime_flip,
@@ -9,7 +7,6 @@ from rlm.roee.exits import (
     should_exit_for_time_stop,
     should_exit_for_zone_breach,
 )
-
 
 # ---------------------------------------------------------------------------
 # should_exit_for_regime_flip

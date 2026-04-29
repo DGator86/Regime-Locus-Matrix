@@ -92,9 +92,7 @@ def build_strategy_value_training_frame(
     cols = [c for c in _OPTIONAL_METADATA_COLUMNS if c in df.columns] + list(REQUIRED_COORD_COLUMNS)
     base = df.loc[:, cols].copy().reset_index(drop=True)
 
-    target_rows = _build_target_rows(
-        base, horizon=horizon, target_mode=target_mode, use_path_exits=use_path_exits
-    )
+    target_rows = _build_target_rows(base, horizon=horizon, target_mode=target_mode, use_path_exits=use_path_exits)
     out = base.iloc[: len(target_rows)].copy()
     targets_df = pd.DataFrame(target_rows, index=out.index)
     for col in STRATEGY_NAMES:

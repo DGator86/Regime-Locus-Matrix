@@ -46,6 +46,7 @@ def is_tradeable_environment(
 # Legacy helpers kept for callers that haven't migrated yet.
 # ---------------------------------------------------------------------------
 
+
 def should_skip_for_event_risk(has_major_event: bool) -> bool:
     return bool(has_major_event)
 

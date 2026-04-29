@@ -60,5 +60,6 @@ def main() -> None:
 
     if result.persona:
         import json
+
         print("\nPersona interpretation:")
         print(json.dumps(result.persona.to_dict(), indent=2))

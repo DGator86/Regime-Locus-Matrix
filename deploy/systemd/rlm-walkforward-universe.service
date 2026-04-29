@@ -1,0 +1,29 @@
+# Universe walk-forward OOS batch (EXPANDED_LIQUID_UNIVERSE).
+# Install:
+#   sudo cp deploy/systemd/rlm-walkforward-universe.service /etc/systemd/system/
+#   sudo cp deploy/systemd/rlm-walkforward-universe.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now rlm-walkforward-universe.timer
+#
+# Override flags via drop-in, e.g. /etc/systemd/system/rlm-walkforward-universe.service.d/override.conf:
+#   [Service]
+#   ExecStart=
+#   ExecStart=/opt/rlm-venv/bin/python scripts/run_walkforward_universe.py --no-kronos --no-vix
+
+[Unit]
+Description=RLM universe walk-forward OOS batch
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+# Default: full pipeline per symbol (Kronos on — long CPU). Prefer --no-kronos in override on small VPS.
+ExecStart=/opt/rlm-venv/bin/python scripts/run_walkforward_universe.py --no-vix
+StandardOutput=append:/var/log/rlm-walkforward-universe.log
+StandardError=append:/var/log/rlm-walkforward-universe.error.log
+
+[Install]
+WantedBy=multi-user.target

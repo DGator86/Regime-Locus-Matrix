@@ -52,9 +52,7 @@ def select_trade_from_models(
             dtype=float,
         )
     )[0]
-    regime_probs = {
-        regime_model.labels[i]: float(regime_probs_arr[i]) for i in range(len(regime_model.labels))
-    }
+    regime_probs = {regime_model.labels[i]: float(regime_probs_arr[i]) for i in range(len(regime_model.labels))}
 
     strategy_scores = value_model.score_row(row)
     best_strategy = strategy_scores.best_strategy
@@ -64,10 +62,7 @@ def select_trade_from_models(
     transition_penalty = 1.0 - regime_probs.get("transition", 0.0)
     uncertainty = max(float(np.std(list(strategy_scores.scores.values()))), constraints.epsilon)
 
-    trade_allowed = (
-        trade_probability >= constraints.trade_probability_threshold
-        and best_edge >= constraints.min_edge
-    )
+    trade_allowed = trade_probability >= constraints.trade_probability_threshold and best_edge >= constraints.min_edge
     raw_size = constraints.kappa * (best_edge / uncertainty) * transition_penalty
     size_fraction = min(max(raw_size, 0.0), constraints.max_size_fraction) if trade_allowed else 0.0
 

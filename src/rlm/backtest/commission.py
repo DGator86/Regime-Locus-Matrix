@@ -3,6 +3,7 @@
 Supports per-contract, per-trade (flat), and hybrid commission structures.
 All dollar amounts are in the same currency unit as the portfolio cash.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

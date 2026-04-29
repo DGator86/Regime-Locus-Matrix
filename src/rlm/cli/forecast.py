@@ -39,7 +39,14 @@ def main() -> None:
     args = _parse_args()
     sym = normalize_symbol(args.symbol)
     run_id = generate_run_id("forecast")
-    log = get_run_logger(__name__, run_id=run_id, command="forecast", symbol=sym, backend=args.backend, profile=args.profile)
+    log = get_run_logger(
+        __name__,
+        run_id=run_id,
+        command="forecast",
+        symbol=sym,
+        backend=args.backend,
+        profile=args.profile,
+    )
 
     bars_df = load_bars(sym, bars_path=args.bars, data_root=args.data_root, backend=args.backend)
     chain_df = load_option_chain(sym, chain_path=args.chain, data_root=args.data_root, backend=args.backend)
@@ -49,7 +56,14 @@ def main() -> None:
     out_path = resolve_output_path("forecast_features", sym, args.out, args.data_root)
 
     svc = ForecastService()
-    req = ForecastRequest(symbol=sym, bars_df=bars_df, option_chain_df=chain_df, config=cfg, out_path=out_path, write_output=True)
+    req = ForecastRequest(
+        symbol=sym,
+        bars_df=bars_df,
+        option_chain_df=chain_df,
+        config=cfg,
+        out_path=out_path,
+        write_output=True,
+    )
     result = svc.run(req)
     arts = svc.write_outputs(req, result)
     summary = svc.summarize(result)
@@ -66,7 +80,11 @@ def main() -> None:
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         backend=args.backend,
         profile=args.profile,
-        config_summary={"regime_model": cfg.regime_model, "use_kronos": cfg.use_kronos, "run_backtest": cfg.run_backtest},
+        config_summary={
+            "regime_model": cfg.regime_model,
+            "use_kronos": cfg.use_kronos,
+            "run_backtest": cfg.run_backtest,
+        },
         input_paths={"bars": args.bars or "auto", "chain": args.chain or "auto"},
         output_paths={"forecast_csv": str(arts.forecast_csv) if arts.forecast_csv else ""},
         metrics=summary,

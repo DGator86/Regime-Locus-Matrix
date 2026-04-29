@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from rlm.challenge.config import ChallengeConfig, MILESTONES
+from rlm.challenge.config import ChallengeConfig
 from rlm.challenge.engine import ChallengeEngine, _days_between
 from rlm.challenge.pricing import (
     atm_premium,
@@ -19,13 +18,13 @@ from rlm.challenge.pricing import (
 )
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
-from rlm.challenge.strategy import ChallengeStrategy, PlaySpec
+from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def cfg() -> ChallengeConfig:
@@ -45,6 +44,7 @@ def fresh_state(cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> Challeng
 # ---------------------------------------------------------------------------
 # Pricing tests
 # ---------------------------------------------------------------------------
+
 
 class TestPricing:
     def test_atm_premium_positive(self) -> None:
@@ -127,6 +127,7 @@ class TestPricing:
 # Sizing tests
 # ---------------------------------------------------------------------------
 
+
 class TestAggressiveSizer:
     def test_stage1_spends_25_pct(self, cfg: ChallengeConfig) -> None:
         sizer = AggressiveSizer()
@@ -165,6 +166,7 @@ class TestAggressiveSizer:
 # Strategy tests
 # ---------------------------------------------------------------------------
 
+
 class TestChallengeStrategy:
     def test_long_directive_buys_call(self, cfg: ChallengeConfig) -> None:
         play = ChallengeStrategy().select("long", 500.0, 1_000.0, 0.18, cfg)
@@ -193,9 +195,7 @@ class TestChallengeStrategy:
         assert play.strike <= 500.0
 
     def test_high_conviction_compresses_dte(self, cfg: ChallengeConfig) -> None:
-        standard = ChallengeStrategy().select(
-            "long", 500.0, 1_000.0, 0.18, cfg, signal_alignment=0.60, confidence=0.60
-        )
+        standard = ChallengeStrategy().select("long", 500.0, 1_000.0, 0.18, cfg, signal_alignment=0.60, confidence=0.60)
         high_conv = ChallengeStrategy().select(
             "long", 500.0, 1_000.0, 0.18, cfg, signal_alignment=0.85, confidence=0.80
         )
@@ -214,18 +214,15 @@ class TestChallengeStrategy:
 # State / persistence tests
 # ---------------------------------------------------------------------------
 
+
 class TestChallengeTracker:
-    def test_reset_creates_fresh_state(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_reset_creates_fresh_state(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg)
         assert state.balance == cfg.seed_capital
         assert state.target == cfg.target_capital
         assert state.open_positions == []
 
-    def test_save_and_load_round_trip(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_save_and_load_round_trip(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg)
         state.balance = 1_500.0
         state.session_count = 3
@@ -239,9 +236,7 @@ class TestChallengeTracker:
         with pytest.raises(FileNotFoundError):
             tracker.load()
 
-    def test_append_trade_creates_csv(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_append_trade_creates_csv(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         record = ChallengeTradeRecord(
             trade_id="abc",
@@ -268,10 +263,9 @@ class TestChallengeTracker:
 # Engine integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestChallengeEngine:
-    def test_bullish_session_opens_call(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_bullish_session_opens_call(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         summary = engine.run_session(
@@ -283,9 +277,7 @@ class TestChallengeEngine:
         assert summary.new_position is not None
         assert summary.new_position.option_type == "call"
 
-    def test_bearish_session_opens_put(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_bearish_session_opens_put(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         summary = engine.run_session(
@@ -297,9 +289,7 @@ class TestChallengeEngine:
         assert summary.new_position is not None
         assert summary.new_position.option_type == "put"
 
-    def test_no_trade_directive_opens_no_position(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_no_trade_directive_opens_no_position(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         summary = engine.run_session(
@@ -308,9 +298,7 @@ class TestChallengeEngine:
         )
         assert summary.new_position is None
 
-    def test_target_hit_closes_position_at_2x(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_target_hit_closes_position_at_2x(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         # Open a position
@@ -321,23 +309,19 @@ class TestChallengeEngine:
         assert isinstance(summary.balance_after, float)
         assert summary.balance_after > 0
 
-    def test_stop_hit_closes_position(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_stop_hit_closes_position(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         # Open a long call
         engine.run_session("long", 500.0, session_date="2026-01-01")
         # Big adverse move — underlying falls -5%
-        summary = engine.run_session("no_trade", 475.0, session_date="2026-01-06")
+        engine.run_session("no_trade", 475.0, session_date="2026-01-06")
         state = tmp_tracker.load()
         # Position should be closed (stop or expiry hit after 5 days on 7DTE option)
         total_trades = len(state.trade_history)
         assert total_trades >= 1
 
-    def test_balance_deducted_on_entry(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_balance_deducted_on_entry(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg)
         initial = state.balance
         engine = ChallengeEngine(cfg, tmp_tracker)
@@ -345,9 +329,7 @@ class TestChallengeEngine:
         state = tmp_tracker.load()
         assert state.balance < initial  # cash spent on the position
 
-    def test_max_concurrent_positions_respected(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_max_concurrent_positions_respected(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         # Fill both slots
@@ -357,9 +339,7 @@ class TestChallengeEngine:
         summary = engine.run_session("long", 502.0, session_date="2026-01-01")
         assert summary.new_position is None
 
-    def test_challenge_complete_flag_set_at_target(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_challenge_complete_flag_set_at_target(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         # Manually push balance just below target
         state = tmp_tracker.reset(cfg)
         state.balance = cfg.target_capital + 1.0  # already at target
@@ -368,9 +348,7 @@ class TestChallengeEngine:
         summary = engine.run_session("long", 500.0)
         assert summary.challenge_complete
 
-    def test_session_count_increments(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_session_count_increments(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         engine = ChallengeEngine(cfg, tmp_tracker)
         for _ in range(3):
@@ -378,9 +356,7 @@ class TestChallengeEngine:
         state = tmp_tracker.load()
         assert state.session_count == 3
 
-    def test_state_persists_across_engine_instances(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_state_persists_across_engine_instances(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
         ChallengeEngine(cfg, tmp_tracker).run_session("long", 500.0)
         # Instantiate a fresh engine — should see the open position
@@ -391,6 +367,7 @@ class TestChallengeEngine:
 # ---------------------------------------------------------------------------
 # Milestone and progress tests
 # ---------------------------------------------------------------------------
+
 
 class TestChallengeState:
     def test_progress_zero_at_seed(self, cfg: ChallengeConfig) -> None:
@@ -413,12 +390,21 @@ class TestChallengeState:
         for pnl in (100.0, -50.0, 200.0, -75.0, 150.0):
             state.trade_history.append(
                 ChallengeTradeRecord(
-                    trade_id="x", symbol="SPY", option_type="call", direction="long",
-                    strike=500.0, dte_at_entry=7, entry_date="2026-01-01",
-                    exit_date="2026-01-05", premium_paid=200.0,
-                    proceeds=200.0 + pnl, pnl=pnl, pnl_pct=pnl / 200.0 * 100,
+                    trade_id="x",
+                    symbol="SPY",
+                    option_type="call",
+                    direction="long",
+                    strike=500.0,
+                    dte_at_entry=7,
+                    entry_date="2026-01-01",
+                    exit_date="2026-01-05",
+                    premium_paid=200.0,
+                    proceeds=200.0 + pnl,
+                    pnl=pnl,
+                    pnl_pct=pnl / 200.0 * 100,
                     exit_reason="target" if pnl > 0 else "stop",
-                    balance_before=1_000.0, balance_after=1_000.0 + pnl,
+                    balance_before=1_000.0,
+                    balance_after=1_000.0 + pnl,
                 )
             )
         assert state.wins == 3
@@ -429,6 +415,7 @@ class TestChallengeState:
 # ---------------------------------------------------------------------------
 # Utility tests
 # ---------------------------------------------------------------------------
+
 
 class TestHelpers:
     def test_days_between_same_date(self) -> None:

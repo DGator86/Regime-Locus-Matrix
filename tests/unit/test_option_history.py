@@ -38,9 +38,7 @@ def test_merge_appends_and_dedupes() -> None:
 def test_replace_same_day() -> None:
     existing = pd.DataFrame(
         {
-            "timestamp": pd.to_datetime(
-                ["2024-01-15 10:00", "2024-01-16 00:00"], format="mixed"
-            ),
+            "timestamp": pd.to_datetime(["2024-01-15 10:00", "2024-01-16 00:00"], format="mixed"),
             "underlying": ["SPY", "SPY"],
             "expiry": pd.to_datetime(["2024-02-16", "2024-02-16"]),
             "option_type": ["call", "call"],
@@ -60,9 +58,7 @@ def test_replace_same_day() -> None:
             "ask": [5.1],
         }
     )
-    out = merge_option_chain_history(
-        existing, new_rows, replace_calendar_date=pd.Timestamp("2024-01-15")
-    )
+    out = merge_option_chain_history(existing, new_rows, replace_calendar_date=pd.Timestamp("2024-01-15"))
     assert len(out) == 2
     jan15 = out[out["timestamp"].dt.date == pd.Timestamp("2024-01-15").date()]
     assert float(jan15["bid"].iloc[0]) == 5.0

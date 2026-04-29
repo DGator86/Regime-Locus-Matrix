@@ -33,14 +33,14 @@ Quick start::
     # → {'gex_net_total': ..., 'gex_flip_strike': ..., 'iv_atm': ..., ...}
 """
 
-from rlm.data.microstructure.database.query import MicrostructureDB
-from rlm.data.microstructure.calculators.greeks import GreekBundle, full_greeks_row, solve_iv
 from rlm.data.microstructure.calculators.gex import (
+    aggregate_gex_profile,
     build_gex_surface_from_df,
     gex_flip_level,
-    aggregate_gex_profile,
 )
+from rlm.data.microstructure.calculators.greeks import GreekBundle, full_greeks_row, solve_iv
 from rlm.data.microstructure.calculators.iv_surface import build_iv_surface, query_iv_surface
+from rlm.data.microstructure.database.query import MicrostructureDB
 from rlm.data.microstructure.factors.gex_factors import GEXFactors
 from rlm.data.microstructure.factors.iv_surface_factors import IVSurfaceFactors
 

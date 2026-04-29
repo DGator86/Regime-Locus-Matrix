@@ -3,7 +3,12 @@ from __future__ import annotations
 import sys
 
 from rlm.cli import trade
-from rlm.core.services.trade_service import TradeArtifacts, TradeDecision, TradeExecutionRecord, TradeResult
+from rlm.core.services.trade_service import (
+    TradeArtifacts,
+    TradeDecision,
+    TradeExecutionRecord,
+    TradeResult,
+)
 
 
 def test_cli_trade_invokes_service(monkeypatch, capsys):
