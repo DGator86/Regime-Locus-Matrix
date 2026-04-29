@@ -35,7 +35,7 @@ NIGHTLY_SCRIPT = ROOT / "scripts" / "run_nightly_hyperparam_opt.py"
 CALIBRATE_SCRIPT = ROOT / "scripts" / "calibrate_regime_models.py"
 
 # Defaults
-DEFAULT_LOOKBACK = 20          # closed trades to evaluate
+DEFAULT_LOOKBACK = 20  # closed trades to evaluate
 DEFAULT_WARN_THRESHOLD = 0.40  # trigger nightly opt below this win rate
 DEFAULT_CRITICAL_THRESHOLD = 0.30  # also trigger regime re-calibration below this
 
@@ -71,18 +71,36 @@ def _run(cmd: list[str], dry_run: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--trade-log", type=Path, default=TRADE_LOG,
-                    help=f"Path to trade_log.csv (default: {TRADE_LOG})")
-    ap.add_argument("--lookback", type=int, default=DEFAULT_LOOKBACK,
-                    help=f"Closed-trade window to evaluate (default {DEFAULT_LOOKBACK})")
-    ap.add_argument("--warn-threshold", type=float, default=DEFAULT_WARN_THRESHOLD,
-                    help=f"Win rate below this fires nightly opt (default {DEFAULT_WARN_THRESHOLD})")
-    ap.add_argument("--critical-threshold", type=float, default=DEFAULT_CRITICAL_THRESHOLD,
-                    help=f"Win rate below this also fires regime re-calibration (default {DEFAULT_CRITICAL_THRESHOLD})")
-    ap.add_argument("--nightly-trials", type=int, default=40,
-                    help="Optuna trials for nightly opt (default 40)")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Print commands that would run without executing them")
+    ap.add_argument(
+        "--trade-log",
+        type=Path,
+        default=TRADE_LOG,
+        help=f"Path to trade_log.csv (default: {TRADE_LOG})",
+    )
+    ap.add_argument(
+        "--lookback",
+        type=int,
+        default=DEFAULT_LOOKBACK,
+        help=f"Closed-trade window to evaluate (default {DEFAULT_LOOKBACK})",
+    )
+    ap.add_argument(
+        "--warn-threshold",
+        type=float,
+        default=DEFAULT_WARN_THRESHOLD,
+        help=f"Win rate below this fires nightly opt (default {DEFAULT_WARN_THRESHOLD})",
+    )
+    ap.add_argument(
+        "--critical-threshold",
+        type=float,
+        default=DEFAULT_CRITICAL_THRESHOLD,
+        help=f"Win rate below this also fires regime re-calibration (default {DEFAULT_CRITICAL_THRESHOLD})",
+    )
+    ap.add_argument("--nightly-trials", type=int, default=40, help="Optuna trials for nightly opt (default 40)")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print commands that would run without executing them",
+    )
     args = ap.parse_args()
 
     pnls = _read_closed_pnl(Path(args.trade_log), args.lookback)

@@ -92,9 +92,7 @@ def add_market_coordinate_columns(
     out["M_trend_strength"] = d_centered.abs()
     out["M_dealer_control"] = g_centered.abs()
     out["M_alignment"] = d_centered * g_centered
-    out["M_delta_neutral"] = np.sqrt(
-        d_centered**2 + (out["M_V"] - 5.0) ** 2 + (out["M_L"] - 5.0) ** 2 + g_centered**2
-    )
+    out["M_delta_neutral"] = np.sqrt(d_centered**2 + (out["M_V"] - 5.0) ** 2 + (out["M_L"] - 5.0) ** 2 + g_centered**2)
 
     # ---- Lattice index ----------------------------------------------------
     out["M_lat_D"] = _lat_bin(out["M_D"], low_bound, high_bound)

@@ -26,6 +26,7 @@ from rlm.utils.market_hours import session_label
 
 # -----------------------------------------------------------------------
 
+
 def _fmt_score(v: object) -> str:
     try:
         return f"{float(v):.4f}"  # type: ignore[arg-type]
@@ -48,6 +49,7 @@ def _fmt_ret(v: object) -> str:
     except (TypeError, ValueError):
         return "?"
 
+
 # -----------------------------------------------------------------------
 _SPOCK_SYSTEM = """\
 You are Spock, the Science Officer and strategic analyst of this trading system.
@@ -66,7 +68,7 @@ class PlanAnalysis:
     strategy: str
     regime: str
     rank_score: float
-    action: str          # GO | HOLD | ABORT
+    action: str  # GO | HOLD | ABORT
     rationale: str
     raw_plan: dict[str, Any] = field(default_factory=dict)
 
@@ -110,9 +112,13 @@ class SpockAgent:
 
         try:
             briefing.llm_text = self.llm.chat(
-                [Message("user",
-                    f"Analyse these active trade plans and regime signals:\n\n{context}\n\n"
-                    "Provide your logical assessment per the format in your instructions.")],
+                [
+                    Message(
+                        "user",
+                        f"Analyse these active trade plans and regime signals:\n\n{context}\n\n"
+                        "Provide your logical assessment per the format in your instructions.",
+                    )
+                ],
                 system=_SPOCK_SYSTEM,
             )
             briefing.overall_risk = self._extract_risk(briefing.llm_text)
@@ -219,10 +225,17 @@ class SpockAgent:
                 return ""
             latest = json.loads(files[0].read_text(encoding="utf-8"))
             lines: list[str] = [f"Run: {files[0].name}"]
-            for key in ("regime", "regime_label", "regime_confidence",
-                        "kronos_return_forecast", "kronos_confidence",
-                        "kronos_regime_agreement", "kronos_transition_flag",
-                        "roee_strategy", "roee_confidence"):
+            for key in (
+                "regime",
+                "regime_label",
+                "regime_confidence",
+                "kronos_return_forecast",
+                "kronos_confidence",
+                "kronos_regime_agreement",
+                "kronos_transition_flag",
+                "roee_strategy",
+                "roee_confidence",
+            ):
                 val = latest.get(key)
                 if val is not None:
                     lines.append(f"  {key}: {val}")
@@ -230,31 +243,39 @@ class SpockAgent:
         except Exception:
             return ""
 
-    def _read_walkforward_performance(self, windows: int = 5) -> str:
-        """Summarise the most recent OOS windows from the walk-forward summary CSV."""
-        candidates = [
-            self.root / "data" / "processed" / "walkforward_summary.csv",
-        ]
-        # Prefer symbol-specific files if they have trading data
-        for p in (self.root / "data" / "processed").glob("walkforward_summary_*.csv"):
-            candidates.insert(0, p)
-
+    def _read_walkforward_performance(self, windows: int = 3) -> str:
+        """Summarise recent OOS windows from every available walk-forward summary CSV."""
         import csv as _csv
 
-        for path in candidates:
-            if not path.is_file():
-                continue
+        processed_dir = self.root / "data" / "processed"
+        if not processed_dir.is_dir():
+            return ""
+
+        all_lines: list[str] = []
+
+        def _collect(path: Path, label: str) -> None:
             try:
                 with path.open(encoding="utf-8") as f:
                     rows = list(_csv.DictReader(f))
-                if not rows:
-                    continue
-                # Check this file actually has trading metric columns
-                if "win_rate" not in rows[0]:
-                    continue
+                if not rows or "win_rate" not in rows[0]:
+                    return
                 recent = rows[-windows:]
-                lines = [f"Last {len(recent)} OOS windows ({path.stem}):"]
+                all_lines.append(f"{label} (last {len(recent)} OOS windows):")
                 for r in recent:
+                    wr = f"{float(r['win_rate']):.0%}"
+                    sh = f"{float(r['sharpe']):.1f}"
+                    pnl = f"{float(r['avg_trade_pnl_pct']):+.1f}%"
+                    n = int(float(r.get("num_trades", 0)))
+                    oos_end = str(r.get("oos_end", "?"))[:10]
+                    safe_frac = r.get("regime_safety_fraction", "")
+                    safe = r.get("regime_safety_passed", "?")
+                    safe_str = (
+                        f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
+                    )
+                    all_lines.append(
+                        f"  OOS {oos_end}: win={wr} sharpe={sh} "
+                        f"avg_pnl={pnl} trades={n} safe={safe_str}"
+                    )
                     try:
                         wr = f"{float(r['win_rate']):.0%}"
                         sh = f"{float(r['sharpe']):.1f}"
@@ -263,9 +284,7 @@ class SpockAgent:
                         oos_end = str(r.get("oos_end", "?"))[:10]
                         safe = r.get("regime_safety_passed", "?")
                         safe_frac = r.get("regime_safety_fraction", "")
-                        safe_str = (
-                            f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
-                        )
+                        safe_str = f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
                         lines.append(
                             f"  OOS ending {oos_end}: win={wr} sharpe={sh} "
                             f"avg_pnl={pnl} trades={n} regime_safe={safe_str}"
@@ -275,18 +294,45 @@ class SpockAgent:
                 if len(lines) > 1:
                     return "\n".join(lines)
             except Exception:
-                continue
-        return ""
+                pass
+
+        # Symbol-specific files (one per walkforward run)
+        for path in sorted(processed_dir.glob("walkforward_summary_*.csv")):
+            sym = path.stem.replace("walkforward_summary_", "")
+            _collect(path, sym)
+
+        # Generic aggregate file (multi-symbol run)
+        generic = processed_dir / "walkforward_summary.csv"
+        if generic.is_file():
+            _collect(generic, "universe")
+
+        return "\n".join(all_lines) if all_lines else ""
 
     def _read_walkforward_oos_aggregate(self) -> str:
         proc = self.root / "data" / "processed"
         if not proc.is_dir():
             return ""
+        snap_path = proc / "walkforward_universe_latest.json"
+        snap_line = ""
+        if snap_path.is_file():
+            try:
+                snap: dict = json.loads(snap_path.read_text(encoding="utf-8"))
+                cs = snap.get("cross_symbol_mean_window_sharpe")
+                if cs is not None:
+                    snap_line = (
+                        f"Latest universe walk-forward batch ({str(snap.get('ts_utc', ''))[:19]}): "
+                        f"mean OOS window sharpe={float(cs):.4f}, "
+                        f"ok={snap.get('symbols_ok')}/{snap.get('symbols_attempted')}, "
+                        f"OOS windows={snap.get('total_oos_windows')}"
+                    )
+            except Exception:
+                snap_line = ""
+
         pat = re.compile(r"^walkforward_summary_([A-Za-z0-9\.\-]+)\.csv$")
         per_symbol: list[tuple[str, dict[str, float]]] = []
         for p in sorted(proc.glob("walkforward_summary_*.csv")):
             m = pat.match(p.name)
-            if not m:
+            if not m or p.name == "walkforward_summary_universe_all_windows.csv":
                 continue
             sym = m.group(1).upper()
             try:
@@ -296,16 +342,24 @@ class SpockAgent:
             if df.empty:
                 continue
             row: dict[str, float] = {}
-            for col in ("sharpe", "total_return_pct", "max_drawdown", "profit_factor", "num_trades"):
+            for col in (
+                "sharpe",
+                "total_return_pct",
+                "max_drawdown",
+                "profit_factor",
+                "num_trades",
+            ):
                 if col in df.columns:
                     s = pd.to_numeric(df[col], errors="coerce")
                     row[f"mean_{col}"] = float(s.mean())
             if row:
                 per_symbol.append((sym, row))
         if not per_symbol:
-            return ""
+            return snap_line
 
         lines = [f"Symbols with walk-forward summary files: {len(per_symbol)}"]
+        if snap_line:
+            lines.append(snap_line)
         for src in ("sharpe", "total_return_pct", "max_drawdown"):
             k = f"mean_{src}"
             vals = [d[k] for _s, d in per_symbol if k in d]
@@ -323,9 +377,7 @@ class SpockAgent:
             lines.append(
                 f"  best OOS (by mean window sharpe): {best[0]} mean_sharpe={best[1].get('mean_sharpe', 'n/a')}"
             )
-            lines.append(
-                f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}"
-            )
+            lines.append(f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}")
         return "\n".join(lines)
 
     def _read_equity_state(self) -> str:

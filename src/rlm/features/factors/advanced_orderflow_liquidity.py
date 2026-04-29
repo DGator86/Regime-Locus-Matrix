@@ -89,9 +89,7 @@ class AdvancedOrderFlowLiquidityFactors(FactorCalculator):
         close = df["close"].astype(float)
         open_ = df["open"].astype(float)
         volume = (
-            df["volume"].astype(float)
-            if "volume" in df.columns
-            else pd.Series(np.nan, index=df.index, dtype=float)
+            df["volume"].astype(float) if "volume" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
         )
 
         tr = pd.concat(
@@ -125,17 +123,10 @@ class AdvancedOrderFlowLiquidityFactors(FactorCalculator):
         out["liquidity_wall"] = 1.0 + wall_strength.clip(lower=0.0).fillna(0.0) * 0.12
 
         stacked_strength = (
-            (high_cluster_touches >= 3.0).astype(float)
-            * (high_cluster_touches - 2.0).clip(lower=0.0)
-        ) + (
-            (low_cluster_touches >= 3.0).astype(float) * (low_cluster_touches - 2.0).clip(lower=0.0)
-        )
+            (high_cluster_touches >= 3.0).astype(float) * (high_cluster_touches - 2.0).clip(lower=0.0)
+        ) + ((low_cluster_touches >= 3.0).astype(float) * (low_cluster_touches - 2.0).clip(lower=0.0))
         out["stacked_liquidity_wall"] = (
-            1.0
-            + (stacked_strength * rel_volume.rolling(5, min_periods=2).mean())
-            .clip(lower=0.0)
-            .fillna(0.0)
-            * 0.1
+            1.0 + (stacked_strength * rel_volume.rolling(5, min_periods=2).mean()).clip(lower=0.0).fillna(0.0) * 0.1
         )
 
         # Liquidity cloud: high-volume node area with repeated touches near rolling VWAP.
@@ -173,9 +164,7 @@ class AdvancedOrderFlowLiquidityFactors(FactorCalculator):
             ((low - high.shift(1)).clip(lower=0.0) + (low.shift(1) - high).clip(lower=0.0)) / atr
         ).replace([np.inf, -np.inf], np.nan)
         micro_void_flag = bullish_micro_gap | bearish_micro_gap
-        out["micro_void"] = 1.0 + (micro_void_raw.fillna(0.0) * micro_void_flag.astype(float)).clip(
-            lower=0.0
-        )
+        out["micro_void"] = 1.0 + (micro_void_raw.fillna(0.0) * micro_void_flag.astype(float)).clip(lower=0.0)
 
         # BSL/SSL grabs: raid equal highs/lows then reject with strong relative volume.
         rejection_down = close < close.shift(1)

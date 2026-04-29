@@ -45,10 +45,7 @@ class QuantileLinearModelArtifact:
             quantiles=tuple(float(x) for x in payload["quantiles"]),
             feature_columns=tuple(str(x) for x in payload["feature_columns"]),
             intercepts=tuple(float(x) for x in payload["intercepts"]),
-            coefficients=tuple(
-                tuple(float(v) for v in row)
-                for row in payload["coefficients"]
-            ),
+            coefficients=tuple(tuple(float(v) for v in row) for row in payload["coefficients"]),
         )
 
     def predict(self, feature_frame: pd.DataFrame) -> pd.DataFrame:
@@ -100,11 +97,7 @@ class ProbabilisticForecastPipeline:
         self.vol_window = vol_window
         self.model_path = Path(model_path) if model_path is not None else None
         self.feature_columns = feature_columns
-        self.model = (
-            QuantileLinearModelArtifact.load(self.model_path)
-            if self.model_path is not None
-            else None
-        )
+        self.model = QuantileLinearModelArtifact.load(self.model_path) if self.model_path is not None else None
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         base = estimate_distribution(
@@ -124,10 +117,7 @@ class ProbabilisticForecastPipeline:
             feature_columns=self.model.feature_columns,
         )
         raw_preds = self.model.predict(features)
-        q_map = {
-            float(key): raw_preds[key]
-            for key in raw_preds.columns
-        }
+        q_map = {float(key): raw_preds[key] for key in raw_preds.columns}
         lower_q = self.config.probabilistic_lower_quantile
         upper_q = self.config.probabilistic_upper_quantile
         if lower_q not in q_map or 0.5 not in q_map or upper_q not in q_map:

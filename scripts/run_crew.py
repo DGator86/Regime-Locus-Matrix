@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT / "src"))
 # Load .env before importing agents (they read env vars at import time)
 try:
     from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
 except ImportError:
     pass
@@ -53,17 +54,20 @@ def _parse() -> argparse.Namespace:
     p.add_argument("--model", help="LLM model name override")
     p.add_argument("--root", default=str(ROOT), help="Repo root path")
     p.add_argument(
-        "--health-interval", type=int,
+        "--health-interval",
+        type=int,
         default=int(os.environ.get("CREW_HEALTH_INTERVAL", "120")),
         help="Scotty check interval in seconds",
     )
     p.add_argument(
-        "--analysis-interval", type=int,
+        "--analysis-interval",
+        type=int,
         default=int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300")),
         help="Spock analysis interval in seconds",
     )
     p.add_argument(
-        "--briefing-interval", type=int,
+        "--briefing-interval",
+        type=int,
         default=int(os.environ.get("CREW_BRIEFING_INTERVAL", "600")),
         help="Kirk briefing interval in seconds",
     )

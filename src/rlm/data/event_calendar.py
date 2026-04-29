@@ -14,13 +14,13 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
 
 try:
     import yfinance as _yf  # type: ignore[import-untyped]
+
     _YFINANCE_OK = True
 except ImportError:
     _yf = None  # type: ignore[assignment]
@@ -137,11 +137,38 @@ def _is_macro_event(check_date: date, macro_dates: Iterable[date]) -> bool:
 
 # ETFs, index funds, and similar instruments that never report earnings.
 # Avoids spurious yfinance HTTP 404 errors for these tickers.
-_NO_EARNINGS_TICKERS: frozenset[str] = frozenset({
-    "SPY", "QQQ", "IWM", "DIA", "GLD", "SLV", "TLT", "HYG", "LQD",
-    "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
-    "VTI", "VOO", "VNQ", "EEM", "EFA", "VXX", "UVXY", "SOXS", "SOXL",
-})
+_NO_EARNINGS_TICKERS: frozenset[str] = frozenset(
+    {
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "GLD",
+        "SLV",
+        "TLT",
+        "HYG",
+        "LQD",
+        "XLK",
+        "XLF",
+        "XLE",
+        "XLV",
+        "XLI",
+        "XLY",
+        "XLP",
+        "XLU",
+        "XLB",
+        "XLRE",
+        "VTI",
+        "VOO",
+        "VNQ",
+        "EEM",
+        "EFA",
+        "VXX",
+        "UVXY",
+        "SOXS",
+        "SOXL",
+    }
+)
 
 
 def _earnings_within_days(symbol: str, lookahead_days: int) -> bool:
@@ -189,6 +216,7 @@ def _earnings_within_days(symbol: str, lookahead_days: int) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def has_major_event_today(
     symbol: str,

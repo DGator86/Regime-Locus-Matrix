@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,18 +60,20 @@ def _normalize_equity_rows(rows: list[dict]) -> list[dict]:
     """
     out = []
     for r in rows:
-        out.append({
-            "plan_id": r.get("plan_id", ""),
-            "symbol": r.get("symbol", ""),
-            "strategy": r.get("strategy", ""),
-            "closed": r.get("closed", "0"),
-            "entry_debit": r.get("entry_debit", ""),
-            "current_mark": r.get("current_mark", ""),
-            "unrealized_pnl": r.get("unrealized_pnl", ""),
-            "unrealized_pnl_pct": r.get("unrealized_pnl_pct", ""),
-            "signal": r.get("signal", ""),
-            "dte": r.get("quantity", ""),
-        })
+        out.append(
+            {
+                "plan_id": r.get("plan_id", ""),
+                "symbol": r.get("symbol", ""),
+                "strategy": r.get("strategy", ""),
+                "closed": r.get("closed", "0"),
+                "entry_debit": r.get("entry_debit", ""),
+                "current_mark": r.get("current_mark", ""),
+                "unrealized_pnl": r.get("unrealized_pnl", ""),
+                "unrealized_pnl_pct": r.get("unrealized_pnl_pct", ""),
+                "signal": r.get("signal", ""),
+                "dte": r.get("quantity", ""),
+            }
+        )
     return out
 
 
@@ -89,12 +90,18 @@ def _fmt(val: str, width: int, align: str = ">") -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--log", type=Path, default=Path("data/processed/trade_log.csv"),
-                    help="Options trade log (default: data/processed/trade_log.csv)")
-    ap.add_argument("--equity", action="store_true",
-                    help="Show equity trade log (data/processed/equity_trade_log.csv)")
-    ap.add_argument("--equity-log", type=Path, default=None,
-                    help="Explicit path to equity trade log CSV")
+    ap.add_argument(
+        "--log",
+        type=Path,
+        default=Path("data/processed/trade_log.csv"),
+        help="Options trade log (default: data/processed/trade_log.csv)",
+    )
+    ap.add_argument(
+        "--equity",
+        action="store_true",
+        help="Show equity trade log (data/processed/equity_trade_log.csv)",
+    )
+    ap.add_argument("--equity-log", type=Path, default=None, help="Explicit path to equity trade log CSV")
     ap.add_argument("--closed", action="store_true", help="Show only closed trades")
     ap.add_argument("--open", dest="open_only", action="store_true", help="Show only open trades")
     ap.add_argument("--all-rows", action="store_true", help="Show every log row, not just latest per plan")

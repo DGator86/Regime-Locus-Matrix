@@ -1,1 +1,1 @@
-"""Forecasting model implementations (Kronos foundation model, etc.)."""
+"""Forecasting model implementations (Kronos, etc.)."""

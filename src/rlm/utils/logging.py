@@ -24,6 +24,7 @@ def _configure_logger(logger: logging.Logger) -> logging.Logger:
     handler.setLevel(level)
 
     if os.environ.get("RLM_LOG_JSON", "").strip() == "1":
+
         class _JsonFormatter(logging.Formatter):
             def format(self, record: logging.LogRecord) -> str:
                 payload: dict[str, Any] = {
@@ -32,7 +33,16 @@ def _configure_logger(logger: logging.Logger) -> logging.Logger:
                     "logger": record.name,
                     "msg": record.getMessage(),
                 }
-                for key in ("run_id", "command", "symbol", "backend", "profile", "stage", "success", "duration_s"):
+                for key in (
+                    "run_id",
+                    "command",
+                    "symbol",
+                    "backend",
+                    "profile",
+                    "stage",
+                    "success",
+                    "duration_s",
+                ):
                     if hasattr(record, key):
                         payload[key] = getattr(record, key)
                 return json.dumps(payload)

@@ -45,6 +45,7 @@ def _parse_symbols(s: str) -> list[str]:
 
 async def _run_underlying(symbol: str, data_root: str, bar_size: str) -> None:
     from rlm.microstructure.collectors.underlying import UnderlyingCollector
+
     collector = UnderlyingCollector(symbol, data_root=data_root, bar_size=bar_size)
     await collector.stream()
 
@@ -58,6 +59,7 @@ async def _run_options(
     min_oi: int,
 ) -> None:
     from rlm.microstructure.collectors.options import OptionsCollector
+
     collector = OptionsCollector(
         symbol,
         data_root=data_root,
@@ -77,22 +79,32 @@ async def main(args: argparse.Namespace) -> None:
 
     tasks: list[asyncio.Task] = []
     for sym in symbols:
-        tasks.append(asyncio.create_task(
-            _run_underlying(sym, data_root, args.bar_size),
-            name=f"underlying_{sym}",
-        ))
+        tasks.append(
+            asyncio.create_task(
+                _run_underlying(sym, data_root, args.bar_size),
+                name=f"underlying_{sym}",
+            )
+        )
         if not args.no_options:
-            tasks.append(asyncio.create_task(
-                _run_options(
-                    sym, data_root, args.interval,
-                    args.strike_band, args.max_dte, args.min_oi,
-                ),
-                name=f"options_{sym}",
-            ))
+            tasks.append(
+                asyncio.create_task(
+                    _run_options(
+                        sym,
+                        data_root,
+                        args.interval,
+                        args.strike_band,
+                        args.max_dte,
+                        args.min_oi,
+                    ),
+                    name=f"options_{sym}",
+                )
+            )
 
     logger.info(
         "Started %d collector task(s) for %s (options=%s)",
-        len(tasks), symbols, not args.no_options,
+        len(tasks),
+        symbols,
+        not args.no_options,
     )
 
     stop_event = asyncio.Event()
@@ -115,25 +127,32 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--symbols", default="SPY", help="Comma-separated tickers")
     p.add_argument(
-        "--interval", type=float, default=5.0,
+        "--interval",
+        type=float,
+        default=5.0,
         help="Seconds between option chain snapshots (default: 5)",
     )
     p.add_argument(
-        "--bar-size", default="5 secs",
+        "--bar-size",
+        default="5 secs",
         help="IBKR bar size for underlying stream (default: '5 secs')",
     )
     p.add_argument(
-        "--strike-band", type=float, default=0.15,
+        "--strike-band",
+        type=float,
+        default=0.15,
         help="ATM band for option chain (default: 0.15 = ±15%%)",
     )
     p.add_argument("--max-dte", type=int, default=90, help="Max DTE for option chain (default: 90)")
     p.add_argument("--min-oi", type=int, default=10, help="Min open interest filter (default: 10)")
     p.add_argument(
-        "--no-options", action="store_true",
+        "--no-options",
+        action="store_true",
         help="Skip the option chain collector (underlying bars only)",
     )
     p.add_argument(
-        "--data-root", default="data/microstructure",
+        "--data-root",
+        default="data/microstructure",
         help="Root of microstructure lake (relative to repo root)",
     )
     return p.parse_args()

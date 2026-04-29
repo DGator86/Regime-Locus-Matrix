@@ -124,9 +124,7 @@ class OptimizationBase:
     """Shared utilities for nightly hyperparameter optimization."""
 
     @staticmethod
-    def load_bars(
-        symbol: str, lookback_bars: int = 252 * 2, root: Path | None = None
-    ) -> pd.DataFrame:
+    def load_bars(symbol: str, lookback_bars: int = 252 * 2, root: Path | None = None) -> pd.DataFrame:
         """Load daily bars from data/raw/bars_<SYMBOL>.csv."""
         repo_root = root or Path(__file__).resolve().parents[3]
         bars_path = repo_root / "data" / "raw" / f"bars_{symbol.upper()}.csv"
@@ -166,17 +164,11 @@ class OptimizationBase:
             mtf_regimes=False,
             hmm_confidence_threshold=trial.suggest_float("hmm_confidence_threshold", 0.55, 0.75),
             high_vol_kelly_multiplier=trial.suggest_float("high_vol_kelly_multiplier", 0.45, 0.75),
-            transition_kelly_multiplier=trial.suggest_float(
-                "transition_kelly_multiplier", 0.70, 0.95
-            ),
-            calm_trend_kelly_multiplier=trial.suggest_float(
-                "calm_trend_kelly_multiplier", 1.05, 1.35
-            ),
+            transition_kelly_multiplier=trial.suggest_float("transition_kelly_multiplier", 0.70, 0.95),
+            calm_trend_kelly_multiplier=trial.suggest_float("calm_trend_kelly_multiplier", 1.05, 1.35),
             move_window=trial.suggest_int("move_window", 85, 115),
             vol_window=trial.suggest_int("vol_window", 85, 115),
-            direction_neutral_threshold=trial.suggest_float(
-                "direction_neutral_threshold", 0.26, 0.34
-            ),
+            direction_neutral_threshold=trial.suggest_float("direction_neutral_threshold", 0.26, 0.34),
         )
         # Decimal fraction; 0.0005 = 5 bps, 0.003 = 30 bps
         transaction_cost_frac = trial.suggest_float("transaction_cost_frac", 0.0005, 0.003)

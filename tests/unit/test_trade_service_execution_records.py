@@ -5,7 +5,13 @@ from rlm.core.services.trade_service import TradeDecision, TradeRequest, TradeSe
 
 class _Broker:
     def submit_trade_decision(self, symbol, decision, paper):
-        return {"success": True, "broker": "fake", "order_id": "123", "message": f"{symbol}:{paper}", "details": decision}
+        return {
+            "success": True,
+            "broker": "fake",
+            "order_id": "123",
+            "message": f"{symbol}:{paper}",
+            "details": decision,
+        }
 
 
 def test_trade_execution_record_normalized():

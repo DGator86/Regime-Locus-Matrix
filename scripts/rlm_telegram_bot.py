@@ -17,9 +17,9 @@ import os
 import sys
 import threading
 import time
+import urllib.error
 from pathlib import Path
 from typing import Any
-import urllib.error
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -249,7 +249,10 @@ def main() -> int:
     if allowed is not None:
         print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
     else:
-        print("[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot", flush=True)
+        print(
+            "[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot",
+            flush=True,
+        )
     lp = _long_poll_timeout_sec()
     print(f"[rlm-telegram] long-poll timeout={lp}s", flush=True)
 

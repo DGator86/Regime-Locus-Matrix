@@ -69,9 +69,7 @@ def build_calendar_structure(start_close: float, width_abs: float) -> SpreadStru
     )
 
 
-def build_debit_spread_structure(
-    start_close: float, width_abs: float, bias: float = 0.0
-) -> SpreadStructure:
+def build_debit_spread_structure(start_close: float, width_abs: float, bias: float = 0.0) -> SpreadStructure:
     debit = max(0.22 * width_abs, 1e-3)
     direction = 1.0 if bias >= 0 else -1.0
     return SpreadStructure(

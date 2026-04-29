@@ -89,12 +89,7 @@ class MarketCoordinate:
         Small δ  → close to ordinary market conditions.
         Large δ  → extreme regime.
         """
-        return math.sqrt(
-            wD * self.d**2
-            + wV * (self.V - 5.0) ** 2
-            + wL * (self.L - 5.0) ** 2
-            + wG * self.g**2
-        )
+        return math.sqrt(wD * self.d**2 + wV * (self.V - 5.0) ** 2 + wL * (self.L - 5.0) ** 2 + wG * self.g**2)
 
     # ------------------------------------------------------------------
     # Transition / velocity
@@ -207,7 +202,4 @@ class MarketCoordinate:
         return cls(D=_sc(s_d), V=_sc(s_v), L=_sc(s_l), G=_sc(s_g))
 
     def __repr__(self) -> str:
-        return (
-            f"MarketCoordinate(D={self.D:.3f}, V={self.V:.3f}, "
-            f"L={self.L:.3f}, G={self.G:.3f})"
-        )
+        return f"MarketCoordinate(D={self.D:.3f}, V={self.V:.3f}, " f"L={self.L:.3f}, G={self.G:.3f})"

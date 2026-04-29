@@ -19,6 +19,7 @@ Examples::
     python scripts/run_master.py --interval 30 --rescan-interval 600
     python scripts/run_master.py --equity-position-usd 5000 --equity-stop-pct 3
     python scripts/run_master.py --equity-dry-run   # log equity signals without IBKR orders
+    python scripts/run_master.py --with-challenge   # + $1K→$25K PDT options dry-run (reset once: rlm challenge --reset)
 """
 
 from __future__ import annotations

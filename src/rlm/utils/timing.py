@@ -10,7 +10,23 @@ def timed_stage(logger, stage: str, **fields):
     logger.info("stage start", extra={"stage": stage, **fields})
     try:
         yield
-        logger.info("stage done", extra={"stage": stage, "success": True, "duration_s": round(time.monotonic() - start, 4), **fields})
+        logger.info(
+            "stage done",
+            extra={
+                "stage": stage,
+                "success": True,
+                "duration_s": round(time.monotonic() - start, 4),
+                **fields,
+            },
+        )
     except Exception:
-        logger.exception("stage failed", extra={"stage": stage, "success": False, "duration_s": round(time.monotonic() - start, 4), **fields})
+        logger.exception(
+            "stage failed",
+            extra={
+                "stage": stage,
+                "success": False,
+                "duration_s": round(time.monotonic() - start, 4),
+                **fields,
+            },
+        )
         raise
