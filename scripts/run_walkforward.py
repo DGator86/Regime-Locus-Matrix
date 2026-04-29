@@ -22,6 +22,7 @@ This wrapper will be removed in a future release.
 import sys
 
 
+
 def _has_symbol_args(argv: list[str]) -> bool:
     for i, a in enumerate(argv):
         if a in ("--symbol", "--symbols", "--universe"):
