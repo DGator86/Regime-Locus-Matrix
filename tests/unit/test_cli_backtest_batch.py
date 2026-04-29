@@ -1,36 +1,69 @@
 from __future__ import annotations
 
-import argparse
+from dataclasses import dataclass
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 from rlm.cli import backtest
 
 
+@dataclass
+class _FakeConfig:
+    regime_model: str = "hmm"
+
+
+class _FakeService:
+    def run(self, req):
+        return object()
+
+    def write_outputs(self, req, result):
+        return SimpleNamespace(
+            trades_csv=None,
+            equity_csv=None,
+            trades_rows=0,
+            equity_rows=0,
+        )
+
+    def summarize(self, result):
+        return {"metrics": {"sharpe": 1.0}}
+
+
 def test_multi_symbol_backtest_uses_distinct_run_ids(monkeypatch, tmp_path):
-    args = argparse.Namespace(
+    args = SimpleNamespace(
         out_dir=str(tmp_path / "processed"),
         data_root=str(tmp_path),
+        synthetic=False,
+        bars=None,
+        chain=None,
+        backend="csv",
+        profile=None,
         walkforward=False,
+        initial_capital=100_000.0,
     )
-    seen: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(backtest, "_parse_args", lambda: args)
-    monkeypatch.setattr(backtest, "_resolve_symbols", lambda _args: ["SPY", "QQQ"])
     monkeypatch.setattr(backtest, "generate_run_id", lambda prefix: f"{prefix}-fixed")
     monkeypatch.setattr(
         backtest,
-        "_run_one",
-        lambda sym, _args, _out_dir, run_id: seen.append((sym, run_id)),
+        "_load_symbol_data",
+        lambda *_args, **_kwargs: (SimpleNamespace(), None),
     )
+    monkeypatch.setattr(backtest, "build_pipeline_config", lambda *_args, **_kwargs: _FakeConfig())
 
-    backtest.main()
+    symbols = ["SPY", "QQQ"]
+    for sym in symbols:
+        backtest._run_symbol(
+            sym,
+            args,
+            svc=_FakeService(),
+            out_dir=tmp_path / "processed",
+            symbols=symbols,
+        )
 
-    assert seen == [
-        ("SPY", "backtest-fixed-01-SPY"),
-        ("QQQ", "backtest-fixed-02-QQQ"),
-    ]
+    runs_dir = tmp_path / "artifacts" / "runs"
+    assert (runs_dir / "backtest-SPY-fixed.json").exists()
+    assert (runs_dir / "backtest-QQQ-fixed.json").exists()
 
 
 def test_run_walkforward_wrapper_allows_single_symbol_override():
