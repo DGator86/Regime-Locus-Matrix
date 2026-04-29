@@ -87,6 +87,7 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
     assert np.allclose(transmat.sum(axis=1), 1.0, atol=1e-5)
 
 
+
 def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
     df = _synthetic_scores(220)
     train_mask = pd.Series(df.index < df.index[160], index=df.index)

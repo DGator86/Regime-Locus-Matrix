@@ -14,7 +14,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from rlm.optimization.base import _compute_sharpe, _signal_based_score, align_regime_labels
+from rlm.optimization.base import (  # noqa: E402
+    OptimizationBase,
+    _compute_sharpe,
+    _signal_based_score,
+    align_regime_labels,
+)
 
 # ---------------------------------------------------------------------------
 # _compute_sharpe
@@ -86,6 +91,66 @@ def test_signal_based_score_missing_close_returns_nan():
     df = pd.DataFrame({"roee_action": ["enter"] * 200, "roee_size_fraction": [1.0] * 200})
     score = _signal_based_score(df, oos_start=150)
     assert np.isnan(score)
+
+
+class _RecordingTrial:
+    def __init__(self) -> None:
+        self.suggested: set[str] = set()
+
+    def suggest_float(self, name: str, low: float, high: float) -> float:
+        self.suggested.add(name)
+        return (low + high) / 2
+
+    def suggest_int(self, name: str, low: int, high: int) -> int:
+        self.suggested.add(name)
+        return (low + high) // 2
+
+    def suggest_categorical(self, name: str, choices: list[object]) -> object:
+        self.suggested.add(name)
+        return choices[0]
+
+
+def test_objective_does_not_suggest_or_apply_mtf_regimes(monkeypatch):
+    """Nightly opt cannot persist mtf_regimes=True without HTF parquet paths."""
+
+    captured_configs = []
+
+    class FakePipeline:
+        def __init__(self, cfg):
+            captured_configs.append(cfg)
+
+        def run(self, bars):
+            return type(
+                "Result",
+                (),
+                {
+                    "policy_df": pd.DataFrame(
+                        {
+                            "close": np.linspace(100.0, 140.0, 200),
+                            "roee_action": ["enter"] * 200,
+                            "roee_size_fraction": [1.0] * 200,
+                        }
+                    )
+                },
+            )()
+
+    monkeypatch.setattr(
+        "rlm.optimization.base.OptimizationBase.load_bars",
+        staticmethod(
+            lambda symbol, lookback_bars=252 * 2, root=None: pd.DataFrame({"close": [1.0]})
+        ),
+    )
+    monkeypatch.setattr("rlm.optimization.base.FullRLMPipeline", FakePipeline)
+
+    trial = _RecordingTrial()
+    score = OptimizationBase.objective(trial, ["SPY"], "hmm")
+
+    assert np.isfinite(score)
+    assert "mtf_regimes" not in trial.suggested
+    assert captured_configs
+    cfg = captured_configs[0]
+    assert cfg.mtf_regimes is False
+    assert "mtf_regimes" not in cfg.nightly_hyperparams
 
 
 # ---------------------------------------------------------------------------
