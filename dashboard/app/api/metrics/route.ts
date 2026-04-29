@@ -98,6 +98,29 @@ function num(v: any): number {
   return isNaN(n) ? 0 : n;
 }
 
+function fileMtimeIso(filePath: string): string | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return fs.statSync(filePath).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function latestMtimeIso(filePaths: string[]): string | null {
+  let latest = 0;
+  for (const filePath of filePaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const mt = fs.statSync(filePath).mtimeMs;
+      if (mt > latest) latest = mt;
+    } catch {
+      // ignore unreadable files
+    }
+  }
+  return latest > 0 ? new Date(latest).toISOString() : null;
+}
+
 function buildMarketState(dataDir: string) {
   const gate = readJson(path.join(dataDir, "gate_state.json"));
   if (!gate) return { posture: "UNKNOWN", status: "UNKNOWN", lastUpdated: "" };
@@ -105,6 +128,40 @@ function buildMarketState(dataDir: string) {
     posture: gate.posture || gate.gate_posture || "UNKNOWN",
     status: gate.status || gate.gate_status || "UNKNOWN",
     lastUpdated: gate.last_updated || gate.timestamp || "",
+  };
+}
+
+function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
+  const ibkrLastUpdated =
+    marketStateLastUpdated && String(marketStateLastUpdated).trim().length > 0
+      ? String(marketStateLastUpdated)
+      : fileMtimeIso(path.join(dataDir, "gate_state.json"));
+
+  const massiveLastUpdated = latestMtimeIso([
+    path.join(dataDir, "forecast_features_SPY.csv"),
+    path.join(dataDir, "forecast_features_QQQ.csv"),
+    path.join(dataDir, "forecast_features_IWM.csv"),
+  ]);
+
+  const lakeLastUpdated = latestMtimeIso([
+    path.join(dataDir, "forecast_features_SPY.csv"),
+    path.join(dataDir, "universe_trade_plans.json"),
+    path.join(dataDir, "trade_log.csv"),
+    path.join(dataDir, "equity_trade_log.csv"),
+  ]);
+
+  const doctorLastUpdated = latestMtimeIso([
+    path.join(dataDir, "doctor_report.json"),
+    path.join(dataDir, "doctor_status.json"),
+    path.join(dataDir, "diagnostics_report.json"),
+    path.join(dataDir, "model_health.json"),
+  ]);
+
+  return {
+    ibkrLastUpdated,
+    massiveLastUpdated,
+    lakeLastUpdated,
+    doctorLastUpdated,
   };
 }
 
@@ -400,6 +457,7 @@ export async function GET() {
     const hasPlans = fs.existsSync(plansPath);
 
     const marketState = buildMarketState(dataDir);
+    const dataAge = buildDataAge(dataDir, marketState.lastUpdated);
     const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
     const tradeSummary = buildTradeSummary(dataDir);
     const equityPositions = buildEquityPositions(dataDir);
@@ -419,6 +477,7 @@ export async function GET() {
       backtestEquity,
       walkforwardSummary,
       generatedAt: new Date().toISOString(),
+      dataAge,
       symbolsInUniverse,
       dataMeta: {
         processedDir: dataDir,

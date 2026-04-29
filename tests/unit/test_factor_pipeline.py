@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 
+from rlm.features.factors.base import standardize_factor_frame
 from rlm.factors import FactorPipeline
+from rlm.types.factors import FactorCategory, FactorSpec, TransformKind
 
 
 def make_sample_bars(n: int = 150) -> pd.DataFrame:
@@ -70,6 +72,28 @@ def test_standardized_factors_are_bounded() -> None:
     assert (finite_vals >= -1.0).all()
 
 
+def test_standardize_factor_frame_coerces_nullable_missing_values() -> None:
+    raw = pd.DataFrame(
+        {
+            "spread_ratio": pd.Series([pd.NA, 1.0, 1.1, 0.9, 1.2, 0.8])
+        }
+    )
+    specs = [
+        FactorSpec(
+            "spread_ratio",
+            FactorCategory.LIQUIDITY,
+            TransformKind.RATIO,
+            neutral_value=1.0,
+        )
+    ]
+
+    out = standardize_factor_frame(raw, specs, rolling_window=3, min_periods=2)
+
+    assert "spread_ratio" in out.columns
+    assert out["spread_ratio"].isna().sum() >= 1
+    assert np.isfinite(out["spread_ratio"]).any()
+
+
 def test_factor_pipeline_emits_new_feature_columns_from_default_config() -> None:
     df = make_sample_bars()
     out = FactorPipeline().run(df)
@@ -88,6 +112,32 @@ def test_factor_pipeline_emits_new_feature_columns_from_default_config() -> None
     for col in expected:
         assert col in out.columns
         assert out[col].notna().sum() > 0
+
+
+def test_factor_pipeline_handles_missing_optional_factor_inputs() -> None:
+    df = make_sample_bars().drop(
+        columns=[
+            "vix",
+            "vvix",
+            "options_volume",
+            "options_volume_to_oi",
+            "order_book_depth",
+            "gex",
+            "vanna",
+            "charm",
+            "put_call_skew",
+            "iv_rank",
+            "term_structure_ratio",
+            "dealer_position_proxy",
+        ]
+    )
+
+    out = FactorPipeline().run(df)
+
+    assert out["std_gex_signal"].isna().all()
+    assert out["std_options_volume_to_oi"].isna().all()
+    assert out["S_D"].notna().sum() > 0
+    assert out["S_L"].notna().sum() > 0
 
 
 def test_factor_pipeline_respects_enabled_factor_config() -> None:
