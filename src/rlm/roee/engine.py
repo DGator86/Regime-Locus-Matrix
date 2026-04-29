@@ -29,6 +29,8 @@ class ROEEConfig:
     kronos_confidence_weight: float = 0.4
     hmm_confidence_weight: float = 0.6
     kronos_transition_penalty: float = 0.3
+    kronos_epistemic_disable_threshold: float | None = 0.7
+    kronos_aleatoric_size_penalty: float = 0.5
     vp_gating_enabled: bool = False
     wyckoff_threshold: float = 0.7
     balance_haircut: float = 0.5
@@ -40,6 +42,10 @@ class ROEEConfig:
     force_exit_dte: int = 2
     max_total_positions: int = 10
     max_positions_per_symbol: int = 1
+    daily_loss_circuit_breaker_pct: float | None = None
+    weekly_loss_circuit_breaker_pct: float | None = None
+    correlation_exposure_threshold: float | None = None
+    correlation_exposure_haircut: float = 0.5
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
@@ -66,6 +72,8 @@ def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, 
         kronos_confidence_weight=config.kronos_confidence_weight,
         hmm_confidence_weight=config.hmm_confidence_weight,
         kronos_transition_penalty=config.kronos_transition_penalty,
+        kronos_epistemic_disable_threshold=config.kronos_epistemic_disable_threshold,
+        kronos_aleatoric_size_penalty=config.kronos_aleatoric_size_penalty,
     )
 
 
@@ -121,10 +129,60 @@ def apply_roee_policy(
     vault_uncertainties = []
     vault_uncertainty_thresholds = []
 
-    for _, row in out.iterrows():
+    current_day_key: str | None = None
+    current_week_key: str | None = None
+    day_pnl = 0.0
+    week_pnl = 0.0
+
+    for ts, row in out.iterrows():
+        ts_obj = pd.Timestamp(ts)
+        day_key = ts_obj.strftime("%Y-%m-%d")
+        week_key = f"{ts_obj.isocalendar().year}-W{ts_obj.isocalendar().week:02d}"
+        if current_day_key != day_key:
+            current_day_key = day_key
+            day_pnl = 0.0
+        if current_week_key != week_key:
+            current_week_key = week_key
+            week_pnl = 0.0
+        if "pnl_pct" in out.columns and pd.notna(row.get("pnl_pct")):
+            pnl_val = float(row.get("pnl_pct") or 0.0)
+            day_pnl += pnl_val
+            week_pnl += pnl_val
+
         mod = _hmm_modulators_for_config(row, cfg)
+        day_blocked = (
+            cfg.daily_loss_circuit_breaker_pct is not None and day_pnl <= float(cfg.daily_loss_circuit_breaker_pct)
+        )
+        week_blocked = (
+            cfg.weekly_loss_circuit_breaker_pct is not None and week_pnl <= float(cfg.weekly_loss_circuit_breaker_pct)
+        )
         regime_train_sample_count = int(row.get("regime_train_sample_count", 0) or 0)
         regime_safety_ok = bool(row.get("regime_safety_ok", True))
+        if day_blocked or week_blocked:
+            actions.append("hold")
+            strategy_names.append("circuit_breaker")
+            if day_blocked and week_blocked:
+                rationales.append("Daily and weekly loss circuit breakers are active.")
+            elif day_blocked:
+                rationales.append("Daily loss circuit breaker is active.")
+            else:
+                rationales.append("Weekly loss circuit breaker is active.")
+            size_fractions.append(0.0)
+            target_profit_pcts.append(0.0)
+            max_risk_pcts.append(0.0)
+            leg_counts.append(0)
+            hmm_confidences.append(mod["confidence"])
+            hmm_size_multipliers.append(mod["size_mult"])
+            hmm_trade_flags.append(False)
+            regime_models.append(str(mod["model"]))
+            regime_confidences.append(mod["confidence"])
+            regime_size_multipliers.append(mod["size_mult"])
+            regime_trade_flags.append(False)
+            vault_triggers.append(False)
+            vault_size_multipliers.append(float(cfg.vault_size_multiplier))
+            vault_uncertainties.append(float("nan"))
+            vault_uncertainty_thresholds.append(float("nan"))
+            continue
         if cfg.min_regime_train_samples > 0 and not regime_safety_ok:
             actions.append("hold")
             strategy_names.append("regime_safety_check")
@@ -278,11 +336,23 @@ def apply_roee_policy(
         actions.append(decision.action)
         strategy_names.append(decision.strategy_name)
         rationales.append(decision.rationale)
-        size_fractions.append(
+        decided_size = (
             (float(decision.size_fraction) * float(mod["size_mult"]))
             if decision.action == "enter" and decision.size_fraction is not None
             else 0.0
         )
+        corr_risk = (
+            float(row["portfolio_corr_exposure"])
+            if "portfolio_corr_exposure" in out.columns and pd.notna(row.get("portfolio_corr_exposure"))
+            else None
+        )
+        if (
+            corr_risk is not None
+            and cfg.correlation_exposure_threshold is not None
+            and corr_risk > float(cfg.correlation_exposure_threshold)
+        ):
+            decided_size *= float(cfg.correlation_exposure_haircut)
+        size_fractions.append(float(decided_size))
         target_profit_pcts.append(float(decision.target_profit_pct or 0.0))
         max_risk_pcts.append(float(decision.max_risk_pct or 0.0))
         leg_counts.append(len(decision.legs))

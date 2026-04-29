@@ -86,6 +86,8 @@ def compute_regime_modulators(
     kronos_confidence_weight: float = 0.4,
     hmm_confidence_weight: float = 0.6,
     kronos_transition_penalty: float = 0.3,
+    kronos_epistemic_disable_threshold: float | None = None,
+    kronos_aleatoric_size_penalty: float = 0.0,
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
@@ -141,9 +143,23 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
+    epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
+    aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
+
     trans_risk = 1.0 - composite
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
+
+    if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
+        size_mult *= max(0.0, 1.0 - kronos_aleatoric_size_penalty * float(np.clip(aleatoric, 0.0, 1.0)))
+
     trade = composite >= confidence_threshold
+    if (
+        kronos_epistemic_disable_threshold is not None
+        and math.isfinite(epistemic)
+        and epistemic >= float(kronos_epistemic_disable_threshold)
+    ):
+        trade = False
+        model_name = f"{model_name}+epi_gate"
     return {
         "confidence": float(composite),
         "size_mult": max(float(size_mult), 0.0),
