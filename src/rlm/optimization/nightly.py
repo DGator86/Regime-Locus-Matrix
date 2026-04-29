@@ -41,6 +41,7 @@ class NightlyMTFOptimizer:
         )
 
         completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+
         if not completed:
             if NIGHTLY_PATH.exists():
                 try:
@@ -55,6 +56,7 @@ class NightlyMTFOptimizer:
                 "Nightly optimization produced no valid backtest scores; "
                 "leaving live_nightly_hyperparams.json unchanged."
             )
+
         best = study.best_params
 
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
