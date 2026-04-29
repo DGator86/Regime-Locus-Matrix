@@ -140,6 +140,32 @@ def kelly_voltarget_size(
     return quantize_fraction(clamp(size, 0.0, max_capital_fraction))
 
 
+def kelly_confidence_from_uncertainty(
+    *,
+    forecast_uncertainty: float | None,
+    uncertainty_floor: float = 0.005,
+    uncertainty_ceiling: float = 0.05,
+) -> float:
+    """
+    Convert forecast uncertainty into a continuous confidence multiplier in [0, 1].
+    """
+    if forecast_uncertainty is None:
+        return 1.0
+    try:
+        u = float(forecast_uncertainty)
+    except (TypeError, ValueError):
+        return 1.0
+    if u <= 0.0:
+        return 1.0
+    low = max(1e-9, float(uncertainty_floor))
+    high = max(low, float(uncertainty_ceiling))
+    if u <= low:
+        return 1.0
+    if u >= high:
+        return 0.0
+    return quantize_fraction(1.0 - ((u - low) / (high - low)))
+
+
 def apply_uncertainty_vault(
     *,
     size_fraction: float,

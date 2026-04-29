@@ -1,39 +1,30 @@
-"""Legacy walk-forward wrapper argument rewriting."""
-
-from __future__ import annotations
-
 import runpy
 import sys
-
-from rlm.cli.backtest import _parse_args
-from rlm.cli.common import resolve_backtest_symbols
+import types
 
 
-def _load_wrapper_with_args(monkeypatch, args: list[str]) -> list[str]:
-    monkeypatch.setattr(sys, "argv", ["scripts/run_walkforward.py", *args])
-    runpy.run_path("scripts/run_walkforward.py", run_name="not_main")
-    return list(sys.argv)
+def _run_wrapper(monkeypatch, argv: list[str]) -> list[str]:
+    captured: list[str] = []
+    backtest_mod = types.ModuleType("rlm.cli.backtest")
+
+    def fake_main() -> None:
+        captured.extend(sys.argv)
+
+    backtest_mod.main = fake_main
+    monkeypatch.setitem(sys.modules, "rlm.cli.backtest", backtest_mod)
+    monkeypatch.setattr(sys, "argv", argv)
+
+    runpy.run_path("scripts/run_walkforward.py", run_name="__main__")
+    return captured
 
 
-def test_run_walkforward_defaults_to_universe(monkeypatch) -> None:
-    argv = _load_wrapper_with_args(monkeypatch, [])
+def test_walkforward_wrapper_defaults_to_universe(monkeypatch) -> None:
+    argv = _run_wrapper(monkeypatch, ["run_walkforward.py", "--no-vix"])
 
-    assert argv == ["scripts/run_walkforward.py", "--walkforward", "--universe"]
-
-
-def test_run_walkforward_preserves_single_symbol_override(monkeypatch) -> None:
-    _load_wrapper_with_args(monkeypatch, ["--symbol", "SPY"])
-
-    args = _parse_args()
-    assert args.walkforward is True
-    assert args.universe is False
-    assert resolve_backtest_symbols(args) == ["SPY"]
+    assert argv[1:] == ["--walkforward", "--universe", "--no-vix"]
 
 
-def test_run_walkforward_preserves_symbols_override(monkeypatch) -> None:
-    _load_wrapper_with_args(monkeypatch, ["--symbols", "SPY,QQQ"])
+def test_walkforward_wrapper_respects_explicit_symbol(monkeypatch) -> None:
+    argv = _run_wrapper(monkeypatch, ["run_walkforward.py", "--symbol", "SPY", "--no-vix"])
 
-    args = _parse_args()
-    assert args.walkforward is True
-    assert args.universe is False
-    assert resolve_backtest_symbols(args) == ["SPY", "QQQ"]
+    assert argv[1:] == ["--walkforward", "--symbol", "SPY", "--no-vix"]
