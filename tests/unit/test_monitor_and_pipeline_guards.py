@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from scripts.monitor_active_trade_plans import _evaluate_plan
 from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
@@ -170,3 +171,14 @@ def test_pipeline_open_symbol_in_trade_log_blocks_new_active(tmp_path: Path) -> 
     _apply_active_plan_guards(rows, max_active_per_symbol=1, open_symbols=open_symbols)
     assert rows[0]["status"] == "trimmed"
     assert rows[0]["skip_reason"] == "symbol_already_open_in_trade_log"
+
+
+def test_full_pipeline_nightly_overlay_ignores_stale_mtf_regimes(tmp_path: Path) -> None:
+    nightly_path = tmp_path / "live_nightly_hyperparams.json"
+    nightly_path.write_text('{"mtf_regimes": true, "move_window": 91}', encoding="utf-8")
+
+    cfg = FullRLMConfig(nightly_hyperparams_path=str(nightly_path))
+    pipe = FullRLMPipeline(cfg)
+
+    assert pipe.config.move_window == 91
+    assert pipe.config.mtf_regimes is False
