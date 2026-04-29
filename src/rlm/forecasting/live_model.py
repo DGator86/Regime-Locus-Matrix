@@ -65,6 +65,11 @@ class LiveROEEParameters(BaseModel):
     confidence_threshold: float = 0.6
     sizing_multiplier: float = 1.0
     transition_penalty: float = 0.5
+    kronos_confidence_weight: float = 0.4
+    hmm_confidence_weight: float = 0.6
+    kronos_transition_penalty: float = 0.3
+    kronos_epistemic_disable_threshold: float | None = 0.7
+    kronos_aleatoric_size_penalty: float = 0.5
     use_dynamic_sizing: bool = False
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
@@ -78,6 +83,11 @@ class LiveROEEParameters(BaseModel):
             hmm_confidence_threshold=self.confidence_threshold,
             sizing_multiplier=self.sizing_multiplier,
             transition_penalty=self.transition_penalty,
+            kronos_confidence_weight=self.kronos_confidence_weight,
+            hmm_confidence_weight=self.hmm_confidence_weight,
+            kronos_transition_penalty=self.kronos_transition_penalty,
+            kronos_epistemic_disable_threshold=self.kronos_epistemic_disable_threshold,
+            kronos_aleatoric_size_penalty=self.kronos_aleatoric_size_penalty,
             use_dynamic_sizing=self.use_dynamic_sizing,
             vol_target=self.vol_target,
             max_kelly_fraction=self.max_kelly_fraction,
@@ -92,6 +102,11 @@ class LiveROEEParameters(BaseModel):
             "hmm_confidence_threshold": self.confidence_threshold,
             "hmm_sizing_multiplier": self.sizing_multiplier,
             "hmm_transition_penalty": self.transition_penalty,
+            "kronos_confidence_weight": self.kronos_confidence_weight,
+            "hmm_confidence_weight": self.hmm_confidence_weight,
+            "kronos_transition_penalty": self.kronos_transition_penalty,
+            "kronos_epistemic_disable_threshold": self.kronos_epistemic_disable_threshold,
+            "kronos_aleatoric_size_penalty": self.kronos_aleatoric_size_penalty,
             "use_dynamic_sizing": self.use_dynamic_sizing,
             "vol_target": self.vol_target,
             "max_kelly_fraction": self.max_kelly_fraction,

@@ -123,3 +123,45 @@ def test_engine_passes_regime_safety_counts_to_decision(monkeypatch) -> None:
 
     assert seen_counts == [0, 1, 2]
     assert seen_mins == [2, 2, 2]
+
+
+def test_engine_passes_kronos_uncertainty_controls_to_decision(monkeypatch) -> None:
+    timestamps = pd.date_range("2025-01-10", periods=1, freq="D")
+    features = pd.DataFrame([_bull_row()], index=timestamps)
+    chain = pd.DataFrame(
+        [
+            {
+                "timestamp": timestamps[0],
+                "underlying": "SPY",
+                "expiry": pd.Timestamp("2025-02-14"),
+                "option_type": "call",
+                "strike": 5000.0,
+                "bid": 8.0,
+                "ask": 8.4,
+            }
+        ]
+    )
+    seen_kwargs: list[dict[str, object]] = []
+
+    def _capture_decision(row: pd.Series, **kwargs: object) -> TradeDecision:
+        seen_kwargs.append(kwargs)
+        return TradeDecision(action="hold", regime_key=str(row["regime_key"]))
+
+    monkeypatch.setattr("rlm.backtest.engine.decide_trade_for_bar", _capture_decision)
+
+    engine = BacktestEngine(
+        roee_config=ROEEConfig(
+            kronos_confidence_weight=0.2,
+            hmm_confidence_weight=0.8,
+            kronos_transition_penalty=0.4,
+            kronos_epistemic_disable_threshold=0.55,
+            kronos_aleatoric_size_penalty=0.65,
+        )
+    )
+    engine.run(features, chain)
+
+    assert seen_kwargs[0]["kronos_confidence_weight"] == 0.2
+    assert seen_kwargs[0]["hmm_confidence_weight"] == 0.8
+    assert seen_kwargs[0]["kronos_transition_penalty"] == 0.4
+    assert seen_kwargs[0]["kronos_epistemic_disable_threshold"] == 0.55
+    assert seen_kwargs[0]["kronos_aleatoric_size_penalty"] == 0.65
