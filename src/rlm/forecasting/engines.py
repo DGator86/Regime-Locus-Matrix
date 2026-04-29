@@ -53,18 +53,81 @@ def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
 
 def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
-    t = hmm.calibrated_transmat()
-    next_p = RLMHMM.one_step_predictive_probs(probs, t)
+    transition_matrices = hmm.causal_online_transition_matrices(probs)
+    next_p = np.einsum("ij,ijk->ik", probs, transition_matrices).astype(np.float64)
+    next_p = np.clip(next_p, 1e-12, None)
+    next_p = next_p / next_p.sum(axis=1, keepdims=True)
     df["hmm_next_probs"] = next_p.tolist()
     df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
-    diag = np.diag(t).reshape(1, -1)
+    diag = np.diagonal(transition_matrices, axis1=1, axis2=2)
     df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
     top = np.argmax(next_p, axis=1).astype(int)
     df["hmm_most_likely_next_state"] = top
     df["hmm_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
     if hmm.state_labels:
         df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
+    if "hmm_state_label" in df.columns:
+        bearish_shift = np.zeros(len(df), dtype=float)
+        current_state = np.argmax(probs, axis=1).astype(int)
+        for i, label in enumerate(df["hmm_state_label"].astype(str).tolist()):
+            if "bull" in label.lower() or "trend" in label.lower():
+                bearish_shift[i] = float(1.0 - next_p[i, current_state[i]])
+        df["hmm_transition_alert_probability"] = np.clip(bearish_shift, 0.0, 1.0)
     _maybe_apply_transition_calibrations(df, "hmm")
+
+
+def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
+    if "hmm_probs" not in df.columns and "markov_probs" not in df.columns:
+        return
+    n = len(df)
+    cp_score = np.zeros(n, dtype=float)
+    if "close" in df.columns:
+        r = pd.to_numeric(df["close"], errors="coerce").pct_change().fillna(0.0)
+        win = 40
+        if _is_datetime_index(df) and len(df.index) > 5:
+            deltas = pd.Series(df.index).diff().dropna()
+            if not deltas.empty:
+                med = deltas.median()
+                if med <= pd.Timedelta(minutes=5):
+                    win = 240  # ~1 trading day on 5m bars
+                elif med <= pd.Timedelta(hours=1):
+                    win = 120
+        minp = max(10, win // 4)
+        z = ((r - r.rolling(win, min_periods=minp).mean()) / (r.rolling(win, min_periods=minp).std() + 1e-12)).abs()
+        cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
+    prob_sources: list[tuple[str, np.ndarray]] = []
+    if "hmm_probs" in df.columns:
+        prob_sources.append(("hmm_probs", np.asarray(df["hmm_probs"].tolist(), dtype=float)))
+    if "markov_probs" in df.columns:
+        prob_sources.append(("markov_probs", np.asarray(df["markov_probs"].tolist(), dtype=float)))
+
+    probs_accum: list[np.ndarray] = []
+    expected_shape: tuple[int, ...] | None = None
+    expected_name: str | None = None
+    for source_name, source_probs in prob_sources:
+        if source_probs.ndim != 2:
+            raise ValueError(
+                f"{source_name} must be a 2D probability matrix with shape (n_rows, n_states); "
+                f"got shape {source_probs.shape}."
+            )
+        if expected_shape is None:
+            expected_shape = source_probs.shape
+            expected_name = source_name
+        elif source_probs.shape != expected_shape:
+            raise ValueError(
+                "Incompatible regime probability shapes for ensemble computation: "
+                f"{expected_name} has shape {expected_shape}, but {source_name} has shape {source_probs.shape}. "
+                "All probability sources must use the same number and ordering of states before they can be combined."
+            )
+        probs_accum.append(source_probs)
+    base = np.mean(np.stack(probs_accum, axis=0), axis=0)
+    ensemble = 0.8 * base + 0.2 * (np.ones_like(base) / base.shape[1])
+    ensemble = (1.0 - cp_score[:, None]) * ensemble + cp_score[:, None] * (np.ones_like(base) / base.shape[1])
+    ensemble = np.clip(ensemble, 1e-12, None)
+    ensemble = ensemble / ensemble.sum(axis=1, keepdims=True)
+    df["regime_ensemble_probs"] = ensemble.tolist()
+    df["regime_ensemble_state"] = np.argmax(ensemble, axis=1).astype(int)
+    df["regime_ensemble_confidence"] = ensemble.max(axis=1).astype(float)
 
 
 def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
@@ -80,6 +143,12 @@ def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFr
     df["markov_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
     if markov.state_labels:
         df["markov_most_likely_next_label"] = [markov.state_labels[int(s)] for s in top]
+    if "markov_state_label" in df.columns:
+        bearish_shift = np.zeros(len(df), dtype=float)
+        for i, label in enumerate(df["markov_state_label"].astype(str).tolist()):
+            if "bull" in label.lower() or "trend" in label.lower():
+                bearish_shift[i] = float(next_p[i].max() - probs[i].max())
+        df["markov_transition_alert_probability"] = np.clip(bearish_shift, 0.0, 1.0)
     _maybe_apply_transition_calibrations(df, "markov")
 
 
@@ -350,6 +419,7 @@ class HybridMarkovForecastPipeline:
         if self.markov.state_labels:
             out["markov_state_label"] = [self.markov.state_labels[int(s)] for s in out["markov_state"]]
         _annotate_markov_transition_fields(self.markov, out, probs)
+        _annotate_regime_ensemble(out)
         return out
 
 
@@ -389,6 +459,7 @@ class HybridProbabilisticForecastPipeline:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
             _annotate_hmm_transition_fields(self.hmm, df, probs)
 
+        _annotate_regime_ensemble(df)
         return df
 
 
@@ -417,6 +488,7 @@ class HybridMarkovProbabilisticForecastPipeline:
         probs = np.clip(probs, 1e-12, None)
         probs = probs / probs.sum(axis=1, keepdims=True)
         _annotate_markov_transition_fields(self.markov, out, probs)
+        _annotate_regime_ensemble(out)
         return out
 
 
@@ -523,4 +595,5 @@ class HybridKronosForecastPipeline:
                 df["markov_state_label"] = [self.markov.state_labels[int(s)] for s in df["markov_state"]]
             _annotate_markov_transition_fields(self.markov, df, probs)
 
+        _annotate_regime_ensemble(df)
         return df

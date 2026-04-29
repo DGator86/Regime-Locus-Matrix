@@ -44,3 +44,26 @@ def test_hybrid_markov_pipeline_has_transition_columns() -> None:
     assert "markov_next_probs" in out.columns
     assert "markov_most_likely_next_prob" in out.columns
     assert "markov_regime_transition_entropy" in out.columns
+
+
+def test_hybrid_markov_pipeline_regime_ensemble_columns() -> None:
+    """HybridMarkovForecastPipeline must produce regime_ensemble_probs/state/confidence."""
+    df = _synthetic_scores(240)
+    train_mask = pd.Series(df.index < df.index[180], index=df.index)
+    out = HybridMarkovForecastPipeline(
+        markov_config=MarkovSwitchingConfig(n_states=3),
+    ).run(df, train_mask=train_mask)
+
+    for col in ("regime_ensemble_probs", "regime_ensemble_state", "regime_ensemble_confidence"):
+        assert col in out.columns, f"Missing column: {col}"
+
+    ensemble = np.asarray(out["regime_ensemble_probs"].tolist(), dtype=float)
+    assert ensemble.ndim == 2
+    assert ensemble.shape[0] == len(out)
+    assert np.all(np.isfinite(ensemble))
+    assert np.allclose(ensemble.sum(axis=1), 1.0, atol=1e-6)
+    assert np.all(ensemble >= 0.0)
+
+    conf = out["regime_ensemble_confidence"].to_numpy(dtype=float)
+    assert np.all(np.isfinite(conf))
+    assert np.all((conf >= 0.0) & (conf <= 1.0))
