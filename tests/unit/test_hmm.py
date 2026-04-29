@@ -141,9 +141,7 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
 
 def test_hmm_online_transition_annotations_are_causal_and_non_mutating() -> None:
     df = _synthetic_scores(220)
-def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None:
-    """online_transition_update must return a finite, non-negative, row-stochastic matrix."""
-    df = _synthetic_scores(200)
+
     m = RLMHMM(
         HMMConfig(
             n_states=4,
@@ -166,6 +164,15 @@ def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None
     prefix_mats = m.causal_online_transition_matrices(prefix_gamma)
 
     assert np.allclose(mats[:170], prefix_mats, atol=1e-8)
+
+
+def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None:
+    """online_transition_update must return a finite, non-negative, row-stochastic matrix."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
             random_state=5,
             filter_backend="numpy",
         )
