@@ -14,9 +14,17 @@ Any extra flags are forwarded to ``rlm backtest`` (e.g. --regime hmm).
 import sys
 
 # Inject --walkforward --universe before any user-supplied flags so that
-# the full LIQUID_UNIVERSE is iterated by default.  Individual --symbol /
-# --symbols overrides still work because the CLI group is mutually exclusive.
-sys.argv = [sys.argv[0], "--walkforward", "--universe", *sys.argv[1:]]
+# the full LIQUID_UNIVERSE is iterated by default.
+user_args = sys.argv[1:]
+has_explicit_symbol = any(
+    arg == "--symbol"
+    or arg.startswith("--symbol=")
+    or arg == "--symbols"
+    or arg.startswith("--symbols=")
+    for arg in user_args
+)
+default_selector = [] if has_explicit_symbol else ["--universe"]
+sys.argv = [sys.argv[0], "--walkforward", *default_selector, *user_args]
 
 from rlm.cli.backtest import main  # noqa: E402
 
