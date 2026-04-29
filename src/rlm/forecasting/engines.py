@@ -53,12 +53,15 @@ def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
 
 def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
+    transition_path = hmm.online_transition_path(probs)
+    next_p = np.einsum("ij,ijk->ik", probs, transition_path)
     transition_matrices = hmm.causal_online_transition_matrices(probs)
     next_p = np.einsum("ij,ijk->ik", probs, transition_matrices).astype(np.float64)
     next_p = np.clip(next_p, 1e-12, None)
     next_p = next_p / next_p.sum(axis=1, keepdims=True)
     df["hmm_next_probs"] = next_p.tolist()
     df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
+    diag = np.diagonal(transition_path, axis1=1, axis2=2)
     diag = np.diagonal(transition_matrices, axis1=1, axis2=2)
     df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
     top = np.argmax(next_p, axis=1).astype(int)
