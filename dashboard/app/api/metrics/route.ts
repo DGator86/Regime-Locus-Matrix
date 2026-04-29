@@ -39,11 +39,20 @@ function resolveProcessedDir(): {
   }
 
   const cwd = process.cwd();
-  candidates.push(
-    { label: "cwd/../data/processed", abs: path.resolve(cwd, "..", "data", "processed") },
-    { label: "cwd/data/processed", abs: path.resolve(cwd, "data", "processed") },
-    { label: "VPS default", abs: "/opt/Regime-Locus-Matrix/data/processed" },
-  );
+  const cwdBase = path.basename(cwd).toLowerCase();
+  const cwdDataProcessed = { label: "cwd/data/processed", abs: path.resolve(cwd, "data", "processed") };
+  const parentDataProcessed = {
+    label: "cwd/../data/processed",
+    abs: path.resolve(cwd, "..", "data", "processed"),
+  };
+
+  // Avoid selecting unrelated sibling `../data` when running from repo root.
+  if (cwdBase === "dashboard") {
+    candidates.push(parentDataProcessed, cwdDataProcessed);
+  } else {
+    candidates.push(cwdDataProcessed, parentDataProcessed);
+  }
+  candidates.push({ label: "VPS default", abs: "/opt/Regime-Locus-Matrix/data/processed" });
 
   for (const { label, abs } of candidates) {
     tried.push(abs);
