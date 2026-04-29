@@ -32,6 +32,10 @@ def test_nightly_optimizer_preserves_existing_overlay_when_all_trials_pruned(
     assert json.loads(nightly_path.read_text(encoding="utf-8")) == existing
 
 
+def test_nightly_optimizer_scrubs_stale_mtf_regimes_when_preserving_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    existing = {"move_window": 91, "mtf_regimes": True, "transaction_cost_frac": 0.0015}
 def test_nightly_optimizer_scrubs_unsafe_existing_overlay_when_all_trials_pruned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -50,6 +54,8 @@ def test_nightly_optimizer_scrubs_unsafe_existing_overlay_when_all_trials_pruned
 
     out = nightly.NightlyMTFOptimizer.run(symbols=["SPY"], trials=2)
 
+    assert out == {"move_window": 91, "transaction_cost_frac": 0.0015}
+    assert json.loads(nightly_path.read_text(encoding="utf-8")) == out
     assert out == {"move_window": 91}
     assert json.loads(nightly_path.read_text(encoding="utf-8")) == {"move_window": 91}
 
