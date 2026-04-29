@@ -12,6 +12,19 @@ ROOT = Path(__file__).resolve().parents[3]
 REGIME_PATH = ROOT / "data/processed/live_regime_model.json"
 NIGHTLY_PATH = ROOT / "data/processed/live_nightly_hyperparams.json"
 NO_VALID_SCORE = -999.0
+UNSAFE_OVERLAY_KEYS = {"mtf_regimes"}
+
+
+def _sanitize_overlay(params: dict) -> dict:
+    """Drop keys that cannot be safely replayed from the nightly overlay JSON."""
+    return {k: v for k, v in params.items() if k not in UNSAFE_OVERLAY_KEYS}
+
+
+def _write_overlay(path: Path, params: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(params, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
 
 
 class NightlyMTFOptimizer:
@@ -44,7 +57,11 @@ class NightlyMTFOptimizer:
         if not completed:
             if NIGHTLY_PATH.exists():
                 existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
-                return existing if isinstance(existing, dict) else {}
+                if isinstance(existing, dict):
+                    sanitized = _sanitize_overlay(existing)
+                    if sanitized != existing:
+                        _write_overlay(NIGHTLY_PATH, sanitized)
+                    return sanitized
             return {}
 
         if float(study.best_value) <= NO_VALID_SCORE:
@@ -62,9 +79,6 @@ class NightlyMTFOptimizer:
                 flush=True,
             )
             return {}
-        best = study.best_params
-        NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
-        tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")
-        tmp_path.replace(NIGHTLY_PATH)
+        best = _sanitize_overlay(study.best_params)
+        _write_overlay(NIGHTLY_PATH, best)
         return best
