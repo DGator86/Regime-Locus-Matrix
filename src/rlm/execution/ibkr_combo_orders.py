@@ -23,6 +23,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 IBKRLegAction = Literal["BUY", "SELL"]
+IBKRAlgoStrategy = Literal["NONE", "ADAPTIVE", "VWAP"]
 
 # TWS default ports
 IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
@@ -30,6 +31,30 @@ IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
 IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
 
 _INFO_CODES = frozenset({2104, 2106, 2107, 2108, 2158, 2174})
+
+
+def build_ibkr_algo_fields(
+    *,
+    strategy: IBKRAlgoStrategy = "NONE",
+    adaptive_priority: Literal["Urgent", "Normal", "Patient"] = "Normal",
+    vwap_max_pct_vol: float = 0.1,
+    vwap_start_time: str | None = None,
+    vwap_end_time: str | None = None,
+) -> tuple[str | None, list[tuple[str, str]]]:
+    """Build ``order.algoStrategy`` + ``order.algoParams`` values for IBKR combo orders."""
+    s = str(strategy).upper().strip()
+    if s == "NONE":
+        return None, []
+    if s == "ADAPTIVE":
+        return "Adaptive", [("adaptivePriority", str(adaptive_priority))]
+    if s == "VWAP":
+        params: list[tuple[str, str]] = [("maxPctVol", f"{float(vwap_max_pct_vol):.4f}")]
+        if vwap_start_time:
+            params.append(("startTime", str(vwap_start_time)))
+        if vwap_end_time:
+            params.append(("endTime", str(vwap_end_time)))
+        return "Vwap", params
+    raise ValueError(f"Unknown algo strategy: {strategy}")
 
 
 def load_ibkr_order_socket_config() -> tuple[str, int, int]:
@@ -349,6 +374,11 @@ def place_options_combo_order(
     port: int | None = None,
     client_id: int | None = None,
     timeout_sec: float = 90.0,
+    algo_strategy: IBKRAlgoStrategy = "NONE",
+    adaptive_priority: Literal["Urgent", "Normal", "Patient"] = "Normal",
+    vwap_max_pct_vol: float = 0.1,
+    vwap_start_time: str | None = None,
+    vwap_end_time: str | None = None,
 ) -> tuple[int, list[str]]:
     """
     Resolve each leg, build a **BAG**, and ``placeOrder`` (limit or market).
@@ -370,6 +400,10 @@ def place_options_combo_order(
     assert_paper_or_live_acknowledged(p, acknowledge_live=acknowledge_live)
 
     _, _, Contract, ComboLeg, Order = _get_bundle()
+    try:
+        from ibapi.tag_value import TagValue
+    except Exception:
+        TagValue = None
     underlying0 = legs[0][0].underlying.upper()
 
     with ibkr_order_connection(host=h, port=p, client_id=cid, timeout_sec=timeout_sec) as app:
@@ -413,6 +447,18 @@ def place_options_combo_order(
         order.firmQuoteOnly = False
         if account:
             order.account = str(account)
+        algo_name, algo_params = build_ibkr_algo_fields(
+            strategy=algo_strategy,
+            adaptive_priority=adaptive_priority,
+            vwap_max_pct_vol=vwap_max_pct_vol,
+            vwap_start_time=vwap_start_time,
+            vwap_end_time=vwap_end_time,
+        )
+        if algo_name is not None:
+            order.algoStrategy = algo_name
+            if TagValue is None:
+                raise ImportError("ibapi.tag_value.TagValue required when algo_strategy != 'NONE'.")
+            order.algoParams = [TagValue(k, v) for k, v in algo_params]
 
         app._order_status.pop(order_id, None)
         app.placeOrder(order_id, bag, order)

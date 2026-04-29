@@ -128,6 +128,7 @@ class Portfolio:
         *,
         matched_legs: list[dict],
         fill_config: FillConfig | None = None,
+        quantity: int = 1,
     ) -> float:
         cfg = fill_config or FillConfig(contract_multiplier=self.contract_multiplier)
 
@@ -138,6 +139,8 @@ class Portfolio:
                 bid=float(leg["bid"]),
                 ask=float(leg["ask"]),
                 config=cfg,
+                quantity=quantity,
+                quote_size=float(leg.get("ask_size") or leg.get("bid_size") or 0.0) or None,
             )
             total += signed_cashflow_for_fill(
                 side=str(leg["side"]),
@@ -196,7 +199,13 @@ class Portfolio:
             mid = float(leg.get("mid", (bid + ask) / 2.0))
             signed_mid = mid if side == "long" else -mid
             mark_total += signed_mid * self.contract_multiplier
-            exe = exit_fill_price(side=side, bid=bid, ask=ask, config=fill_config)
+            exe = exit_fill_price(
+                side=side,
+                bid=bid,
+                ask=ask,
+                config=fill_config,
+                quote_size=float(leg.get("bid_size") or leg.get("ask_size") or 0.0) or None,
+            )
             signed_ex = exe if side == "long" else -exe
             exit_total += signed_ex * self.contract_multiplier
         return float(mark_total), float(exit_total)
@@ -217,7 +226,7 @@ class Portfolio:
         if size_fraction <= 0.0:
             return 0
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config)
+        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config, quantity=1)
         entry_friction_per_unit = (
             calculate_commission(
                 config=self.lifecycle_config.commission_config,
@@ -276,7 +285,7 @@ class Portfolio:
         if actual_quantity <= 0:
             return None
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=cfg)
+        entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=cfg, quantity=1)
         leg_count = max(len(matched), 1)
         entry_commission = calculate_commission(
             config=self.lifecycle_config.commission_config,
