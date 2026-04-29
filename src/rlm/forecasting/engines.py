@@ -53,18 +53,12 @@ def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
 
 def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
     """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
-    transition_mats = hmm.causal_online_transition_matrices(probs)
-    next_p = np.einsum("ij,ijk->ik", probs, transition_mats).astype(np.float64)
-    transition_path = hmm.online_transition_path(probs)
-    next_p = np.einsum("ij,ijk->ik", probs, transition_path)
     transition_matrices = hmm.causal_online_transition_matrices(probs)
     next_p = np.einsum("ij,ijk->ik", probs, transition_matrices).astype(np.float64)
     next_p = np.clip(next_p, 1e-12, None)
     next_p = next_p / next_p.sum(axis=1, keepdims=True)
     df["hmm_next_probs"] = next_p.tolist()
     df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
-    diag = np.diagonal(transition_mats, axis1=1, axis2=2)
-    diag = np.diagonal(transition_path, axis1=1, axis2=2)
     diag = np.diagonal(transition_matrices, axis1=1, axis2=2)
     df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
     top = np.argmax(next_p, axis=1).astype(int)
@@ -92,13 +86,6 @@ def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
     cp_score = np.zeros(n, dtype=float)
     if "close" in df.columns:
         r = pd.to_numeric(df["close"], errors="coerce").pct_change().fillna(0.0)
-        z = ((r - r.rolling(40, min_periods=10).mean()) / (r.rolling(40, min_periods=10).std() + 1e-12)).abs()
-        cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
-    probs_accum: list[np.ndarray] = []
-    if "hmm_probs" in df.columns:
-        probs_accum.append(np.asarray(df["hmm_probs"].tolist(), dtype=float))
-    if "markov_probs" in df.columns:
-        probs_accum.append(np.asarray(df["markov_probs"].tolist(), dtype=float))
         win = 40
         if _is_datetime_index(df) and len(df.index) > 5:
             deltas = pd.Series(df.index).diff().dropna()

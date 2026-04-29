@@ -507,7 +507,6 @@ class RLMHMM:
                 updated = updated / updated.sum(axis=1, keepdims=True)
             matrices[i] = self._calibrate_transition_matrix(updated)
 
-        self._set_permuted_transmat(updated)
         return matrices
 
     @staticmethod
