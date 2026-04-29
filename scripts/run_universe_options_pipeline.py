@@ -456,6 +456,75 @@ def _apply_active_plan_guards(
             active_by_symbol[sym] = n_active + 1
 
 
+def _write_universe_latest_views(final_results: list[dict[str, object]], out_dir: Path) -> None:
+    rows: list[dict[str, object]] = []
+    for row in final_results:
+        pipeline = row.get("pipeline")
+        if not isinstance(pipeline, dict):
+            continue
+        decision = row.get("decision")
+        rows.append(
+            {
+                "run_at_utc": row.get("run_at_utc"),
+                "symbol": row.get("symbol"),
+                "status": row.get("status"),
+                "skip_reason": row.get("skip_reason"),
+                "action": decision.get("action") if isinstance(decision, dict) else None,
+                "strategy_name": decision.get("strategy_name") if isinstance(decision, dict) else None,
+                "regime_key": pipeline.get("regime_key"),
+                "close": pipeline.get("close"),
+                "sigma": pipeline.get("sigma"),
+                "S_D": pipeline.get("S_D"),
+                "S_V": pipeline.get("S_V"),
+                "S_L": pipeline.get("S_L"),
+                "S_G": pipeline.get("S_G"),
+                "regime_safety_ok": pipeline.get("regime_safety_ok"),
+                "regime_train_sample_count": pipeline.get("regime_train_sample_count"),
+            }
+        )
+
+    if rows:
+        df = pd.DataFrame(rows).sort_values(["symbol", "run_at_utc"]).reset_index(drop=True)
+    else:
+        fallback_rows = [
+            {
+                "run_at_utc": row.get("run_at_utc"),
+                "symbol": row.get("symbol"),
+                "status": row.get("status"),
+                "skip_reason": row.get("skip_reason"),
+                "action": None,
+                "strategy_name": None,
+                "regime_key": None,
+                "close": None,
+                "sigma": None,
+                "S_D": None,
+                "S_V": None,
+                "S_L": None,
+                "S_G": None,
+                "regime_safety_ok": None,
+                "regime_train_sample_count": None,
+            }
+            for row in final_results
+        ]
+        df = pd.DataFrame(fallback_rows).sort_values(["symbol", "run_at_utc"]).reset_index(drop=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_dir / "universe_forecast_latest.csv", index=False)
+    try:
+        df.to_parquet(out_dir / "universe_forecast_latest.parquet", index=False)
+    except Exception:
+        pass
+
+    symbol_index = {
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "symbols": sorted(df["symbol"].dropna().astype(str).str.upper().unique().tolist()),
+        "rows": int(len(df)),
+    }
+    (out_dir / "universe_symbol_index.json").write_text(
+        json.dumps(symbol_index, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -865,6 +934,7 @@ def main() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    _write_universe_latest_views(final_results, processed_dir)
     print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0
 

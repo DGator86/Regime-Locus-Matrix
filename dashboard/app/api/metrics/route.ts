@@ -142,6 +142,12 @@ function resolvePrimarySymbol(dataDir: string, activePlans: any[]): string {
   const firstActive = activePlans.find((p) => typeof p?.symbol === "string" && p.symbol.trim().length > 0);
   if (firstActive?.symbol) return String(firstActive.symbol).toUpperCase();
 
+  const symbolIndex = readJson(path.join(dataDir, "universe_symbol_index.json"));
+  if (symbolIndex && Array.isArray(symbolIndex.symbols) && symbolIndex.symbols.length > 0) {
+    const first = String(symbolIndex.symbols[0] || "").trim().toUpperCase();
+    if (first) return first;
+  }
+
   const forecasts = listSymbolFiles(dataDir, "forecast_features_");
   if (forecasts.length > 0) {
     const latest = forecasts
@@ -426,6 +432,7 @@ function buildEquityTradeSummary(dataDir: string) {
 
 function buildForecastTimeseries(dataDir: string, symbol: string) {
   const rows = readCsvFile(path.join(dataDir, `forecast_features_${symbol}.csv`));
+  const universeLatest = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
   const fallbackBarsRows = readCsvFile(
     path.join(inferRepoRootFromCwd(), "data", "raw", `bars_${symbol}.csv`)
   );
@@ -449,7 +456,31 @@ function buildForecastTimeseries(dataDir: string, symbol: string) {
     forecast_uncertainty: null,
   }));
 
-  if (rows.length === 0) return fallbackSeries;
+  if (rows.length === 0) {
+    const one = universeLatest.filter((r) => String(r.symbol || "").toUpperCase() === symbol).slice(-60);
+    if (one.length > 0) {
+      return one.map((r) => ({
+        timestamp: r.run_at_utc || "",
+        close: num(r.close),
+        S_D: num(r.S_D),
+        S_V: num(r.S_V),
+        S_L: num(r.S_L),
+        S_G: num(r.S_G),
+        sigma: optionalNum(r.sigma),
+        mean_price: null,
+        lower_1s: null,
+        upper_1s: null,
+        lower_2s: null,
+        upper_2s: null,
+        hmm_state: null,
+        hmm_confidence: null,
+        hmm_state_label: null,
+        forecast_return: null,
+        forecast_uncertainty: null,
+      }));
+    }
+    return fallbackSeries;
+  }
 
   const fromForecast = rows.slice(-60).map((r) => {
     const hmmIdx = parseHmmStateIndex(r.hmm_state ?? r.HMM_State);
