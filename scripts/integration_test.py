@@ -289,7 +289,6 @@ if opt_result is not None:
     else:
         expected_keys = [
             "mtf_ltf_weight",
-            "mtf_regimes",
             "hmm_confidence_threshold",
             "high_vol_kelly_multiplier",
             "transition_kelly_multiplier",
@@ -301,6 +300,11 @@ if opt_result is not None:
         ]
         for k in expected_keys:
             check(k in opt_result, f"optimizer output has '{k}'", f"optimizer output MISSING '{k}'")
+        check(
+            "mtf_regimes" not in opt_result,
+            "optimizer output omits unsafe live-only 'mtf_regimes'",
+            "optimizer output should not include 'mtf_regimes'",
+        )
         check(
             nightly_json_path.exists(),
             "live_nightly_hyperparams.json written",
