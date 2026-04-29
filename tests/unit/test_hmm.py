@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rlm.forecasting.engines import HybridForecastPipeline, _annotate_regime_ensemble
+from rlm.forecasting.engines import HybridForecastPipeline, _annotate_hmm_transition_fields, _annotate_regime_ensemble
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -136,6 +136,70 @@ def test_online_transition_update_mutates_model_transmat() -> None:
 
     assert not np.allclose(m.model.transmat_, t_before, atol=1e-10)  # type: ignore[union-attr]
     assert np.allclose(m.model.transmat_.sum(axis=1), 1.0, atol=1e-5)  # type: ignore[union-attr]
+
+
+def test_online_transition_update_matches_final_prefix_path_matrix() -> None:
+    """The batch update result must equal the last matrix in the prefix-causal path."""
+    df = _synthetic_scores(200)
+    m_path = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=5,
+            filter_backend="numpy",
+            online_em_step_size=0.1,
+        )
+    ).fit(df, verbose=False)
+    m_batch = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=5,
+            filter_backend="numpy",
+            online_em_step_size=0.1,
+        )
+    ).fit(df, verbose=False)
+
+    gamma = m_path.predict_proba_filtered(df)
+    path = m_path.online_transition_path(gamma)
+    result = m_batch.online_transition_update(gamma)
+
+    assert path.shape == (len(df), 4, 4)
+    assert np.allclose(path[-1], result, atol=1e-8)
+    assert np.allclose(path.sum(axis=2), 1.0, atol=1e-5)
+
+
+def test_hmm_transition_annotations_do_not_leak_future_suffix() -> None:
+    """Changing only future filtered probabilities must not rewrite prefix diagnostics."""
+    n = 12
+    prefix_len = 6
+    idx = pd.RangeIndex(n)
+    prefix = np.tile(np.array([[0.9, 0.1], [0.85, 0.15]]), (prefix_len // 2, 1))
+    suffix_a = np.tile(np.array([[0.8, 0.2], [0.75, 0.25]]), ((n - prefix_len) // 2, 1))
+    suffix_b = np.tile(np.array([[0.1, 0.9], [0.15, 0.85]]), ((n - prefix_len) // 2, 1))
+    probs_a = np.vstack([prefix, suffix_a])
+    probs_b = np.vstack([prefix, suffix_b])
+
+    def _model() -> RLMHMM:
+        hmm = RLMHMM(HMMConfig(n_states=2, transition_pseudocount=0.0, online_em_step_size=0.5))
+        hmm.model = type(
+            "DummyHMM",
+            (),
+            {"transmat_": np.array([[0.9, 0.1], [0.2, 0.8]], dtype=float)},
+        )()
+        hmm.state_labels = ["bull_like", "bear_like"]
+        return hmm
+
+    df_a = pd.DataFrame({"hmm_state_label": ["bull_like"] * n}, index=idx)
+    df_b = pd.DataFrame({"hmm_state_label": ["bull_like"] * n}, index=idx)
+
+    _annotate_hmm_transition_fields(_model(), df_a, probs_a)
+    _annotate_hmm_transition_fields(_model(), df_b, probs_b)
+
+    for col in ("hmm_next_probs", "hmm_expected_persistence", "hmm_transition_alert_probability"):
+        left = np.asarray(df_a[col].iloc[:prefix_len].tolist(), dtype=float)
+        right = np.asarray(df_b[col].iloc[:prefix_len].tolist(), dtype=float)
+        assert np.allclose(left, right, atol=1e-12), col
 
 
 def test_online_transition_update_preserves_permutation_alignment() -> None:
