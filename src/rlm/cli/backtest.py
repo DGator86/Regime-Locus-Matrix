@@ -178,7 +178,7 @@ def _run_one(
 def main() -> None:
     args = _parse_args()
     symbols = _resolve_symbols(args)
-    run_id = generate_run_id("backtest")
+    batch_run_id = generate_run_id("backtest")
     out_dir = (
         Path(args.out_dir).expanduser().resolve()
         if args.out_dir
@@ -192,7 +192,12 @@ def main() -> None:
         )
 
     skipped = 0
-    for sym in symbols:
+    for idx, sym in enumerate(symbols, start=1):
+        run_id = (
+            batch_run_id
+            if len(symbols) == 1
+            else f"{batch_run_id}-{idx:02d}-{sym}"
+        )
         try:
             _run_one(sym, args, out_dir, run_id)
         except Exception as exc:
