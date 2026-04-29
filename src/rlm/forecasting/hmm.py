@@ -370,50 +370,6 @@ class RLMHMM:
             mats[i] = self._calibrate_transition_matrix(current)
         return mats
 
-    def online_transition_update(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
-        """Online EM-style transition update using adjacent filtered posteriors.
-
-        This performs a lightweight incremental update of ``model.transmat_`` without full retraining.
-        """
-        if self.model is None:
-            raise RuntimeError("HMM model is not fitted")
-        gamma = np.asarray(filtered_probs, dtype=np.float64)
-        if gamma.ndim != 2 or len(gamma) < 2:
-            return self.calibrated_transmat()
-        eta = float(self.config.online_em_step_size if step_size is None else step_size)
-        if eta <= 0.0:
-            return self.calibrated_transmat()
-
-        expected = gamma[:-1].T @ gamma[1:]
-        row = expected.sum(axis=1, keepdims=True)
-        t = self.permuted_transmat().copy()
-        return self._calibrate_transition_matrix(t, pseudocount=pseudocount)
-
-    def _calibrate_transition_matrix(self, transmat: np.ndarray, pseudocount: float | None = None) -> np.ndarray:
-        t = np.asarray(transmat, dtype=np.float64).copy()
-        alpha = float(self.config.transition_pseudocount if pseudocount is None else pseudocount)
-        if alpha > 0.0:
-            t = t + alpha
-        row = t.sum(axis=1, keepdims=True)
-        row = np.where(row > 0.0, row, 1.0)
-        target = expected / row
-        old = self.permuted_transmat()
-        updated = (1.0 - eta) * old + eta * target
-        updated = np.clip(updated, 1e-12, None)
-        updated = updated / updated.sum(axis=1, keepdims=True)
-
-        if self._state_permutation is None:
-            self.model.transmat_ = updated
-            return self.calibrated_transmat()
-        inv = {new: old_i for old_i, new in self._state_permutation.items()}
-        t_old = np.zeros_like(updated)
-        n = updated.shape[0]
-        for i_new in range(n):
-            for j_new in range(n):
-                t_old[int(inv.get(i_new, i_new)), int(inv.get(j_new, j_new))] = updated[i_new, j_new]
-        self.model.transmat_ = t_old
-        return self.calibrated_transmat()
-
     def _store_permuted_transmat(self, transmat: np.ndarray) -> None:
         if self.model is None:
             raise RuntimeError("HMM model is not fitted")
@@ -477,13 +433,6 @@ class RLMHMM:
         self._store_permuted_transmat(current)
         return matrices
 
-    def online_transition_update(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
-        """Online EM-style transition update using adjacent filtered posteriors.
-
-        This performs a lightweight incremental update of ``model.transmat_`` without full retraining.
-        """
-        if self.model is None:
-            raise RuntimeError("HMM model is not fitted")
     def _set_permuted_transmat(self, transmat: np.ndarray) -> None:
         if self.model is None:
             raise RuntimeError("HMM model is not fitted")
@@ -523,19 +472,6 @@ class RLMHMM:
         if eta <= 0.0:
             return self.calibrated_transmat()
         return self.online_transition_path(gamma, step_size=eta)[-1]
-        eta = min(eta, 1.0)
-
-        expected = gamma[:-1].T @ gamma[1:]
-        row = expected.sum(axis=1, keepdims=True)
-        row = np.where(row > 0.0, row, 1.0)
-        target = expected / row
-        old = self.permuted_transmat()
-        updated = (1.0 - eta) * old + eta * target
-        updated = np.clip(updated, 1e-12, None)
-        updated = updated / updated.sum(axis=1, keepdims=True)
-
-        self._set_permuted_transmat(updated)
-        return self.calibrated_transmat()
 
     def causal_online_transition_matrices(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
         """Per-row online transition matrices that never use future filtered probabilities.
