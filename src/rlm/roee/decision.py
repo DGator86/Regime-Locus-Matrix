@@ -156,6 +156,10 @@ def compute_regime_modulators(
     trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
     aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
+
+    transition_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
+    transition_alert = min(max(transition_alert, 0.0), 1.0)
+    trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
 
     if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
