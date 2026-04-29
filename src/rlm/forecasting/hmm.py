@@ -489,6 +489,28 @@ class RLMHMM:
         self._store_permuted_transmat(current)
         return matrices
 
+    def online_transition_update(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
+        """Online EM-style transition update using adjacent filtered posteriors.
+
+        This performs a lightweight incremental update of ``model.transmat_`` without full retraining.
+        """
+        if self.model is None:
+            raise RuntimeError("HMM model is not fitted")
+        gamma = np.asarray(filtered_probs, dtype=np.float64)
+        if gamma.ndim != 2 or len(gamma) < 2:
+            return self.calibrated_transmat()
+        eta = float(self.config.online_em_step_size if step_size is None else step_size)
+        if not np.isfinite(eta):
+            raise ValueError("step_size must be a finite float in [0, 1].")
+        if eta <= 0.0:
+            return self.calibrated_transmat()
+        return self.online_transition_path(gamma, step_size=eta)[-1]
+
+    def causal_online_transition_matrices(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
+        """Per-row online transition matrices that never use future filtered probabilities.
+
+        Row ``t`` incorporates adjacent posterior pairs only through ``(t-1, t)``.  This keeps
+        walk-forward annotations causal without mutating the fitted transition matrix.
     def causal_online_transition_matrices(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
         """Per-row online transition matrices that never use future filtered probabilities.
 
@@ -511,6 +533,20 @@ class RLMHMM:
         if eta <= 0.0 or n_samples < 2:
             calibrated = self.calibrated_transmat()
             return np.repeat(calibrated[np.newaxis, :, :], n_samples, axis=0)
+
+        expected = np.zeros_like(base)
+        matrices = np.empty((n_samples, base.shape[0], base.shape[1]), dtype=np.float64)
+        updated = base.copy()
+        for i in range(n_samples):
+            if i > 0:
+                expected += np.outer(gamma[i - 1], gamma[i])
+                row = expected.sum(axis=1, keepdims=True)
+                target = base.copy()
+                np.divide(expected, row, out=target, where=row > 0.0)
+                updated = (1.0 - eta) * base + eta * target
+                updated = np.clip(updated, 1e-12, None)
+                updated = updated / updated.sum(axis=1, keepdims=True)
+            matrices[i] = self._calibrate_transition_matrix(updated)
 
         eta = min(eta, 1.0)
         matrices = np.empty((n_samples, current.shape[0], current.shape[1]), dtype=np.float64)

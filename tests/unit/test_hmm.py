@@ -149,6 +149,7 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
 
 def test_hmm_online_transition_annotations_are_causal_and_non_mutating() -> None:
     df = _synthetic_scores(220)
+
     m = RLMHMM(
         HMMConfig(
             n_states=4,
