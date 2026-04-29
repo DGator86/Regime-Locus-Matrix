@@ -83,6 +83,8 @@ def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
     cp_score = np.zeros(n, dtype=float)
     if "close" in df.columns:
         r = pd.to_numeric(df["close"], errors="coerce").pct_change().fillna(0.0)
+        z = ((r - r.rolling(40, min_periods=10).mean()) / (r.rolling(40, min_periods=10).std() + 1e-12)).abs()
+        cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
         win = 40
         if _is_datetime_index(df) and len(df.index) > 5:
             deltas = pd.Series(df.index).diff().dropna()
