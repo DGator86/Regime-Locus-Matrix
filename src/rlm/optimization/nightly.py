@@ -41,6 +41,7 @@ class NightlyMTFOptimizer:
         )
 
         completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+
         if not completed:
             if NIGHTLY_PATH.exists():
                 try:

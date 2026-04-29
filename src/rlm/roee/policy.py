@@ -13,6 +13,7 @@ from rlm.roee.sizing import (
     compute_regime_adjusted_kelly_fraction,
     compute_regime_penalty_multiplier,
     compute_size_fraction,
+    kelly_confidence_from_uncertainty,
     kelly_voltarget_size,
     parse_latent_regime_label,
     quantize_fraction,
@@ -341,11 +342,12 @@ def _core_trade_decision_from_strategy_name(
             max_kelly_fraction=effective_kelly_fraction,
             max_capital_fraction=max_capital_fraction,
         )
+        kelly_confidence = kelly_confidence_from_uncertainty(forecast_uncertainty=forecast_uncertainty)
         size_fraction = quantize_fraction(
             min(
                 candidate.max_risk_pct,
                 max_capital_fraction,
-                raw_dynamic_size * regime_penalty,
+                raw_dynamic_size * regime_penalty * kelly_confidence,
             )
         )
         size_model = "kelly_vol_target"
@@ -359,6 +361,7 @@ def _core_trade_decision_from_strategy_name(
                 "max_kelly_fraction": effective_kelly_fraction,
                 "max_capital_fraction": float(max_capital_fraction),
                 "raw_dynamic_size": raw_dynamic_size,
+                "kelly_confidence_multiplier": kelly_confidence,
                 "regime_adjusted_kelly": regime_adjusted_kelly,
                 "regime_state_label": regime_state_label or "",
                 "regime_state_confidence": (
