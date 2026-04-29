@@ -28,7 +28,7 @@ from rlm.factors.multi_timeframe import (
     format_precompute_instructions,
     parse_higher_tfs,
 )
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 from rlm.optimization.tuning import (
     ForecastParamSample,
     generate_forecast_param_samples,

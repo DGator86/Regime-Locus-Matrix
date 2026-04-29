@@ -253,7 +253,7 @@ def compute_regime_timeframes(
     client_id: int | None = None,
 ) -> dict[str, dict[str, str]]:
     """Return per-label dict with direction_regime, regime_key, bar_time (last bar timestamp)."""
-    from rlm.factors.pipeline import FactorPipeline
+    from rlm.features.factors.pipeline import FactorPipeline
 
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
     from rlm.datasets.bars_enrichment import prepare_bars_for_factors

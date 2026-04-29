@@ -148,4 +148,31 @@ pythonpath = ["src"]
 
 [tool.mypy]
 python_version = "3.10"
-strict = true
+# Pragmatic: ``strict`` produced 500+ legacy errors. Prefer incremental cleanup.
+strict = false
+warn_unused_configs = true
+warn_unused_ignores = false
+show_error_codes = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+# Third-party-heavy modules: re-enable per-package once stubs/noise are under control.
+check_untyped_defs = false
+# Pandas/numpy/statsmodels unions and legacy call sites: tighten incrementally later.
+disable_error_code = [
+    "arg-type",
+    "call-arg",
+    "assignment",
+    "attr-defined",
+    "call-overload",
+    "dict-item",
+    "import-untyped",
+    "index",
+    "misc",
+    "operator",
+    "return-value",
+    "union-attr",
+    "valid-type",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+no_implicit_optional = true

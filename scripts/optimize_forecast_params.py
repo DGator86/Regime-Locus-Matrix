@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 from rlm.optimization.tuning import random_search_forecast_params
 
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars

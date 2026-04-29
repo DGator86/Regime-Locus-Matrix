@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_features_csv, rel_option_chain_csv

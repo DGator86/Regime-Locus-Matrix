@@ -1,5 +1,5 @@
 """
-run_kronos_pipeline.py — CLI for the Kronos foundation-model forecast layer.
+run_kronos_pipeline.py - CLI for the Kronos foundation-model forecast layer.
 
 Runs the Kronos autoregressive Transformer on historical OHLCV bars and
 produces the standard RLM forecast-features CSV.  Optionally overlays an
@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_forecast_features_csv
@@ -63,7 +63,7 @@ from rlm.types.forecast import ForecastConfig
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Kronos foundation-model forecast pipeline. " "Reads bars CSV → runs Kronos → writes forecast-features CSV."
+            "Kronos foundation-model forecast pipeline. " "Reads bars CSV -> runs Kronos -> writes forecast-features CSV."
         )
     )
     # I/O
@@ -219,7 +219,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Run
     # ------------------------------------------------------------------
-    print(f"[kronos] Running forecast on {len(df_factors)} bars …")
+    print(f"[kronos] Running forecast on {len(df_factors)} bars ...")
     df_out = pipeline.run(df_factors)
 
     # ------------------------------------------------------------------

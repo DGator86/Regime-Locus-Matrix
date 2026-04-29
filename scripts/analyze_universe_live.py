@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE

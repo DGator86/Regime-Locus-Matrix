@@ -40,7 +40,7 @@ def write_run_manifest(
 
 def to_jsonable(value: Any) -> Any:
     """Best-effort conversion for dataclasses and nested config payloads."""
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return {k: to_jsonable(v) for k, v in asdict(value).items()}
     if isinstance(value, dict):
         return {str(k): to_jsonable(v) for k, v in value.items()}

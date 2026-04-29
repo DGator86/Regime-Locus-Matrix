@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-**Universe → full equity pipeline → ROEE → Massive option chain → match legs → risk plan.**
+**Universe -> full equity pipeline -> ROEE -> Massive option chain -> match legs -> risk plan.**
 
 For each symbol (default: ``LIQUID_UNIVERSE`` = Mag7 + SPY + QQQ):
 
-1. IBKR daily bars → ``prepare_bars_for_factors`` → factors → state matrix → forecast (latest bar).
-2. ``select_trade_for_row`` → strategy + abstract legs.
+1. IBKR daily bars -> ``prepare_bars_for_factors`` -> factors -> state matrix -> forecast (latest bar).
+2. ``select_trade_for_row`` -> strategy + abstract legs.
 3. If **enter**: fetch a filtered Massive option snapshot (paginated), normalize,
    DTE slice, ``match_legs_to_chain``.
 4. Build **entry debit** (bid/ask), **mid mark** ``V0``, take-profit /
@@ -658,7 +658,7 @@ def main() -> int:
             live_model = LiveRegimeModelConfig(model="hmm")
             live_model_bootstrapped = True
             print(
-                f"[live_model] {live_model_path} missing — using defaults; "
+                f"[live_model] {live_model_path} missing - using defaults; "
                 "saving after nightly overlay (run calibrate_regime_models.py to tune)"
             )
     if args.use_kronos:
@@ -672,7 +672,7 @@ def main() -> int:
             live_model = live_model.model_copy(update={"use_kronos": True, "kronos": kronos_params})
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
-        print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")
+        print(f"[kronos] Blend enabled - weight={args.kronos_weight}, stride={args.kronos_stride}")
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
     if (

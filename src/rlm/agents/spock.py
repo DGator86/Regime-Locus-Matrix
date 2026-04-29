@@ -262,37 +262,23 @@ class SpockAgent:
                 recent = rows[-windows:]
                 all_lines.append(f"{label} (last {len(recent)} OOS windows):")
                 for r in recent:
-                    wr = f"{float(r['win_rate']):.0%}"
-                    sh = f"{float(r['sharpe']):.1f}"
-                    pnl = f"{float(r['avg_trade_pnl_pct']):+.1f}%"
-                    n = int(float(r.get("num_trades", 0)))
-                    oos_end = str(r.get("oos_end", "?"))[:10]
-                    safe_frac = r.get("regime_safety_fraction", "")
-                    safe = r.get("regime_safety_passed", "?")
-                    safe_str = (
-                        f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
-                    )
-                    all_lines.append(
-                        f"  OOS {oos_end}: win={wr} sharpe={sh} "
-                        f"avg_pnl={pnl} trades={n} safe={safe_str}"
-                    )
                     try:
                         wr = f"{float(r['win_rate']):.0%}"
                         sh = f"{float(r['sharpe']):.1f}"
                         pnl = f"{float(r['avg_trade_pnl_pct']):+.1f}%"
                         n = int(float(r.get("num_trades", 0)))
                         oos_end = str(r.get("oos_end", "?"))[:10]
-                        safe = r.get("regime_safety_passed", "?")
                         safe_frac = r.get("regime_safety_fraction", "")
-                        safe_str = f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
-                        lines.append(
-                            f"  OOS ending {oos_end}: win={wr} sharpe={sh} "
-                            f"avg_pnl={pnl} trades={n} regime_safe={safe_str}"
+                        safe = r.get("regime_safety_passed", "?")
+                        safe_str = (
+                            f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
+                        )
+                        all_lines.append(
+                            f"  OOS {oos_end}: win={wr} sharpe={sh} "
+                            f"avg_pnl={pnl} trades={n} safe={safe_str}"
                         )
                     except (ValueError, KeyError):
                         continue
-                if len(lines) > 1:
-                    return "\n".join(lines)
             except Exception:
                 pass
 

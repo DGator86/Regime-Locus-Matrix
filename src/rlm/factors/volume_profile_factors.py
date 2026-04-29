@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-try:
+if TYPE_CHECKING:
     from rlm.features.factors.base import FactorCalculator as BaseFactorCalculator
-except Exception:  # pragma: no cover
+else:
+    try:
+        from rlm.features.factors.base import FactorCalculator as BaseFactorCalculator
+    except Exception:  # pragma: no cover
 
-    class BaseFactorCalculator:  # type: ignore[override]
-        def compute(self, data: pd.DataFrame) -> pd.DataFrame:
-            raise NotImplementedError
-
+        class BaseFactorCalculator:
+            def compute(self, data: pd.DataFrame) -> pd.DataFrame:
+                raise NotImplementedError
 
 from rlm.volume_profile.auction_metrics import (
     auction_state,
