@@ -44,7 +44,7 @@ def _parse_symbols(s: str) -> list[str]:
 
 
 async def _run_underlying(symbol: str, data_root: str, bar_size: str) -> None:
-    from rlm.microstructure.collectors.underlying import UnderlyingCollector
+    from rlm.data.microstructure.collectors.underlying import UnderlyingCollector
 
     collector = UnderlyingCollector(symbol, data_root=data_root, bar_size=bar_size)
     await collector.stream()
@@ -58,7 +58,7 @@ async def _run_options(
     max_dte: int,
     min_oi: int,
 ) -> None:
-    from rlm.microstructure.collectors.options import OptionsCollector
+    from rlm.data.microstructure.collectors.options import OptionsCollector
 
     collector = OptionsCollector(
         symbol,

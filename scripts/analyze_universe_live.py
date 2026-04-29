@@ -34,7 +34,7 @@ from rlm.features.factors.pipeline import FactorPipeline
 
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
@@ -43,7 +43,7 @@ from rlm.forecasting.live_model import (
 )
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def _parse_symbols(s: str) -> list[str]:

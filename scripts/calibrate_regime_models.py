@@ -36,7 +36,7 @@ from rlm.optimization.tuning import (
 )
 
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.hmm import RLMHMM, HMMConfig

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.datasets.bars_enrichment import enrich_bars_with_surface_features
+from rlm.data.bars_enrichment import enrich_bars_with_surface_features
 
 
 def _make_bars() -> pd.DataFrame:

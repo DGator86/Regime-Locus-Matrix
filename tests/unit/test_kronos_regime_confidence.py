@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 
-from rlm.kronos.config import KronosConfig
-from rlm.kronos.regime_confidence import (
+from rlm.forecasting.kronos_config import KronosConfig
+from rlm.forecasting.models.kronos.regime_confidence import (
     KronosRegimeConfidence,
     _classify_path,
     _direction_proxy,

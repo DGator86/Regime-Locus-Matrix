@@ -1,6 +1,6 @@
 import pandas as pd
 
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def test_state_matrix_creates_regime_columns() -> None:
