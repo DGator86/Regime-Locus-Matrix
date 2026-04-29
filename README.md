@@ -622,6 +622,27 @@ result = FullRLMPipeline(cfg).run(bars)
 
 Use `--backend {auto,csv,lake}` on `forecast`, `backtest`, `trade`, `ingest`, and `doctor`.
 
+
+### DevOps: reproducible local stack
+
+Use Docker Compose to run a consistent development stack with:
+- MinIO S3-compatible data lake
+- Jupyter Lab (mounted to this repo)
+- IBKR Gateway (paper mode via IBeam)
+
+```bash
+docker compose -f docker-compose.dev.yml --env-file .env up -d
+```
+
+Then open:
+- Jupyter Lab: `http://localhost:8888`
+- MinIO Console: `http://localhost:9001`
+- IBKR Gateway API bridge: `http://localhost:5000`
+
+The Compose stack binds published ports to `127.0.0.1` so the default
+development credentials and repo-mounted Jupyter environment are not exposed
+on your LAN.
+
 ## Profiles and config files
 
 Use `--profile <name>` (from `configs/profiles/`) or `--config <path.yaml>`.

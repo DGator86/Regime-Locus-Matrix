@@ -288,21 +288,28 @@ if opt_result is not None:
         )
     else:
         expected_keys = [
-            "mtf_ltf_weight", "hmm_confidence_threshold",
-            "high_vol_kelly_multiplier", "transition_kelly_multiplier",
-            "calm_trend_kelly_multiplier", "move_window", "vol_window",
-            "direction_neutral_threshold", "transaction_cost_frac",
+            "mtf_ltf_weight",
+            "hmm_confidence_threshold",
+            "high_vol_kelly_multiplier",
+            "transition_kelly_multiplier",
+            "calm_trend_kelly_multiplier",
+            "move_window",
+            "vol_window",
+            "direction_neutral_threshold",
+            "transaction_cost_frac",
         ]
         for k in expected_keys:
-            check(k in opt_result,
-                  f"optimizer output has '{k}'",
-                  f"optimizer output MISSING '{k}'")
-        check("mtf_regimes" not in opt_result,
-              "optimizer output excludes unevaluated 'mtf_regimes'",
-              "optimizer output includes unsafe unevaluated 'mtf_regimes'")
-        check(nightly_json_path.exists(),
-              f"live_nightly_hyperparams.json written",
-              "live_nightly_hyperparams.json was NOT written")
+            check(k in opt_result, f"optimizer output has '{k}'", f"optimizer output MISSING '{k}'")
+        check(
+            "mtf_regimes" not in opt_result,
+            "optimizer output omits unsafe live-only 'mtf_regimes'",
+            "optimizer output should not include 'mtf_regimes'",
+        )
+        check(
+            nightly_json_path.exists(),
+            "live_nightly_hyperparams.json written",
+            "live_nightly_hyperparams.json was NOT written",
+        )
         if nightly_json_path.exists():
             generated_nightly_json = nightly_json_path.read_text(encoding="utf-8")
             written = json.loads(generated_nightly_json)
