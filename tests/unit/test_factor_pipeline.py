@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 
+from rlm.features.factors.base import standardize_factor_frame
 from rlm.factors import FactorPipeline
+from rlm.types.factors import FactorCategory, FactorSpec, TransformKind
 
 
 def make_sample_bars(n: int = 150) -> pd.DataFrame:
@@ -68,6 +70,28 @@ def test_standardized_factors_are_bounded() -> None:
     assert finite_vals.size > 0
     assert (finite_vals <= 1.0).all()
     assert (finite_vals >= -1.0).all()
+
+
+def test_standardize_factor_frame_coerces_nullable_missing_values() -> None:
+    raw = pd.DataFrame(
+        {
+            "spread_ratio": pd.Series([pd.NA, 1.0, 1.1, 0.9, 1.2, 0.8])
+        }
+    )
+    specs = [
+        FactorSpec(
+            "spread_ratio",
+            FactorCategory.LIQUIDITY,
+            TransformKind.RATIO,
+            neutral_value=1.0,
+        )
+    ]
+
+    out = standardize_factor_frame(raw, specs, rolling_window=3, min_periods=2)
+
+    assert "spread_ratio" in out.columns
+    assert out["spread_ratio"].isna().sum() >= 1
+    assert np.isfinite(out["spread_ratio"]).any()
 
 
 def test_factor_pipeline_emits_new_feature_columns_from_default_config() -> None:
