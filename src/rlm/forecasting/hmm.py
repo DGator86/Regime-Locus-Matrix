@@ -339,8 +339,11 @@ class RLMHMM:
         if gamma.ndim != 2 or len(gamma) < 2:
             return self.calibrated_transmat()
         eta = float(self.config.online_em_step_size if step_size is None else step_size)
+        if not np.isfinite(eta):
+            raise ValueError("step_size must be a finite float in [0, 1].")
         if eta <= 0.0:
             return self.calibrated_transmat()
+        eta = min(eta, 1.0)
 
         expected = gamma[:-1].T @ gamma[1:]
         row = expected.sum(axis=1, keepdims=True)
