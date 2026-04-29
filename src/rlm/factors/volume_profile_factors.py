@@ -83,13 +83,9 @@ class VolumeProfileFactors(BaseFactorCalculator):
                 continue
 
             if self.session_type == "fx":
-                profile = get_fx_session_profile(
-                    profile_input, "London", pd.Timestamp(session_date).to_pydatetime()
-                )
+                profile = get_fx_session_profile(profile_input, "London", pd.Timestamp(session_date).to_pydatetime())
             else:
-                profile = calculate_volume_profile(
-                    profile_input, price_precision=self.price_precision
-                )
+                profile = calculate_volume_profile(profile_input, price_precision=self.price_precision)
             nodes = identify_nodes(profile["volume_profile_series"])
             effort_score = effort_result_divergence(session_df, profile)
             cum_wyckoff = cumulative_effort_result(

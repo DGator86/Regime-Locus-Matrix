@@ -70,9 +70,7 @@ class CandlePatternFactors(FactorCalculator):
         morning_star = talib.CDLMORNINGSTAR(open_, high, low, close).astype(float) / 100.0
         evening_star = talib.CDLEVENINGSTAR(open_, high, low, close).astype(float) / 100.0
 
-        out["candle_bullish_reversal"] = (
-            engulfing.clip(lower=0) + hammer.clip(lower=0) + morning_star.clip(lower=0)
-        )
+        out["candle_bullish_reversal"] = engulfing.clip(lower=0) + hammer.clip(lower=0) + morning_star.clip(lower=0)
         out["candle_bearish_reversal"] = (
             (-engulfing.clip(upper=0)) + shooting_star.clip(lower=0) + evening_star.clip(lower=0)
         )

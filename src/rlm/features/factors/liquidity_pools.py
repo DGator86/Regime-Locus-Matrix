@@ -88,9 +88,7 @@ class AdvancedLiquidityPoolFactors(FactorCalculator):
         close = df["close"].astype(float)
         open_ = df["open"].astype(float)
         volume = (
-            df["volume"].astype(float)
-            if "volume" in df.columns
-            else pd.Series(np.nan, index=df.index, dtype=float)
+            df["volume"].astype(float) if "volume" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
         )
 
         tr = pd.concat(
@@ -104,18 +102,8 @@ class AdvancedLiquidityPoolFactors(FactorCalculator):
         atr = tr.rolling(14, min_periods=5).mean().replace(0.0, np.nan)
 
         # Swing detection (fractal-like, 2 candles each side).
-        swing_high = (
-            high.gt(high.shift(1))
-            & high.ge(high.shift(2))
-            & high.gt(high.shift(-1))
-            & high.ge(high.shift(-2))
-        )
-        swing_low = (
-            low.lt(low.shift(1))
-            & low.le(low.shift(2))
-            & low.lt(low.shift(-1))
-            & low.le(low.shift(-2))
-        )
+        swing_high = high.gt(high.shift(1)) & high.ge(high.shift(2)) & high.gt(high.shift(-1)) & high.ge(high.shift(-2))
+        swing_low = low.lt(low.shift(1)) & low.le(low.shift(2)) & low.lt(low.shift(-1)) & low.le(low.shift(-2))
 
         last_swing_high = high.where(swing_high).ffill()
         last_swing_low = low.where(swing_low).ffill()
@@ -149,12 +137,8 @@ class AdvancedLiquidityPoolFactors(FactorCalculator):
         bullish_ob = displacement_up & (close.shift(1) < open_.shift(1))
         bearish_ob = displacement_down & (close.shift(1) > open_.shift(1))
 
-        out["order_block_bullish"] = 1.0 + (
-            bullish_ob.astype(float) * (bearish_prev_body / atr).fillna(0.0)
-        )
-        out["order_block_bearish"] = 1.0 + (
-            bearish_ob.astype(float) * (bullish_prev_body / atr).fillna(0.0)
-        )
+        out["order_block_bullish"] = 1.0 + (bullish_ob.astype(float) * (bearish_prev_body / atr).fillna(0.0))
+        out["order_block_bearish"] = 1.0 + (bearish_ob.astype(float) * (bullish_prev_body / atr).fillna(0.0))
 
         # Simple rolling volume profile node strength using price-bin assignment.
         typical_price = ((high + low + close) / 3.0).replace([np.inf, -np.inf], np.nan)

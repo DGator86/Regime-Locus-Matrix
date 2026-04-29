@@ -14,12 +14,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from rlm.optimization.base import _signal_based_score, _compute_sharpe, align_regime_labels
-
+from rlm.optimization.base import _compute_sharpe, _signal_based_score, align_regime_labels
 
 # ---------------------------------------------------------------------------
 # _compute_sharpe
 # ---------------------------------------------------------------------------
+
 
 def test_compute_sharpe_positive_returns():
     rng = np.random.default_rng(0)
@@ -42,13 +42,16 @@ def test_compute_sharpe_too_short():
 # _signal_based_score
 # ---------------------------------------------------------------------------
 
+
 def _make_policy_df(n: int, action: str = "enter", size: float = 1.0) -> pd.DataFrame:
     prices = 100.0 * (1 + pd.Series(np.random.default_rng(0).normal(0, 0.01, n))).cumprod()
-    return pd.DataFrame({
-        "close": prices.values,
-        "roee_action": [action] * n,
-        "roee_size_fraction": [size] * n,
-    })
+    return pd.DataFrame(
+        {
+            "close": prices.values,
+            "roee_action": [action] * n,
+            "roee_size_fraction": [size] * n,
+        }
+    )
 
 
 def test_signal_based_score_returns_finite_for_entering_strategy():
@@ -72,8 +75,8 @@ def test_signal_based_score_nan_when_no_trades():
 
 def test_signal_based_score_transaction_costs_reduce_score():
     df = _make_policy_df(200, action="enter")
-    score_no_cost = _signal_based_score(df, oos_start=150, transaction_cost_bps=0.0)
-    score_high_cost = _signal_based_score(df, oos_start=150, transaction_cost_bps=0.05)
+    score_no_cost = _signal_based_score(df, oos_start=150, transaction_cost_frac=0.0)
+    score_high_cost = _signal_based_score(df, oos_start=150, transaction_cost_frac=0.05)
     # High costs should produce a lower (or equal) score
     if np.isfinite(score_no_cost) and np.isfinite(score_high_cost):
         assert score_high_cost <= score_no_cost + 1e-9
@@ -89,11 +92,12 @@ def test_signal_based_score_missing_close_returns_nan():
 # align_regime_labels
 # ---------------------------------------------------------------------------
 
+
 def test_align_regime_labels_stable_across_permutations():
     """Same economic regimes, different raw labels → same aligned output."""
     returns = np.array([0.01, 0.02, 0.05, 0.06, 0.10, 0.12])
-    labels_a = np.array([0, 0, 1, 1, 2, 2])   # 0=low, 1=mid, 2=high vol
-    labels_b = np.array([2, 2, 0, 0, 1, 1])   # switched: 2=low, 0=mid, 1=high vol
+    labels_a = np.array([0, 0, 1, 1, 2, 2])  # 0=low, 1=mid, 2=high vol
+    labels_b = np.array([2, 2, 0, 0, 1, 1])  # switched: 2=low, 0=mid, 1=high vol
 
     aligned_a = align_regime_labels(labels_a, returns, n_regimes=3)
     aligned_b = align_regime_labels(labels_b, returns, n_regimes=3)

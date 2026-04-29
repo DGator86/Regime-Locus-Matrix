@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rlm.data.paths import get_raw_data_dir, get_processed_data_dir
+from rlm.data.paths import get_processed_data_dir, get_raw_data_dir
 from rlm.data.readers import load_bars, load_option_chain
 
 
@@ -31,9 +31,7 @@ def resolve_bars_path(symbol: str, bars_arg: str | None, data_root: str | None) 
     return get_raw_data_dir(data_root) / f"bars_{symbol}.csv"
 
 
-def resolve_chain_path(
-    symbol: str, chain_arg: str | None, data_root: str | None
-) -> Path | None:
+def resolve_chain_path(symbol: str, chain_arg: str | None, data_root: str | None) -> Path | None:
     """Return the resolved path to the option chain file, or ``None`` if not specified."""
     if chain_arg is not None:
         return Path(chain_arg).expanduser().resolve()
@@ -41,9 +39,7 @@ def resolve_chain_path(
     return candidate if candidate.is_file() else None
 
 
-def resolve_output_path(
-    kind: str, symbol: str, out_arg: str | None, data_root: str | None
-) -> Path:
+def resolve_output_path(kind: str, symbol: str, out_arg: str | None, data_root: str | None) -> Path:
     """Return the resolved output file path, creating its parent directory.
 
     Parameters

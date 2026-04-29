@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.factors import FactorPipeline
 
 
 def make_sample_bars(n: int = 150) -> pd.DataFrame:

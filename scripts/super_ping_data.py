@@ -215,7 +215,11 @@ def main() -> None:
         h = web.DataReader(stooq_sym, "stooq")
         n = len(h)
         if n == 0:
-            _line("WARN", "pandas_datareader (stooq)", f"{stooq_sym} rows=0 (often rate/format flakiness; not a core RLM path)")
+            _line(
+                "WARN",
+                "pandas_datareader (stooq)",
+                f"{stooq_sym} rows=0 (often rate/format flakiness; not a core RLM path)",
+            )
         else:
             _line("PASS", "pandas_datareader (stooq)", f"{stooq_sym} rows={n}")
     except Exception as e:

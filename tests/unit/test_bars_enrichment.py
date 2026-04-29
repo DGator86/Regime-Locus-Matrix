@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rlm.datasets import bars_enrichment
+from rlm.data import bars_enrichment as data_bars_enrichment
 from rlm.datasets.bars_enrichment import (
     enrich_bars_from_option_chain,
     enrich_bars_with_vix,
@@ -140,13 +140,13 @@ def test_enrich_bars_with_vix_uses_last_known_intraday_values(
     )
 
     def _fake_loader(sym: str, bars_index: pd.Index) -> pd.Series:
-        bars_ts = bars_enrichment._to_exchange_time(bars_index)
+        bars_ts = data_bars_enrichment._to_exchange_time(bars_index)
         source = vix_src if sym == "^VIX" else vvix_src
         out = pd.Series(np.nan, index=bars_ts, dtype=float)
         out.loc[:] = source.reindex(bars_ts, method="ffill").to_numpy()
         return out
 
-    monkeypatch.setattr(bars_enrichment, "_load_intraday_vix_series", _fake_loader)
+    monkeypatch.setattr(data_bars_enrichment, "_load_intraday_vix_series", _fake_loader)
 
     out = enrich_bars_with_vix(bars)
 
@@ -198,7 +198,7 @@ def test_enrich_bars_with_vix_does_not_carry_intraday_values_across_days(
     )
 
     def _fake_loader(sym: str, bars_index: pd.Index) -> pd.Series:
-        bars_ts = bars_enrichment._to_exchange_time(bars_index)
+        bars_ts = data_bars_enrichment._to_exchange_time(bars_index)
         out = pd.Series(np.nan, index=bars_ts, dtype=float)
         for day in pd.Index(bars_ts.normalize().unique()).sort_values():
             day_end = day + pd.Timedelta(days=1)
@@ -209,7 +209,7 @@ def test_enrich_bars_with_vix_does_not_carry_intraday_values_across_days(
             out.loc[day_bars] = day_source.reindex(day_bars, method="ffill").to_numpy()
         return out
 
-    monkeypatch.setattr(bars_enrichment, "_load_intraday_vix_series", _fake_loader)
+    monkeypatch.setattr(data_bars_enrichment, "_load_intraday_vix_series", _fake_loader)
 
     out = enrich_bars_with_vix(bars)
 

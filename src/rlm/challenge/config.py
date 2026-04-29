@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -15,10 +14,10 @@ class ChallengeMilestone:
 
 # Fixed progression checkpoints
 MILESTONES: tuple[ChallengeMilestone, ...] = (
-    ChallengeMilestone(2_500.0,  "Phase I — Foundation", "Prove the edge; 2.5x from seed"),
-    ChallengeMilestone(5_000.0,  "Phase II — Build",     "Compound the gains; 2x from Phase I"),
-    ChallengeMilestone(10_000.0, "Phase III — Scale",    "Increase size; 2x from Phase II"),
-    ChallengeMilestone(25_000.0, "Phase IV — Arrival",   "PDT threshold cleared"),
+    ChallengeMilestone(2_500.0, "Phase I — Foundation", "Prove the edge; 2.5x from seed"),
+    ChallengeMilestone(5_000.0, "Phase II — Build", "Compound the gains; 2x from Phase I"),
+    ChallengeMilestone(10_000.0, "Phase III — Scale", "Increase size; 2x from Phase II"),
+    ChallengeMilestone(25_000.0, "Phase IV — Arrival", "PDT threshold cleared"),
 )
 
 

@@ -96,9 +96,7 @@ def _pick_first_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
 def _regime_col(df: pd.DataFrame) -> str:
     col = _pick_first_column(df, ["hmm_state", "hmm_state_label", "regime_key", "regime"])
     if col is None:
-        raise ValueError(
-            "No regime column found. Expected one of hmm_state/hmm_state_label/regime_key/regime."
-        )
+        raise ValueError("No regime column found. Expected one of hmm_state/hmm_state_label/regime_key/regime.")
     return col
 
 
@@ -167,9 +165,7 @@ def _full_locus_numeric(df: pd.DataFrame) -> list[str]:
         return cols
 
     numeric = [
-        c
-        for c in df.select_dtypes(include=[np.number]).columns
-        if c not in {"hmm_state"} and not c.endswith("_id")
+        c for c in df.select_dtypes(include=[np.number]).columns if c not in {"hmm_state"} and not c.endswith("_id")
     ]
     return numeric[: min(len(numeric), 40)]
 
@@ -257,18 +253,10 @@ def _safe_write(fig: go.Figure, path: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--symbol", default="SPY", help="Underlying symbol used for default input/output names."
-    )
-    parser.add_argument(
-        "--bar-size", default="1 day", help="Bar size tag (e.g., '1 day', '5 mins')."
-    )
-    parser.add_argument(
-        "--input", type=Path, default=None, help="Explicit enriched locus parquet path."
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--symbol", default="SPY", help="Underlying symbol used for default input/output names.")
+    parser.add_argument("--bar-size", default="1 day", help="Bar size tag (e.g., '1 day', '5 mins').")
+    parser.add_argument("--input", type=Path, default=None, help="Explicit enriched locus parquet path.")
     parser.add_argument(
         "--out-dir",
         type=Path,
@@ -379,22 +367,14 @@ def main() -> int:
             continue
         corr = float(x[mask].corr(y[mask]))
         slope = float(np.polyfit(x[mask], y[mask], 1)[0])
-        liq_rows.append(
-            {"factor": c, "corr_with_pnl": corr, "linear_slope": slope, "n": int(mask.sum())}
-        )
-    liq_attr = (
-        pd.DataFrame(liq_rows).sort_values("corr_with_pnl", ascending=False)
-        if liq_rows
-        else pd.DataFrame()
-    )
+        liq_rows.append({"factor": c, "corr_with_pnl": corr, "linear_slope": slope, "n": int(mask.sum())})
+    liq_attr = pd.DataFrame(liq_rows).sort_values("corr_with_pnl", ascending=False) if liq_rows else pd.DataFrame()
     liq_attr.to_csv(out_dir / "pnl_attribution_by_liquidity_factors.csv", index=False)
 
     # 4) Surface-fit-error correlation plots
     sfe_col = _pick_first_column(df, ["surface_fit_error", "std_surface_fit_error"])
     if sfe_col is not None:
-        corr_targets = [
-            c for c in ["S_D", "S_V", "S_L", "S_G", confluence_col, pnl_col] if c in df.columns
-        ]
+        corr_targets = [c for c in ["S_D", "S_V", "S_L", "S_G", confluence_col, pnl_col] if c in df.columns]
         corr_rows: list[dict[str, float | str]] = []
         for c in corr_targets:
             x = pd.to_numeric(df[sfe_col], errors="coerce")
@@ -402,9 +382,7 @@ def main() -> int:
             mask = x.notna() & y.notna()
             if mask.sum() < 3:
                 continue
-            corr_rows.append(
-                {"target": c, "corr": float(x[mask].corr(y[mask])), "n": int(mask.sum())}
-            )
+            corr_rows.append({"target": c, "corr": float(x[mask].corr(y[mask])), "n": int(mask.sum())})
 
             fig = px.scatter(
                 df.loc[mask],
@@ -419,9 +397,7 @@ def main() -> int:
         pd.DataFrame(corr_rows).to_csv(out_dir / "surface_fit_error_correlations.csv", index=False)
 
     # 5) Interactive Plotly dashboards (regime heatmaps + confluence-segmented equity)
-    heat_figure = make_subplots(
-        rows=1, cols=2, subplot_titles=("Transition matrix", "Mean P&L by regime x confluence")
-    )
+    heat_figure = make_subplots(rows=1, cols=2, subplot_titles=("Transition matrix", "Mean P&L by regime x confluence"))
     heat_figure.add_trace(
         go.Heatmap(
             z=trans.values,

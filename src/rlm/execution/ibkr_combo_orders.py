@@ -59,7 +59,9 @@ def assert_paper_trading_port(port: int) -> None:
         )
 
 
-def legs_from_ibkr_combo_spec(spec: dict[str, Any]) -> list[tuple[IBKROptionLegSpec, IBKRLegAction]]:
+def legs_from_ibkr_combo_spec(
+    spec: dict[str, Any],
+) -> list[tuple[IBKROptionLegSpec, IBKRLegAction]]:
     """Build IB leg tuples from ``ibkr_combo_spec`` JSON (``underlying``, ``legs[]``)."""
     und = str(spec.get("underlying", "")).upper().strip()
     if not und:
@@ -82,7 +84,9 @@ def legs_from_ibkr_combo_spec(spec: dict[str, Any]) -> list[tuple[IBKROptionLegS
     return out
 
 
-def reverse_legs_for_close(legs: list[tuple[IBKROptionLegSpec, IBKRLegAction]]) -> list[tuple[IBKROptionLegSpec, IBKRLegAction]]:
+def reverse_legs_for_close(
+    legs: list[tuple[IBKROptionLegSpec, IBKRLegAction]],
+) -> list[tuple[IBKROptionLegSpec, IBKRLegAction]]:
     """Flip BUY/SELL per leg (close an existing combo)."""
     rev: list[tuple[IBKROptionLegSpec, IBKRLegAction]] = []
     for spec, act in legs:
@@ -137,9 +141,7 @@ def _get_bundle() -> tuple[Type[Any], Type[Any], Any, Any, Any]:
         from ibapi.order import Order
         from ibapi.wrapper import EWrapper
     except ImportError as e:
-        raise ImportError(
-            "IBKR orders require ibapi. Install: pip install 'regime-locus-matrix[ibkr]'"
-        ) from e
+        raise ImportError("IBKR orders require ibapi. Install: pip install 'regime-locus-matrix[ibkr]'") from e
     return EWrapper, EClient, Contract, ComboLeg, Order
 
 

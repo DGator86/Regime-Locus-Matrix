@@ -155,9 +155,7 @@ def apply_uncertainty_vault(
     uncertainty_ok = forecast_uncertainty is not None
     uncertainty_value = float(forecast_uncertainty) if uncertainty_ok else None
     uncertainty_finite = uncertainty_value is not None and uncertainty_value >= 0.0
-    triggered = bool(
-        threshold_ok and uncertainty_finite and uncertainty_value > float(uncertainty_threshold)
-    )
+    triggered = bool(threshold_ok and uncertainty_finite and uncertainty_value > float(uncertainty_threshold))
     adjusted = size_fraction * multiplier if triggered else size_fraction
     metadata: dict[str, float | bool] = {
         "vault_enabled": bool(threshold_ok),
