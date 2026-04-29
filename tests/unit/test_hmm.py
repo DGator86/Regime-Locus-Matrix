@@ -95,3 +95,16 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     nxt = RLMHMM.one_step_predictive_probs(gamma, t)
     assert nxt.shape == gamma.shape
     assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_hmm_online_transition_annotations_are_prefix_stable() -> None:
+    df = _synthetic_scores(260)
+    train_mask = pd.Series(df.index < df.index[180], index=df.index)
+    config = HMMConfig(n_states=4, n_iter=20, random_state=17, filter_backend="numpy", online_em_step_size=0.2)
+
+    prefix = HybridForecastPipeline(hmm_config=config).run(df.iloc[:220], train_mask=train_mask.iloc[:220])
+    extended = HybridForecastPipeline(hmm_config=config).run(df, train_mask=train_mask)
+
+    prefix_next = np.asarray(prefix["hmm_next_probs"].tolist(), dtype=float)
+    extended_next = np.asarray(extended.iloc[: len(prefix)]["hmm_next_probs"].tolist(), dtype=float)
+    assert np.allclose(prefix_next, extended_next, atol=1e-10)
