@@ -139,6 +139,8 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)
 
 
+def test_hmm_online_transition_annotations_are_causal_and_non_mutating() -> None:
+    df = _synthetic_scores(220)
 def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None:
     """online_transition_update must return a finite, non-negative, row-stochastic matrix."""
     df = _synthetic_scores(200)
@@ -146,6 +148,24 @@ def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None
         HMMConfig(
             n_states=4,
             n_iter=20,
+            random_state=0,
+            filter_backend="numpy",
+            transition_pseudocount=0.0,
+            online_em_step_size=0.5,
+        )
+    )
+    m.fit(df.iloc[:140], verbose=False)
+    original = m.permuted_transmat().copy()
+    gamma = m.predict_proba_filtered(df)
+
+    mats = m.causal_online_transition_matrices(gamma)
+    assert mats.shape == (len(df), 4, 4)
+    assert np.allclose(m.permuted_transmat(), original)
+
+    prefix_gamma = m.predict_proba_filtered(df.iloc[:170])
+    prefix_mats = m.causal_online_transition_matrices(prefix_gamma)
+
+    assert np.allclose(mats[:170], prefix_mats, atol=1e-8)
             random_state=5,
             filter_backend="numpy",
         )
