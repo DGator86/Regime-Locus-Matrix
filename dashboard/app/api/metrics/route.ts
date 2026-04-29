@@ -516,6 +516,27 @@ function buildForecastTimeseries(dataDir: string, symbol: string) {
   return staleByMs > staleThresholdMs ? fallbackSeries : fromForecast;
 }
 
+function buildUniverseForecastLatest(dataDir: string) {
+  const rows = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
+  return rows.map((r) => ({
+    run_at_utc: r.run_at_utc || "",
+    symbol: (r.symbol || "").toUpperCase(),
+    status: r.status || "",
+    skip_reason: r.skip_reason || "",
+    action: r.action || "",
+    strategy_name: r.strategy_name || "",
+    regime_key: r.regime_key || "",
+    close: r.close ? num(r.close) : null,
+    sigma: optionalNum(r.sigma),
+    S_D: optionalNum(r.S_D),
+    S_V: optionalNum(r.S_V),
+    S_L: optionalNum(r.S_L),
+    S_G: optionalNum(r.S_G),
+    regime_safety_ok: String(r.regime_safety_ok || "").toLowerCase() === "true",
+    regime_train_sample_count: r.regime_train_sample_count ? num(r.regime_train_sample_count) : null,
+  }));
+}
+
 function buildBacktestEquity(dataDir: string, symbol: string) {
   const rows = readCsvFile(path.join(dataDir, `backtest_equity_${symbol}.csv`));
   if (rows.length === 0) return [];
@@ -565,6 +586,7 @@ export async function GET() {
     const dataDir = resolved.dir;
 
     const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
+    const universeForecastLatest = buildUniverseForecastLatest(dataDir);
     const primarySymbol = resolvePrimarySymbol(dataDir, activePlans);
 
     const forecastPath = path.join(dataDir, `forecast_features_${primarySymbol}.csv`);
@@ -589,6 +611,7 @@ export async function GET() {
       equityPositions,
       equityTradeSummary,
       forecastTimeseries,
+      universeForecastLatest,
       backtestEquity,
       walkforwardSummary,
       generatedAt: new Date().toISOString(),
