@@ -14,6 +14,8 @@ from hmmlearn import hmm
 from pydantic import BaseModel, Field
 from scipy.special import logsumexp, softmax
 
+log = logging.getLogger(__name__)
+
 try:
     from numba import njit
 except Exception:  # pragma: no cover - optional acceleration path
@@ -352,9 +354,17 @@ class RLMHMM:
         if self._state_permutation is None:
             self.model.transmat_ = updated
             return self.calibrated_transmat()
-        inv = {new: old_i for old_i, new in self._state_permutation.items()}
-        t_old = np.zeros_like(updated)
         n = updated.shape[0]
+        inv = {new: old_i for old_i, new in self._state_permutation.items()}
+        if len(inv) != n or any((k < 0 or k >= n or v < 0 or v >= n) for k, v in inv.items()):
+            log.warning(
+                "Invalid HMM state permutation during online transition update; "
+                "falling back to identity mapping (states=%d, inv_size=%d).",
+                n,
+                len(inv),
+            )
+            inv = {i: i for i in range(n)}
+        t_old = np.zeros_like(updated)
         for i_new in range(n):
             for j_new in range(n):
                 t_old[int(inv.get(i_new, i_new)), int(inv.get(j_new, j_new))] = updated[i_new, j_new]

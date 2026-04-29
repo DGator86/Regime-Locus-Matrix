@@ -80,7 +80,17 @@ def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
     cp_score = np.zeros(n, dtype=float)
     if "close" in df.columns:
         r = pd.to_numeric(df["close"], errors="coerce").pct_change().fillna(0.0)
-        z = ((r - r.rolling(40, min_periods=10).mean()) / (r.rolling(40, min_periods=10).std() + 1e-12)).abs()
+        win = 40
+        if _is_datetime_index(df) and len(df.index) > 5:
+            deltas = pd.Series(df.index).diff().dropna()
+            if not deltas.empty:
+                med = deltas.median()
+                if med <= pd.Timedelta(minutes=5):
+                    win = 240  # ~1 trading day on 5m bars
+                elif med <= pd.Timedelta(hours=1):
+                    win = 120
+        minp = max(10, win // 4)
+        z = ((r - r.rolling(win, min_periods=minp).mean()) / (r.rolling(win, min_periods=minp).std() + 1e-12)).abs()
         cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
     probs_accum: list[np.ndarray] = []
     if "hmm_probs" in df.columns:
@@ -110,6 +120,12 @@ def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFr
     df["markov_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
     if markov.state_labels:
         df["markov_most_likely_next_label"] = [markov.state_labels[int(s)] for s in top]
+    if "markov_state_label" in df.columns:
+        bearish_shift = np.zeros(len(df), dtype=float)
+        for i, label in enumerate(df["markov_state_label"].astype(str).tolist()):
+            if "bull" in label.lower() or "trend" in label.lower():
+                bearish_shift[i] = float(next_p[i].max() - probs[i].max())
+        df["markov_transition_alert_probability"] = np.clip(bearish_shift, 0.0, 1.0)
     _maybe_apply_transition_calibrations(df, "markov")
 
 

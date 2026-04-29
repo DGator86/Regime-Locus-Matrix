@@ -68,6 +68,10 @@ def _finite_float(x: object, default: float = 0.0) -> float:
 
 
 def _extract_regime_probabilities(row: pd.Series) -> tuple[np.ndarray | None, str]:
+    if "regime_ensemble_probs" in row and row.get("regime_ensemble_probs") is not None:
+        probs = np.array(row["regime_ensemble_probs"], dtype=float)
+        if probs.size > 0 and np.isfinite(probs).all():
+            return probs, "ensemble"
     for col, model_name in (("hmm_probs", "hmm"), ("markov_probs", "markov")):
         if col not in row or row.get(col) is None:
             continue
@@ -141,8 +145,12 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
-    transition_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
-    transition_alert = min(max(transition_alert, 0.0), 1.0)
+    hmm_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
+    markov_alert = _finite_float(row.get("markov_transition_alert_probability"), default=0.0)
+    transition_alert = min(max(0.5 * (hmm_alert + markov_alert), 0.0), 1.0)
+    ensemble_conf = _finite_float(row.get("regime_ensemble_confidence"), default=np.nan)
+    if math.isfinite(ensemble_conf):
+        composite = 0.7 * composite + 0.3 * ensemble_conf
     trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
     trade = composite >= confidence_threshold
