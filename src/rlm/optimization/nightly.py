@@ -43,7 +43,10 @@ class NightlyMTFOptimizer:
         completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
         if not completed:
             if NIGHTLY_PATH.exists():
-                existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                try:
+                    existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return {}
                 return existing if isinstance(existing, dict) else {}
             return {}
 
