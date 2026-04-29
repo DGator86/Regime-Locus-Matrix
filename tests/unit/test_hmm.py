@@ -97,8 +97,29 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)
 
 
-def test_online_transition_update_row_stochastic_and_finite() -> None:
-    """online_transition_update must return a finite, row-stochastic matrix and mutate model.transmat_."""
+def test_online_transition_update_returns_finite_row_stochastic_matrix() -> None:
+    """online_transition_update must return a finite, non-negative, row-stochastic matrix."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=5,
+            filter_backend="numpy",
+        )
+    ).fit(df, verbose=False)
+
+    gamma = m.predict_proba_filtered(df)
+    result = m.online_transition_update(gamma, step_size=0.1)
+
+    assert result.shape == (4, 4)
+    assert np.all(np.isfinite(result))
+    assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(result >= 0.0)
+
+
+def test_online_transition_update_mutates_model_transmat() -> None:
+    """online_transition_update must mutate model.transmat_ and keep it row-stochastic."""
     df = _synthetic_scores(200)
     m = RLMHMM(
         HMMConfig(
@@ -111,23 +132,19 @@ def test_online_transition_update_row_stochastic_and_finite() -> None:
 
     gamma = m.predict_proba_filtered(df)
     t_before = m.model.transmat_.copy()  # type: ignore[union-attr]
+    m.online_transition_update(gamma, step_size=0.1)
 
-    result = m.online_transition_update(gamma, step_size=0.1)
-
-    # shape and stochasticity
-    assert result.shape == (4, 4)
-    assert np.all(np.isfinite(result))
-    assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
-    assert np.all(result >= 0.0)
-
-    # model.transmat_ was mutated
     assert not np.allclose(m.model.transmat_, t_before, atol=1e-10)  # type: ignore[union-attr]
-    # mutated transmat_ is also row-stochastic
     assert np.allclose(m.model.transmat_.sum(axis=1), 1.0, atol=1e-5)  # type: ignore[union-attr]
 
 
 def test_online_transition_update_preserves_permutation_alignment() -> None:
-    """Permutation alignment: model.transmat_ is stored in raw-state space but calibrated_transmat returns permuted."""
+    """Permutation alignment: model.transmat_ is stored in raw-state space but calibrated_transmat returns permuted.
+
+    After calling online_transition_update, permuted_transmat() should equal the updated values that
+    were written back via the inverse permutation, and calibrated_transmat() should be consistent with
+    that permuted view (up to pseudocount smoothing).
+    """
     df = _synthetic_scores(200)
     m = RLMHMM(
         HMMConfig(
@@ -143,16 +160,24 @@ def test_online_transition_update_preserves_permutation_alignment() -> None:
     gamma = m.predict_proba_filtered(df)
     result = m.online_transition_update(gamma, step_size=0.05)
 
-    # calibrated_transmat applies pseudocount smoothing on top of the permuted view
-    calibrated = m.calibrated_transmat()
-    assert calibrated.shape == result.shape
-    assert np.allclose(calibrated.sum(axis=1), 1.0, atol=1e-5)
-    assert np.all(np.isfinite(calibrated))
-
-    # permuted_transmat (no pseudocount) should also be row-stochastic
+    # permuted_transmat reads from model.transmat_ through the permutation
     permuted = m.permuted_transmat()
     assert permuted.shape == (4, 4)
     assert np.allclose(permuted.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(np.isfinite(permuted))
+
+    # result must equal calibrated_transmat() (pseudocount applied on top of permuted view)
+    calibrated = m.calibrated_transmat()
+    assert calibrated.shape == (4, 4)
+    assert np.allclose(calibrated, result, atol=1e-8)
+    assert np.allclose(calibrated.sum(axis=1), 1.0, atol=1e-5)
+
+    # raw model.transmat_ is in un-permuted space; permuted_transmat must differ from it
+    # when the permutation is non-trivial (not the identity)
+    perm = m._state_permutation
+    is_identity = all(old == new for old, new in perm.items())
+    if not is_identity:
+        assert not np.allclose(m.model.transmat_, permuted, atol=1e-8)  # type: ignore[union-attr]
 
 
 def test_online_transition_update_zero_step_returns_calibrated_without_mutation() -> None:
@@ -173,6 +198,8 @@ def test_online_transition_update_zero_step_returns_calibrated_without_mutation(
 
     assert result.shape == (4, 4)
     assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
+    # result must equal calibrated_transmat()
+    assert np.allclose(result, m.calibrated_transmat(), atol=1e-8)
     # model.transmat_ must be unchanged
     assert np.allclose(m.model.transmat_, t_before)  # type: ignore[union-attr]
 
