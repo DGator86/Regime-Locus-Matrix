@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import optuna
-from pathlib import Path
 
 import pytest
 
@@ -71,6 +70,31 @@ def test_nightly_optimizer_returns_empty_overlay_when_all_trials_pruned_without_
 
     assert out == {}
     assert not nightly_path.exists()
+
+
+
+def test_nightly_optimizer_ignores_malformed_existing_overlay_when_all_trials_pruned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nightly_path = tmp_path / "data" / "processed" / "live_nightly_hyperparams.json"
+    nightly_path.parent.mkdir(parents=True)
+    nightly_path.write_text("{", encoding="utf-8")
+
+    monkeypatch.setattr(nightly, "REGIME_PATH", tmp_path / "missing_regime.json")
+    monkeypatch.setattr(nightly, "NIGHTLY_PATH", nightly_path)
+
+    def prune_objective(*_args: object, **_kwargs: object) -> float:
+        raise optuna.TrialPruned()
+
+    monkeypatch.setattr(nightly.OptimizationBase, "objective", prune_objective)
+
+    out = nightly.NightlyMTFOptimizer.run(symbols=["SPY"], trials=2)
+
+    assert out == {}
+    assert nightly_path.read_text(encoding="utf-8") == "{"
+
+
+
 def test_nightly_optimizer_does_not_write_overlay_without_valid_scores(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -86,6 +110,22 @@ def test_nightly_optimizer_does_not_write_overlay_without_valid_scores(
     with pytest.raises(RuntimeError, match="no valid backtest scores"):
         nightly.NightlyMTFOptimizer.run(symbols=["SPY"], trials=1)
 
+    assert not out_path.exists()
+
+
+def test_nightly_optimizer_returns_empty_when_all_trials_pruned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out_path = tmp_path / "data" / "processed" / "live_nightly_hyperparams.json"
+    monkeypatch.setattr(nightly, "NIGHTLY_PATH", out_path)
+    monkeypatch.setattr(nightly, "REGIME_PATH", tmp_path / "missing_live_regime_model.json")
+    monkeypatch.setattr(
+        nightly.OptimizationBase,
+        "objective",
+        staticmethod(lambda trial, symbols, regime_model: (_ for _ in ()).throw(optuna.TrialPruned())),
+    )
+
+    assert nightly.NightlyMTFOptimizer.run(symbols=["SPY"], trials=1) == {}
     assert not out_path.exists()
 
 

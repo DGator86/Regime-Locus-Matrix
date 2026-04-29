@@ -21,10 +21,6 @@ This wrapper will be removed in a future release.
 
 import sys
 
-# Inject --walkforward --universe before any user-supplied flags so that
-# the full LIQUID_UNIVERSE is iterated by default.  Individual --symbol /
-# --symbols overrides still work because the CLI group is mutually exclusive.
-sys.argv = [sys.argv[0], "--walkforward", "--universe", *sys.argv[1:]]
 
 def _has_symbol_args(argv: list[str]) -> bool:
     for i, a in enumerate(argv):

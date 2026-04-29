@@ -130,6 +130,12 @@ class RLMHMM:
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
         self.__dict__.setdefault("_state_permutation", None)
+        self.__dict__.setdefault("last_filter_backend", None)
+        if isinstance(self.config, HMMConfig):
+            defaults = HMMConfig()
+            for name in ("filter_backend", "transition_pseudocount", "prefer_gpu"):
+                if not hasattr(self.config, name):
+                    setattr(self.config, name, getattr(defaults, name))
 
     def prepare_observations(self, df: pd.DataFrame) -> np.ndarray:
         """Return (n_samples, 4) array of standardized scores."""
