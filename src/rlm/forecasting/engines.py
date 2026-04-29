@@ -93,11 +93,31 @@ def _annotate_regime_ensemble(df: pd.DataFrame) -> None:
         minp = max(10, win // 4)
         z = ((r - r.rolling(win, min_periods=minp).mean()) / (r.rolling(win, min_periods=minp).std() + 1e-12)).abs()
         cp_score = np.clip((z - 1.0) / 3.0, 0.0, 1.0).fillna(0.0).to_numpy(dtype=float)
-    probs_accum: list[np.ndarray] = []
+    prob_sources: list[tuple[str, np.ndarray]] = []
     if "hmm_probs" in df.columns:
-        probs_accum.append(np.asarray(df["hmm_probs"].tolist(), dtype=float))
+        prob_sources.append(("hmm_probs", np.asarray(df["hmm_probs"].tolist(), dtype=float)))
     if "markov_probs" in df.columns:
-        probs_accum.append(np.asarray(df["markov_probs"].tolist(), dtype=float))
+        prob_sources.append(("markov_probs", np.asarray(df["markov_probs"].tolist(), dtype=float)))
+
+    probs_accum: list[np.ndarray] = []
+    expected_shape: tuple[int, ...] | None = None
+    expected_name: str | None = None
+    for source_name, source_probs in prob_sources:
+        if source_probs.ndim != 2:
+            raise ValueError(
+                f"{source_name} must be a 2D probability matrix with shape (n_rows, n_states); "
+                f"got shape {source_probs.shape}."
+            )
+        if expected_shape is None:
+            expected_shape = source_probs.shape
+            expected_name = source_name
+        elif source_probs.shape != expected_shape:
+            raise ValueError(
+                "Incompatible regime probability shapes for ensemble computation: "
+                f"{expected_name} has shape {expected_shape}, but {source_name} has shape {source_probs.shape}. "
+                "All probability sources must use the same number and ordering of states before they can be combined."
+            )
+        probs_accum.append(source_probs)
     base = np.mean(np.stack(probs_accum, axis=0), axis=0)
     ensemble = 0.8 * base + 0.2 * (np.ones_like(base) / base.shape[1])
     ensemble = (1.0 - cp_score[:, None]) * ensemble + cp_score[:, None] * (np.ones_like(base) / base.shape[1])
