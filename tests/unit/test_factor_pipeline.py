@@ -114,6 +114,32 @@ def test_factor_pipeline_emits_new_feature_columns_from_default_config() -> None
         assert out[col].notna().sum() > 0
 
 
+def test_factor_pipeline_handles_missing_optional_factor_inputs() -> None:
+    df = make_sample_bars().drop(
+        columns=[
+            "vix",
+            "vvix",
+            "options_volume",
+            "options_volume_to_oi",
+            "order_book_depth",
+            "gex",
+            "vanna",
+            "charm",
+            "put_call_skew",
+            "iv_rank",
+            "term_structure_ratio",
+            "dealer_position_proxy",
+        ]
+    )
+
+    out = FactorPipeline().run(df)
+
+    assert out["std_gex_signal"].isna().all()
+    assert out["std_options_volume_to_oi"].isna().all()
+    assert out["S_D"].notna().sum() > 0
+    assert out["S_L"].notna().sum() > 0
+
+
 def test_factor_pipeline_respects_enabled_factor_config() -> None:
     df = make_sample_bars()
     feature_config = {

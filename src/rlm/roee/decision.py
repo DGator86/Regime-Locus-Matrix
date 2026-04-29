@@ -68,6 +68,10 @@ def _finite_float(x: object, default: float = 0.0) -> float:
 
 
 def _extract_regime_probabilities(row: pd.Series) -> tuple[np.ndarray | None, str]:
+    if "regime_ensemble_probs" in row and row.get("regime_ensemble_probs") is not None:
+        probs = np.array(row["regime_ensemble_probs"], dtype=float)
+        if probs.size > 0 and np.isfinite(probs).all():
+            return probs, "ensemble"
     for col, model_name in (("hmm_probs", "hmm"), ("markov_probs", "markov")):
         if col not in row or row.get(col) is None:
             continue
@@ -86,8 +90,8 @@ def compute_regime_modulators(
     kronos_confidence_weight: float = 0.4,
     hmm_confidence_weight: float = 0.6,
     kronos_transition_penalty: float = 0.3,
-    kronos_epistemic_disable_threshold: float | None = None,
-    kronos_aleatoric_size_penalty: float = 0.0,
+    kronos_epistemic_disable_threshold: float | None = 0.7,
+    kronos_aleatoric_size_penalty: float = 0.5,
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
@@ -143,10 +147,19 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
+    hmm_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
+    markov_alert = _finite_float(row.get("markov_transition_alert_probability"), default=0.0)
+    transition_alert = min(max(0.5 * (hmm_alert + markov_alert), 0.0), 1.0)
+    ensemble_conf = _finite_float(row.get("regime_ensemble_confidence"), default=np.nan)
+    if math.isfinite(ensemble_conf):
+        composite = 0.7 * composite + 0.3 * ensemble_conf
+    trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
     aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
 
-    trans_risk = 1.0 - composite
+    transition_alert = _finite_float(row.get("hmm_transition_alert_probability"), default=0.0)
+    transition_alert = min(max(transition_alert, 0.0), 1.0)
+    trans_risk = min(1.0, (1.0 - composite) + 0.5 * transition_alert)
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
 
     if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
@@ -242,6 +255,11 @@ def select_trade_for_row(
     hmm_confidence_threshold: float | None = None,
     hmm_sizing_multiplier: float = 1.0,
     hmm_transition_penalty: float = 0.5,
+    kronos_confidence_weight: float = 0.4,
+    hmm_confidence_weight: float = 0.6,
+    kronos_transition_penalty: float = 0.3,
+    kronos_epistemic_disable_threshold: float | None = 0.7,
+    kronos_aleatoric_size_penalty: float = 0.5,
     short_dte: bool = False,
     use_dynamic_sizing: bool = False,
     vol_target: float = 0.15,
@@ -296,6 +314,13 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
+    regime_modulator_kwargs = {
+        "kronos_confidence_weight": kronos_confidence_weight,
+        "hmm_confidence_weight": hmm_confidence_weight,
+        "kronos_transition_penalty": kronos_transition_penalty,
+        "kronos_epistemic_disable_threshold": kronos_epistemic_disable_threshold,
+        "kronos_aleatoric_size_penalty": kronos_aleatoric_size_penalty,
+    }
     min_regime_samples = max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
     train_sample_count = max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
 
@@ -373,6 +398,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         if not bool(mod["trade"]):
             regime_model = str(mod["model"])
@@ -494,6 +520,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         base_sf = float(decision.size_fraction or 0.0)
         meta = dict(decision.metadata)
@@ -542,6 +569,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         meta = dict(decision.metadata)
         meta["regime_model"] = str(mod["model"])

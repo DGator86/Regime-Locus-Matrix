@@ -17,7 +17,7 @@ from rlm.cli.common import (
     build_pipeline_config,
     resolve_backtest_symbols,
 )
-from rlm.core.run_manifest import RunManifest, write_run_manifest
+from rlm.core.run_manifest import RunManifest, to_jsonable, write_run_manifest
 from rlm.core.services.backtest_service import BacktestRequest, BacktestService
 from rlm.data.paths import get_processed_data_dir
 from rlm.data.readers import load_bars, load_option_chain
@@ -27,24 +27,6 @@ from rlm.utils.run_id import generate_run_id
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog="rlm backtest",
-        description="Run RLM backtest (optionally with walk-forward).",
-    )
-    sym_grp = p.add_mutually_exclusive_group()
-    sym_grp.add_argument("--symbol", default=None, help="Single symbol (e.g. SPY)")
-    sym_grp.add_argument(
-        "--symbols",
-        default=None,
-        help="Comma-separated symbols, e.g. SPY,AAPL,QQQ",
-    )
-    sym_grp.add_argument(
-        "--universe",
-        action="store_true",
-        help="Run on the full LIQUID_UNIVERSE (Mag7 + SPY + QQQ)",
-    )
-    p.add_argument("--bars", default=None, help="Path to bars CSV (single-symbol only)")
-    p.add_argument("--chain", default=None, help="Path to option chain CSV (single-symbol only)")
     p = argparse.ArgumentParser(prog="rlm backtest", description="Run RLM backtest (optionally with walk-forward).")
     p.add_argument(
         "--symbol",
@@ -178,7 +160,7 @@ def _run_one(
 def main() -> None:
     args = _parse_args()
     symbols = _resolve_symbols(args)
-    run_id = generate_run_id("backtest")
+    batch_run_id = generate_run_id("backtest")
     out_dir = (
         Path(args.out_dir).expanduser().resolve()
         if args.out_dir
@@ -192,7 +174,12 @@ def main() -> None:
         )
 
     skipped = 0
-    for sym in symbols:
+    for idx, sym in enumerate(symbols, start=1):
+        run_id = (
+            batch_run_id
+            if len(symbols) == 1
+            else f"{batch_run_id}-{idx:02d}-{sym}"
+        )
         try:
             _run_one(sym, args, out_dir, run_id)
         except Exception as exc:
@@ -312,6 +299,7 @@ def _run_symbol(
                 "regime_model": cfg.regime_model,
                 "walkforward": args.walkforward,
                 "symbol_batch": symbols if batch else None,
+                "full_rlm_config": to_jsonable(cfg),
             },
             input_paths={"bars": args.bars or "auto", "chain": args.chain or "auto"},
             output_paths={

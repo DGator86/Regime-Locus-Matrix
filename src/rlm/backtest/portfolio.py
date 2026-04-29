@@ -226,7 +226,7 @@ class Portfolio:
         if size_fraction <= 0.0:
             return 0
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config, quantity=quantity)
+        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config, quantity=1)
         entry_friction_per_unit = (
             calculate_commission(
                 config=self.lifecycle_config.commission_config,

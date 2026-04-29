@@ -25,6 +25,21 @@ def _write_overlay(path: Path, params: dict) -> None:
     tmp_path = path.with_suffix(f"{path.suffix}.tmp")
     tmp_path.write_text(json.dumps(params, indent=2), encoding="utf-8")
     tmp_path.replace(path)
+LIVE_OVERLAY_KEYS = {
+    "mtf_ltf_weight",
+    "hmm_confidence_threshold",
+    "high_vol_kelly_multiplier",
+    "transition_kelly_multiplier",
+    "calm_trend_kelly_multiplier",
+    "move_window",
+    "vol_window",
+    "direction_neutral_threshold",
+    "transaction_cost_frac",
+}
+
+
+def _live_overlay_params(params: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in params.items() if key in LIVE_OVERLAY_KEYS}
 
 
 class NightlyMTFOptimizer:
@@ -67,6 +82,14 @@ class NightlyMTFOptimizer:
                         _write_overlay(NIGHTLY_PATH, sanitized)
                     return sanitized
                 return {}
+                if not isinstance(existing, dict):
+                    return {}
+                safe_existing = _live_overlay_params(existing)
+                if safe_existing != existing:
+                    tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
+                    tmp_path.write_text(json.dumps(safe_existing, indent=2), encoding="utf-8")
+                    tmp_path.replace(NIGHTLY_PATH)
+                return safe_existing
             return {}
 
         if float(study.best_value) <= NO_VALID_SCORE:
@@ -77,4 +100,10 @@ class NightlyMTFOptimizer:
 
         best = _sanitize_overlay(study.best_params)
         _write_overlay(NIGHTLY_PATH, best)
+        best = _live_overlay_params(study.best_params)
+
+        NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
+        tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")
+        tmp_path.replace(NIGHTLY_PATH)
         return best
