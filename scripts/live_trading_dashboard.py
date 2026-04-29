@@ -253,9 +253,10 @@ def compute_regime_timeframes(
     client_id: int | None = None,
 ) -> dict[str, dict[str, str]]:
     """Return per-label dict with direction_regime, regime_key, bar_time (last bar timestamp)."""
+    from rlm.factors.pipeline import FactorPipeline
+
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
     from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-    from rlm.factors.pipeline import FactorPipeline
     from rlm.forecasting.engines import ForecastPipeline
     from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -284,9 +285,7 @@ def compute_regime_timeframes(
             continue
 
         df = bars.sort_values("timestamp").set_index("timestamp")
-        df = prepare_bars_for_factors(
-            df, option_chain=None, underlying=sym, attach_vix=attach_vix
-        )
+        df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
         feats = FactorPipeline().run(df)
         feats = classify_state_matrix(feats)
         forecast = ForecastPipeline(move_window=move_w, vol_window=vol_w)
@@ -337,9 +336,7 @@ class LiveTradingDashboard:
 
         ttk.Label(top, text="Regime symbol:").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Entry(top, textvariable=self._symbol_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(top, text="Refresh regimes now", command=self._start_regime_fetch).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
+        ttk.Button(top, text="Refresh regimes now", command=self._start_regime_fetch).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Label(top, textvariable=self._status_var).pack(side=tk.LEFT, padx=(8, 0))
 
         regime_row = ttk.Frame(self.root, padding=(6, 0, 6, 6))
@@ -459,11 +456,18 @@ class LiveTradingDashboard:
         self._log_interval_ms = tk.IntVar(value=5000)
         self._regime_interval_ms = tk.IntVar(value=120_000)
         ttk.Label(bot, text="Log period (ms, wall-clock aligned):").pack(side=tk.LEFT)
-        ttk.Spinbox(bot, from_=2000, to=120_000, increment=1000, width=8,
-                    textvariable=self._log_interval_ms).pack(side=tk.LEFT, padx=(4, 16))
+        ttk.Spinbox(bot, from_=2000, to=120_000, increment=1000, width=8, textvariable=self._log_interval_ms).pack(
+            side=tk.LEFT, padx=(4, 16)
+        )
         ttk.Label(bot, text="Regime period (ms, wall-clock aligned):").pack(side=tk.LEFT)
-        ttk.Spinbox(bot, from_=30_000, to=600_000, increment=10_000, width=8,
-                    textvariable=self._regime_interval_ms).pack(side=tk.LEFT, padx=(4, 8))
+        ttk.Spinbox(
+            bot,
+            from_=30_000,
+            to=600_000,
+            increment=10_000,
+            width=8,
+            textvariable=self._regime_interval_ms,
+        ).pack(side=tk.LEFT, padx=(4, 8))
         ttk.Label(bot, text=f"IBKR client id={_dashboard_client_id()}").pack(side=tk.RIGHT)
 
     def _make_tree(self, parent: ttk.Frame, columns: tuple[str, ...]) -> ttk.Treeview:
@@ -471,8 +475,7 @@ class LiveTradingDashboard:
         fr.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         ys = ttk.Scrollbar(fr, orient=tk.VERTICAL)
         xs = ttk.Scrollbar(fr, orient=tk.HORIZONTAL)
-        tree = ttk.Treeview(fr, columns=columns, show="headings", yscrollcommand=ys.set,
-                            xscrollcommand=xs.set)
+        tree = ttk.Treeview(fr, columns=columns, show="headings", yscrollcommand=ys.set, xscrollcommand=xs.set)
         ys.config(command=tree.yview)
         xs.config(command=tree.xview)
         for c in columns:
@@ -682,8 +685,11 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--symbol", default=None, help="Default ticker for regime panels")
-    ap.add_argument("--no-auto-regime", action="store_true",
-                    help="Only refresh regimes when you click the button (still loads logs on a timer)")
+    ap.add_argument(
+        "--no-auto-regime",
+        action="store_true",
+        help="Only refresh regimes when you click the button (still loads logs on a timer)",
+    )
     ap.add_argument("--options-log", type=Path, default=None)
     ap.add_argument("--equity-log", type=Path, default=None)
     ap.add_argument("--plans", type=Path, default=None)

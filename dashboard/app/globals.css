@@ -1,42 +1,45 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0a0a0b;
-  --color-foreground: #ececf1;
-  --color-card: #111114;
-  --color-card-foreground: #ececf1;
-  --color-primary: #00f5ff;
+  --color-background: #0a0e14;
+  --color-foreground: #e8edf4;
+  --color-card: #0d1118;
+  --color-card-foreground: #e8edf4;
+  --color-primary: #22d3ee;
   --color-accent: #a855f7;
-  --color-border: #1e1e24;
+  --color-border: rgba(255, 255, 255, 0.08);
 }
 
 :root {
-  --background: #0a0a0b;
-  --foreground: #ececf1;
-  --card: #111114;
-  --card-foreground: #ececf1;
-  --popover: #0a0a0b;
-  --popover-foreground: #ececf1;
-  --primary: #00f5ff;
-  --primary-foreground: #0a0a0b;
-  --secondary: #1a1a1e;
-  --secondary-foreground: #ececf1;
-  --muted: #1a1a1e;
-  --muted-foreground: #94a3b8;
+  --background: #0a0e14;
+  --foreground: #e8edf4;
+  --card: #0d1118;
+  --card-foreground: #e8edf4;
+  --popover: #080a0d;
+  --popover-foreground: #e8edf4;
+  --primary: #22d3ee;
+  --primary-foreground: #041014;
+  --secondary: #121820;
+  --secondary-foreground: #e8edf4;
+  --muted: #151b26;
+  --muted-foreground: #8b9cb3;
   --accent: #a855f7;
-  --accent-foreground: #ececf1;
-  --destructive: #ef4444;
-  --destructive-foreground: #ececf1;
-  --border: #1e1e24;
-  --input: #1e1e24;
-  --ring: #00f5ff;
+  --accent-foreground: #f4f4f5;
+  --destructive: #f43f5e;
+  --destructive-foreground: #fef2f2;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.06);
+  --ring: #22d3ee;
   --radius: 0.75rem;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'Inter', sans-serif;
+}
+
+.font-data {
+  font-family: var(--font-mono), ui-monospace, monospace;
 }
 
 @layer base {
@@ -46,17 +49,38 @@ body {
 }
 
 .glass {
-  background: rgba(17, 17, 20, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(
+    165deg,
+    rgba(18, 24, 34, 0.92) 0%,
+    rgba(10, 13, 18, 0.88) 100%
+  );
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.panel-hud {
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 28px rgba(34, 211, 238, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .neon-border {
-  box-shadow: 0 0 15px rgba(0, 245, 255, 0.15);
+  box-shadow:
+    0 0 20px rgba(34, 211, 238, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .neon-text {
-  text-shadow: 0 0 10px rgba(0, 245, 255, 0.4);
+  text-shadow: 0 0 14px rgba(34, 211, 238, 0.35);
+}
+
+.neon-text-soft {
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.22);
 }
 
 @keyframes pulse-slow {

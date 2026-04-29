@@ -111,9 +111,7 @@ class DiagnosticsService:
             ),
         ]
 
-    def _check_providers(
-        self, selected_provider: str | None = None, *, strict: bool = False
-    ) -> list[CheckResult]:
+    def _check_providers(self, selected_provider: str | None = None, *, strict: bool = False) -> list[CheckResult]:
         results: list[CheckResult] = []
         if selected_provider in (None, "yfinance"):
             try:
@@ -122,9 +120,7 @@ class DiagnosticsService:
                 _ = yf.Ticker("SPY")
                 results.append(CheckResult(name="provider: yfinance import", passed=True))
             except Exception as exc:
-                results.append(
-                    CheckResult(name="provider: yfinance import", passed=False, detail=str(exc))
-                )
+                results.append(CheckResult(name="provider: yfinance import", passed=False, detail=str(exc)))
 
         if selected_provider in (None, "ibkr"):
             try:
@@ -142,9 +138,7 @@ class DiagnosticsService:
                 )
         return results
 
-    def _check_ingest_readiness(
-        self, *, provider: str, backend: str, data_root: str | None
-    ) -> list[CheckResult]:
+    def _check_ingest_readiness(self, *, provider: str, backend: str, data_root: str | None) -> list[CheckResult]:
         root = get_data_root(data_root)
         provider_valid = provider in {"yfinance", "ibkr"}
         provider_dep_ok: bool | None = None
@@ -166,16 +160,24 @@ class DiagnosticsService:
                 provider_dep_ok = False
                 provider_dep_detail = str(exc)
         return [
-            CheckResult(name=f"ingest: provider={provider}", passed=provider_valid, detail="supported: yfinance, ibkr"),
-            CheckResult(name=f"ingest: deps for {provider}", passed=provider_dep_ok if provider_valid else False, detail=provider_dep_detail),
-            CheckResult(name=f"ingest: backend={backend}", passed=backend in {"auto", "csv", "lake"}, detail="supported: auto, csv, lake"),
+            CheckResult(
+                name=f"ingest: provider={provider}",
+                passed=provider_valid,
+                detail="supported: yfinance, ibkr",
+            ),
+            CheckResult(
+                name=f"ingest: deps for {provider}",
+                passed=provider_dep_ok if provider_valid else False,
+                detail=provider_dep_detail,
+            ),
+            CheckResult(
+                name=f"ingest: backend={backend}",
+                passed=backend in {"auto", "csv", "lake"},
+                detail="supported: auto, csv, lake",
+            ),
             CheckResult(
                 name="ingest: artifacts dir writable",
-                passed=(
-                    os.access(root / "artifacts", os.W_OK)
-                    if (root / "artifacts").exists()
-                    else True
-                ),
+                passed=(os.access(root / "artifacts", os.W_OK) if (root / "artifacts").exists() else True),
                 detail=str(root / "artifacts"),
             ),
         ]
@@ -209,9 +211,7 @@ class DiagnosticsService:
         except Exception as exc:
             broker_ok = False
             broker_detail = str(exc)
-        checks.append(
-            CheckResult(name="trade: broker adapter import", passed=broker_ok, detail=broker_detail)
-        )
+        checks.append(CheckResult(name="trade: broker adapter import", passed=broker_ok, detail=broker_detail))
         try:
             _ = build_pipeline_config(
                 symbol=symbol or "SPY",
@@ -221,9 +221,7 @@ class DiagnosticsService:
             )
             checks.append(CheckResult(name="trade: config builder resolves", passed=True))
         except Exception as exc:
-            checks.append(
-                CheckResult(name="trade: config builder resolves", passed=False, detail=str(exc))
-            )
+            checks.append(CheckResult(name="trade: config builder resolves", passed=False, detail=str(exc)))
 
         if mode in {"paper", "live"}:
             try:
@@ -252,15 +250,11 @@ class DiagnosticsService:
             if profile:
                 load_profile(name=profile)
                 return [CheckResult(name=f"config: profile '{profile}' valid", passed=True)]
-            return [
-                CheckResult(name="config: profile/config", passed=True, detail="default runtime")
-            ]
+            return [CheckResult(name="config: profile/config", passed=True, detail="default runtime")]
         except Exception as exc:
             return [CheckResult(name="config: profile/config", passed=False, detail=str(exc))]
 
-    def _check_backend(
-        self, backend: str, data_root: str | None, symbol: str | None
-    ) -> list[CheckResult]:
+    def _check_backend(self, backend: str, data_root: str | None, symbol: str | None) -> list[CheckResult]:
         try:
             b = DataBackend.coerce(backend)
         except ValueError as exc:
@@ -272,14 +266,6 @@ class DiagnosticsService:
             raw_csv = get_data_root(data_root) / "raw" / f"bars_{sym}.csv"
             has_csv = raw_csv.is_file()
             has_lake = lake_has_bars(sym, data_root=data_root)
-            ok = (
-                has_lake
-                if b == DataBackend.LAKE
-                else (has_csv if b == DataBackend.CSV else (has_lake or has_csv))
-            )
-            checks.append(
-                CheckResult(
-                    name=f"symbol data: {sym}", passed=ok, detail=f"lake={has_lake} csv={has_csv}"
-                )
-            )
+            ok = has_lake if b == DataBackend.LAKE else (has_csv if b == DataBackend.CSV else (has_lake or has_csv))
+            checks.append(CheckResult(name=f"symbol data: {sym}", passed=ok, detail=f"lake={has_lake} csv={has_csv}"))
         return checks

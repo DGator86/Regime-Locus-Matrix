@@ -13,10 +13,11 @@ from rlm.data.lake import (
     options_contracts_dir,
     options_quotes_dir,
     options_trades_dir,
-    save_parquet,
+    save_parquet_versioned,
     stock_1d_parquet,
     stock_1m_parquet,
 )
+from rlm.ingestion.quality import validate_bar_timestamps, validate_option_chain
 from rlm.ingestion.fetchers.ibkr.stocks import IBKRStockFetcher
 from rlm.ingestion.fetchers.massive.bars import MassiveOptionBarsFetcher
 from rlm.ingestion.fetchers.massive.contracts import MassiveContractsFetcher
@@ -49,7 +50,10 @@ def write_ibkr_stock_parquet(
             if interval_dir == "1m"
             else stock_1d_parquet(symbol, duration_slug=duration_slug, root=repo_root)
         )
-    save_parquet(df, Path(out_path))
+    quality = validate_bar_timestamps(df, ts_col="timestamp")
+    if not quality.ok:
+        raise ValueError(f"stock bars quality check failed: {quality.reasons}")
+    save_parquet_versioned(df, Path(out_path), source="ibkr", schema="stock_bars")
     return Path(out_path)
 
 
@@ -64,7 +68,10 @@ def write_massive_option_contracts_parquet(
     if out_path is None:
         slug = str(params.get("expiration_date") or "all").replace("-", "")
         out_path = options_contracts_dir(underlying, root=repo_root) / f"{underlying.lower()}_{slug}_contracts.parquet"
-    save_parquet(df, Path(out_path))
+    quality = validate_option_chain(df)
+    if not quality.ok:
+        raise ValueError(f"option contracts quality check failed: {quality.reasons}")
+    save_parquet_versioned(df, Path(out_path), source="massive", schema="option_contracts")
     return Path(out_path)
 
 
@@ -92,9 +99,13 @@ def write_massive_option_bars_parquet(
         df["datetime"] = pd.to_datetime(df["t"], unit="ms", utc=True)
     if out_path is None:
         stem = option_ticker_file_slug(option_ticker)
-        sub = options_bars_1d_dir(underlying_for_path, root=repo_root) if timespan == "day" else options_bars_1m_dir(underlying_for_path, root=repo_root)
+        sub = (
+            options_bars_1d_dir(underlying_for_path, root=repo_root)
+            if timespan == "day"
+            else options_bars_1m_dir(underlying_for_path, root=repo_root)
+        )
         out_path = sub / f"{stem}_{from_date}_{to_date}_{timespan}.parquet"
-    save_parquet(df, Path(out_path))
+    save_parquet_versioned(df, Path(out_path), source="massive", schema="option_bars")
     return Path(out_path)
 
 
@@ -113,7 +124,7 @@ def write_massive_option_quotes_parquet(
         stem = option_ticker_file_slug(option_ticker)
         day_slug = ts_gte[:10].replace("-", "_")
         out_path = options_quotes_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
-    save_parquet(df, Path(out_path))
+    save_parquet_versioned(df, Path(out_path), source="massive", schema="option_quotes")
     return Path(out_path)
 
 
@@ -132,5 +143,5 @@ def write_massive_option_trades_parquet(
         stem = option_ticker_file_slug(option_ticker)
         day_slug = ts_gte[:10].replace("-", "_")
         out_path = options_trades_dir(underlying_for_path, root=repo_root) / f"{stem}_{day_slug}.parquet"
-    save_parquet(df, Path(out_path))
+    save_parquet_versioned(df, Path(out_path), source="massive", schema="option_trades")
     return Path(out_path)

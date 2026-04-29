@@ -46,7 +46,8 @@ from rlm.data.microstructure.calculators.greeks import compute_greeks_dataframe,
 logger = logging.getLogger(__name__)
 
 try:
-    from ib_insync import IB, Contract, ContractDetails, Option, Stock, util
+    from ib_insync import IB, Option, Stock
+
     _HAS_IB_INSYNC = True
 except ImportError:
     _HAS_IB_INSYNC = False
@@ -95,15 +96,14 @@ def _append_parquet(df: pd.DataFrame, path: Path) -> None:
     if path.exists():
         existing = pd.read_parquet(path)
         df = pd.concat([existing, df], ignore_index=True)
-        df = df.drop_duplicates(subset=["timestamp", "contract_symbol"]).sort_values(
-            ["timestamp", "contract_symbol"]
-        )
+        df = df.drop_duplicates(subset=["timestamp", "contract_symbol"]).sort_values(["timestamp", "contract_symbol"])
     df.to_parquet(path, index=False)
 
 
 # ---------------------------------------------------------------------------
 # Main collector
 # ---------------------------------------------------------------------------
+
 
 class OptionsCollector:
     """
@@ -188,9 +188,7 @@ class OptionsCollector:
                 if not (lo_strike <= strike <= hi_strike):
                     continue
                 for right in ("C", "P"):
-                    contracts.append(
-                        Option(self.symbol, expiry_str, strike, right, "SMART", "USD")
-                    )
+                    contracts.append(Option(self.symbol, expiry_str, strike, right, "SMART", "USD"))
         return contracts
 
     def _fetch_market_data(self, ib: IB, contracts: list[Any], spot: float) -> pd.DataFrame:
@@ -235,22 +233,25 @@ class OptionsCollector:
                     risk_free=self.risk_free,
                 )
 
-                records.append({
-                    "timestamp": now,
-                    "underlying_symbol": self.symbol,
-                    "underlying_price": spot,
-                    "contract_symbol": contract.localSymbol or f"{self.symbol}_{contract.lastTradeDateOrContractMonth}_{contract.strike}{contract.right}",
-                    "expiration": exp_date,
-                    "dte": dte,
-                    "strike": float(contract.strike),
-                    "option_type": "call" if is_call else "put",
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": mid,
-                    "volume": volume,
-                    "open_interest": oi,
-                    "implied_vol": iv,
-                })
+                records.append(
+                    {
+                        "timestamp": now,
+                        "underlying_symbol": self.symbol,
+                        "underlying_price": spot,
+                        "contract_symbol": contract.localSymbol
+                        or f"{self.symbol}_{contract.lastTradeDateOrContractMonth}_{contract.strike}{contract.right}",
+                        "expiration": exp_date,
+                        "dte": dte,
+                        "strike": float(contract.strike),
+                        "option_type": "call" if is_call else "put",
+                        "bid": bid,
+                        "ask": ask,
+                        "mid": mid,
+                        "volume": volume,
+                        "open_interest": oi,
+                        "implied_vol": iv,
+                    }
+                )
                 ib.cancelMktData(contract)
 
         return pd.DataFrame(records)
@@ -339,6 +340,7 @@ class OptionsCollector:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _main() -> None:
     import argparse
 
@@ -346,13 +348,9 @@ def _main() -> None:
         description="Collect IBKR option chain snapshots with full Greeks into the microstructure lake."
     )
     parser.add_argument("--symbol", required=True, help="Underlying ticker (e.g. SPY)")
-    parser.add_argument(
-        "--continuous", action="store_true", help="Run continuously (default: single snapshot)"
-    )
+    parser.add_argument("--continuous", action="store_true", help="Run continuously (default: single snapshot)")
     parser.add_argument("--interval", type=float, default=5.0, help="Seconds between snapshots")
-    parser.add_argument(
-        "--strike-band", type=float, default=0.15, help="ATM band as decimal (default 0.15 = ±15%%)"
-    )
+    parser.add_argument("--strike-band", type=float, default=0.15, help="ATM band as decimal (default 0.15 = ±15%%)")
     parser.add_argument("--max-dte", type=int, default=90, help="Maximum DTE to include")
     parser.add_argument("--min-oi", type=int, default=10, help="Minimum open interest filter")
     parser.add_argument("--data-root", default="data/microstructure")

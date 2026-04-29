@@ -1,11 +1,11 @@
-"""Backward-compatibility re-export. Canonical location: rlm.forecasting.models.kronos."""
+"""Backward-compatibility re-exports for ``rlm.kronos.*`` import paths."""
 
-from rlm.forecasting.models.kronos import (
-    KronosConfig,
-    KronosForecastPipeline,
-    KronosRegimeConfidence,
-    RLMKronosPredictor,
-)
+from __future__ import annotations
+
+from typing import Any
+
+from rlm.forecasting.kronos_config import KronosConfig
+from rlm.forecasting.models.kronos import KronosRegimeConfidence, RLMKronosPredictor
 
 __all__ = [
     "KronosConfig",
@@ -13,3 +13,11 @@ __all__ = [
     "KronosRegimeConfidence",
     "RLMKronosPredictor",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "KronosForecastPipeline":
+        from rlm.forecasting.kronos_forecast import KronosForecastPipeline
+
+        return KronosForecastPipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

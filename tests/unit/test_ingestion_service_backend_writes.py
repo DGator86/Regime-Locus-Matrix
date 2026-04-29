@@ -12,9 +12,7 @@ class _StubProvider:
         del symbol, start, end, interval
         from rlm.data.providers.base import ProviderBarsResult
 
-        return ProviderBarsResult(
-            pd.DataFrame([{"timestamp": "2025-01-01", "open": 1.0}]), source="stub"
-        )
+        return ProviderBarsResult(pd.DataFrame([{"timestamp": "2025-01-01", "open": 1.0}]), source="stub")
 
     def fetch_option_chain(self, *, symbol: str):
         del symbol
@@ -24,9 +22,7 @@ class _StubProvider:
 
 
 def test_ingestion_csv_and_lake_writes(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "rlm.core.services.ingestion_service.resolve_provider", lambda _name: _StubProvider()
-    )
+    monkeypatch.setattr("rlm.core.services.ingestion_service.resolve_provider", lambda _name: _StubProvider())
     monkeypatch.setattr(
         pd.DataFrame,
         "to_parquet",
@@ -37,8 +33,6 @@ def test_ingestion_csv_and_lake_writes(monkeypatch, tmp_path):
     csv_result = IngestionService().run(csv_req)
     assert csv_result.bars_path.suffix == ".csv"
 
-    lake_req = IngestionRequest(
-        symbol="SPY", source="stub", data_root=str(tmp_path), backend="lake"
-    )
+    lake_req = IngestionRequest(symbol="SPY", source="stub", data_root=str(tmp_path), backend="lake")
     lake_result = IngestionService().run(lake_req)
     assert lake_result.bars_path.suffix == ".parquet"

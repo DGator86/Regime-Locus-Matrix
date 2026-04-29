@@ -7,21 +7,21 @@ from typing import Any
 import pandas as pd
 
 from rlm.backtest.engine import BacktestEngine
-from rlm.features.factors.pipeline import FactorPipeline
+from rlm.core.pipeline import FullRLMConfig
 from rlm.features.factors.multi_timeframe import MultiTimeframeEngine
-from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.features.factors.pipeline import FactorPipeline
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
     HybridProbabilisticForecastPipeline,
 )
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.features.scoring.state_matrix import classify_state_matrix
-from rlm.core.pipeline import FullRLMConfig
 from rlm.types.forecast import ForecastConfig
 
 
@@ -69,10 +69,7 @@ def _build_walkforward_windows(
         ):
             anchor_idx = nominal_is_end - 1
             anchor_regime = str(regime_keys.iloc[anchor_idx])
-            while (
-                effective_is_end > start
-                and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime
-            ):
+            while effective_is_end > start and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime:
                 effective_is_end -= 1
         if effective_is_end <= start:
             effective_is_end = nominal_is_end
@@ -229,9 +226,7 @@ def run_walkforward(
                 model_path=probabilistic_model_path,
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -254,9 +249,7 @@ def run_walkforward(
                 hmm_config=hmm_config or HMMConfig(),
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -345,9 +338,7 @@ def run_walkforward(
             "regime_aware": bool(cfg.regime_aware),
             "regime_boundary_aware_purge": bool(cfg.regime_boundary_aware_purge),
             "unsafe_oos_bars": int((~oos_features["regime_safety_ok"]).sum()),
-            "last_oos_regime_train_samples": int(
-                oos_features["regime_train_sample_count"].iloc[-1]
-            ),
+            "last_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].iloc[-1]),
             "min_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].min()),
             "regime_safety_fraction": round(float(oos_features["regime_safety_ok"].mean()), 3),
             "regime_safety_passed": float(oos_features["regime_safety_ok"].mean()) >= 0.70,
@@ -355,9 +346,7 @@ def run_walkforward(
         }
         if cfg.log_vp_metrics:
             balance_ratio = (
-                float(
-                    (oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean()
-                )
+                float((oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean())
                 if "vp_auction_state" in oos_features.columns and len(oos_features) > 0
                 else float("nan")
             )
@@ -365,28 +354,18 @@ def run_walkforward(
                 {
                     "avg_auction_state_balance_ratio": balance_ratio,
                     "avg_wyckoff_divergence": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["cumulative_wyckoff_score"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["cumulative_wyckoff_score"], errors="coerce").mean())
                         if "cumulative_wyckoff_score" in oos_features.columns
                         else float("nan")
                     ),
                     "avg_hybrid_strength": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["vp_hybrid_strength_max"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["vp_hybrid_strength_max"], errors="coerce").mean())
                         if "vp_hybrid_strength_max" in oos_features.columns
                         else float("nan")
                     ),
                     "eighty_percent_rule_hit_rate": (
                         float(
-                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce")
-                            .fillna(0.0)
-                            .mean()
+                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce").fillna(0.0).mean()
                         )
                         if "vp_eighty_percent_signal" in oos_features.columns
                         else float("nan")
@@ -447,12 +426,20 @@ class WalkForwardEngine:
         )
         use_hmm = cfg.regime_model == "hmm"
         use_markov = cfg.regime_model == "markov"
-        hmm_c = HMMConfig(n_states=cfg.hmm_states) if use_hmm else None
+        hmm_c = (
+            HMMConfig(
+                n_states=cfg.hmm_states,
+                transition_pseudocount=cfg.hmm_transition_pseudocount,
+            )
+            if use_hmm
+            else None
+        )
         vp_cfg = cfg.volume_profile
         markov_c: MarkovSwitchingConfig | None
         if use_markov:
             markov_c = MarkovSwitchingConfig(
                 n_states=cfg.markov_states,
+                transition_pseudocount=cfg.markov_transition_pseudocount,
                 use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                 use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                 use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,

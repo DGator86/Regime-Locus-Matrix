@@ -20,9 +20,7 @@ _SESSION_WINDOWS: dict[str, tuple[time, time]] = {
 }
 
 
-def _window_bounds(
-    session_name: str, date: datetime, tz: pytz.BaseTzInfo
-) -> tuple[datetime, datetime]:
+def _window_bounds(session_name: str, date: datetime, tz: pytz.BaseTzInfo) -> tuple[datetime, datetime]:
     if session_name not in _SESSION_WINDOWS:
         raise ValueError(f"Unsupported session '{session_name}'.")
 
@@ -70,9 +68,7 @@ def get_session_profile(df: pd.DataFrame, session_name: str, date: datetime) -> 
     return calculate_volume_profile(session_df)
 
 
-def overlap_zones(
-    session1_profile: dict[str, Any], session2_profile: dict[str, Any]
-) -> dict[str, float | bool]:
+def overlap_zones(session1_profile: dict[str, Any], session2_profile: dict[str, Any]) -> dict[str, float | bool]:
     """Return the overlap region of two session value areas."""
 
     low = max(

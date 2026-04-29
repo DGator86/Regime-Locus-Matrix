@@ -15,10 +15,10 @@ import pytest
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline, PipelineResult
 from rlm.datasets.backtest_data import synthetic_bars_demo
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def bars_df() -> pd.DataFrame:
@@ -31,8 +31,8 @@ def pipeline_result(bars_df: pd.DataFrame) -> PipelineResult:
         symbol="TEST",
         regime_model="hmm",
         hmm_states=4,
-        use_kronos=False,   # avoid network / model weight download in CI
-        attach_vix=False,   # no yfinance call
+        use_kronos=False,  # avoid network / model weight download in CI
+        attach_vix=False,  # no yfinance call
         run_backtest=False,
     )
     return FullRLMPipeline(cfg).run(bars_df)
@@ -41,6 +41,7 @@ def pipeline_result(bars_df: pd.DataFrame) -> PipelineResult:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_factors_df_not_empty(pipeline_result: PipelineResult) -> None:
     assert not pipeline_result.factors_df.empty, "factors_df should not be empty"
@@ -83,16 +84,12 @@ def test_no_backtest_fields_without_flag(pipeline_result: PipelineResult) -> Non
     assert pipeline_result.backtest_metrics is None
 
 
-def test_factors_df_length_matches_bars(
-    bars_df: pd.DataFrame, pipeline_result: PipelineResult
-) -> None:
-    assert len(pipeline_result.factors_df) <= len(bars_df), (
-        "factors_df should not be longer than input bars"
-    )
+def test_factors_df_length_matches_bars(bars_df: pd.DataFrame, pipeline_result: PipelineResult) -> None:
+    assert len(pipeline_result.factors_df) <= len(bars_df), "factors_df should not be longer than input bars"
     assert len(pipeline_result.factors_df) > 0
 
 
 def test_policy_df_length_matches_forecast(pipeline_result: PipelineResult) -> None:
-    assert len(pipeline_result.policy_df) == len(pipeline_result.forecast_df), (
-        "policy_df and forecast_df should have the same row count"
-    )
+    assert len(pipeline_result.policy_df) == len(
+        pipeline_result.forecast_df
+    ), "policy_df and forecast_df should have the same row count"

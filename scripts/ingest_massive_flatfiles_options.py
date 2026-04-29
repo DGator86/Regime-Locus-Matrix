@@ -19,6 +19,7 @@ try:
 except ImportError:
     pass
 
+from rlm.data.lake import options_flatfile_daily_parquet
 from rlm.data.massive_flatfiles import (
     FlatfileDataset,
     download_s3_object,
@@ -32,7 +33,6 @@ from rlm.ingestion.adapters.flatfiles import (
     parse_date,
     underlying_for_lake_path,
 )
-from rlm.data.lake import options_flatfile_daily_parquet
 
 
 def main() -> int:
@@ -87,7 +87,11 @@ def main() -> int:
             print(f"s3://{cfg.bucket}/{key} -> {out}")
             continue
 
-        gz_path = (staging / f"{ds}_{d.isoformat()}.csv.gz") if staging else Path(tempfile.NamedTemporaryFile(suffix=".csv.gz", delete=False).name)
+        gz_path = (
+            (staging / f"{ds}_{d.isoformat()}.csv.gz")
+            if staging
+            else Path(tempfile.NamedTemporaryFile(suffix=".csv.gz", delete=False).name)
+        )
         try:
             try:
                 download_s3_object(cfg.bucket, key, str(gz_path), cfg=cfg)
@@ -95,7 +99,12 @@ def main() -> int:
                 print(f"S3 error for {key}: {e}", file=sys.stderr)
                 continue
 
-            n = gzip_csv_to_filtered_parquet(gz_path, out, ticker_prefixes=prefixes if prefixes else None, chunksize=args.chunksize)
+            n = gzip_csv_to_filtered_parquet(
+                gz_path,
+                out,
+                ticker_prefixes=prefixes if prefixes else None,
+                chunksize=args.chunksize,
+            )
             print(f"{d.isoformat()} {ds} rows={n} -> {out}")
         finally:
             if not staging:

@@ -25,10 +25,9 @@ Usage::
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Sequence
+from dataclasses import dataclass
 
-import numpy as np
+import pandas as pd
 from scipy.stats import norm
 
 _LOG2PI_HALF = 0.5 * math.log(2 * math.pi)  # pre-computed constant
@@ -37,6 +36,7 @@ _LOG2PI_HALF = 0.5 * math.log(2 * math.pi)  # pre-computed constant
 # ---------------------------------------------------------------------------
 # Public dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class GreekBundle:
@@ -53,36 +53,44 @@ class GreekBundle:
     # First-order
     delta: float = float("nan")
     gamma: float = float("nan")
-    theta: float = float("nan")   # per calendar day (not per year)
-    vega: float = float("nan")    # per 1-unit IV shift
+    theta: float = float("nan")  # per calendar day (not per year)
+    vega: float = float("nan")  # per 1-unit IV shift
     rho: float = float("nan")
 
     # Second-order
     vanna: float = float("nan")
-    charm: float = float("nan")   # per calendar day
+    charm: float = float("nan")  # per calendar day
     vomma: float = float("nan")
-    veta: float = float("nan")    # vega decay per calendar day
+    veta: float = float("nan")  # vega decay per calendar day
 
     # Third-order
     speed: float = float("nan")
     zomma: float = float("nan")
-    color: float = float("nan")   # gamma decay per calendar day
+    color: float = float("nan")  # gamma decay per calendar day
     ultima: float = float("nan")
 
     def as_dict(self) -> dict[str, float]:
         return {
-            "delta": self.delta, "gamma": self.gamma,
-            "theta": self.theta, "vega": self.vega, "rho": self.rho,
-            "vanna": self.vanna, "charm": self.charm,
-            "vomma": self.vomma, "veta": self.veta,
-            "speed": self.speed, "zomma": self.zomma,
-            "color": self.color, "ultima": self.ultima,
+            "delta": self.delta,
+            "gamma": self.gamma,
+            "theta": self.theta,
+            "vega": self.vega,
+            "rho": self.rho,
+            "vanna": self.vanna,
+            "charm": self.charm,
+            "vomma": self.vomma,
+            "veta": self.veta,
+            "speed": self.speed,
+            "zomma": self.zomma,
+            "color": self.color,
+            "ultima": self.ultima,
         }
 
 
 # ---------------------------------------------------------------------------
 # Core calculation
 # ---------------------------------------------------------------------------
+
 
 def full_greeks_row(
     *,
@@ -123,14 +131,14 @@ def full_greeks_row(
     d1 = (math.log(S / K) + (r + 0.5 * sig * sig) * T) / sig_sqrt_T
     d2 = d1 - sig_sqrt_T
 
-    phi_d1 = float(norm.pdf(d1))   # N'(d1)
-    Phi_d1 = float(norm.cdf(d1))   # N(d1)
-    Phi_d2 = float(norm.cdf(d2))   # N(d2)
+    phi_d1 = float(norm.pdf(d1))  # N'(d1)
+    Phi_d1 = float(norm.cdf(d1))  # N(d1)
+    Phi_d2 = float(norm.cdf(d2))  # N(d2)
 
     # ── First order ──────────────────────────────────────────────────────────
     bundle.delta = Phi_d1 if is_call else (Phi_d1 - 1.0)
     bundle.gamma = phi_d1 / (S * sig_sqrt_T)
-    bundle.vega = S * phi_d1 * sqrt_T                      # per 1.0 unit IV
+    bundle.vega = S * phi_d1 * sqrt_T  # per 1.0 unit IV
 
     # Theta: per calendar day (divide annual by 365)
     common_theta = -S * phi_d1 * sig / (2.0 * sqrt_T)
@@ -151,9 +159,7 @@ def full_greeks_row(
 
     # Charm: ∂delta/∂T per calendar day
     if T > 1e-10 and sig_sqrt_T > 1e-12:
-        bundle.charm = (
-            -phi_d1 * (2.0 * r * T - d2 * sig_sqrt_T) / (2.0 * T * sig_sqrt_T)
-        ) / 365.0
+        bundle.charm = (-phi_d1 * (2.0 * r * T - d2 * sig_sqrt_T) / (2.0 * T * sig_sqrt_T)) / 365.0
 
     # Vomma: ∂vega/∂σ  (also known as volga)
     if sig > 1e-12:
@@ -161,10 +167,7 @@ def full_greeks_row(
 
     # Veta: ∂vega/∂T per calendar day
     if T > 1e-10 and sig_sqrt_T > 1e-12:
-        bundle.veta = (
-            -S * phi_d1 * sqrt_T
-            * (r * d1 / sig_sqrt_T - (1.0 + d1 * d2) / (2.0 * T))
-        ) / 365.0
+        bundle.veta = (-S * phi_d1 * sqrt_T * (r * d1 / sig_sqrt_T - (1.0 + d1 * d2) / (2.0 * T))) / 365.0
 
     # ── Third order ──────────────────────────────────────────────────────────
     # Speed: ∂gamma/∂S
@@ -185,11 +188,7 @@ def full_greeks_row(
 
     # Ultima: ∂vomma/∂σ
     if sig > 1e-12:
-        bundle.ultima = (
-            -bundle.vega
-            / (sig * sig)
-            * (d1 * d2 * (1.0 - d1 * d2) + d1 * d1 + d2 * d2)
-        )
+        bundle.ultima = -bundle.vega / (sig * sig) * (d1 * d2 * (1.0 - d1 * d2) + d1 * d1 + d2 * d2)
 
     return bundle
 
@@ -197,6 +196,7 @@ def full_greeks_row(
 # ---------------------------------------------------------------------------
 # Implied volatility solver
 # ---------------------------------------------------------------------------
+
 
 def _bs_price(S: float, K: float, T: float, r: float, sig: float, is_call: bool) -> float:
     """Black-Scholes option price."""
@@ -247,9 +247,7 @@ def solve_iv(
     # Newton-Raphson
     for _ in range(max_iter):
         price = _bs_price(S, K, T, r, sig, is_call)
-        vega_ = S * float(norm.pdf(
-            (math.log(S / K) + (r + 0.5 * sig * sig) * T) / (sig * sqrt_T)
-        )) * sqrt_T
+        vega_ = S * float(norm.pdf((math.log(S / K) + (r + 0.5 * sig * sig) * T) / (sig * sqrt_T))) * sqrt_T
         if abs(vega_) < 1e-12:
             break
         diff = price - market_price
@@ -281,6 +279,7 @@ def solve_iv(
 # Batch helpers
 # ---------------------------------------------------------------------------
 
+
 def compute_greeks_dataframe(
     chain: "pd.DataFrame",
     risk_free: float = 0.052,
@@ -295,8 +294,6 @@ def compute_greeks_dataframe(
 
     Returns the input DataFrame with all Greek columns appended.
     """
-    import pandas as pd
-
     out = chain.copy()
 
     # Ensure IV
@@ -319,9 +316,19 @@ def compute_greeks_dataframe(
         out["implied_vol"] = out.apply(_iv, axis=1)
 
     greek_cols: list[str] = [
-        "delta", "gamma", "theta", "vega", "rho",
-        "vanna", "charm", "vomma", "veta",
-        "speed", "zomma", "color", "ultima",
+        "delta",
+        "gamma",
+        "theta",
+        "vega",
+        "rho",
+        "vanna",
+        "charm",
+        "vomma",
+        "veta",
+        "speed",
+        "zomma",
+        "color",
+        "ultima",
     ]
 
     def _row_greeks(row: "pd.Series") -> "pd.Series":

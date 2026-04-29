@@ -54,17 +54,29 @@ def standardize_factor_series(
     raise ValueError(f"Unsupported transform kind: {spec.transform_kind}")
 
 
+def _rolling_zscore_winsorize(series: pd.Series, window: int, clip_z: float, min_periods: int) -> pd.Series:
+    mu = series.rolling(window=window, min_periods=min_periods).mean()
+    sigma = series.rolling(window=window, min_periods=min_periods).std(ddof=0).replace(0.0, np.nan)
+    z = (series - mu) / sigma
+    return z.clip(lower=-abs(float(clip_z)), upper=abs(float(clip_z)))
+
+
 def standardize_factor_frame(
     raw_factors: pd.DataFrame,
     specs: list[FactorSpec],
+    *,
+    rolling_window: int = 126,
+    winsor_z: float = 4.0,
+    min_periods: int = 20,
 ) -> pd.DataFrame:
-    out = pd.DataFrame(index=raw_factors.index)
+    columns: dict[str, pd.Series] = {}
     for spec in specs:
         if spec.name not in raw_factors.columns:
-            out[spec.name] = np.nan
+            columns[spec.name] = pd.Series(np.nan, index=raw_factors.index, dtype=float)
             continue
-        out[spec.name] = standardize_factor_series(raw_factors[spec.name], spec)
-    return out
+        normalized = _rolling_zscore_winsorize(raw_factors[spec.name].astype(float), rolling_window, winsor_z, min_periods)
+        columns[spec.name] = standardize_factor_series(normalized, spec)
+    return pd.DataFrame(columns, index=raw_factors.index)
 
 
 def compute_composite_scores(
@@ -82,18 +94,10 @@ def compute_composite_scores(
         category_to_names[spec.category].append(spec.name)
 
     score_df = pd.DataFrame(index=standardized_factors.index)
-    score_df["S_D"] = standardized_factors[category_to_names[FactorCategory.DIRECTION]].mean(
-        axis=1, skipna=True
-    )
-    score_df["S_V"] = standardized_factors[category_to_names[FactorCategory.VOLATILITY]].mean(
-        axis=1, skipna=True
-    )
-    score_df["S_L"] = standardized_factors[category_to_names[FactorCategory.LIQUIDITY]].mean(
-        axis=1, skipna=True
-    )
+    score_df["S_D"] = standardized_factors[category_to_names[FactorCategory.DIRECTION]].mean(axis=1, skipna=True)
+    score_df["S_V"] = standardized_factors[category_to_names[FactorCategory.VOLATILITY]].mean(axis=1, skipna=True)
+    score_df["S_L"] = standardized_factors[category_to_names[FactorCategory.LIQUIDITY]].mean(axis=1, skipna=True)
     score_df["S_G"] = (
-        standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]]
-        .mean(axis=1, skipna=True)
-        .fillna(0.0)
+        standardized_factors[category_to_names[FactorCategory.DEALER_FLOW]].mean(axis=1, skipna=True).fillna(0.0)
     )
     return score_df

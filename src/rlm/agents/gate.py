@@ -7,13 +7,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
 
 @dataclass
 class GateState:
     posture: str = "NORMAL"  # AGGRESSIVE | NORMAL | DEFENSIVE | STAND-DOWN
-    status: str = "NOMINAL"   # NOMINAL | DEGRADED | CRITICAL
+    status: str = "NOMINAL"  # NOMINAL | DEGRADED | CRITICAL
     last_updated: str = ""
+
 
 class SystemGate:
     def __init__(self, root: Path) -> None:

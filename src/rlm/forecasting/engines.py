@@ -8,8 +8,8 @@ import pandas as pd
 from rlm.forecasting.bands import compute_state_matrix_bands
 from rlm.forecasting.distribution import estimate_distribution
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.kronos_forecast import KronosConfig, KronosForecastPipeline
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig
 
@@ -22,6 +22,65 @@ def _resample_for_regime(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     if not _is_datetime_index(df):
         return df.copy()
     return df.resample(rule).last().dropna(how="all")
+
+
+def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
+    """Apply ``regime_transition_calibration.json`` top-1 isotonic map when family matches."""
+    from rlm.data.paths import get_data_root
+    from rlm.regimes.transition_calibration import (
+        apply_top1_calibration_inplace,
+        load_transition_calibration,
+    )
+
+    cal = load_transition_calibration(data_root=get_data_root())
+    if cal is None or cal.regime_family != family:
+        return
+    if family == "hmm":
+        apply_top1_calibration_inplace(
+            df,
+            "hmm_most_likely_next_prob",
+            "hmm_most_likely_next_prob_calibrated",
+            cal,
+        )
+    elif family == "markov":
+        apply_top1_calibration_inplace(
+            df,
+            "markov_most_likely_next_prob",
+            "markov_most_likely_next_prob_calibrated",
+            cal,
+        )
+
+
+def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.ndarray) -> None:
+    """Add calibrated one-step-ahead regime distribution and related diagnostics (in-place)."""
+    t = hmm.calibrated_transmat()
+    next_p = RLMHMM.one_step_predictive_probs(probs, t)
+    df["hmm_next_probs"] = next_p.tolist()
+    df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
+    diag = np.diag(t).reshape(1, -1)
+    df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
+    top = np.argmax(next_p, axis=1).astype(int)
+    df["hmm_most_likely_next_state"] = top
+    df["hmm_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
+    if hmm.state_labels:
+        df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
+    _maybe_apply_transition_calibrations(df, "hmm")
+
+
+def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFrame, probs: np.ndarray) -> None:
+    """Markov-switching analogue of :func:`_annotate_hmm_transition_fields` (in-place)."""
+    t = markov.calibrated_transition_matrix()
+    next_p = RLMHMM.one_step_predictive_probs(probs, t)
+    df["markov_next_probs"] = next_p.tolist()
+    df["markov_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
+    diag = np.diag(t).reshape(1, -1)
+    df["markov_expected_persistence"] = np.sum(probs * diag, axis=1)
+    top = np.argmax(next_p, axis=1).astype(int)
+    df["markov_most_likely_next_state"] = top
+    df["markov_most_likely_next_prob"] = next_p[np.arange(len(next_p)), top]
+    if markov.state_labels:
+        df["markov_most_likely_next_label"] = [markov.state_labels[int(s)] for s in top]
+    _maybe_apply_transition_calibrations(df, "markov")
 
 
 def _align_probs_to_index(
@@ -79,7 +138,7 @@ class HybridForecastPipeline:
     ) -> None:
         """
         Initialize a hybrid forecasting pipeline by configuring its forecast engine, optional HMM, and optional multi-timeframe regime model.
-        
+
         Parameters:
             config (ForecastConfig | None): Forecast configuration used when constructing the default ForecastPipeline; ignored if `forecast_engine` is provided.
             move_window (int): Lookback window length for the default ForecastPipeline.
@@ -106,6 +165,7 @@ class HybridForecastPipeline:
         self.mtf_regimes = bool(mtf_regimes)
         if self.mtf_regimes:
             from rlm.regimes.multi_timeframe_regimes import MultiTimeframeRegimeModel
+
             self.mtf: MultiTimeframeRegimeModel | None = MultiTimeframeRegimeModel(
                 model="hmm",
                 hmm_config=hmm_config or HMMConfig(),
@@ -137,9 +197,7 @@ class HybridForecastPipeline:
                         if sampled.empty or len(sampled) >= len(df):
                             continue
                         sampled_mask = (
-                            train_mask.reindex(sampled.index, fill_value=False)
-                            if train_mask is not None
-                            else None
+                            train_mask.reindex(sampled.index, fill_value=False) if train_mask is not None else None
                         )
                         micro_hmm = RLMHMM(deepcopy(self.hmm.config))
                         try:
@@ -162,11 +220,7 @@ class HybridForecastPipeline:
 
                 if _is_datetime_index(df):
                     macro = _resample_for_regime(df, "1D")
-                    macro_mask = (
-                        train_mask.reindex(macro.index, fill_value=False)
-                        if train_mask is not None
-                        else None
-                    )
+                    macro_mask = train_mask.reindex(macro.index, fill_value=False) if train_mask is not None else None
                     if not macro.empty:
                         macro_hmm = RLMHMM(deepcopy(self.hmm.config))
                         try:
@@ -181,10 +235,7 @@ class HybridForecastPipeline:
                                 df.index,
                                 shift_for_safety=True,
                             )
-                            probs = (
-                                self.macro_weight * macro_aligned
-                                + (1.0 - self.macro_weight) * micro_probs
-                            )
+                            probs = self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
                             df["hmm_macro_probs"] = macro_aligned.tolist()
                             df["hmm_micro_probs"] = micro_probs.tolist()
                         except Exception:
@@ -201,6 +252,7 @@ class HybridForecastPipeline:
             df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         if self.mtf is not None:
             self.mtf.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
@@ -245,11 +297,7 @@ class HybridMarkovForecastPipeline:
                 sampled = _resample_for_regime(df, rule)
                 if sampled.empty or len(sampled) >= len(df):
                     continue
-                sampled_mask = (
-                    train_mask.reindex(sampled.index, fill_value=False)
-                    if train_mask is not None
-                    else None
-                )
+                sampled_mask = train_mask.reindex(sampled.index, fill_value=False) if train_mask is not None else None
                 micro_model = RLMMarkovSwitching(deepcopy(self.markov.config))
                 try:
                     micro_model.fit(
@@ -270,16 +318,10 @@ class HybridMarkovForecastPipeline:
             micro_probs = np.mean(np.stack(micro_sources, axis=0), axis=0)
             macro = _resample_for_regime(df, "1D")
             if not macro.empty:
-                macro_mask = (
-                    train_mask.reindex(macro.index, fill_value=False)
-                    if train_mask is not None
-                    else None
-                )
+                macro_mask = train_mask.reindex(macro.index, fill_value=False) if train_mask is not None else None
                 macro_model = RLMMarkovSwitching(deepcopy(self.markov.config))
                 try:
-                    macro_model.fit(
-                        macro.loc[macro_mask] if macro_mask is not None else macro, verbose=False
-                    )
+                    macro_model.fit(macro.loc[macro_mask] if macro_mask is not None else macro, verbose=False)
                     macro_probs = macro_model.filter(macro).to_numpy(dtype=float)
                     macro_aligned = _align_probs_to_index(
                         macro_probs,
@@ -287,9 +329,7 @@ class HybridMarkovForecastPipeline:
                         df.index,
                         shift_for_safety=True,
                     )
-                    probs = (
-                        self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
-                    )
+                    probs = self.macro_weight * macro_aligned + (1.0 - self.macro_weight) * micro_probs
                 except Exception:
                     probs = micro_probs
             else:
@@ -302,17 +342,14 @@ class HybridMarkovForecastPipeline:
             out["markov_micro_probs"] = micro_probs.tolist()
             if _is_datetime_index(df):
                 out["markov_macro_probs"] = (
-                    np.full_like(micro_probs, np.nan)
-                    if "macro_aligned" not in locals()
-                    else macro_aligned
+                    np.full_like(micro_probs, np.nan) if "macro_aligned" not in locals() else macro_aligned
                 ).tolist()
         out["markov_probs"] = probs.tolist()
         out["markov_state"] = np.argmax(probs, axis=1).astype(int)
         out["markov_confidence"] = probs.max(axis=1).astype(float)
         if self.markov.state_labels:
-            out["markov_state_label"] = [
-                self.markov.state_labels[int(s)] for s in out["markov_state"]
-            ]
+            out["markov_state_label"] = [self.markov.state_labels[int(s)] for s in out["markov_state"]]
+        _annotate_markov_transition_fields(self.markov, out, probs)
         return out
 
 
@@ -343,10 +380,14 @@ class HybridProbabilisticForecastPipeline:
                 self.hmm.fit(df, verbose=False)
 
             probs = self.hmm.predict_proba_filtered(df)
+            probs = np.clip(probs, 1e-12, None)
+            probs = probs / probs.sum(axis=1, keepdims=True)
             df["hmm_probs"] = probs.tolist()
-            df["hmm_state"] = self.hmm.most_likely_state_filtered(df)
+            df["hmm_state"] = np.argmax(probs, axis=1).astype(int)
+            df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
                 df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         return df
 
@@ -371,7 +412,12 @@ class HybridMarkovProbabilisticForecastPipeline:
     def run(self, df_features: pd.DataFrame, train_mask: pd.Series | None = None) -> pd.DataFrame:
         df = self.forecast.run(df_features)
         self.markov.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
-        return self.markov.annotate(df, prefix="markov")
+        out = self.markov.annotate(df, prefix="markov")
+        probs = np.asarray(out["markov_probs"].tolist(), dtype=float)
+        probs = np.clip(probs, 1e-12, None)
+        probs = probs / probs.sum(axis=1, keepdims=True)
+        _annotate_markov_transition_fields(self.markov, out, probs)
+        return out
 
 
 class HybridKronosForecastPipeline:
@@ -417,9 +463,7 @@ class HybridKronosForecastPipeline:
         markov_config: MarkovSwitchingConfig | None = None,
     ) -> None:
         if hmm_config is not None and markov_config is not None:
-            raise ValueError(
-                "Provide at most one regime overlay: either hmm_config or markov_config."
-            )
+            raise ValueError("Provide at most one regime overlay: either hmm_config or markov_config.")
         self.forecast = KronosForecastPipeline(
             config=kronos_config,
             rlm_config=rlm_config,
@@ -462,9 +506,8 @@ class HybridKronosForecastPipeline:
             df["hmm_state"] = np.argmax(probs, axis=1).astype(int)
             df["hmm_confidence"] = probs.max(axis=1).astype(float)
             if self.hmm.state_labels:
-                df["hmm_state_label"] = [
-                    self.hmm.state_labels[int(s)] for s in df["hmm_state"]
-                ]
+                df["hmm_state_label"] = [self.hmm.state_labels[int(s)] for s in df["hmm_state"]]
+            _annotate_hmm_transition_fields(self.hmm, df, probs)
 
         if self.markov is not None:
             fit_df = df.loc[train_mask] if train_mask is not None else df
@@ -477,8 +520,7 @@ class HybridKronosForecastPipeline:
             df["markov_state"] = np.argmax(probs, axis=1).astype(int)
             df["markov_confidence"] = probs.max(axis=1).astype(float)
             if self.markov.state_labels:
-                df["markov_state_label"] = [
-                    self.markov.state_labels[int(s)] for s in df["markov_state"]
-                ]
+                df["markov_state_label"] = [self.markov.state_labels[int(s)] for s in df["markov_state"]]
+            _annotate_markov_transition_fields(self.markov, df, probs)
 
         return df
