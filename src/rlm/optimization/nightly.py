@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 
 import optuna
+from optuna.trial import TrialState
 
 from .base import OptimizationBase
-from .config import NightlyHyperparams
 
 ROOT = Path(__file__).resolve().parents[3]
 REGIME_PATH = ROOT / "data/processed/live_regime_model.json"
 NIGHTLY_PATH = ROOT / "data/processed/live_nightly_hyperparams.json"
+NO_VALID_SCORE = -999.0
 
 
 class NightlyMTFOptimizer:
@@ -39,18 +40,26 @@ class NightlyMTFOptimizer:
             timeout=3600,
         )
 
-        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if completed:
-            best = study.best_params
-        elif NIGHTLY_PATH.exists():
-            try:
-                existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                existing = None
-            best = existing if isinstance(existing, dict) and existing else NightlyHyperparams().__dict__
-        else:
-            best = NightlyHyperparams().__dict__
+        completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+        if not completed:
+            if NIGHTLY_PATH.exists():
+                try:
+                    existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return {}
+                return existing if isinstance(existing, dict) else {}
+            return {}
+
+        if float(study.best_value) <= NO_VALID_SCORE:
+            raise RuntimeError(
+                "Nightly optimization produced no valid backtest scores; "
+                "leaving live_nightly_hyperparams.json unchanged."
+            )
+
+        best = study.best_params
 
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        NIGHTLY_PATH.write_text(json.dumps(best, indent=2), encoding="utf-8")
+        tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
+        tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")
+        tmp_path.replace(NIGHTLY_PATH)
         return best

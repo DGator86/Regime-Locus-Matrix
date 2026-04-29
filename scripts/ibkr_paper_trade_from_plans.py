@@ -34,8 +34,6 @@ from rlm.execution.ibkr_combo_orders import (
     ibkr_order_connection,
     legs_from_ibkr_combo_spec,
     load_ibkr_order_socket_config,
-    place_options_combo_order,
-    reverse_legs_for_close,
 )
 
 
@@ -149,11 +147,11 @@ def main() -> int:
 
                 try:
                     from rlm.execution.ibkr_combo_orders import (
+                        _get_bundle,
                         _resolve_option_on_app,
                         _wait_order_terminal,
                         assert_paper_or_live_acknowledged,
                     )
-                    from rlm.execution.ibkr_combo_orders import _get_bundle
 
                     _, _, Contract, ComboLeg, Order = _get_bundle()
 

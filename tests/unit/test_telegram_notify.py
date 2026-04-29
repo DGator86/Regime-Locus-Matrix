@@ -6,14 +6,12 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from rlm.notify.telegram_rlm import notification_cycle  # noqa: E402
+from rlm.notify.telegram_rlm import build_universe_and_positions, notification_cycle  # noqa: E402
 
 
 def test_notify_seed_silent(tmp_path: Path) -> None:
@@ -103,9 +101,9 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     ]
     (dproc / "trade_log.csv").write_text("".join(log_lines), encoding="utf-8")
     s1, _ = notification_cycle(tmp_path, b0)
-    assert len(s1) == 2
+    # Universe "new idea" alerts are disabled to reduce chatter; trade_log still notifies.
+    assert len(s1) == 1
     assert any("New position" in m and "p2" in m and "QQQ" in m for m in s1)
-    assert any("universe" in m.lower() and "p2" in m for m in s1)
 
 
 def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:
@@ -156,3 +154,21 @@ def test_legacy_state_migrates_announced_trade_open(tmp_path: Path) -> None:
     s, b = notification_cycle(tmp_path, legacy)
     assert s == []
     assert "p1" in b.get("announced_trade_open", [])
+
+
+def test_portfolio_report_flags_risk_warnings(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    (dproc / "universe_trade_plans.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+        "2026-04-28T00:00:00Z,p1,TSLA,x,1,1,1,1,-0.75,-75,hold,0,30\n"
+        "2026-04-28T00:00:00Z,p2,NVDA,x,1,1,1,1,0.0,0,hold,0,20\n"
+        "2026-04-28T00:00:00Z,p3,SPY,x,1,1,1,1,0.5,50,hold,0,13\n",
+        encoding="utf-8",
+    )
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "⚠ MAX_LOSS_BREACH" in text
+    assert "⚠ TIME_STOP_ZONE" in text
+    assert "⚠ FORCE_CLOSE_ZONE" in text

@@ -48,23 +48,29 @@ class SVIParams:
     def skew(self) -> float:
         if self.tau_years <= 1e-9:
             return 0.0
-        return _svi_first_derivative(
-            0.0,
-            b=self.b,
-            rho=self.rho,
-            m=self.m,
-            sigma=self.sigma,
-        ) / self.tau_years
+        return (
+            _svi_first_derivative(
+                0.0,
+                b=self.b,
+                rho=self.rho,
+                m=self.m,
+                sigma=self.sigma,
+            )
+            / self.tau_years
+        )
 
     def convexity(self) -> float:
         if self.tau_years <= 1e-9:
             return 0.0
-        return _svi_second_derivative(
-            0.0,
-            b=self.b,
-            m=self.m,
-            sigma=self.sigma,
-        ) / self.tau_years
+        return (
+            _svi_second_derivative(
+                0.0,
+                b=self.b,
+                m=self.m,
+                sigma=self.sigma,
+            )
+            / self.tau_years
+        )
 
 
 def _weighted_mean(values: pd.Series, weights: pd.Series) -> float:

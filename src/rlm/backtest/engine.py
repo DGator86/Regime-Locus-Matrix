@@ -17,18 +17,18 @@ from rlm.backtest.lifecycle import (
 from rlm.backtest.portfolio import Portfolio
 from rlm.backtest.slippage import SlippageConfig
 from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.roee.chain_match import match_legs_to_chain
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.engine import ROEEConfig
 from rlm.roee.exits import (
     should_exit_for_profit,
     should_exit_for_regime_flip,
-    should_exit_for_zone_breach,
     should_exit_for_stop_loss,
     should_exit_for_time_stop,
+    should_exit_for_zone_breach,
 )
-from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.features.scoring.state_matrix import classify_state_matrix
 
 # Alias for tests and external monkeypatching (backtests call this once per bar).
 decide_trade_for_bar = select_trade_for_row
@@ -183,36 +183,28 @@ class BacktestEngine:
                 gex_confluence_enabled=self.config.gex_confluence_enabled,
             )
 
-            if decision.action == "enter" and not (
-                self.lifecycle_config.one_trade_per_bar and traded_this_bar
-            ):
+            if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
                 # --- Portfolio Manager Enforcement ---
                 symbol_cap = rc.max_positions_per_symbol
                 total_cap = rc.max_total_positions
-                
+
                 has_symbol_pos = self.portfolio.has_position_for_symbol(self.underlying_symbol)
                 total_pos_count = self.portfolio.total_position_count()
-                
+
                 if has_symbol_pos and symbol_cap > 0:
                     decision.action = "skip"
                     decision.rationale = f"Symbol cap reached: {self.underlying_symbol}"
                 elif total_pos_count >= total_cap and total_cap > 0:
                     decision.action = "skip"
                     decision.rationale = f"Portfolio cap reached: {total_pos_count}/{total_cap}"
-                
-            if decision.action == "enter" and not (
-                self.lifecycle_config.one_trade_per_bar and traded_this_bar
-            ):
+
+            if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
                 dte_min = int(decision.candidate.target_dte_min) if decision.candidate else 20
                 dte_max = int(decision.candidate.target_dte_max) if decision.candidate else 45
-                chain_slice = select_nearest_expiry_slice(
-                    row_chain, dte_min=dte_min, dte_max=dte_max
-                )
+                chain_slice = select_nearest_expiry_slice(row_chain, dte_min=dte_min, dte_max=dte_max)
 
                 if not chain_slice.empty:
-                    matched_decision = match_legs_to_chain(
-                        decision=decision, chain_slice=chain_slice
-                    )
+                    matched_decision = match_legs_to_chain(decision=decision, chain_slice=chain_slice)
                     if matched_decision.action == "enter":
                         opened_id = self.portfolio.open_from_decision(
                             timestamp=pd.Timestamp(ts),
@@ -242,9 +234,7 @@ class BacktestEngine:
         )
         return equity_frame, trades_frame, summary, diagnostics
 
-    def _apply_mtf_weights(
-        self, feature_df: pd.DataFrame, *, mtf_config: MTFWeightConfig | None
-    ) -> pd.DataFrame:
+    def _apply_mtf_weights(self, feature_df: pd.DataFrame, *, mtf_config: MTFWeightConfig | None) -> pd.DataFrame:
         if mtf_config is None:
             return feature_df
         out = feature_df.copy()
@@ -398,24 +388,25 @@ class BacktestEngine:
 
             pnl_pct = pos.pnl_pct()
 
-            if pricing_ok and should_exit_for_profit(
-                pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct
-            ):
+            if pricing_ok and should_exit_for_profit(pnl_pct=pnl_pct, target_profit_pct=pos.target_profit_pct):
                 to_close.append((position_id, "profit_target"))
                 continue
 
             # Hard Stop Loss
             if pricing_ok and should_exit_for_stop_loss(
-                pnl_pct=pnl_pct, stop_loss_pct=self.roee_config.hard_stop_loss_pct if self.roee_config else -0.50
+                pnl_pct=pnl_pct,
+                stop_loss_pct=self.roee_config.hard_stop_loss_pct if self.roee_config else -0.50,
             ):
                 to_close.append((position_id, "stop_loss"))
                 continue
 
             # Time Stop (DTE)
             from rlm.data.option_chain import calculate_dte_from_expiry
+
             dte = calculate_dte_from_expiry(pos.expiry, ts) if pos.expiry else 999
             if pricing_ok and should_exit_for_time_stop(
-                dte_remaining=dte, min_dte_threshold=self.roee_config.force_exit_dte if self.roee_config else 2
+                dte_remaining=dte,
+                min_dte_threshold=self.roee_config.force_exit_dte if self.roee_config else 2,
             ):
                 to_close.append((position_id, "time_stop"))
                 continue
@@ -487,15 +478,9 @@ class BacktestHyperparameterOptimizer:
                 "markov_states": float(trial.suggest_int("markov_states", 2, 6)),
                 "drift_gamma_alpha": trial.suggest_float("drift_gamma_alpha", 0.2, 0.95),
                 "sigma_floor": trial.suggest_float("sigma_floor", 1e-6, 5e-3, log=True),
-                "direction_neutral_threshold": trial.suggest_float(
-                    "direction_neutral_threshold", 0.05, 0.6
-                ),
-                "friction_spread_fraction": trial.suggest_float(
-                    "friction_spread_fraction", 0.0, 0.8
-                ),
-                "friction_per_contract_flat": trial.suggest_float(
-                    "friction_per_contract_flat", 0.0, 0.1
-                ),
+                "direction_neutral_threshold": trial.suggest_float("direction_neutral_threshold", 0.05, 0.6),
+                "friction_spread_fraction": trial.suggest_float("friction_spread_fraction", 0.0, 0.8),
+                "friction_per_contract_flat": trial.suggest_float("friction_per_contract_flat", 0.0, 0.1),
                 "mtf_fast_weight": trial.suggest_float("mtf_fast_weight", 0.1, 1.0),
                 "mtf_medium_weight": trial.suggest_float("mtf_medium_weight", 0.0, 1.0),
                 "mtf_slow_weight": trial.suggest_float("mtf_slow_weight", 0.0, 1.0),
@@ -572,24 +557,18 @@ class PortfolioBacktestEngine:
         equity_panel = pd.concat(equity_frames, axis=1).sort_index().ffill()
         portfolio_equity = equity_panel.sum(axis=1).to_frame("equity")
         correlation_matrix = pd.DataFrame(symbol_returns).corr()
-        trades_all = (
-            pd.concat(trades_frames, ignore_index=True) if trades_frames else pd.DataFrame()
-        )
+        trades_all = pd.concat(trades_frames, ignore_index=True) if trades_frames else pd.DataFrame()
 
         from rlm.backtest.metrics import summarize_backtest
 
         summary = summarize_backtest(portfolio_equity, trades_all)
         if not correlation_matrix.empty:
             tri = correlation_matrix.where(~np.tri(correlation_matrix.shape[0], dtype=bool))
-            summary["avg_cross_symbol_corr"] = (
-                float(tri.stack().mean()) if not tri.stack().empty else np.nan
-            )
+            summary["avg_cross_symbol_corr"] = float(tri.stack().mean()) if not tri.stack().empty else np.nan
         return portfolio_equity, trades_all, summary, correlation_matrix
 
 
-def build_fill_config_from_friction(
-    *, spread_fraction: float, per_contract_flat: float
-) -> FillConfig:
+def build_fill_config_from_friction(*, spread_fraction: float, per_contract_flat: float) -> FillConfig:
     return FillConfig(
         slippage=SlippageConfig(
             spread_fraction=max(float(spread_fraction), 0.0),

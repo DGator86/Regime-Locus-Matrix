@@ -5,14 +5,15 @@ Tags news articles with sentiment and relevance.
 
 from __future__ import annotations
 
-import pandas as pd
-from typing import Any
 from itertools import chain
+
+import pandas as pd
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 except ImportError:
     SentimentIntensityAnalyzer = None
+
 
 class NewsTagger:
     def __init__(self):
@@ -20,7 +21,7 @@ class NewsTagger:
             self.vader = SentimentIntensityAnalyzer()
         else:
             self.vader = None
-            
+
         # Placeholders for future FinBERT integration
         self.finbert = None
 
@@ -57,7 +58,7 @@ class NewsTagger:
         """
         if df.empty:
             return df
-            
+
         # Use 'headline' if available, otherwise 'summary'
         col = "headline" if "headline" in df.columns else "summary"
         if col not in df.columns:
@@ -79,6 +80,6 @@ class NewsTagger:
         agg = df.groupby("symbol").agg(
             avg_sentiment=("sentiment", "mean"),
             article_count=("symbol", "count"),
-            relevant_tags=("relevance_tags", lambda x: list(set(chain(*x))))
+            relevant_tags=("relevance_tags", lambda x: list(set(chain(*x)))),
         )
         return agg

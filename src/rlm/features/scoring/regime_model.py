@@ -261,9 +261,7 @@ class RegimeModel:
             return arr
         if arr.shape[1] != len(_STATE_COLUMNS):
             raise ValueError(
-                "Expected "
-                f"{len(_STATE_COLUMNS)} state columns or 15 engineered features; "
-                f"got {arr.shape[1]}."
+                "Expected " f"{len(_STATE_COLUMNS)} state columns or 15 engineered features; " f"got {arr.shape[1]}."
             )
         views = [FeatureView(*row.tolist()) for row in arr]
         return np.vstack([_phi(v) for v in views])

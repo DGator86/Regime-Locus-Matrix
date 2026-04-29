@@ -30,11 +30,11 @@ Install the required extras before use::
 
     pip install -e ".[kronos]"
 """
+
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -42,84 +42,11 @@ from scipy.stats import norm
 
 from rlm.forecasting.bands import compute_state_matrix_bands
 from rlm.forecasting.distribution import estimate_distribution
+from rlm.forecasting.kronos_config import KronosConfig
 from rlm.types.forecast import ForecastConfig
 
 if TYPE_CHECKING:
     from rlm.forecasting.models.kronos.model.kronos import KronosPredictor
-
-
-@dataclass(frozen=True)
-class KronosConfig:
-    """Configuration for the Kronos foundation-model forecast layer.
-
-    Parameters
-    ----------
-    model_name:
-        HuggingFace Hub model ID (or local path) for the Kronos language model.
-        The pretrained models are ``NeoQuasar/Kronos-mini``,
-        ``NeoQuasar/Kronos-small`` (default), and ``NeoQuasar/Kronos-base``.
-    tokenizer_name:
-        HuggingFace Hub model ID (or local path) for the matching tokeniser.
-        Default: ``"NeoQuasar/Kronos-Tokenizer-base"`` works with all model
-        sizes.
-    device:
-        Torch device string (``"cuda:0"``, ``"cpu"``, …). ``None`` triggers
-        auto-detection (CUDA > MPS > CPU).
-    max_context:
-        Maximum number of historical bars that Kronos uses as context.
-        Must not exceed the model's context length (512 for small/base,
-        2048 for mini).  Default: ``512``.
-    clip:
-        Normalised input clipping value inside Kronos (default ``5``).
-    lookback:
-        Number of historical bars fed to Kronos per inference call (capped at
-        ``max_context``).  Increase for longer-memory signals; decrease for
-        speed.  Default: ``200``.
-    pred_len:
-        Number of future bars generated per inference call.  The first step
-        is consumed as the next-bar forecast; additional steps are discarded
-        unless you extend the pipeline yourself.  Default: ``1``.
-    sample_count:
-        Number of independent stochastic draws used to estimate forecast
-        uncertainty.  With ``sample_count=1``, a realised-vol interval is used
-        instead.  Default: ``5``.
-    temperature:
-        Autoregressive sampling temperature (default ``1.0``).
-    top_p:
-        Nucleus-sampling probability threshold (default ``0.9``).
-    top_k:
-        Top-k sampling cutoff; ``0`` disables it (default ``0``).
-    lower_quantile:
-        Quantile for ``forecast_return_lower`` (default ``0.10``).
-    upper_quantile:
-        Quantile for ``forecast_return_upper`` (default ``0.90``).
-    sigma_floor:
-        Minimum sigma to prevent near-zero uncertainty (default ``1e-4``).
-    stride:
-        Run a Kronos inference every ``stride`` bars and forward-fill
-        predictions in between.  ``stride=1`` is the most accurate but
-        slowest; ``stride=pred_len`` is maximally efficient with no overlap.
-        Default: ``1``.
-    verbose:
-        Show tqdm progress inside Kronos inference loops (default ``False``).
-    """
-
-    model_name: str = "NeoQuasar/Kronos-small"
-    tokenizer_name: str = "NeoQuasar/Kronos-Tokenizer-base"
-    device: str | None = None
-    max_context: int = 512
-    clip: float = 5.0
-    lookback: int = 200
-    pred_len: int = 1
-    sample_count: int = 5
-    temperature: float = 1.0
-    top_p: float = 0.9
-    top_k: int = 0
-    lower_quantile: float = 0.10
-    upper_quantile: float = 0.90
-    sigma_floor: float = 1e-4
-    stride: int = 1
-    verbose: bool = False
 
 
 def _make_future_timestamps(index: pd.Index, n: int) -> pd.DatetimeIndex:
@@ -173,18 +100,24 @@ class KronosForecastPipeline:
         rlm_config: ForecastConfig | None = None,
         move_window: int = 100,
         vol_window: int = 100,
+        predictor: Any | None = None,
+        min_lookback: int = 30,
     ) -> None:
         self.config = config or KronosConfig()
         self.rlm_config = rlm_config or ForecastConfig()
         self.move_window = move_window
         self.vol_window = vol_window
         self._predictor: KronosPredictor | None = None
+        self._predictor_override: Any | None = predictor
+        self.min_lookback = int(min_lookback)
 
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
 
     def _get_predictor(self) -> "KronosPredictor":
+        if self._predictor_override is not None:
+            return self._predictor_override  # type: ignore[return-value]
         if self._predictor is not None:
             return self._predictor
         try:
@@ -250,8 +183,7 @@ class KronosForecastPipeline:
             kronos_df = self._run_kronos_rolling(df)
         except Exception as exc:
             warnings.warn(
-                f"KronosForecastPipeline: Kronos inference failed, "
-                f"using distribution_fallback. Reason: {exc}",
+                f"KronosForecastPipeline: Kronos inference failed, " f"using distribution_fallback. Reason: {exc}",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -263,16 +195,12 @@ class KronosForecastPipeline:
         out["forecast_return_lower"] = kronos_df["lower"].values
         out["forecast_return_upper"] = kronos_df["upper"].values
         out["forecast_return"] = out["forecast_return_median"]
-        out["forecast_uncertainty"] = (
-            (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
-        )
+        out["forecast_uncertainty"] = (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
         out["mu"] = out["forecast_return_median"]
 
         z_span = float(norm.ppf(cfg.upper_quantile) - norm.ppf(cfg.lower_quantile))
         if abs(z_span) > 1e-9:
-            sigma_series = (
-                (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
-            )
+            sigma_series = (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
         else:
             sigma_series = pd.Series(cfg.sigma_floor, index=out.index)
         out["sigma"] = sigma_series.clip(lower=cfg.sigma_floor)
@@ -292,6 +220,8 @@ class KronosForecastPipeline:
         ``min_ctx`` bars) are back-filled from the first available inference.
         """
         predictor = self._get_predictor()
+        if self._predictor_override is not None:
+            return self._run_kronos_rolling_predict_paths(df, predictor)
         cfg = self.config
         n = len(df)
         lookback = min(cfg.lookback, cfg.max_context)
@@ -327,6 +257,48 @@ class KronosForecastPipeline:
             uppers[i:end_j] = hi
 
         # Back-fill warm-up rows from the first valid inference
+        first_valid = int(np.argmax(~np.isnan(medians))) if not np.all(np.isnan(medians)) else -1
+        if first_valid > 0:
+            medians[:first_valid] = medians[first_valid]
+            lowers[:first_valid] = lowers[first_valid]
+            uppers[:first_valid] = uppers[first_valid]
+
+        return pd.DataFrame(
+            {"median": medians, "lower": lowers, "upper": uppers},
+            index=df.index,
+        )
+
+    def _run_kronos_rolling_predict_paths(self, df: pd.DataFrame, pred: Any) -> pd.DataFrame:
+        """Rolling forecast using a ``predict_paths(df[, future_timestamps]) -> (S,T,6)`` API (tests / mocks)."""
+        cfg = self.config
+        n = len(df)
+        min_lb = max(self.min_lookback, cfg.pred_len + 1, 2)
+        medians = np.full(n, np.nan)
+        lowers = np.full(n, np.nan)
+        uppers = np.full(n, np.nan)
+
+        for i in range(min_lb, n):
+            lookback = min(cfg.lookback, cfg.max_context)
+            ctx_start = max(0, i - lookback + 1)
+            ctx = df.iloc[ctx_start : i + 1]
+            current_close = float(df["close"].iloc[i])
+            if current_close == 0.0:
+                continue
+            try:
+                paths = pred.predict_paths(ctx, future_timestamps=None)
+            except TypeError:
+                paths = pred.predict_paths(ctx)
+            arr = np.asarray(paths, dtype=float)
+            if arr.ndim != 3 or arr.shape[0] < 1:
+                continue
+            sample_returns = (arr[:, -1, 3] - current_close) / current_close
+            med = float(np.median(sample_returns))
+            lo = float(np.percentile(sample_returns, cfg.lower_quantile * 100))
+            hi = float(np.percentile(sample_returns, cfg.upper_quantile * 100))
+            medians[i] = med
+            lowers[i] = lo
+            uppers[i] = hi
+
         first_valid = int(np.argmax(~np.isnan(medians))) if not np.all(np.isnan(medians)) else -1
         if first_valid > 0:
             medians[:first_valid] = medians[first_valid]
@@ -418,6 +390,7 @@ class KronosForecastPipeline:
 # Composable blend helpers
 # ---------------------------------------------------------------------------
 
+
 def apply_kronos_blend(
     forecast_df: pd.DataFrame,
     config: KronosConfig | None = None,
@@ -473,8 +446,7 @@ def apply_kronos_blend(
         kronos_df = pipe.compute_kronos_overlay(forecast_df)
     except Exception as exc:
         warnings.warn(
-            f"apply_kronos_blend: Kronos inference failed; returning base forecast unchanged. "
-            f"Reason: {exc}",
+            f"apply_kronos_blend: Kronos inference failed; returning base forecast unchanged. " f"Reason: {exc}",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -493,17 +465,13 @@ def apply_kronos_blend(
     out["forecast_return_lower"] = _blend("forecast_return_lower", "lower")
     out["forecast_return_upper"] = _blend("forecast_return_upper", "upper")
     out["forecast_return"] = out["forecast_return_median"]
-    out["forecast_uncertainty"] = (
-        (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
-    )
+    out["forecast_uncertainty"] = (out["forecast_return_upper"] - out["forecast_return_lower"]).clip(lower=0.0)
     out["mu"] = out["forecast_return_median"]
 
     # Recompute sigma from blended interval
     z_span = float(norm.ppf(cfg.upper_quantile) - norm.ppf(cfg.lower_quantile))
     if abs(z_span) > 1e-9:
-        sigma_series = (
-            (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
-        )
+        sigma_series = (out["forecast_return_upper"] - out["forecast_return_lower"]).abs() / z_span
     else:
         sigma_series = pd.Series(cfg.sigma_floor, index=out.index)
     out["sigma"] = sigma_series.clip(lower=cfg.sigma_floor)
@@ -562,6 +530,7 @@ class KronosBlendPipeline:
     def run(self, df: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
         """Run the base pipeline then blend in Kronos forecasts."""
         import inspect
+
         sig = inspect.signature(self.base_pipeline.run)
         if "train_mask" in sig.parameters:
             base_out = self.base_pipeline.run(df, **kwargs)

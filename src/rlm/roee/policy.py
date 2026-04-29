@@ -317,9 +317,7 @@ def _core_trade_decision_from_strategy_name(
     vol_ok = realized_vol is not None and math.isfinite(realized_vol) and realized_vol > 0.0
     if use_dynamic_sizing and forecast_ok and vol_ok:
         effective_kelly_fraction = float(max_kelly_fraction)
-        kelly_direction_regime, kelly_volatility_regime = parse_latent_regime_label(
-            regime_state_label
-        )
+        kelly_direction_regime, kelly_volatility_regime = parse_latent_regime_label(regime_state_label)
         if regime_adjusted_kelly:
             effective_kelly_fraction = compute_regime_adjusted_kelly_fraction(
                 base_kelly_fraction=float(max_kelly_fraction),
@@ -365,8 +363,7 @@ def _core_trade_decision_from_strategy_name(
                 "regime_state_label": regime_state_label or "",
                 "regime_state_confidence": (
                     float(regime_state_confidence)
-                    if regime_state_confidence is not None
-                    and math.isfinite(float(regime_state_confidence))
+                    if regime_state_confidence is not None and math.isfinite(float(regime_state_confidence))
                     else None
                 ),
                 "kelly_regime_source": "latent_state" if regime_state_label else "disabled",
@@ -461,29 +458,15 @@ def apply_overlay_engine(
 
     mtf_score = float(mtf_confluence_score) if mtf_confluence_score is not None else 0.0
     sweep_score = (
-        float(mtf_confluence_liquidity_sweep_confirmed)
-        if mtf_confluence_liquidity_sweep_confirmed is not None
-        else 0.0
+        float(mtf_confluence_liquidity_sweep_confirmed) if mtf_confluence_liquidity_sweep_confirmed is not None else 0.0
     )
     pool_score = float(pool_confluence_score) if pool_confluence_score is not None else 0.0
-    orderflow_score = (
-        float(orderflow_confluence_score) if orderflow_confluence_score is not None else 0.0
-    )
+    orderflow_score = float(orderflow_confluence_score) if orderflow_confluence_score is not None else 0.0
     fvg_score = float(fvg_alignment_score) if fvg_alignment_score is not None else 0.0
-    ob_score = (
-        float(order_block_alignment_score) if order_block_alignment_score is not None else 0.0
-    )
-    sr_score = (
-        float(support_resistance_alignment_score)
-        if support_resistance_alignment_score is not None
-        else 0.0
-    )
-    bullish_candle = (
-        float(bullish_candle_pattern_score) if bullish_candle_pattern_score is not None else 0.0
-    )
-    bearish_candle = (
-        float(bearish_candle_pattern_score) if bearish_candle_pattern_score is not None else 0.0
-    )
+    ob_score = float(order_block_alignment_score) if order_block_alignment_score is not None else 0.0
+    sr_score = float(support_resistance_alignment_score) if support_resistance_alignment_score is not None else 0.0
+    bullish_candle = float(bullish_candle_pattern_score) if bullish_candle_pattern_score is not None else 0.0
+    bearish_candle = float(bearish_candle_pattern_score) if bearish_candle_pattern_score is not None else 0.0
 
     bullish_structure_confirmed = (
         (direction_regime == "bull" or hmm_direction_regime == "bull")
@@ -529,9 +512,7 @@ def apply_overlay_engine(
     max_risk_pct = float(decision.max_risk_pct or 0.5)
     size_fraction = float(decision.size_fraction or 0.0)
     if overlay_multiplier != 1.0:
-        size_fraction = quantize_fraction(
-            min(max_risk_pct, 0.5, size_fraction * overlay_multiplier)
-        )
+        size_fraction = quantize_fraction(min(max_risk_pct, 0.5, size_fraction * overlay_multiplier))
 
     meta = dict(decision.metadata)
     meta.update(
@@ -674,16 +655,13 @@ def select_trade_from_strategy_name(
         vp_meta = dict(decision.metadata)
         divergence = (
             float(effort_result_divergence)
-            if effort_result_divergence is not None
-            and math.isfinite(float(effort_result_divergence))
+            if effort_result_divergence is not None and math.isfinite(float(effort_result_divergence))
             else 0.0
         )
 
         forecast_sign = 0
         if forecast_return is not None and math.isfinite(float(forecast_return)):
-            forecast_sign = (
-                1 if float(forecast_return) > 0 else (-1 if float(forecast_return) < 0 else 0)
-            )
+            forecast_sign = 1 if float(forecast_return) > 0 else (-1 if float(forecast_return) < 0 else 0)
         elif direction_regime == "bull":
             forecast_sign = 1
         elif direction_regime == "bear":
@@ -691,8 +669,7 @@ def select_trade_from_strategy_name(
 
         wyckoff_score = (
             float(cumulative_wyckoff_score)
-            if cumulative_wyckoff_score is not None
-            and math.isfinite(float(cumulative_wyckoff_score))
+            if cumulative_wyckoff_score is not None and math.isfinite(float(cumulative_wyckoff_score))
             else abs(divergence)
         )
         if wyckoff_score >= float(wyckoff_threshold) and (
@@ -717,29 +694,17 @@ def select_trade_from_strategy_name(
         vp_meta["vp_confidence_boost"] = confidence_boost
         vp_meta["vp_gated"] = False
 
-        if (
-            hybrid_strength_scaling
-            and hybrid_strength is not None
-            and math.isfinite(float(hybrid_strength))
-        ):
+        if hybrid_strength_scaling and hybrid_strength is not None and math.isfinite(float(hybrid_strength)):
             hs = float(min(max(float(hybrid_strength), 0.5), 1.5))
             size_fraction = quantize_fraction(size_fraction * hs)
             vp_meta["vp_hybrid_strength_multiplier"] = hs
 
-        if (
-            gex_confluence_enabled
-            and gex_confluence_poc is not None
-            and math.isfinite(float(gex_confluence_poc))
-        ):
-            gex_sign = (
-                1 if float(gex_confluence_poc) > 0 else (-1 if float(gex_confluence_poc) < 0 else 0)
-            )
+        if gex_confluence_enabled and gex_confluence_poc is not None and math.isfinite(float(gex_confluence_poc)):
+            gex_sign = 1 if float(gex_confluence_poc) > 0 else (-1 if float(gex_confluence_poc) < 0 else 0)
             trade_sign = forecast_sign
             aligned = (gex_sign > 0 and trade_sign == 0) or (gex_sign < 0 and trade_sign != 0)
             vp_meta["vp_gex_confluence_poc"] = float(gex_confluence_poc)
-            vp_meta["vp_gex_style"] = (
-                "mean_reversion" if gex_sign > 0 else ("momentum" if gex_sign < 0 else "neutral")
-            )
+            vp_meta["vp_gex_style"] = "mean_reversion" if gex_sign > 0 else ("momentum" if gex_sign < 0 else "neutral")
             if not aligned and gex_sign != 0:
                 size_fraction = quantize_fraction(size_fraction * 0.75)
                 vp_meta["vp_gex_misalignment_haircut"] = 0.75

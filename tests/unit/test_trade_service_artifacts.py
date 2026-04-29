@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from rlm.core.services.trade_service import TradeArtifacts, TradeDecision, TradeExecutionRecord, TradeRequest, TradeService
+from rlm.core.services.trade_service import (
+    TradeArtifacts,
+    TradeDecision,
+    TradeExecutionRecord,
+    TradeRequest,
+    TradeService,
+)
 
 
 def test_trade_artifacts_written(tmp_path):

@@ -24,6 +24,7 @@ except ImportError:
 # Timezone helpers
 # ---------------------------------------------------------------------------
 
+
 def _eastern_tz() -> tzinfo:
     """Return a US/Eastern tzinfo object, trying zoneinfo → dateutil → fixed offset."""
     if _ZoneInfo is not None:
@@ -55,6 +56,7 @@ def _now_eastern() -> datetime:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def is_rth_now(*, _override: Optional[datetime] = None) -> bool:
     """Return True if the current moment is within US equity RTH (Mon–Fri, 09:30–16:00 ET).

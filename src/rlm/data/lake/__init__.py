@@ -12,7 +12,7 @@ from .metadata import (
     lake_root,
     lake_symbol_dir,
 )
-from .writers import save_parquet
+from .writers import save_parquet, save_parquet_versioned
 
 
 # Backward compatible path helpers used by ingestion code.
@@ -87,6 +87,7 @@ __all__ = [
     "lake_bars_path",
     "lake_option_chain_path",
     "save_parquet",
+    "save_parquet_versioned",
     "data_lake_root",
     "stock_1d_dir",
     "stock_1m_dir",

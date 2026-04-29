@@ -53,9 +53,7 @@ def value_calendar_path(
     vol_edge = (realized_vol - entry_sigma) / max(entry_sigma, 1e-6)
     theta_decay = 0.35 * horizon_fraction
     displacement_penalty = 0.9 * displacement
-    gross_value = structure.entry_price * (
-        1.0 + 1.25 * vol_edge - theta_decay - displacement_penalty
-    )
+    gross_value = structure.entry_price * (1.0 + 1.25 * vol_edge - theta_decay - displacement_penalty)
     return float(max(gross_value, 0.0))
 
 

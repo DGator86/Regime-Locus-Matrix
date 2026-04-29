@@ -43,8 +43,8 @@ from typing import Literal
 
 import pandas as pd
 
-from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.config.rlm_config import VolumeProfileConfig
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.factors.cumulative_wyckoff_factors import CumulativeWyckoffFactors
 from rlm.factors.hybrid_confluence_factors import HybridConfluenceFactors
 from rlm.factors.microstructure_vp_factors import MicrostructureVPFactors
@@ -60,9 +60,9 @@ from rlm.forecasting.hmm import HMMConfig
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig, apply_roee_policy
+from rlm.types.forecast import ForecastConfig
 from rlm.volume_profile.hybrid_confluence import hybrid_support_resistance
 from rlm.volume_profile.trade_models import eighty_percent_rule
-from rlm.types.forecast import ForecastConfig
 
 # ---------------------------------------------------------------------------
 # Config
@@ -82,7 +82,13 @@ class FullRLMConfig:
     """Which latent-regime model to layer on the forecast.  ``"none"`` runs the
     plain deterministic ``ForecastPipeline``."""
     hmm_states: int = 6
+    hmm_transition_pseudocount: float = 0.1
+    """Smoothing on the HMM transition matrix for calibrated P(regime i → j)."""
+    hmm_covariance_type: Literal["full", "tied", "diag", "spherical"] = "full"
+    """Passed to hmmlearn ``GaussianHMM``; ``diag`` is more stable on short synthetic series."""
     markov_states: int = 3
+    markov_transition_pseudocount: float = 0.1
+    """Smoothing on the Markov-switching transition matrix (statsmodels)."""
 
     # ---- Forecast -----------------------------------------------------------
     probabilistic: bool = False
@@ -272,13 +278,9 @@ class FullRLMPipeline:
             vp_metrics = MicrostructureVPFactors(symbol=cfg.symbol).compute(factors_df)
             factors_df = pd.concat([factors_df, vp_metrics], axis=1)
         if use_wyckoff:
-            factors_df = pd.concat(
-                [factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1
-            )
+            factors_df = pd.concat([factors_df, CumulativeWyckoffFactors().compute(factors_df)], axis=1)
         if use_confluence:
-            factors_df = pd.concat(
-                [factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1
-            )
+            factors_df = pd.concat([factors_df, HybridConfluenceFactors(symbol=cfg.symbol).compute(factors_df)], axis=1)
         if {"open", "vp_va_low", "vp_va_high", "vp_poc"}.issubset(factors_df.columns):
             ep_signal = factors_df.apply(
                 lambda row: bool(
@@ -368,14 +370,22 @@ class FullRLMPipeline:
         if cfg.regime_model == "hmm" and cfg.probabilistic:
             return HybridProbabilisticForecastPipeline(
                 **kw,
-                hmm_config=HMMConfig(n_states=cfg.hmm_states),
+                hmm_config=HMMConfig(
+                    n_states=cfg.hmm_states,
+                    transition_pseudocount=cfg.hmm_transition_pseudocount,
+                    covariance_type=cfg.hmm_covariance_type,
+                ),
                 model_path=cfg.probabilistic_model_path,
             ).run(factors_df)
 
         if cfg.regime_model == "hmm":
             return HybridForecastPipeline(
                 **kw,
-                hmm_config=HMMConfig(n_states=cfg.hmm_states),
+                hmm_config=HMMConfig(
+                    n_states=cfg.hmm_states,
+                    transition_pseudocount=cfg.hmm_transition_pseudocount,
+                    covariance_type=cfg.hmm_covariance_type,
+                ),
                 mtf_regimes=cfg.mtf_regimes,
                 mtf_htf_prob_paths=cfg.mtf_htf_prob_paths,
                 mtf_htf_weights=cfg.mtf_htf_weights,
@@ -388,6 +398,7 @@ class FullRLMPipeline:
                 **kw,
                 markov_config=MarkovSwitchingConfig(
                     n_states=cfg.markov_states,
+                    transition_pseudocount=cfg.markov_transition_pseudocount,
                     use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                     use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                     use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
@@ -401,6 +412,7 @@ class FullRLMPipeline:
                 **kw,
                 markov_config=MarkovSwitchingConfig(
                     n_states=cfg.markov_states,
+                    transition_pseudocount=cfg.markov_transition_pseudocount,
                     use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
                     use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
                     use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
@@ -431,9 +443,7 @@ class FullRLMPipeline:
             underlying_symbol=cfg.symbol,
             quantity_per_trade=cfg.quantity_per_trade,
             roee_config=cfg.roee_config,
-            config=BacktestConfig(
-                use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled
-            ),
+            config=BacktestConfig(use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled),
         )
         trades_df, equity_df, metrics = engine.run(result.policy_df, option_chain_df)
         return PipelineResult(

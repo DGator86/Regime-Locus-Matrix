@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import math
 
-
 # ---------------------------------------------------------------------------
 # Premium estimation
 # ---------------------------------------------------------------------------
+
 
 def atm_premium(underlying: float, iv: float, dte: int) -> float:
     """Estimate ATM option premium via the Bachelier approximation.
@@ -28,13 +28,11 @@ def otm_premium(underlying: float, iv: float, dte: int, strike: float) -> float:
     t = max(dte, 1) / 252.0
     moneyness = abs(math.log(strike / underlying)) / (iv * math.sqrt(t) + 1e-9)
     # Vega-weighted discount: exponential falloff with moneyness in σ units
-    discount = math.exp(-0.5 * moneyness ** 2)
+    discount = math.exp(-0.5 * moneyness**2)
     return max(base * discount, 0.01)
 
 
-def estimate_premium(
-    underlying: float, iv: float, dte: int, strike: float
-) -> float:
+def estimate_premium(underlying: float, iv: float, dte: int, strike: float) -> float:
     """Pick the right estimator depending on whether the option is ATM or OTM."""
     if abs(strike - underlying) / underlying < 0.001:
         return atm_premium(underlying, iv, dte)
@@ -44,6 +42,7 @@ def estimate_premium(
 # ---------------------------------------------------------------------------
 # Delta approximation
 # ---------------------------------------------------------------------------
+
 
 def _norm_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
@@ -69,6 +68,7 @@ def estimate_delta(
 # Position value update
 # ---------------------------------------------------------------------------
 
+
 def updated_premium(
     entry_premium: float,
     delta: float,
@@ -91,8 +91,8 @@ def updated_premium(
     t = max(dte_remaining, 1) / 252.0
     sigma_sqrt_t = iv * math.sqrt(t) + 1e-9
     d1 = math.log(underlying_now / (underlying_entry + 1e-9)) / sigma_sqrt_t + 0.5 * sigma_sqrt_t
-    gamma = math.exp(-0.5 * d1 ** 2) / (math.sqrt(2 * math.pi) * underlying_now * sigma_sqrt_t)
-    gamma_pnl = 0.5 * gamma * move ** 2
+    gamma = math.exp(-0.5 * d1**2) / (math.sqrt(2 * math.pi) * underlying_now * sigma_sqrt_t)
+    gamma_pnl = 0.5 * gamma * move**2
 
     # Theta: −entry_premium / (dte_at_entry × 1.4)  per day
     dte_at_entry = dte_remaining + days_elapsed

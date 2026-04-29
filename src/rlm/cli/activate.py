@@ -29,7 +29,7 @@ from pathlib import Path
 
 from rlm.challenge.models import ChallengePipelineConfig
 
-ROOT = Path(__file__).resolve().parents[3]   # repo root: .../Regime-Locus-Matrix
+ROOT = Path(__file__).resolve().parents[3]  # repo root: .../Regime-Locus-Matrix
 _SCRIPTS = ROOT / "scripts"
 
 # Challenge symbols sourced from the pipeline config so they stay in sync.
@@ -142,27 +142,34 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--no-ingest", action="store_true",
+        "--no-ingest",
+        action="store_true",
         help="Skip Phase 1 bulk import and use cached data",
     )
     p.add_argument(
-        "--no-challenge", action="store_true",
+        "--no-challenge",
+        action="store_true",
         help="Skip challenge sessions in Phase 2",
     )
     p.add_argument(
-        "--equity-dry-run", action="store_true",
+        "--equity-dry-run",
+        action="store_true",
         help="Equity plan: log signals only, no IBKR orders",
     )
     p.add_argument(
-        "--pipeline-args", default="",
+        "--pipeline-args",
+        default="",
         help="Extra args forwarded to run_universe_options_pipeline.py (quoted)",
     )
     p.add_argument(
-        "--ingest-workers", type=int, default=4,
+        "--ingest-workers",
+        type=int,
+        default=4,
         help="Parallel workers for bulk import (default: 4)",
     )
     p.add_argument(
-        "--data-root", default=None,
+        "--data-root",
+        default=None,
         help="Override default data root directory",
     )
     return p.parse_args()
@@ -173,9 +180,8 @@ def main() -> None:
 
     # Full symbol set: main universe + challenge symbols (deduped)
     from rlm.data.liquidity_universe import EXPANDED_LIQUID_UNIVERSE
-    all_symbols: tuple[str, ...] = tuple(
-        dict.fromkeys(EXPANDED_LIQUID_UNIVERSE + CHALLENGE_SYMBOLS)
-    )
+
+    all_symbols: tuple[str, ...] = tuple(dict.fromkeys(EXPANDED_LIQUID_UNIVERSE + CHALLENGE_SYMBOLS))
 
     if not args.no_ingest:
         phase1_ingest(all_symbols, data_root=args.data_root, workers=args.ingest_workers)

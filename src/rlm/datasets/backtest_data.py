@@ -78,9 +78,7 @@ def synthetic_option_chain_from_bars(
         expiry = pd.Timestamp(ts) + pd.Timedelta(days=dte_days)
         dte = max((expiry.normalize() - pd.Timestamp(ts).normalize()).days, 1)
         t_y = dte / 365.0
-        iv = float(
-            0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts).toordinal() % 400)) / 400.0 * np.pi))
-        )
+        iv = float(0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts).toordinal() % 400)) / 400.0 * np.pi)))
         for opt_type in ("call", "put"):
             is_call = opt_type == "call"
             for off in strike_offsets:
@@ -151,9 +149,7 @@ def synthetic_option_chain_intraday_from_bars(
         expiry = pd.Timestamp(ts0) + pd.Timedelta(days=dte_days)
         dte = max((expiry.normalize() - pd.Timestamp(ts0).normalize()).days, 1)
         t_y = dte / 365.0
-        iv = float(
-            0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts0).toordinal() % 400)) / 400.0 * np.pi))
-        )
+        iv = float(0.18 + 0.06 * abs(np.sin((float(pd.Timestamp(ts0).toordinal() % 400)) / 400.0 * np.pi)))
 
         day_templates: list[dict[str, Any]] = []
         for opt_type in ("call", "put"):

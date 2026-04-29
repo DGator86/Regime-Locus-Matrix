@@ -93,6 +93,7 @@ class ChallengeStrategy:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _round_strike(price: float) -> float:
     """Round to nearest dollar — standard equity option increment."""
     return round(price)

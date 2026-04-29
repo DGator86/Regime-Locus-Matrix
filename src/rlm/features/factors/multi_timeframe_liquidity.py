@@ -187,27 +187,17 @@ class MultiTimeframeLiquidityFactors(FactorCalculator):
                     per_metric[metric][tf] = aligned[col]
 
         out = pd.DataFrame(index=base.index)
-        out["htf_liquidity_bias"] = self._weighted_average(
-            per_metric["liquidity_bias"], self._TIMEFRAME_WEIGHTS
-        )
-        out["mtf_pool_confluence"] = self._weighted_average(
-            per_metric["pool_confluence"], self._TIMEFRAME_WEIGHTS
-        )
-        out["htf_sweep_aligned"] = self._weighted_average(
-            per_metric["sweep_aligned"], self._TIMEFRAME_WEIGHTS
-        )
+        out["htf_liquidity_bias"] = self._weighted_average(per_metric["liquidity_bias"], self._TIMEFRAME_WEIGHTS)
+        out["mtf_pool_confluence"] = self._weighted_average(per_metric["pool_confluence"], self._TIMEFRAME_WEIGHTS)
+        out["htf_sweep_aligned"] = self._weighted_average(per_metric["sweep_aligned"], self._TIMEFRAME_WEIGHTS)
         out["mtf_liquidity_setup_strength"] = self._weighted_average(
             per_metric["liquidity_setup_strength"], self._TIMEFRAME_WEIGHTS
         )
 
         if per_metric["alignment_score"]:
-            out["tf_alignment_score"] = self._weighted_average(
-                per_metric["alignment_score"], self._TIMEFRAME_WEIGHTS
-            )
+            out["tf_alignment_score"] = self._weighted_average(per_metric["alignment_score"], self._TIMEFRAME_WEIGHTS)
         elif per_metric["liquidity_bias"]:
-            signed_bias = {
-                tf: np.sign(series) for tf, series in per_metric["liquidity_bias"].items()
-            }
+            signed_bias = {tf: np.sign(series) for tf, series in per_metric["liquidity_bias"].items()}
             agreement = self._weighted_average(signed_bias, self._TIMEFRAME_WEIGHTS)
             out["tf_alignment_score"] = agreement.abs()
         else:

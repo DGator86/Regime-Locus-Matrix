@@ -7,7 +7,6 @@ import yaml
 
 from rlm.core.pipeline import FullRLMConfig
 
-
 _DEFAULT_PROFILES_DIR = Path(__file__).resolve().parents[3] / "configs" / "profiles"
 
 

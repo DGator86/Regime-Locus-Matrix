@@ -12,7 +12,16 @@ def test_trade_build_decision(monkeypatch):
 
         def run(self, _bars, _chain):
             class _R:
-                policy_df = pd.DataFrame([{"roee_action": "enter", "roee_strategy": "put_credit", "roee_size_fraction": 0.1, "vault_triggered": False}])
+                policy_df = pd.DataFrame(
+                    [
+                        {
+                            "roee_action": "enter",
+                            "roee_strategy": "put_credit",
+                            "roee_size_fraction": 0.1,
+                            "vault_triggered": False,
+                        }
+                    ]
+                )
 
             return _R()
 
