@@ -409,8 +409,9 @@ def main() -> int:
         mcmd.append("--paper-close")
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
-    if args.force_close_dte > 0.0:
-        mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    # Always pass the wrapper's explicit default through; otherwise the monitor's
+    # own default can change run_everything's documented force-close behavior.
+    mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
     if args.monitor_rth_only_poll:
         mcmd.append("--rth-only-poll")
     rc = _run(mcmd)

@@ -41,9 +41,13 @@ class NightlyMTFOptimizer:
         )
 
         completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
+
         if not completed:
             if NIGHTLY_PATH.exists():
-                existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                try:
+                    existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return {}
                 return existing if isinstance(existing, dict) else {}
             return {}
 
@@ -53,16 +57,8 @@ class NightlyMTFOptimizer:
                 "leaving live_nightly_hyperparams.json unchanged."
             )
 
-        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if not completed:
-            print(
-                "[NightlyMTFOptimizer] All trials were pruned — no valid OOS scores. "
-                "Check that bars files exist in data/raw/ and the pipeline runs correctly. "
-                "Skipping hyperparams write.",
-                flush=True,
-            )
-            return {}
         best = study.best_params
+
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
         tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")
