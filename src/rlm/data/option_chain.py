@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-
 REQUIRED_CHAIN_COLUMNS = {
     "timestamp",
     "underlying",
@@ -29,6 +28,13 @@ def validate_option_chain(df: pd.DataFrame) -> None:
     missing = REQUIRED_CHAIN_COLUMNS.difference(df.columns)
     if missing:
         raise ValueError(f"Option chain missing required columns: {sorted(missing)}")
+
+
+def option_chain_is_usable(df: pd.DataFrame | None) -> bool:
+    """True if *df* has all :data:`REQUIRED_CHAIN_COLUMNS` (may be empty rows)."""
+    if df is None or df.empty:
+        return False
+    return REQUIRED_CHAIN_COLUMNS.issubset(df.columns)
 
 
 def normalize_option_chain(df: pd.DataFrame) -> pd.DataFrame:

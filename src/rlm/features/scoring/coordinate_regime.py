@@ -51,9 +51,7 @@ def load_trained_regime_model_or_bootstrap(
         artifact = load_regime_model_artifact(artifact_path)
         if _has_valid_metadata(artifact):
             return RegimeModel.from_artifact(artifact)
-        logger.warning(
-            "Regime artifact metadata missing/malformed at %s; using bootstrap", artifact_path
-        )
+        logger.warning("Regime artifact metadata missing/malformed at %s; using bootstrap", artifact_path)
     return RegimeModel.with_bootstrap_coefficients()
 
 

@@ -42,7 +42,7 @@ class YFinanceProvider:
         ticker = yf.Ticker(symbol)
         frames: list[pd.DataFrame] = []
 
-        for expiry in (ticker.options or []):
+        for expiry in ticker.options or []:
             chain = ticker.option_chain(expiry)
             for side_name, frame in (("call", chain.calls), ("put", chain.puts)):
                 if frame is None or frame.empty:
@@ -65,4 +65,3 @@ class YFinanceProvider:
             source=self.source,
             metadata={"expiries": len(ticker.options or []), "rows": len(chain_df)},
         )
-

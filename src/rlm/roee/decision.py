@@ -4,11 +4,10 @@ import math
 from dataclasses import replace
 from typing import Optional
 
-from rlm.agents.gate import SystemGate
-
 import numpy as np
 import pandas as pd
 
+from rlm.agents.gate import SystemGate
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
 from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
 from rlm.roee.policy import select_trade, select_trade_from_strategy_name
@@ -87,6 +86,8 @@ def compute_regime_modulators(
     kronos_confidence_weight: float = 0.4,
     hmm_confidence_weight: float = 0.6,
     kronos_transition_penalty: float = 0.3,
+    kronos_epistemic_disable_threshold: float | None = None,
+    kronos_aleatoric_size_penalty: float = 0.0,
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
@@ -142,9 +143,23 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
+    epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
+    aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
+
     trans_risk = 1.0 - composite
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
+
+    if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
+        size_mult *= max(0.0, 1.0 - kronos_aleatoric_size_penalty * float(np.clip(aleatoric, 0.0, 1.0)))
+
     trade = composite >= confidence_threshold
+    if (
+        kronos_epistemic_disable_threshold is not None
+        and math.isfinite(epistemic)
+        and epistemic >= float(kronos_epistemic_disable_threshold)
+    ):
+        trade = False
+        model_name = f"{model_name}+epi_gate"
     return {
         "confidence": float(composite),
         "size_mult": max(float(size_mult), 0.0),
@@ -182,11 +197,7 @@ def resolve_latent_regime_from_row(row: pd.Series) -> dict[str, str | float | No
             probs = np.array(row["hmm_probs"], dtype=float)
             if probs.size > 0 and np.isfinite(probs).all():
                 confidence = float(probs.max())
-        if (
-            confidence is None
-            and "hmm_confidence" in row.index
-            and pd.notna(row.get("hmm_confidence"))
-        ):
+        if confidence is None and "hmm_confidence" in row.index and pd.notna(row.get("hmm_confidence")):
             hmm_confidence = _finite_float(row.get("hmm_confidence"), default=np.nan)
             confidence = hmm_confidence if math.isfinite(hmm_confidence) else None
         return {
@@ -199,9 +210,7 @@ def resolve_latent_regime_from_row(row: pd.Series) -> dict[str, str | float | No
 
 
 def _has_coordinate_columns(row: pd.Series) -> bool:
-    return all(
-        col in row.index and pd.notna(row.get(col)) for col in _COORDINATE_CONFIDENCE_COLUMNS
-    )
+    return all(col in row.index and pd.notna(row.get(col)) for col in _COORDINATE_CONFIDENCE_COLUMNS)
 
 
 def _resolve_coordinate_regime(row: pd.Series) -> str:
@@ -287,12 +296,8 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
-    min_regime_samples = (
-        max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
-    )
-    train_sample_count = (
-        max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
-    )
+    min_regime_samples = max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
+    train_sample_count = max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
 
     if min_regime_samples > 0 and train_sample_count < min_regime_samples:
         return TradeDecision(
@@ -338,9 +343,7 @@ def select_trade_for_row(
             )
 
     persistence_size_mult = 1.0
-    enable_persistence_controls = use_persistence_controls or bool(
-        row.get("use_persistence_controls", False)
-    )
+    enable_persistence_controls = use_persistence_controls or bool(row.get("use_persistence_controls", False))
     if enable_persistence_controls:
         p_state = RegimePersistenceState(
             regime=str(row.get("M_regime", "unknown")),
@@ -431,18 +434,14 @@ def select_trade_for_row(
             else None
         ),
         realized_vol=(
-            _finite_float(row.get("realized_vol"), default=np.nan)
-            if pd.notna(row.get("realized_vol"))
-            else None
+            _finite_float(row.get("realized_vol"), default=np.nan) if pd.notna(row.get("realized_vol")) else None
         ),
         use_dynamic_sizing=use_dynamic_sizing,
         vol_target=vol_target,
         max_kelly_fraction=max_kelly_fraction,
         max_capital_fraction=max_capital_fraction,
         regime_adjusted_kelly=regime_adjusted_kelly,
-        regime_state_label=(
-            str(latent_regime["label"]) if latent_regime["label"] is not None else None
-        ),
+        regime_state_label=(str(latent_regime["label"]) if latent_regime["label"] is not None else None),
         regime_state_confidence=(
             float(latent_regime["confidence"]) if latent_regime["confidence"] is not None else None
         ),
@@ -458,9 +457,7 @@ def select_trade_for_row(
             if pd.notna(row.get("vp_effort_result_score"))
             else None
         ),
-        auction_state=(
-            str(row.get("vp_auction_state")) if pd.notna(row.get("vp_auction_state")) else None
-        ),
+        auction_state=(str(row.get("vp_auction_state")) if pd.notna(row.get("vp_auction_state")) else None),
         eighty_percent_rule_signal=bool(row.get("vp_eighty_percent_signal", False)),
         cumulative_wyckoff_score=(
             _finite_float(row.get("cumulative_wyckoff_score"), default=np.nan)
@@ -534,10 +531,7 @@ def select_trade_for_row(
         return replace(
             decision,
             size_fraction=quantize_fraction(
-                base_sf
-                * float(mod["size_mult"])
-                * float(persistence_size_mult)
-                * float(health_mult)
+                base_sf * float(mod["size_mult"]) * float(persistence_size_mult) * float(health_mult)
             ),
             metadata=meta,
         )
@@ -607,9 +601,7 @@ def select_trade_for_row(
         return replace(
             decision,
             size_fraction=quantize_fraction(
-                float(decision.size_fraction or 0.0)
-                * float(persistence_size_mult)
-                * float(health_mult)
+                float(decision.size_fraction or 0.0) * float(persistence_size_mult) * float(health_mult)
             ),
             metadata=meta,
         )

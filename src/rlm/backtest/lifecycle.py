@@ -28,9 +28,7 @@ class ExpiryLiquidationPolicy(str, Enum):
 class LifecycleConfig:
     force_close_dte: int = 1
     close_at_expiry_if_open: bool = True
-    expiry_liquidation_policy: ExpiryLiquidationPolicy = (
-        ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
-    )
+    expiry_liquidation_policy: ExpiryLiquidationPolicy = ExpiryLiquidationPolicy.LIQUIDATE_BEFORE_EXPIRY
     max_holding_bars: int | None = None
     min_hold_bars: int = 2
     one_trade_per_bar: bool = True
@@ -44,10 +42,7 @@ class LifecycleConfig:
         # default.  If the caller explicitly supplied commission_config, that
         # wins.  If only the legacy scalar differs from the default, build a
         # matching CommissionConfig so both sources agree.
-        if (
-            self.commission_config == CommissionConfig()
-            and self.commission_per_contract != 0.65
-        ):
+        if self.commission_config == CommissionConfig() and self.commission_per_contract != 0.65:
             object.__setattr__(
                 self,
                 "commission_config",

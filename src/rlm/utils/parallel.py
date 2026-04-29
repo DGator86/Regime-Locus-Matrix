@@ -29,9 +29,7 @@ def _run_executor(
     results: list[R | None] = [None] * len(items)
     pool_cls = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
     with pool_cls(max_workers=max_workers) as pool:
-        future_to_idx: dict[Future[R], int] = {
-            pool.submit(fn, item): idx for idx, item in enumerate(items)
-        }
+        future_to_idx: dict[Future[R], int] = {pool.submit(fn, item): idx for idx, item in enumerate(items)}
         for fut in as_completed(future_to_idx):
             idx = future_to_idx[fut]
             results[idx] = fut.result()

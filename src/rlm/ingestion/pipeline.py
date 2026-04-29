@@ -103,10 +103,7 @@ class IngestionPipeline:
             bad = _first_bad(
                 parallel_map(
                     _option_quotes_task,
-                    [
-                        (ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
-                        for ot in tickers
-                    ],
+                    [(ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt) for ot in tickers],
                     max_workers=args.jobs,
                     backend=args.parallel_backend,
                 )
@@ -118,10 +115,7 @@ class IngestionPipeline:
             bad = _first_bad(
                 parallel_map(
                     _option_trades_task,
-                    [
-                        (ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt)
-                        for ot in tickers
-                    ],
+                    [(ot, args.option_underlying, args.quote_window_gte, args.quote_window_lt) for ot in tickers],
                     max_workers=args.jobs,
                     backend=args.parallel_backend,
                 )
@@ -167,8 +161,20 @@ def main(argv: list[str] | None = None) -> int:
 
 def _stock_task(task: tuple[str, str, str, str, str]) -> int:
     symbol, stock_1d_duration, stock_1d_slug, stock_1m_duration, stock_1m_slug = task
-    write_ibkr_stock_parquet(symbol, duration=stock_1d_duration, bar_size="1 day", duration_slug=stock_1d_slug, interval_dir="1d")
-    write_ibkr_stock_parquet(symbol, duration=stock_1m_duration, bar_size="1 min", duration_slug=stock_1m_slug, interval_dir="1m")
+    write_ibkr_stock_parquet(
+        symbol,
+        duration=stock_1d_duration,
+        bar_size="1 day",
+        duration_slug=stock_1d_slug,
+        interval_dir="1d",
+    )
+    write_ibkr_stock_parquet(
+        symbol,
+        duration=stock_1m_duration,
+        bar_size="1 min",
+        duration_slug=stock_1m_slug,
+        interval_dir="1m",
+    )
     return 0
 
 

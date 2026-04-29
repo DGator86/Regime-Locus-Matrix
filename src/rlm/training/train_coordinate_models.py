@@ -245,9 +245,7 @@ def compute_strategy_metrics(
     X = val_df.loc[:, REQUIRED_COORD_COLUMNS]
     Y = val_df.loc[:, STRATEGY_NAMES].to_numpy(dtype=float)
     pred = model.predict_expected_values(X)
-    mse = {
-        name: float(np.mean((pred[:, i] - Y[:, i]) ** 2)) for i, name in enumerate(STRATEGY_NAMES)
-    }
+    mse = {name: float(np.mean((pred[:, i] - Y[:, i]) ** 2)) for i, name in enumerate(STRATEGY_NAMES)}
 
     predicted_best = pred.argmax(axis=1)
     realized_best = Y.argmax(axis=1)
@@ -265,9 +263,7 @@ def compute_strategy_metrics(
     pred_rank = np.argsort(np.argsort(pred, axis=1), axis=1)
     real_rank = np.argsort(np.argsort(Y, axis=1), axis=1)
     if len(Y):
-        corr = float(
-            np.mean([np.corrcoef(pred_rank[i], real_rank[i])[0, 1] for i in range(len(Y))])
-        )
+        corr = float(np.mean([np.corrcoef(pred_rank[i], real_rank[i])[0, 1] for i in range(len(Y))]))
     else:
         corr = 0.0
 

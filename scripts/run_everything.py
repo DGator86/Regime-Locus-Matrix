@@ -47,6 +47,7 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from rlm.data.paths import get_data_root  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
@@ -57,9 +58,7 @@ def _run(cmd: list[str]) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--out",
         default="data/processed/universe_trade_plans.json",
@@ -92,21 +91,15 @@ def main() -> int:
         default=argparse.SUPPRESS,
         help="Re-run universe pipeline every N seconds in the background when --follow (default: 0, or 300 with --master)",
     )
-    ap.add_argument(
-        "--skip-monitor", action="store_true", help="Only run the universe options pipeline"
-    )
-    ap.add_argument(
-        "--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)"
-    )
+    ap.add_argument("--skip-monitor", action="store_true", help="Only run the universe options pipeline")
+    ap.add_argument("--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)")
     ap.add_argument(
         "--paper-trade",
         action="store_true",
         help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
     )
     ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
-    ap.add_argument(
-        "--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)"
-    )
+    ap.add_argument("--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)")
     ap.add_argument(
         "--paper-close",
         action="store_true",
@@ -184,6 +177,24 @@ def main() -> int:
         type=float,
         default=10.0,
         help="Max %% of account balance per equity position (default: 10)",
+    )
+    # -----------------------------------------------------------------------
+    # Challenge book flags
+    # -----------------------------------------------------------------------
+    ap.add_argument(
+        "--with-challenge",
+        action="store_true",
+        help="Run the $1K→$25K PDT challenge session on each rescan cycle.",
+    )
+    ap.add_argument(
+        "--challenge-symbol",
+        default="SPY",
+        help="Underlying for the challenge (default: SPY)",
+    )
+    ap.add_argument(
+        "--challenge-no-kronos",
+        action="store_true",
+        help="Disable Kronos overlay in the challenge persona pipeline",
     )
     ap.add_argument(
         "--scanner-hours-et",
@@ -292,6 +303,21 @@ def main() -> int:
             ecmd.append("--dry-run")
         return ecmd
 
+    def challenge_cmd() -> list[str]:
+        rlm_bin = Path(py).parent / "rlm"
+        ccmd = [
+            str(rlm_bin),
+            "challenge",
+            "--run",
+            "--symbol",
+            args.challenge_symbol,
+            "--data-root",
+            str(get_data_root()),
+        ]
+        if args.challenge_no_kronos:
+            ccmd.append("--no-kronos")
+        return ccmd
+
     if not args.skip_pipeline:
         rc = _run(pipeline_cmd())
         if rc != 0:
@@ -300,9 +326,7 @@ def main() -> int:
     if args.paper_trade:
         rc = _run(paper_cmd())
         if rc != 0:
-            print(
-                f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True
-            )
+            print(f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True)
 
     if args.with_equity:
         # Run equity book in a background thread so it doesn't block the monitor
@@ -314,6 +338,11 @@ def main() -> int:
         et = threading.Thread(target=_run_equity, name="equity-trade", daemon=True)
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue
+
+    if args.with_challenge:
+        print("[rescan] challenge session", flush=True)
+        if _run(challenge_cmd()) != 0:
+            print("[rescan] challenge step failed (continuing)", flush=True)
 
     if args.skip_monitor:
         return 0
@@ -344,12 +373,19 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
+                    if args.with_challenge:
+                        print("[rescan] challenge session", flush=True)
+                        if _run(challenge_cmd()) != 0:
+                            print("[rescan] challenge step failed (continuing)", flush=True)
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
 
     if args.telegram_bot:
         tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
-        print(f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)", flush=True)
+        print(
+            f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)",
+            flush=True,
+        )
         try:
             subprocess.Popen(
                 [py, str(tscript)],

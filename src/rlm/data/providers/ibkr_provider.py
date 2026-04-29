@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pandas as pd
-
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.providers.base import ProviderBarsResult, ProviderOptionChainResult
 
@@ -33,4 +31,3 @@ class IBKRProvider:
             source=self.source,
             metadata={"rows": 0, "detail": f"IBKR chain ingestion is not configured for {symbol}"},
         )
-

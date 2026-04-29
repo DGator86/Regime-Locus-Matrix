@@ -62,16 +62,16 @@ class OpenPosition:
         denom = abs(self.entry_cost) if abs(self.entry_cost) > 1e-9 else np.nan
         if not pd.notna(denom):
             return np.nan
-        
+
         raw_pct = self.pnl() / denom
-        
+
         # For long positions (debit > 0), market loss cannot exceed 100%.
         # entry_cost includes fees, so pnl can be slightly more than -100%.
         # We cap it to avoid -400% artifacts.
         is_long = self.entry_cost > 0
         if is_long:
-            return max(raw_pct, -1.05) # Allow 5% for fees/slippage
-            
+            return max(raw_pct, -1.05)  # Allow 5% for fees/slippage
+
         return raw_pct
 
 
@@ -218,17 +218,20 @@ class Portfolio:
             return 0
 
         entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config)
-        entry_friction_per_unit = calculate_commission(
-            config=self.lifecycle_config.commission_config,
-            leg_count=max(len(matched_legs), 1),
-            quantity=1,
-        ) + calculate_transaction_cost(
-            matched_legs=matched_legs,
-            underlying_price=underlying_price,
-            quantity=1,
-            contract_multiplier=self.contract_multiplier,
-            config=self.lifecycle_config.transaction_cost_config,
-        ).total
+        entry_friction_per_unit = (
+            calculate_commission(
+                config=self.lifecycle_config.commission_config,
+                leg_count=max(len(matched_legs), 1),
+                quantity=1,
+            )
+            + calculate_transaction_cost(
+                matched_legs=matched_legs,
+                underlying_price=underlying_price,
+                quantity=1,
+                contract_multiplier=self.contract_multiplier,
+                config=self.lifecycle_config.transaction_cost_config,
+            ).total
+        )
         risk_capital_per_unit = self._risk_capital_per_unit(
             matched_legs=matched_legs,
             contract_multiplier=self.contract_multiplier,
@@ -288,11 +291,14 @@ class Portfolio:
             config=self.lifecycle_config.transaction_cost_config,
         )
         total_entry_cost = entry_cost * actual_quantity
-        risk_capital = self._risk_capital_per_unit(
-            matched_legs=matched,
-            contract_multiplier=self.contract_multiplier,
-            entry_cost=entry_cost,
-        ) * actual_quantity
+        risk_capital = (
+            self._risk_capital_per_unit(
+                matched_legs=matched,
+                contract_multiplier=self.contract_multiplier,
+                entry_cost=entry_cost,
+            )
+            * actual_quantity
+        )
 
         if not self.can_open(
             entry_cost,

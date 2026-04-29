@@ -201,9 +201,7 @@ def _gamma_fill(
         if not np.isfinite(iv) or iv <= 0:
             iv = 0.2
         is_call = str(row["option_type"]).lower() == "call"
-        _, gm, _, _, _ = bs_greeks_row(
-            spot=spot, strike=k, time_years=t, iv=iv, risk_free=risk_free, is_call=is_call
-        )
+        _, gm, _, _, _ = bs_greeks_row(spot=spot, strike=k, time_years=t, iv=iv, risk_free=risk_free, is_call=is_call)
         out.loc[i] = gm
     return out
 
@@ -271,43 +269,19 @@ def enrich_bars_from_option_chain(
         m = (gg["strike"] / spot - 1.0).abs() <= 0.06
         sub = gg.loc[m].copy() if m.any() else gg.copy()
 
-        oi = _oi_weight(
-            sub["open_interest"]
-            if "open_interest" in sub.columns
-            else pd.Series(1.0, index=sub.index)
-        )
-        iv = (
-            pd.to_numeric(sub["iv"], errors="coerce")
-            if "iv" in sub.columns
-            else pd.Series(np.nan, index=sub.index)
-        )
+        oi = _oi_weight(sub["open_interest"] if "open_interest" in sub.columns else pd.Series(1.0, index=sub.index))
+        iv = pd.to_numeric(sub["iv"], errors="coerce") if "iv" in sub.columns else pd.Series(np.nan, index=sub.index)
 
         calls = sub["option_type"].str.lower() == "call"
         put_iv_m = iv[~calls].median()
         call_iv_m = iv[calls].median()
-        put_call_skew = (
-            float(call_iv_m - put_iv_m)
-            if np.isfinite(call_iv_m) and np.isfinite(put_iv_m)
-            else np.nan
-        )
+        put_call_skew = float(call_iv_m - put_iv_m) if np.isfinite(call_iv_m) and np.isfinite(put_iv_m) else np.nan
 
         short_mask = (gg["dte"] >= 14) & (gg["dte"] <= 40)
         long_mask = (gg["dte"] >= 45) & (gg["dte"] <= 120)
-        iv_s = (
-            pd.to_numeric(gg.loc[short_mask, "iv"], errors="coerce").median()
-            if "iv" in gg.columns
-            else np.nan
-        )
-        iv_l = (
-            pd.to_numeric(gg.loc[long_mask, "iv"], errors="coerce").median()
-            if "iv" in gg.columns
-            else np.nan
-        )
-        term_structure_ratio = (
-            float(iv_s / iv_l)
-            if np.isfinite(iv_s) and np.isfinite(iv_l) and iv_l > 1e-8
-            else np.nan
-        )
+        iv_s = pd.to_numeric(gg.loc[short_mask, "iv"], errors="coerce").median() if "iv" in gg.columns else np.nan
+        iv_l = pd.to_numeric(gg.loc[long_mask, "iv"], errors="coerce").median() if "iv" in gg.columns else np.nan
+        term_structure_ratio = float(iv_s / iv_l) if np.isfinite(iv_s) and np.isfinite(iv_l) and iv_l > 1e-8 else np.nan
 
         gamma = _gamma_fill(sub, spot)
         sign = np.where(calls.reindex(sub.index).fillna(False), 1.0, -1.0)
@@ -342,34 +316,24 @@ def enrich_bars_from_option_chain(
             -(delta * oi * float(contract_multiplier)).sum() / max(spot * float(oi.sum()), 1.0)
         )
 
-        spr = pd.to_numeric(sub["ask"], errors="coerce") - pd.to_numeric(
-            sub["bid"], errors="coerce"
-        )
+        spr = pd.to_numeric(sub["ask"], errors="coerce") - pd.to_numeric(sub["bid"], errors="coerce")
         bid_ask_spread = float(spr.median()) if spr.notna().any() else np.nan
 
         if "spread_pct_mid" in sub.columns:
             spread_pct_mid = pd.to_numeric(sub["spread_pct_mid"], errors="coerce")
-            options_spread_pct_mid = (
-                float(spread_pct_mid.median()) if spread_pct_mid.notna().any() else np.nan
-            )
+            options_spread_pct_mid = float(spread_pct_mid.median()) if spread_pct_mid.notna().any() else np.nan
         else:
             options_spread_pct_mid = np.nan
 
         options_volume = (
-            float(pd.to_numeric(gg["volume"], errors="coerce").sum(min_count=1))
-            if "volume" in gg.columns
-            else np.nan
+            float(pd.to_numeric(gg["volume"], errors="coerce").sum(min_count=1)) if "volume" in gg.columns else np.nan
         )
         total_open_interest = (
             float(pd.to_numeric(gg["open_interest"], errors="coerce").sum(min_count=1))
             if "open_interest" in gg.columns
             else np.nan
         )
-        if (
-            np.isfinite(options_volume)
-            and np.isfinite(total_open_interest)
-            and total_open_interest > 0
-        ):
+        if np.isfinite(options_volume) and np.isfinite(total_open_interest) and total_open_interest > 0:
             options_volume_to_oi = float(options_volume / total_open_interest)
         else:
             options_volume_to_oi = np.nan
@@ -443,11 +407,7 @@ def enrich_bars_with_surface_features(
     out = bars.copy()
     ch = normalize_option_chain(chain)
     ch = ch.loc[ch["underlying"].str.upper() == und].copy()
-    if (
-        ch.empty
-        or "iv" not in ch.columns
-        or pd.to_numeric(ch["iv"], errors="coerce").notna().sum() == 0
-    ):
+    if ch.empty or "iv" not in ch.columns or pd.to_numeric(ch["iv"], errors="coerce").notna().sum() == 0:
         return out
 
     surface = build_surface_feature_frame(ch)

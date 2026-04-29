@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
-
 from rlm.persona.config import PersonaConfig
 from rlm.persona.models import PersonaInputs
 from rlm.persona.pipeline import PersonaDecisionPipeline
 from rlm.persona.stages import run_data, run_garak, run_seven, run_sisko
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _bullish_inputs(**overrides: object) -> PersonaInputs:
     base = dict(
@@ -56,6 +54,7 @@ CFG = PersonaConfig()
 # ---------------------------------------------------------------------------
 # Seven stage tests
 # ---------------------------------------------------------------------------
+
 
 class TestSevenStage:
     def test_bullish_bias_from_regime(self) -> None:
@@ -102,6 +101,7 @@ class TestSevenStage:
 # Garak stage tests
 # ---------------------------------------------------------------------------
 
+
 class TestGarakStage:
     def test_low_trap_risk_for_clean_bull(self) -> None:
         inp = _bullish_inputs()
@@ -112,7 +112,7 @@ class TestGarakStage:
 
     def test_high_trap_risk_triggers_veto(self) -> None:
         inp = _bullish_inputs(
-            s_v=0.90,   # high vol stress
+            s_v=0.90,  # high vol stress
             s_l=-0.90,  # poor liquidity
             dealer_flow_regime="opposed",
         )
@@ -153,6 +153,7 @@ class TestGarakStage:
 # ---------------------------------------------------------------------------
 # Sisko stage tests
 # ---------------------------------------------------------------------------
+
 
 class TestSiskoStage:
     def test_bullish_aligned_produces_long_directive(self) -> None:
@@ -221,6 +222,7 @@ class TestSiskoStage:
 # Data stage tests
 # ---------------------------------------------------------------------------
 
+
 class TestDataStage:
     def test_high_backtest_metrics_produce_high_match(self) -> None:
         inp = _bullish_inputs(backtest_metrics={"sharpe_ratio": 1.8, "win_rate": 0.72})
@@ -277,6 +279,7 @@ class TestDataStage:
 # ---------------------------------------------------------------------------
 # End-to-end pipeline tests
 # ---------------------------------------------------------------------------
+
 
 class TestPersonaDecisionPipeline:
     def test_bullish_scenario_end_to_end(self) -> None:

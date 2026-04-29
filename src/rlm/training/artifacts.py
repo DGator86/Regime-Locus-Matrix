@@ -63,9 +63,7 @@ class StrategyValueModelArtifact:
     promotion_status: str | None = None
 
 
-def save_artifact(
-    path: str | Path, artifact: RegimeModelArtifact | StrategyValueModelArtifact
-) -> None:
+def save_artifact(path: str | Path, artifact: RegimeModelArtifact | StrategyValueModelArtifact) -> None:
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(asdict(artifact), indent=2), encoding="utf-8")
