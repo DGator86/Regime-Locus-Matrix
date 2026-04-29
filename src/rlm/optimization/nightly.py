@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import optuna
+from optuna.trial import TrialState
 
 from .base import OptimizationBase
 
@@ -39,21 +40,23 @@ class NightlyMTFOptimizer:
             timeout=3600,
         )
 
-        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        completed = study.get_trials(deepcopy=False, states=(TrialState.COMPLETE,))
         if not completed:
-            print(
-                "[NightlyMTFOptimizer] All trials were pruned — no valid OOS scores. "
-                "Check that bars files exist in data/raw/ and the pipeline runs correctly. "
-                "Skipping hyperparams write.",
-                flush=True,
-            )
+            if NIGHTLY_PATH.exists():
+                try:
+                    existing = json.loads(NIGHTLY_PATH.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return {}
+                return existing if isinstance(existing, dict) else {}
             return {}
+
         if float(study.best_value) <= NO_VALID_SCORE:
             raise RuntimeError(
                 "Nightly optimization produced no valid backtest scores; "
                 "leaving live_nightly_hyperparams.json unchanged."
             )
         best = study.best_params
+
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
         tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")

@@ -1,4 +1,5 @@
 import logging
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,46 @@ def test_rlm_hmm_fit_and_predict_shape() -> None:
     assert filt.shape == probs.shape
     assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
     assert model.last_filter_backend == "numpy"
+
+
+def test_rlm_hmm_legacy_pickle_without_state_permutation_still_predicts() -> None:
+    df = _synthetic_scores(250)
+    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")).fit(df, verbose=False)
+    delattr(model, "_state_permutation")
+    loaded = pickle.loads(pickle.dumps(model))
+
+    probs = loaded.predict_proba(df)
+    states = loaded.most_likely_state(df)
+    filt = loaded.predict_proba_filtered(df)
+
+    assert loaded._state_permutation is None
+    assert probs.shape == (250, 6)
+    assert states.shape == (250,)
+    assert filt.shape == probs.shape
+    assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-6)
+    assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> None:
+    df = _synthetic_scores(250)
+    model = RLMHMM(HMMConfig(n_states=6, n_iter=25, random_state=11, filter_backend="numpy")).fit(df, verbose=False)
+    for name in ("_state_permutation", "last_filter_backend"):
+        delattr(model, name)
+    for name in ("filter_backend", "transition_pseudocount", "prefer_gpu"):
+        delattr(model.config, name)
+    loaded = pickle.loads(pickle.dumps(model))
+
+    filt = loaded.predict_proba_filtered(df)
+    transmat = loaded.calibrated_transmat()
+
+    assert loaded._state_permutation is None
+    assert loaded.last_filter_backend in {"numpy", "numba"}
+    assert loaded.config.filter_backend == "auto"
+    assert loaded.config.transition_pseudocount == 0.1
+    assert loaded.config.prefer_gpu is False
+    assert filt.shape == (250, 6)
+    assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
+    assert np.allclose(transmat.sum(axis=1), 1.0, atol=1e-5)
 
 
 def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
