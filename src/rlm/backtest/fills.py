@@ -9,6 +9,8 @@ from rlm.backtest.slippage import SlippageConfig, compute_leg_slippage
 class FillConfig:
     contract_multiplier: int = 100
     slippage: SlippageConfig = field(default_factory=SlippageConfig)
+    liquidity_impact_factor: float = 0.5
+    min_size_floor: float = 1.0
 
 
 def entry_fill_price(
@@ -18,6 +20,8 @@ def entry_fill_price(
     ask: float,
     config: FillConfig | None = None,
     realized_vol: float | None = None,
+    quantity: int = 1,
+    quote_size: float | None = None,
 ) -> float:
     """
     Returns option premium per contract for entry.
@@ -29,10 +33,15 @@ def entry_fill_price(
     cfg = config or FillConfig()
     slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage, realized_vol=realized_vol)
 
+    impact = 0.0
+    if quote_size is not None:
+        depth = max(float(quote_size), cfg.min_size_floor)
+        impact = slip * cfg.liquidity_impact_factor * max(float(quantity) / depth - 1.0, 0.0)
+
     if side == "long":
-        return max(ask + slip, 0.0)
+        return max(ask + slip + impact, 0.0)
     if side == "short":
-        return max(bid - slip, 0.0)
+        return max(bid - slip - impact, 0.0)
 
     raise ValueError(f"Unknown side: {side}")
 
@@ -44,6 +53,8 @@ def exit_fill_price(
     ask: float,
     config: FillConfig | None = None,
     realized_vol: float | None = None,
+    quantity: int = 1,
+    quote_size: float | None = None,
 ) -> float:
     """
     Returns option premium per contract for exit.
@@ -55,10 +66,15 @@ def exit_fill_price(
     cfg = config or FillConfig()
     slip = compute_leg_slippage(bid=bid, ask=ask, config=cfg.slippage, realized_vol=realized_vol)
 
+    impact = 0.0
+    if quote_size is not None:
+        depth = max(float(quote_size), cfg.min_size_floor)
+        impact = slip * cfg.liquidity_impact_factor * max(float(quantity) / depth - 1.0, 0.0)
+
     if side == "long":
-        return max(bid - slip, 0.0)
+        return max(bid - slip - impact, 0.0)
     if side == "short":
-        return max(ask + slip, 0.0)
+        return max(ask + slip + impact, 0.0)
 
     raise ValueError(f"Unknown side: {side}")
 
