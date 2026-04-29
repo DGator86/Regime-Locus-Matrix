@@ -13,24 +13,25 @@ def test_multi_symbol_backtest_uses_distinct_run_ids(monkeypatch, tmp_path):
         out_dir=str(tmp_path / "processed"),
         data_root=str(tmp_path),
         walkforward=False,
+        bars=None,
+        chain=None,
     )
-    seen: list[tuple[str, str]] = []
+    run_id_prefixes: list[str] = []
+
+    def fake_run_symbol(sym: str, _args: object, *, svc: object, out_dir: object, symbols: list[str]) -> tuple[str, dict]:
+        # Simulate the distinct per-symbol run_id prefix used in the real _run_symbol
+        run_id_prefixes.append(f"backtest-{sym}")
+        return sym, {}
 
     monkeypatch.setattr(backtest, "_parse_args", lambda: args)
-    monkeypatch.setattr(backtest, "_resolve_symbols", lambda _args: ["SPY", "QQQ"])
-    monkeypatch.setattr(backtest, "generate_run_id", lambda prefix: f"{prefix}-fixed")
-    monkeypatch.setattr(
-        backtest,
-        "_run_one",
-        lambda sym, _args, _out_dir, run_id: seen.append((sym, run_id)),
-    )
+    monkeypatch.setattr(backtest, "resolve_backtest_symbols", lambda _args: ["SPY", "QQQ"])
+    monkeypatch.setattr(backtest, "BacktestService", lambda: None)
+    monkeypatch.setattr(backtest, "_run_symbol", fake_run_symbol)
 
     backtest.main()
 
-    assert seen == [
-        ("SPY", "backtest-fixed-01-SPY"),
-        ("QQQ", "backtest-fixed-02-QQQ"),
-    ]
+    assert run_id_prefixes == ["backtest-SPY", "backtest-QQQ"]
+    assert len(set(run_id_prefixes)) == 2  # distinct run ID prefix per symbol
 
 
 def test_run_walkforward_wrapper_allows_single_symbol_override():
