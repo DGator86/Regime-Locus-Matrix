@@ -74,7 +74,8 @@ def standardize_factor_frame(
         if spec.name not in raw_factors.columns:
             columns[spec.name] = pd.Series(np.nan, index=raw_factors.index, dtype=float)
             continue
-        normalized = _rolling_zscore_winsorize(raw_factors[spec.name].astype(float), rolling_window, winsor_z, min_periods)
+        raw_series = pd.to_numeric(raw_factors[spec.name], errors="coerce")
+        normalized = _rolling_zscore_winsorize(raw_series, rolling_window, winsor_z, min_periods)
         columns[spec.name] = standardize_factor_series(normalized, spec)
     return pd.DataFrame(columns, index=raw_factors.index)
 
