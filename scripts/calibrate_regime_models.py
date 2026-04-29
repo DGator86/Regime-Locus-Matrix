@@ -29,7 +29,7 @@ from rlm.features.factors.multi_timeframe import (
     parse_higher_tfs,
 )
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.optimization.tuning import (
+from rlm.features.optimization.tuning import (
     ForecastParamSample,
     generate_forecast_param_samples,
     random_search_forecast_params,
