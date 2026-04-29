@@ -55,7 +55,9 @@ class NightlyMTFOptimizer:
                 "Nightly optimization produced no valid backtest scores; "
                 "leaving live_nightly_hyperparams.json unchanged."
             )
+
         best = study.best_params
+
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
         tmp_path.write_text(json.dumps(best, indent=2), encoding="utf-8")
