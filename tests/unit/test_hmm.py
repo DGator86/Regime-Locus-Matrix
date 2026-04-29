@@ -7,7 +7,7 @@ import pytest
 
 from rlm.forecasting.engines import HybridForecastPipeline, _annotate_hmm_transition_fields, _annotate_regime_ensemble
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def _synthetic_scores(n: int = 300) -> pd.DataFrame:

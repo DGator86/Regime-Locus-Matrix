@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from rlm.data import bars_enrichment as data_bars_enrichment
-from rlm.datasets.bars_enrichment import (
+from rlm.data.bars_enrichment import (
     enrich_bars_from_option_chain,
     enrich_bars_with_vix,
     prepare_bars_for_factors,

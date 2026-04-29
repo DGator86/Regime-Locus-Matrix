@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from rlm.factors import KronosFactorCalculator
-from rlm.kronos.config import KronosConfig
-from rlm.kronos.forecast import KronosForecastPipeline
+from rlm.forecasting.kronos_config import KronosConfig
+from rlm.forecasting.kronos_forecast import KronosForecastPipeline
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:

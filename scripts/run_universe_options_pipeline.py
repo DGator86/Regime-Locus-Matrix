@@ -54,7 +54,7 @@ from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.data.option_chain import select_nearest_expiry_slice
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.engines import ForecastPipeline
@@ -72,7 +72,7 @@ from rlm.roee.chain_match import (
 )
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
 from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label

@@ -8,7 +8,7 @@ from rlm.forecasting.live_model import (
     save_live_regime_model,
 )
 from rlm.roee.decision import select_trade_for_row
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def _synthetic_scores(n: int = 260) -> pd.DataFrame:

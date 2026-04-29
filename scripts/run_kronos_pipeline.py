@@ -51,7 +51,7 @@ if str(ROOT / "src") not in sys.path:
 
 from rlm.features.factors.pipeline import FactorPipeline
 
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_forecast_features_csv
 from rlm.forecasting.engines import HybridKronosForecastPipeline
 from rlm.forecasting.hmm import HMMConfig

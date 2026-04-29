@@ -256,9 +256,9 @@ def compute_regime_timeframes(
     from rlm.features.factors.pipeline import FactorPipeline
 
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-    from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+    from rlm.data.bars_enrichment import prepare_bars_for_factors
     from rlm.forecasting.engines import ForecastPipeline
-    from rlm.scoring.state_matrix import classify_state_matrix
+    from rlm.features.scoring.state_matrix import classify_state_matrix
 
     sym = symbol.strip().upper()
     if not sym:

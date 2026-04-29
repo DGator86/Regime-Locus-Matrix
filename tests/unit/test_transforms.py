@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from rlm.standardization.transforms import log_tanh_ratio, log_tanh_signed, sigma_floor
+from rlm.features.standardization.transforms import log_tanh_ratio, log_tanh_signed, sigma_floor
 
 
 def test_log_tanh_ratio_neutral_is_zero() -> None:

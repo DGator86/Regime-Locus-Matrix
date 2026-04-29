@@ -31,7 +31,7 @@ from rlm.features.factors.pipeline import FactorPipeline
 from rlm.optimization.tuning import random_search_forecast_params
 
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv
 
 
