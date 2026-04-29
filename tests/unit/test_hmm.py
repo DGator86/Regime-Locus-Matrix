@@ -76,6 +76,7 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
 
     filt = loaded.predict_proba_filtered(df)
     transmat = loaded.calibrated_transmat()
+    online_mats = loaded.causal_online_transition_matrices(filt)
     online = loaded.causal_online_transition_matrices(filt)
 
     assert loaded._state_permutation is None
@@ -85,9 +86,11 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
     assert loaded.config.prefer_gpu is False
     assert loaded.config.online_em_step_size == 0.02
     assert filt.shape == (250, 6)
+    assert online_mats.shape == (250, 6, 6)
     assert online.shape == (250, 6, 6)
     assert np.allclose(filt.sum(axis=1), 1.0, atol=1e-5)
     assert np.allclose(transmat.sum(axis=1), 1.0, atol=1e-5)
+    assert np.allclose(online_mats.sum(axis=2), 1.0, atol=1e-5)
 
 
 
