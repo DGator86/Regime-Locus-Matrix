@@ -43,6 +43,7 @@ data/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/live_regime_model.json
+!data/challenge/.gitkeep
 
 # Model / experiment artifacts
 artifacts/
