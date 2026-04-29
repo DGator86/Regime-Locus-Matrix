@@ -46,6 +46,4 @@ def _dedupe_preserve_order(symbols: tuple[str, ...]) -> tuple[str, ...]:
 
 # Liquid universe + stock-only extras (AMD, AVGO, JPM) with no duplicate tickers.
 # Single source of truth for ``rlm backtest --universe``, walk-forward shims, and Spock.
-EXPANDED_LIQUID_UNIVERSE: tuple[str, ...] = _dedupe_preserve_order(
-    LIQUID_UNIVERSE + LIQUID_STOCK_EXTRAS
-)
+EXPANDED_LIQUID_UNIVERSE: tuple[str, ...] = _dedupe_preserve_order(LIQUID_UNIVERSE + LIQUID_STOCK_EXTRAS)

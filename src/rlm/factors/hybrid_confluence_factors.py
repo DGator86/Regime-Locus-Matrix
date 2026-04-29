@@ -32,9 +32,7 @@ class HybridConfluenceFactors:
             "hvn_levels": [],
             "lvn_levels": [],
         }
-        levels = hybrid_support_resistance(
-            self.symbol, pd.Timestamp(ts).to_pydatetime(), vp_profile
-        )
+        levels = hybrid_support_resistance(self.symbol, pd.Timestamp(ts).to_pydatetime(), vp_profile)
         if levels.empty:
             return out
 

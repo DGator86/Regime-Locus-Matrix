@@ -53,18 +53,13 @@ def run_validation_matrix(
                     start=start,
                     end=end,
                     selected_realized_avg_improvement_vs_pr51=float(
-                        temporal["selected_realized_average"]
-                        - row_only["selected_realized_average"]
+                        temporal["selected_realized_average"] - row_only["selected_realized_average"]
                     ),
-                    top1_hit_rate_improvement_vs_pr51=float(
-                        temporal["top1_hit_rate"] - row_only["top1_hit_rate"]
-                    ),
+                    top1_hit_rate_improvement_vs_pr51=float(temporal["top1_hit_rate"] - row_only["top1_hit_rate"]),
                     regime_flip_rate_improvement_vs_pr51=float(
                         row_only["regime_flip_rate"] - temporal["regime_flip_rate"]
                     ),
-                    drawdown_proxy_improvement_vs_pr51=float(
-                        temporal["drawdown_proxy"] - row_only["drawdown_proxy"]
-                    ),
+                    drawdown_proxy_improvement_vs_pr51=float(temporal["drawdown_proxy"] - row_only["drawdown_proxy"]),
                 )
             )
     return out
@@ -87,16 +82,10 @@ def summarize_validation_matrix(results: list[ValidationSliceResult]) -> dict[st
         "win_rate_selected_realized_avg": float(
             sum(r.selected_realized_avg_improvement_vs_pr51 > 0 for r in results) / n
         ),
-        "win_rate_top1_hit": float(
-            sum(r.top1_hit_rate_improvement_vs_pr51 > 0 for r in results) / n
-        ),
-        "win_rate_flip_reduction": float(
-            sum(r.regime_flip_rate_improvement_vs_pr51 > 0 for r in results) / n
-        ),
+        "win_rate_top1_hit": float(sum(r.top1_hit_rate_improvement_vs_pr51 > 0 for r in results) / n),
+        "win_rate_flip_reduction": float(sum(r.regime_flip_rate_improvement_vs_pr51 > 0 for r in results) / n),
         "mean_selected_realized_avg_improvement": float(
             sum(r.selected_realized_avg_improvement_vs_pr51 for r in results) / n
         ),
-        "mean_flip_rate_improvement": float(
-            sum(r.regime_flip_rate_improvement_vs_pr51 for r in results) / n
-        ),
+        "mean_flip_rate_improvement": float(sum(r.regime_flip_rate_improvement_vs_pr51 for r in results) / n),
     }

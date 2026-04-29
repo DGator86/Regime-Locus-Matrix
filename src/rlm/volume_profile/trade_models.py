@@ -31,9 +31,7 @@ def eighty_percent_rule(current_open: float, prev_profile: dict[str, Any]) -> di
     return {"signal": False, "direction": None, "target": np.nan, "stop": np.nan}
 
 
-def core_value_supply_demand(
-    df: pd.DataFrame, lookback: int = 50
-) -> dict[str, list[dict[str, float]]]:
+def core_value_supply_demand(df: pd.DataFrame, lookback: int = 50) -> dict[str, list[dict[str, float]]]:
     """Build simple supply/demand zones using swing pivots and 40% value area anchors."""
 
     if df.empty or not {"high", "low", "close", "volume"}.issubset(df.columns):

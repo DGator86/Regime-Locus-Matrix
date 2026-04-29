@@ -18,9 +18,7 @@ def _to_utc(ts: datetime) -> pd.Timestamp:
     return stamp.tz_convert("UTC")
 
 
-def vp_gex_confluence(
-    symbol: str, timestamp: datetime, vp_levels: list[float]
-) -> dict[float, dict[str, float]]:
+def vp_gex_confluence(symbol: str, timestamp: datetime, vp_levels: list[float]) -> dict[float, dict[str, float]]:
     """Map VP levels to nearest-strike GEX metrics and confluence scores."""
     ts = _to_utc(timestamp)
     try:
@@ -35,9 +33,7 @@ def vp_gex_confluence(
             for level in vp_levels
         }
 
-    gex = db.load_gex_surface(
-        symbol.upper(), ts.date().isoformat(), ts.date().isoformat(), net_gex_only=False
-    )
+    gex = db.load_gex_surface(symbol.upper(), ts.date().isoformat(), ts.date().isoformat(), net_gex_only=False)
     if gex.empty:
         return {
             float(level): {
@@ -68,9 +64,7 @@ def vp_gex_confluence(
     for level in vp_levels:
         nearest = snap.iloc[(snap["strike"] - float(level)).abs().argsort().iloc[0]]
         net_gex = float(nearest.get("net_gex", float("nan")))
-        percentile = (
-            float((abs_gex.rank(pct=True)).loc[nearest.name]) if len(abs_gex) else float("nan")
-        )
+        percentile = float((abs_gex.rank(pct=True)).loc[nearest.name]) if len(abs_gex) else float("nan")
         score = float(np.tanh(abs(net_gex) / (abs_gex.max() + 1e-9)) * percentile)
         out[float(level)] = {
             "net_gex": net_gex,
@@ -80,9 +74,7 @@ def vp_gex_confluence(
     return out
 
 
-def iv_surface_at_vp_levels(
-    symbol: str, timestamp: datetime, vp_levels: list[float]
-) -> dict[float, dict[str, float]]:
+def iv_surface_at_vp_levels(symbol: str, timestamp: datetime, vp_levels: list[float]) -> dict[float, dict[str, float]]:
     """Return IV metrics sampled at moneyness implied by each VP level."""
     ts = _to_utc(timestamp)
     try:
@@ -122,11 +114,7 @@ def iv_surface_at_vp_levels(
         }
 
     snap = iv.loc[iv["timestamp"] == iv["timestamp"].max()].copy()
-    spot = (
-        float(snap.get("underlying_price", pd.Series([1.0])).dropna().iloc[0])
-        if "underlying_price" in snap
-        else 1.0
-    )
+    spot = float(snap.get("underlying_price", pd.Series([1.0])).dropna().iloc[0]) if "underlying_price" in snap else 1.0
     spot = spot if np.isfinite(spot) and spot > 0 else 1.0
 
     out: dict[float, dict[str, float]] = {}
@@ -136,13 +124,9 @@ def iv_surface_at_vp_levels(
         iv_val = float(near.get("implied_vol", float("nan")))
         same_dte = snap.loc[snap["days_to_expiry"] == near["days_to_expiry"]]
         skew = (
-            float(same_dte["implied_vol"].max() - same_dte["implied_vol"].min())
-            if not same_dte.empty
-            else float("nan")
+            float(same_dte["implied_vol"].max() - same_dte["implied_vol"].min()) if not same_dte.empty else float("nan")
         )
-        near_money = snap.loc[(snap["moneyness"] - moneyness).abs() < 0.03].sort_values(
-            "days_to_expiry"
-        )
+        near_money = snap.loc[(snap["moneyness"] - moneyness).abs() < 0.03].sort_values("days_to_expiry")
         term = (
             float(near_money["implied_vol"].iloc[0] / near_money["implied_vol"].iloc[-1])
             if len(near_money) >= 2 and near_money["implied_vol"].iloc[-1] > 0
@@ -152,9 +136,7 @@ def iv_surface_at_vp_levels(
     return out
 
 
-def hybrid_support_resistance(
-    symbol: str, timestamp: datetime, vp_profile: dict[str, Any]
-) -> pd.DataFrame:
+def hybrid_support_resistance(symbol: str, timestamp: datetime, vp_profile: dict[str, Any]) -> pd.DataFrame:
     """Combine VP levels with GEX and IV context into level-level strength scores."""
     levels = [
         vp_profile.get("poc"),
@@ -185,11 +167,7 @@ def hybrid_support_resistance(
         gex_data = gex_map.get(level, {})
         iv_data = iv_map.get(level, {})
         gex_score = float(gex_data.get("confluence_score", 0.0))
-        iv_score = (
-            0.0
-            if pd.isna(iv_data.get("iv_skew", np.nan))
-            else float(np.tanh(abs(float(iv_data["iv_skew"]))))
-        )
+        iv_score = 0.0 if pd.isna(iv_data.get("iv_skew", np.nan)) else float(np.tanh(abs(float(iv_data["iv_skew"]))))
         strength = float(np.clip(0.65 * gex_score + 0.35 * iv_score, 0.0, 1.0))
         rows.append(
             {

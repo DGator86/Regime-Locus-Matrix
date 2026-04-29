@@ -226,6 +226,7 @@ def fetch_ibkr_account_snapshot(
     h = host if host is not None else h
     p = port if port is not None else p
     import random
+
     cid = (client_id if client_id is not None else cid) + random.randint(1000, 9999)
 
     app = app_cls()

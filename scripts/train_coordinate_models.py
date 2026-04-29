@@ -64,16 +64,12 @@ def _regime_flip_rate(model, regime_df: pd.DataFrame) -> float:
     return float(np.mean(labels[1:] != labels[:-1]))
 
 
-def _build_performance_summary(
-    regime_model, value_model, regime_val, value_val
-) -> dict[str, float]:
+def _build_performance_summary(regime_model, value_model, regime_val, value_val) -> dict[str, float]:
     value_pred_matrix = value_model.predict_expected_values(value_val)
     realized_matrix = value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float)
     realized_selected, _ = _selected_strategy_series(realized_matrix, value_pred_matrix)
     return {
-        "selected_realized_average": (
-            float(np.mean(realized_selected)) if realized_selected.size else 0.0
-        ),
+        "selected_realized_average": (float(np.mean(realized_selected)) if realized_selected.size else 0.0),
         "regime_flip_rate": _regime_flip_rate(regime_model, regime_val),
     }
 
@@ -130,9 +126,7 @@ def _selected_strategy_series(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Train coordinate regime and strategy value models"
-    )
+    parser = argparse.ArgumentParser(description="Train coordinate regime and strategy value models")
     parser.add_argument("--symbols", help="Comma-separated symbols, e.g. SPY,QQQ")
     parser.add_argument("--start", default=None, help="Optional start date filter (inclusive)")
     parser.add_argument("--end", default=None, help="Optional end date filter (inclusive)")
@@ -228,9 +222,7 @@ def main() -> None:
     validation_summary = None
     if args.validation_matrix:
         if not args.validation_symbols or not args.validation_windows_json:
-            raise ValueError(
-                "validation_matrix requires --validation-symbols and --validation-windows-json"
-            )
+            raise ValueError("validation_matrix requires --validation-symbols and --validation-windows-json")
         frames = _load_validation_frames(args.validation_symbols, Path(args.data_dir))
         windows = json.loads(Path(args.validation_windows_json).read_text(encoding="utf-8"))
         validation_results = run_validation_matrix(
@@ -385,21 +377,15 @@ def main() -> None:
                     refreshed_regime_val,
                     refreshed_value_val,
                 )
-                post_value_pred_matrix = refreshed_value.predict_expected_values(
-                    refreshed_value_val
-                )
+                post_value_pred_matrix = refreshed_value.predict_expected_values(refreshed_value_val)
                 realized_selected, predicted_selected = _selected_strategy_series(
                     refreshed_value_val.loc[:, STRATEGY_NAMES].to_numpy(dtype=float),
                     post_value_pred_matrix,
                 )
                 post_health = evaluate_model_health(
                     trained_at=pd.Timestamp.utcnow().isoformat(),
-                    X_train=refreshed_regime_df.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(
-                        dtype=float
-                    ),
-                    X_live=refreshed_regime_val.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(
-                        dtype=float
-                    ),
+                    X_train=refreshed_regime_df.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float),
+                    X_live=refreshed_regime_val.loc[:, REQUIRED_COORD_COLUMNS].to_numpy(dtype=float),
                     train_regime_probs=refreshed_regime.predict_proba(refreshed_regime_df),
                     live_regime_probs=refreshed_regime.predict_proba(refreshed_regime_val),
                     realized_returns=realized_selected,

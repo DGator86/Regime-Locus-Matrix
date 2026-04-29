@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.forecasting.engines import HybridMarkovForecastPipeline
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 from rlm.scoring.state_matrix import classify_state_matrix
 
 

@@ -64,7 +64,8 @@ def _short_dte_strategy(
             "0dte_bull_call_spread",
             regime_key,
             "Intraday bull regime; tight 0DTE call debit spread for fast delta capture.",
-            0, 2,
+            0,
+            2,
             target_profit_pct=0.40,
             max_risk_pct=0.01,
             long_sigma=0.25,
@@ -77,7 +78,8 @@ def _short_dte_strategy(
             "0dte_bear_put_spread",
             regime_key,
             "Intraday bear regime; tight 0DTE put debit spread for fast delta capture.",
-            0, 2,
+            0,
+            2,
             target_profit_pct=0.40,
             max_risk_pct=0.01,
             long_sigma=-0.25,
@@ -91,7 +93,8 @@ def _short_dte_strategy(
                 "scalp_long_straddle",
                 regime_key,
                 "Range but vol elevated intraday; own the move with a short-dated straddle.",
-                0, 2,
+                0,
+                2,
                 target_profit_pct=0.35,
                 max_risk_pct=0.01,
                 long_sigma=0.0,
@@ -103,7 +106,8 @@ def _short_dte_strategy(
                 "0dte_iron_condor",
                 regime_key,
                 "Range + low vol + supportive flow; harvest same-day premium with a 0DTE iron condor.",
-                0, 2,
+                0,
+                2,
                 target_profit_pct=0.50,
                 max_risk_pct=0.01,
                 wings_sigma_low=1.0,
@@ -114,7 +118,8 @@ def _short_dte_strategy(
             "1dte_iron_condor",
             regime_key,
             "Range + low vol + unstable flow; prefer next-day expiry for a small DTE buffer.",
-            1, 5,
+            1,
+            5,
             target_profit_pct=0.45,
             max_risk_pct=0.01,
             wings_sigma_low=1.0,
@@ -127,7 +132,8 @@ def _short_dte_strategy(
             "scalp_long_straddle",
             regime_key,
             "Ambiguous direction but high intraday vol; own gamma with a short-dated straddle.",
-            0, 2,
+            0,
+            2,
             target_profit_pct=0.30,
             max_risk_pct=0.008,
             long_sigma=0.0,
@@ -158,7 +164,8 @@ def get_strategy_for_regime(
             "no_trade_or_micro_position",
             regime_key,
             "Ambiguous direction in short-DTE mode; skip to avoid low-premium gamma trap.",
-            0, 2,
+            0,
+            2,
             0.20,
             0.005,
             defined_risk=True,
@@ -172,18 +179,18 @@ def get_strategy_for_regime(
 
     # Bull states
     if direction == "bull":
-        if (
-            volatility == "low_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "low_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long call spread — Level 2 debit spread
             return _candidate(
                 "long_call_spread",
                 regime_key,
                 "Bullish regime with supportive flow; long call debit spread (L2).",
-                20, 45, 0.50, 0.03,
-                long_sigma=0.5, short_sigma=1.5,
+                20,
+                45,
+                0.50,
+                0.03,
+                long_sigma=0.5,
+                short_sigma=1.5,
                 defined_risk=True,
             )
         if volatility == "low_vol" and dealer_flow == "destabilizing":
@@ -192,36 +199,39 @@ def get_strategy_for_regime(
                 "long_call",
                 regime_key,
                 "Bullish but flow less stable; plain long call for directional exposure (L2).",
-                20, 45, 0.50, 0.025,
+                20,
+                45,
+                0.50,
+                0.025,
                 long_sigma=0.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "high_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long call spread still valid in high vol — pay defined debit
             return _candidate(
                 "long_call_spread",
                 regime_key,
                 "Bullish expansion with high liquidity; long call spread caps premium paid (L2).",
-                14, 35, 0.45, 0.025,
-                long_sigma=0.5, short_sigma=1.5,
+                14,
+                35,
+                0.45,
+                0.025,
+                long_sigma=0.5,
+                short_sigma=1.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "low_liquidity"
-            and dealer_flow == "destabilizing"
-        ):
+        if volatility == "high_vol" and liquidity == "low_liquidity" and dealer_flow == "destabilizing":
             # Long straddle — own convexity in both directions, Level 2
             return _candidate(
                 "long_straddle",
                 regime_key,
                 "Bullish view but chaotic; own the move with a long straddle (L2).",
-                14, 30, 0.35, 0.02,
-                long_sigma=0.0, hedge_sigma=0.0,
+                14,
+                30,
+                0.35,
+                0.02,
+                long_sigma=0.0,
+                hedge_sigma=0.0,
                 defined_risk=True,
             )
         # Default bull: long call spread
@@ -229,25 +239,29 @@ def get_strategy_for_regime(
             "long_call_spread",
             regime_key,
             "Default bullish defined-risk debit spread (L2).",
-            20, 45, 0.45, 0.02,
-            long_sigma=0.5, short_sigma=1.5,
+            20,
+            45,
+            0.45,
+            0.02,
+            long_sigma=0.5,
+            short_sigma=1.5,
             defined_risk=True,
         )
 
     # Bear states
     if direction == "bear":
-        if (
-            volatility == "low_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "low_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             # Long put spread — Level 2 debit spread
             return _candidate(
                 "long_put_spread",
                 regime_key,
                 "Bearish regime with supportive flow; long put debit spread (L2).",
-                20, 45, 0.50, 0.03,
-                long_sigma=-0.5, short_sigma=-1.5,
+                20,
+                45,
+                0.50,
+                0.03,
+                long_sigma=-0.5,
+                short_sigma=-1.5,
                 defined_risk=True,
             )
         if volatility == "low_vol" and dealer_flow == "destabilizing":
@@ -256,34 +270,37 @@ def get_strategy_for_regime(
                 "long_put",
                 regime_key,
                 "Bearish but less orderly; plain long put for directional exposure (L2).",
-                20, 45, 0.50, 0.025,
+                20,
+                45,
+                0.50,
+                0.025,
                 long_sigma=-0.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "high_liquidity"
-            and dealer_flow == "supportive"
-        ):
+        if volatility == "high_vol" and liquidity == "high_liquidity" and dealer_flow == "supportive":
             return _candidate(
                 "long_put_spread",
                 regime_key,
                 "Bearish expansion with high liquidity; long put spread caps premium paid (L2).",
-                14, 35, 0.45, 0.025,
-                long_sigma=-0.5, short_sigma=-1.5,
+                14,
+                35,
+                0.45,
+                0.025,
+                long_sigma=-0.5,
+                short_sigma=-1.5,
                 defined_risk=True,
             )
-        if (
-            volatility == "high_vol"
-            and liquidity == "low_liquidity"
-            and dealer_flow == "destabilizing"
-        ):
+        if volatility == "high_vol" and liquidity == "low_liquidity" and dealer_flow == "destabilizing":
             return _candidate(
                 "long_straddle",
                 regime_key,
                 "Bearish but chaotic and illiquid; own the move with a long straddle (L2).",
-                14, 30, 0.35, 0.02,
-                long_sigma=0.0, hedge_sigma=0.0,
+                14,
+                30,
+                0.35,
+                0.02,
+                long_sigma=0.0,
+                hedge_sigma=0.0,
                 defined_risk=True,
             )
         # Default bear: long put spread
@@ -291,8 +308,12 @@ def get_strategy_for_regime(
             "long_put_spread",
             regime_key,
             "Default bearish defined-risk debit spread (L2).",
-            20, 45, 0.45, 0.02,
-            long_sigma=-0.5, short_sigma=-1.5,
+            20,
+            45,
+            0.45,
+            0.02,
+            long_sigma=-0.5,
+            short_sigma=-1.5,
             defined_risk=True,
         )
 
@@ -304,8 +325,12 @@ def get_strategy_for_regime(
                 "long_iron_condor",
                 regime_key,
                 "Range with low vol; long iron condor debit structure owns breakout (L2).",
-                20, 45, 0.40, 0.02,
-                wings_sigma_low=1.0, wings_sigma_high=1.5,
+                20,
+                45,
+                0.40,
+                0.02,
+                wings_sigma_low=1.0,
+                wings_sigma_high=1.5,
                 defined_risk=True,
             )
         if volatility == "low_vol" and dealer_flow == "destabilizing":
@@ -313,8 +338,12 @@ def get_strategy_for_regime(
                 "long_strangle",
                 regime_key,
                 "Range with unstable flow; long strangle owns potential breakout (L2).",
-                20, 45, 0.40, 0.02,
-                long_sigma=0.75, hedge_sigma=-0.75,
+                20,
+                45,
+                0.40,
+                0.02,
+                long_sigma=0.75,
+                hedge_sigma=-0.75,
                 defined_risk=True,
             )
         if volatility == "high_vol" and dealer_flow == "destabilizing":
@@ -322,8 +351,12 @@ def get_strategy_for_regime(
                 "long_strangle",
                 regime_key,
                 "High-vol range breakdown risk; long strangle owns the move (L2).",
-                14, 30, 0.35, 0.02,
-                long_sigma=0.5, hedge_sigma=-0.5,
+                14,
+                30,
+                0.35,
+                0.02,
+                long_sigma=0.5,
+                hedge_sigma=-0.5,
                 defined_risk=True,
             )
         if volatility == "high_vol" and dealer_flow == "supportive":
@@ -331,8 +364,12 @@ def get_strategy_for_regime(
                 "long_straddle",
                 regime_key,
                 "Vol-rich range; long straddle for maximum convexity (L2).",
-                14, 30, 0.35, 0.02,
-                long_sigma=0.0, hedge_sigma=0.0,
+                14,
+                30,
+                0.35,
+                0.02,
+                long_sigma=0.0,
+                hedge_sigma=0.0,
                 defined_risk=True,
             )
         # Default range: long strangle
@@ -340,8 +377,12 @@ def get_strategy_for_regime(
             "long_strangle",
             regime_key,
             "Default range defined-risk long strangle (L2).",
-            20, 45, 0.35, 0.015,
-            long_sigma=0.75, hedge_sigma=-0.75,
+            20,
+            45,
+            0.35,
+            0.015,
+            long_sigma=0.75,
+            hedge_sigma=-0.75,
             defined_risk=True,
         )
 

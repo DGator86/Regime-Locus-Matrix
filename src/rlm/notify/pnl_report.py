@@ -149,8 +149,7 @@ def _format_log_section(
             worst.append(f"{s} {v:+.2f}")
     worst_line = f"  Worst MTM (symbol sum): {', '.join(worst)}\n" if worst else ""
     mtm_note = (
-        f"  (headline MTM win% {wr:.1f}% = mark vs entry, not round-trip; "
-        f"use exit line for stop/TP quality.)\n"
+        f"  (headline MTM win% {wr:.1f}% = mark vs entry, not round-trip; " f"use exit line for stop/TP quality.)\n"
     )
     if n_plan <= 30:
         mtm_note = "\n"  # preserve newline so exits line doesn't merge with next
@@ -277,17 +276,13 @@ def calculate_daily_pnl(root: Path) -> str:
                 today_eq = _rows_for_session_day(eq_raw, session_date, equity_only=True)
                 blocks.append(_format_log_section(title=_EQUITY_TITLE, today_rows=today_eq))
         else:
-            blocks.append(
-                f"<b>{_EQUITY_TITLE}</b>\n  (no file — run ibkr_equity_paper_trade to log this)\n"
-            )
+            blocks.append(f"<b>{_EQUITY_TITLE}</b>\n  (no file — run ibkr_equity_paper_trade to log this)\n")
 
         ch = _format_challenge_eod(root, session_date)
         if ch is not None:
             blocks.append(ch)
         else:
-            blocks.append(
-                f"<b>{_CH_TITLE}</b>\n  (no data/challenge/state.json — run rlm challenge)\n"
-            )
+            blocks.append(f"<b>{_CH_TITLE}</b>\n  (no data/challenge/state.json — run rlm challenge)\n")
 
         return "\n".join(blocks)
     except Exception as e:  # noqa: BLE001

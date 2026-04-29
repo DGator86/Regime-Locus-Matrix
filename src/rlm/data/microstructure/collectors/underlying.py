@@ -27,11 +27,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from rlm.data.ibkr_stocks import ibkr_bars_to_dataframe, load_ibkr_socket_config
@@ -39,7 +38,8 @@ from rlm.data.ibkr_stocks import ibkr_bars_to_dataframe, load_ibkr_socket_config
 logger = logging.getLogger(__name__)
 
 try:
-    from ib_insync import IB, BarData, RealTimeBar, Stock
+    from ib_insync import IB, Stock
+
     _HAS_IB_INSYNC = True
 except ImportError:
     _HAS_IB_INSYNC = False
@@ -64,6 +64,7 @@ def _append_or_write_parquet(df: pd.DataFrame, path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Main collector class
 # ---------------------------------------------------------------------------
+
 
 class UnderlyingCollector:
     """
@@ -169,19 +170,21 @@ class UnderlyingCollector:
         contract = self._stock_contract()
         buffer: list[dict[str, Any]] = []
 
-        def _on_bar(bars: "BarDataList", has_new_bar: bool) -> None:
+        def _on_bar(bars: Any, has_new_bar: bool) -> None:
             if not has_new_bar or not bars:
                 return
             bar = bars[-1]
-            buffer.append({
-                "timestamp": pd.Timestamp(bar.time),
-                "open": float(bar.open),
-                "high": float(bar.high),
-                "low": float(bar.low),
-                "close": float(bar.close),
-                "volume": float(bar.volume),
-                "vwap": float(bar.wap) if bar.wap and bar.wap > 0 else float("nan"),
-            })
+            buffer.append(
+                {
+                    "timestamp": pd.Timestamp(bar.time),
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": float(bar.volume),
+                    "vwap": float(bar.wap) if bar.wap and bar.wap > 0 else float("nan"),
+                }
+            )
 
         # 5-second real-time bars
         rt_bars = ib.reqRealTimeBars(contract, 5, "TRADES", useRTH=True)
@@ -223,6 +226,7 @@ class UnderlyingCollector:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _main() -> None:
     import argparse
 
@@ -237,15 +241,11 @@ def _main() -> None:
         help="'snapshot' fetches recent history; 'stream' runs continuously (default: snapshot)",
     )
     parser.add_argument("--minutes", type=int, default=60, help="Minutes of history for snapshot mode")
-    parser.add_argument(
-        "--data-root", default="data/microstructure", help="Root of microstructure lake"
-    )
+    parser.add_argument("--data-root", default="data/microstructure", help="Root of microstructure lake")
     parser.add_argument("--bar-size", default="5 secs", help="IBKR bar size string")
     args = parser.parse_args()
 
-    collector = UnderlyingCollector(
-        args.symbol, data_root=args.data_root, bar_size=args.bar_size
-    )
+    collector = UnderlyingCollector(args.symbol, data_root=args.data_root, bar_size=args.bar_size)
 
     if args.mode == "snapshot":
         df = collector.fetch_snapshot(minutes=args.minutes)

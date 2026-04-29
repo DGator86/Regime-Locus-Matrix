@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import optuna
-
 from pathlib import Path
+
+import numpy as np
+import optuna
+import pandas as pd
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from rlm.optimization.config import NightlyHyperparams
@@ -124,9 +124,7 @@ class OptimizationBase:
     """Shared utilities for nightly hyperparameter optimization."""
 
     @staticmethod
-    def load_bars(
-        symbol: str, lookback_bars: int = 252 * 2, root: Path | None = None
-    ) -> pd.DataFrame:
+    def load_bars(symbol: str, lookback_bars: int = 252 * 2, root: Path | None = None) -> pd.DataFrame:
         """Load daily bars from data/raw/bars_<SYMBOL>.csv."""
         repo_root = root or Path(__file__).resolve().parents[3]
         bars_path = repo_root / "data" / "raw" / f"bars_{symbol.upper()}.csv"
@@ -136,6 +134,7 @@ class OptimizationBase:
         bars = pd.read_csv(bars_path)
         if "timestamp" in bars.columns:
             bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True, errors="coerce")
+            bars = bars.sort_values("timestamp").set_index("timestamp")
 
         return bars.tail(lookback_bars).copy()
 
@@ -165,32 +164,32 @@ class OptimizationBase:
             mtf_regimes=trial.suggest_categorical("mtf_regimes", [True, False]),
             hmm_confidence_threshold=trial.suggest_float("hmm_confidence_threshold", 0.55, 0.75),
             high_vol_kelly_multiplier=trial.suggest_float("high_vol_kelly_multiplier", 0.45, 0.75),
-            transition_kelly_multiplier=trial.suggest_float(
-                "transition_kelly_multiplier", 0.70, 0.95
-            ),
-            calm_trend_kelly_multiplier=trial.suggest_float(
-                "calm_trend_kelly_multiplier", 1.05, 1.35
-            ),
+            transition_kelly_multiplier=trial.suggest_float("transition_kelly_multiplier", 0.70, 0.95),
+            calm_trend_kelly_multiplier=trial.suggest_float("calm_trend_kelly_multiplier", 1.05, 1.35),
             move_window=trial.suggest_int("move_window", 85, 115),
             vol_window=trial.suggest_int("vol_window", 85, 115),
-            direction_neutral_threshold=trial.suggest_float(
-                "direction_neutral_threshold", 0.26, 0.34
-            ),
+            direction_neutral_threshold=trial.suggest_float("direction_neutral_threshold", 0.26, 0.34),
         )
         # Decimal fraction; 0.0005 = 5 bps, 0.003 = 30 bps
         transaction_cost_frac = trial.suggest_float("transaction_cost_frac", 0.0005, 0.003)
 
+        # mtf_regimes=True requires HTF parquet paths that don't exist at opt time;
+        # exclude it so the scoring run always uses the plain HMM path.
+        eval_params = {k: v for k, v in nightly.__dict__.items() if k != "mtf_regimes"}
         cfg = FullRLMConfig(
             regime_model=regime_model,
-            mtf=True,
-            roee_config=ROEEConfig(use_dynamic_sizing=True),
-            nightly_hyperparams=nightly.__dict__,
+            mtf=False,  # HTF resampling is too slow in the daily opt loop
+            mtf_regimes=False,  # no HTF parquet paths available during opt
+            use_kronos=False,  # no model download during nightly opt
+            attach_vix=False,  # no network call; VIX features absent is fine
+            roee_config=ROEEConfig(use_dynamic_sizing=False),
+            nightly_hyperparams=eval_params,
         )
 
         scores: list[float] = []
         for sym in symbols:
             try:
-                bars = OptimizationBase.load_bars(sym, lookback_bars=252 * 2)
+                bars = OptimizationBase.load_bars(sym, lookback_bars=252 * 6)
             except FileNotFoundError:
                 continue
             try:

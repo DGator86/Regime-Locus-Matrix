@@ -30,9 +30,7 @@ def classify_state_matrix(df: pd.DataFrame) -> pd.DataFrame:
     required = ["S_D", "S_V", "S_L", "S_G"]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(
-            f"Missing required score columns for state matrix classification: {missing}"
-        )
+        raise ValueError(f"Missing required score columns for state matrix classification: {missing}")
 
     out = df.copy()
 

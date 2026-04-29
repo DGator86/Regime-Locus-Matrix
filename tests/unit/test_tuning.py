@@ -1,4 +1,4 @@
-from rlm.optimization.tuning import objective_value
+from rlm.features.optimization.tuning import objective_value
 
 
 def test_objective_respects_min_trades() -> None:

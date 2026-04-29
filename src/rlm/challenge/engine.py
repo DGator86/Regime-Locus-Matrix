@@ -15,7 +15,7 @@ from datetime import date, datetime, timezone
 from typing import Literal
 
 from rlm.challenge.config import ChallengeConfig
-from rlm.challenge.pricing import estimate_delta, estimate_premium, updated_premium
+from rlm.challenge.pricing import updated_premium
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import (
     ChallengePosition,
@@ -111,10 +111,7 @@ class ChallengeEngine:
 
         # 2. Consider new entry (if slots available and challenge not yet complete)
         new_position: ChallengePosition | None = None
-        if (
-            state.balance < self.cfg.target_capital
-            and len(state.open_positions) < self.cfg.max_concurrent_positions
-        ):
+        if state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
             play = self._strategy.select(
                 directive,
                 underlying_price,
@@ -152,6 +149,7 @@ class ChallengeEngine:
         milestone_cleared: str | None = None
         if state.current_milestone_idx > prev_milestone_idx or state.balance >= self.cfg.target_capital:
             from rlm.challenge.config import MILESTONES
+
             idx = min(prev_milestone_idx, len(MILESTONES) - 1)
             milestone_cleared = MILESTONES[idx].label
 
@@ -246,6 +244,7 @@ class ChallengeEngine:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _days_between(start: str, end: str) -> int:
     try:

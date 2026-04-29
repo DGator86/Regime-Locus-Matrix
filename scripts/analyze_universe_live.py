@@ -30,12 +30,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.factors.pipeline import FactorPipeline
+
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
-from rlm.forecasting.live_model import LiveKronosParameters, LiveRegimeModelConfig, load_live_regime_model
-from rlm.factors.pipeline import FactorPipeline
 from rlm.forecasting.engines import ForecastPipeline
+from rlm.forecasting.live_model import (
+    LiveKronosParameters,
+    LiveRegimeModelConfig,
+    load_live_regime_model,
+)
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
@@ -136,18 +141,14 @@ def _one_symbol(
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
         "--symbols",
         default=",".join(LIQUID_UNIVERSE),
         help="Comma-separated tickers (default: LIQUID_UNIVERSE)",
     )
     p.add_argument("--duration", default="180 D", help="IBKR historical duration string")
-    p.add_argument(
-        "--bar-size", default="1 day", help="IBKR bar size (e.g., '1 day', '1 hour', '5 mins')."
-    )
+    p.add_argument("--bar-size", default="1 day", help="IBKR bar size (e.g., '1 day', '1 hour', '5 mins').")
     p.add_argument("--move-window", type=int, default=100, help="Distribution move baseline window")
     p.add_argument("--vol-window", type=int, default=100, help="Vol baseline window")
     p.add_argument(
@@ -156,21 +157,15 @@ def main() -> int:
         default=1.0,
         help="ROEE strike grid (use 0.5 for sub-$200 names)",
     )
-    p.add_argument(
-        "--ibkr-delay", type=float, default=0.35, help="Seconds between IBKR requests (pacing)"
-    )
-    p.add_argument(
-        "--no-vix", action="store_true", help="Skip ^VIX/^VVIX (faster, less macro context)"
-    )
+    p.add_argument("--ibkr-delay", type=float, default=0.35, help="Seconds between IBKR requests (pacing)")
+    p.add_argument("--no-vix", action="store_true", help="Skip ^VIX/^VVIX (faster, less macro context)")
     p.add_argument(
         "--live-model-config",
         type=Path,
         default=Path("data/processed/live_regime_model.json"),
         help="Optional promoted live-model JSON. Falls back to ForecastPipeline if missing.",
     )
-    p.add_argument(
-        "--ignore-live-model", action="store_true", help="Ignore any promoted live model config."
-    )
+    p.add_argument("--ignore-live-model", action="store_true", help="Ignore any promoted live model config.")
     p.add_argument(
         "--purge-bars",
         type=int,
@@ -190,8 +185,12 @@ def main() -> int:
         action="store_true",
         help="Blend Kronos foundation-model return forecasts into every symbol's pipeline output.",
     )
-    p.add_argument("--kronos-weight", type=float, default=0.35,
-                   help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    p.add_argument(
+        "--kronos-weight",
+        type=float,
+        default=0.35,
+        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
+    )
     p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
     p.add_argument("--kronos-stride", type=int, default=1)
     p.add_argument("--kronos-samples", type=int, default=5)
@@ -202,9 +201,7 @@ def main() -> int:
     live_model: LiveRegimeModelConfig | None = None
     if not args.ignore_live_model:
         live_model_path = (
-            ROOT / args.live_model_config
-            if not args.live_model_config.is_absolute()
-            else args.live_model_config
+            ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
         )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
@@ -217,9 +214,7 @@ def main() -> int:
             weight=args.kronos_weight,
         )
         if live_model is not None:
-            live_model = live_model.model_copy(
-                update={"use_kronos": True, "kronos": kronos_params}
-            )
+            live_model = live_model.model_copy(update={"use_kronos": True, "kronos": kronos_params})
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")

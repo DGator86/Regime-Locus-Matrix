@@ -28,7 +28,7 @@ intraday).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_GEX_NORM_WINDOW = 60   # rolling window for GEX normalisation (trading days)
+_GEX_NORM_WINDOW = 60  # rolling window for GEX normalisation (trading days)
 
 
 class GEXFactors(FactorCalculator):
@@ -83,7 +83,7 @@ class GEXFactors(FactorCalculator):
                 name="gex_flip_distance",
                 category=FactorCategory.DIRECTION,
                 transform_kind=TransformKind.SIGNED,
-                scale_value=0.03,   # 3% typical distance
+                scale_value=0.03,  # 3% typical distance
                 k=1.0,
             ),
             # gex_call_put_ratio: calls / puts GEX imbalance → liquidity signal
@@ -122,8 +122,7 @@ class GEXFactors(FactorCalculator):
 
         # Aggregate per timestamp (sum across all strikes/expiries)
         gex_ts = (
-            gex_raw
-            .groupby("timestamp")
+            gex_raw.groupby("timestamp")
             .agg(
                 net_gex=("net_gex", "sum"),
                 call_gex=("call_gex", "sum"),
@@ -148,11 +147,11 @@ class GEXFactors(FactorCalculator):
         out = df.copy()
 
         gex_ts["_date"] = pd.to_datetime(gex_ts.index).date
-        date_agg = (
-            gex_ts
-            .groupby("_date")
-            .agg(net_gex=("net_gex", "last"), call_gex=("call_gex", "last"),
-                 put_gex=("put_gex", "last"), underlying_price=("underlying_price", "last"))
+        date_agg = gex_ts.groupby("_date").agg(
+            net_gex=("net_gex", "last"),
+            call_gex=("call_gex", "last"),
+            put_gex=("put_gex", "last"),
+            underlying_price=("underlying_price", "last"),
         )
         date_agg.index = pd.to_datetime(date_agg.index)
 
@@ -197,9 +196,16 @@ class GEXFactors(FactorCalculator):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _empty_gex_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    for col in ("gex_net_total", "gex_sign", "gex_normalized", "gex_flip_distance", "gex_call_put_ratio"):
+    for col in (
+        "gex_net_total",
+        "gex_sign",
+        "gex_normalized",
+        "gex_flip_distance",
+        "gex_call_put_ratio",
+    ):
         out[col] = float("nan")
     return out
 

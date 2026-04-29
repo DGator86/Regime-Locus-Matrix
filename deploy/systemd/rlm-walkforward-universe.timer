@@ -1,0 +1,13 @@
+# Daily walk-forward after US cash equity close (17:00 America/New_York ≈ 21:00 UTC standard / 22:00 DST).
+# Adjust OnCalendar to match your data-ingest cadence.
+
+[Unit]
+Description=Daily RLM universe walk-forward OOS batch
+
+[Timer]
+OnCalendar=*-*-* 21:30:00 UTC
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

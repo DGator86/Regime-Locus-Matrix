@@ -17,11 +17,7 @@ def drop_feature_group(df: pd.DataFrame, group_name: str) -> pd.DataFrame:
     if group_name not in ABLATION_GROUPS:
         raise ValueError(f"Unknown group: {group_name}")
     pats = ABLATION_GROUPS[group_name]
-    keep = [
-        c
-        for c in df.columns
-        if c in REQUIRED_COORD_COLUMNS or not any(p in c for p in pats)
-    ]
+    keep = [c for c in df.columns if c in REQUIRED_COORD_COLUMNS or not any(p in c for p in pats)]
     return df.loc[:, keep].copy()
 
 
@@ -68,7 +64,5 @@ def summarize_ablation(results: dict[str, dict]) -> dict[str, float]:
         out[f"{name}_selected_realized_delta"] = float(
             metrics["selected_realized_average"] - base["selected_realized_average"]
         )
-        out[f"{name}_flip_rate_delta"] = float(
-            metrics["regime_flip_rate"] - base["regime_flip_rate"]
-        )
+        out[f"{name}_flip_rate_delta"] = float(metrics["regime_flip_rate"] - base["regime_flip_rate"])
     return out

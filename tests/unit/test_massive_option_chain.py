@@ -2,8 +2,6 @@ import time
 from threading import Lock
 
 import pandas as pd
-from scripts.monitor_active_trade_plans import _build_incremental_snapshot_params as monitor_incremental_params
-from scripts.run_universe_options_pipeline import _build_incremental_snapshot_params as universe_incremental_params
 
 from rlm.data.massive_option_chain import (
     clear_massive_option_chain_ram_cache,
@@ -11,6 +9,12 @@ from rlm.data.massive_option_chain import (
     massive_option_chain_from_client,
     massive_option_chains_from_client,
     massive_option_snapshot_to_normalized_chain,
+)
+from scripts.monitor_active_trade_plans import (
+    _build_incremental_snapshot_params as monitor_incremental_params,
+)
+from scripts.run_universe_options_pipeline import (
+    _build_incremental_snapshot_params as universe_incremental_params,
 )
 
 
