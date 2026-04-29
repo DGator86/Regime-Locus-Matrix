@@ -86,6 +86,8 @@ def compute_regime_modulators(
     kronos_confidence_weight: float = 0.4,
     hmm_confidence_weight: float = 0.6,
     kronos_transition_penalty: float = 0.3,
+    kronos_epistemic_disable_threshold: float | None = 0.7,
+    kronos_aleatoric_size_penalty: float = 0.5,
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
@@ -141,9 +143,23 @@ def compute_regime_modulators(
     if kronos_trans:
         composite *= 1.0 - kronos_transition_penalty
 
+    epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
+    aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
+
     trans_risk = 1.0 - composite
     size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
+
+    if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
+        size_mult *= max(0.0, 1.0 - kronos_aleatoric_size_penalty * float(np.clip(aleatoric, 0.0, 1.0)))
+
     trade = composite >= confidence_threshold
+    if (
+        kronos_epistemic_disable_threshold is not None
+        and math.isfinite(epistemic)
+        and epistemic >= float(kronos_epistemic_disable_threshold)
+    ):
+        trade = False
+        model_name = f"{model_name}+epi_gate"
     return {
         "confidence": float(composite),
         "size_mult": max(float(size_mult), 0.0),
@@ -226,6 +242,11 @@ def select_trade_for_row(
     hmm_confidence_threshold: float | None = None,
     hmm_sizing_multiplier: float = 1.0,
     hmm_transition_penalty: float = 0.5,
+    kronos_confidence_weight: float = 0.4,
+    hmm_confidence_weight: float = 0.6,
+    kronos_transition_penalty: float = 0.3,
+    kronos_epistemic_disable_threshold: float | None = 0.7,
+    kronos_aleatoric_size_penalty: float = 0.5,
     short_dte: bool = False,
     use_dynamic_sizing: bool = False,
     vol_target: float = 0.15,
@@ -280,6 +301,13 @@ def select_trade_for_row(
         )
 
     use_hmm = hmm_confidence_threshold is not None
+    regime_modulator_kwargs = {
+        "kronos_confidence_weight": kronos_confidence_weight,
+        "hmm_confidence_weight": hmm_confidence_weight,
+        "kronos_transition_penalty": kronos_transition_penalty,
+        "kronos_epistemic_disable_threshold": kronos_epistemic_disable_threshold,
+        "kronos_aleatoric_size_penalty": kronos_aleatoric_size_penalty,
+    }
     min_regime_samples = max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
     train_sample_count = max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
 
@@ -357,6 +385,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         if not bool(mod["trade"]):
             regime_model = str(mod["model"])
@@ -478,6 +507,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         base_sf = float(decision.size_fraction or 0.0)
         meta = dict(decision.metadata)
@@ -526,6 +556,7 @@ def select_trade_for_row(
             confidence_threshold=float(hmm_confidence_threshold),
             sizing_multiplier=hmm_sizing_multiplier,
             transition_penalty=hmm_transition_penalty,
+            **regime_modulator_kwargs,
         )
         meta = dict(decision.metadata)
         meta["regime_model"] = str(mod["model"])

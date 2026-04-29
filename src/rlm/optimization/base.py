@@ -161,7 +161,7 @@ class OptimizationBase:
         """
         nightly = NightlyHyperparams(
             mtf_ltf_weight=trial.suggest_float("mtf_ltf_weight", 0.35, 0.65),
-            mtf_regimes=trial.suggest_categorical("mtf_regimes", [True, False]),
+            mtf_regimes=False,
             hmm_confidence_threshold=trial.suggest_float("hmm_confidence_threshold", 0.55, 0.75),
             high_vol_kelly_multiplier=trial.suggest_float("high_vol_kelly_multiplier", 0.45, 0.75),
             transition_kelly_multiplier=trial.suggest_float("transition_kelly_multiplier", 0.70, 0.95),

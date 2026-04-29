@@ -243,31 +243,39 @@ class SpockAgent:
         except Exception:
             return ""
 
-    def _read_walkforward_performance(self, windows: int = 5) -> str:
-        """Summarise the most recent OOS windows from the walk-forward summary CSV."""
-        candidates = [
-            self.root / "data" / "processed" / "walkforward_summary.csv",
-        ]
-        # Prefer symbol-specific files if they have trading data
-        for p in (self.root / "data" / "processed").glob("walkforward_summary_*.csv"):
-            candidates.insert(0, p)
-
+    def _read_walkforward_performance(self, windows: int = 3) -> str:
+        """Summarise recent OOS windows from every available walk-forward summary CSV."""
         import csv as _csv
 
-        for path in candidates:
-            if not path.is_file():
-                continue
+        processed_dir = self.root / "data" / "processed"
+        if not processed_dir.is_dir():
+            return ""
+
+        all_lines: list[str] = []
+
+        def _collect(path: Path, label: str) -> None:
             try:
                 with path.open(encoding="utf-8") as f:
                     rows = list(_csv.DictReader(f))
-                if not rows:
-                    continue
-                # Check this file actually has trading metric columns
-                if "win_rate" not in rows[0]:
-                    continue
+                if not rows or "win_rate" not in rows[0]:
+                    return
                 recent = rows[-windows:]
-                lines = [f"Last {len(recent)} OOS windows ({path.stem}):"]
+                all_lines.append(f"{label} (last {len(recent)} OOS windows):")
                 for r in recent:
+                    wr = f"{float(r['win_rate']):.0%}"
+                    sh = f"{float(r['sharpe']):.1f}"
+                    pnl = f"{float(r['avg_trade_pnl_pct']):+.1f}%"
+                    n = int(float(r.get("num_trades", 0)))
+                    oos_end = str(r.get("oos_end", "?"))[:10]
+                    safe_frac = r.get("regime_safety_fraction", "")
+                    safe = r.get("regime_safety_passed", "?")
+                    safe_str = (
+                        f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
+                    )
+                    all_lines.append(
+                        f"  OOS {oos_end}: win={wr} sharpe={sh} "
+                        f"avg_pnl={pnl} trades={n} safe={safe_str}"
+                    )
                     try:
                         wr = f"{float(r['win_rate']):.0%}"
                         sh = f"{float(r['sharpe']):.1f}"
@@ -286,8 +294,19 @@ class SpockAgent:
                 if len(lines) > 1:
                     return "\n".join(lines)
             except Exception:
-                continue
-        return ""
+                pass
+
+        # Symbol-specific files (one per walkforward run)
+        for path in sorted(processed_dir.glob("walkforward_summary_*.csv")):
+            sym = path.stem.replace("walkforward_summary_", "")
+            _collect(path, sym)
+
+        # Generic aggregate file (multi-symbol run)
+        generic = processed_dir / "walkforward_summary.csv"
+        if generic.is_file():
+            _collect(generic, "universe")
+
+        return "\n".join(all_lines) if all_lines else ""
 
     def _read_walkforward_oos_aggregate(self) -> str:
         proc = self.root / "data" / "processed"

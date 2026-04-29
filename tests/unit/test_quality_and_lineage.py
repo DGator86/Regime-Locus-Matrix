@@ -32,46 +32,40 @@ def test_validate_option_chain_rejects_negative_bid_ask() -> None:
     assert "negative-bid-ask" in res.reasons
 
 
-def test_validate_option_contracts_accepts_massive_reference_schema() -> None:
+def test_validate_option_contracts_accepts_massive_reference_rows() -> None:
     df = pd.DataFrame(
         {
-            "ticker": ["O:SPY250221C00600000"],
-            "underlying_ticker": ["SPY"],
-            "strike_price": [600.0],
-            "expiration_date": ["2025-02-21"],
-            "contract_type": ["call"],
+            "ticker": ["O:SPY250221C00500000", "O:SPY250221P00500000"],
+            "underlying_ticker": ["SPY", "SPY"],
+            "contract_type": ["call", "put"],
+            "expiration_date": ["2025-02-21", "2025-02-21"],
+            "strike_price": [500.0, 500.0],
         }
     )
     res = validate_option_contracts(df)
     assert res.ok
 
 
-def test_write_massive_option_contracts_uses_reference_schema(monkeypatch, tmp_path: Path) -> None:
+def test_write_massive_option_contracts_uses_contract_quality_gate(tmp_path: Path, monkeypatch) -> None:
     df = pd.DataFrame(
         {
-            "ticker": ["O:SPY250221C00600000", "O:SPY250221P00590000"],
+            "ticker": ["O:SPY250221C00500000", "O:SPY250221P00500000"],
             "underlying_ticker": ["SPY", "SPY"],
-            "strike_price": [600.0, 590.0],
-            "expiration_date": ["2025-02-21", "2025-02-21"],
             "contract_type": ["call", "put"],
+            "expiration_date": ["2025-02-21", "2025-02-21"],
+            "strike_price": [500.0, 500.0],
         }
     )
-
-    class _Fetcher:
-        def fetch(self, underlying: str, **params) -> pd.DataFrame:
-            del underlying, params
-            return df
-
-    monkeypatch.setattr("rlm.ingestion.writers.MassiveContractsFetcher", lambda: _Fetcher())
+    monkeypatch.setattr("rlm.ingestion.writers.MassiveContractsFetcher", lambda: _StubContractsFetcher(df))
     monkeypatch.setattr(
         pd.DataFrame,
         "to_parquet",
         lambda self, path, index=False: Path(path).write_text("ok", encoding="utf-8"),
     )
 
-    out = write_massive_option_contracts_parquet("SPY", repo_root=tmp_path, expiration_date="2025-02-21")
+    out = write_massive_option_contracts_parquet("SPY", repo_root=tmp_path)
 
-    assert out == tmp_path / "data" / "options" / "SPY" / "contracts" / "spy_20250221_contracts.parquet"
+    assert out == tmp_path / "data" / "options" / "SPY" / "contracts" / "spy_all_contracts.parquet"
     assert out.exists()
 
 
@@ -88,3 +82,11 @@ def test_save_parquet_versioned_writes_lineage(tmp_path: Path, monkeypatch) -> N
     assert log.exists()
     rec = json.loads(log.read_text(encoding="utf-8").strip())
     assert rec["schema"] == "bars"
+
+
+class _StubContractsFetcher:
+    def __init__(self, df: pd.DataFrame) -> None:
+        self.df = df
+
+    def fetch(self, underlying: str, **params) -> pd.DataFrame:
+        return self.df
