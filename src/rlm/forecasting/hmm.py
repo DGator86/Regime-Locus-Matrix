@@ -509,58 +509,16 @@ class RLMHMM:
     def causal_online_transition_matrices(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
         """Per-row online transition matrices that never use future filtered probabilities.
 
-        Row ``t`` incorporates adjacent posterior pairs only through ``(t-1, t)``.  This keeps
-        walk-forward annotations causal without mutating the fitted transition matrix.
-    def causal_online_transition_matrices(self, filtered_probs: np.ndarray, step_size: float | None = None) -> np.ndarray:
-        """Per-row online transition matrices that never use future filtered probabilities.
-
         Row ``t`` incorporates adjacent posterior pairs only through ``(t-1, t)``.
-        Unlike :meth:`online_transition_path`, this diagnostic helper does not mutate the fitted model.
+        Unlike :meth:`online_transition_path`, this diagnostic helper does not mutate
+        the fitted model transition matrix.
         """
-        if self.model is None:
-            raise RuntimeError("HMM model is not fitted")
-        gamma = np.asarray(filtered_probs, dtype=np.float64)
-        if gamma.ndim != 2:
-            raise ValueError("filtered_probs must be a 2D array")
-        n_samples = gamma.shape[0]
-        current = self.permuted_transmat().copy()
-        if n_samples == 0:
-            return np.empty((0, current.shape[0], current.shape[1]), dtype=np.float64)
-        eta = float(self.config.online_em_step_size if step_size is None else step_size)
-        if not np.isfinite(eta):
-            raise ValueError("step_size must be a finite float in [0, 1].")
-        calibrated = self._calibrate_transition_matrix(current)
-        if eta <= 0.0 or n_samples < 2:
-            calibrated = self.calibrated_transmat()
-            return np.repeat(calibrated[np.newaxis, :, :], n_samples, axis=0)
-
-        expected = np.zeros_like(base)
-        matrices = np.empty((n_samples, base.shape[0], base.shape[1]), dtype=np.float64)
-        updated = base.copy()
-        for i in range(n_samples):
-            if i > 0:
-                expected += np.outer(gamma[i - 1], gamma[i])
-                row = expected.sum(axis=1, keepdims=True)
-                target = base.copy()
-                np.divide(expected, row, out=target, where=row > 0.0)
-                updated = (1.0 - eta) * base + eta * target
-                updated = np.clip(updated, 1e-12, None)
-                updated = updated / updated.sum(axis=1, keepdims=True)
-            matrices[i] = self._calibrate_transition_matrix(updated)
-
-        eta = min(eta, 1.0)
-        matrices = np.empty((n_samples, current.shape[0], current.shape[1]), dtype=np.float64)
-        matrices[0] = calibrated
-        for i in range(1, n_samples):
-            expected = np.outer(gamma[i - 1], gamma[i])
-            row = expected.sum(axis=1, keepdims=True)
-            row = np.where(row > 0.0, row, 1.0)
-            target = expected / row
-            current = (1.0 - eta) * current + eta * target
-            current = np.clip(current, 1e-12, None)
-            current = current / current.sum(axis=1, keepdims=True)
-            matrices[i] = self._calibrate_transition_matrix(current)
-        return matrices
+        model_transmat = None if self.model is None else self.model.transmat_.copy()
+        try:
+            return self.online_transition_path(filtered_probs, step_size=step_size)
+        finally:
+            if model_transmat is not None:
+                self.model.transmat_ = model_transmat
 
     @staticmethod
     def one_step_predictive_probs(filtered_probs: np.ndarray, transmat: np.ndarray) -> np.ndarray:
