@@ -11,12 +11,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Permutation importance for ROEE policy outputs")
     p.add_argument("--forecast-csv", required=True)
     p.add_argument("--top-k", type=int, default=20)
+    p.add_argument("--prefixes", nargs="*", default=["std_", "raw_", "hmm_", "kronos_", "S_"],
+                   help="Feature prefixes to include in permutation candidates.")
     args = p.parse_args()
 
     df = pd.read_csv(args.forecast_csv)
     base = apply_roee_policy(df)
     baseline = base["roee_size_fraction"].fillna(0.0)
-    candidates = [c for c in df.columns if c.startswith("std_") or c.startswith("hmm_") or c.startswith("kronos_")]
+    candidates = [c for c in df.columns if any(c.startswith(pref) for pref in args.prefixes)]
 
     rows = []
     for c in candidates:
