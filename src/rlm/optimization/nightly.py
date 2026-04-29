@@ -39,12 +39,6 @@ class NightlyMTFOptimizer:
             timeout=3600,
         )
 
-        if float(study.best_value) <= NO_VALID_SCORE:
-            raise RuntimeError(
-                "Nightly optimization produced no valid backtest scores; "
-                "leaving live_nightly_hyperparams.json unchanged."
-            )
-
         completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if not completed:
             print(
@@ -54,6 +48,11 @@ class NightlyMTFOptimizer:
                 flush=True,
             )
             return {}
+        if float(study.best_value) <= NO_VALID_SCORE:
+            raise RuntimeError(
+                "Nightly optimization produced no valid backtest scores; "
+                "leaving live_nightly_hyperparams.json unchanged."
+            )
         best = study.best_params
         NIGHTLY_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = NIGHTLY_PATH.with_suffix(f"{NIGHTLY_PATH.suffix}.tmp")
