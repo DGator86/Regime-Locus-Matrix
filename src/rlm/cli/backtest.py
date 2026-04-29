@@ -101,33 +101,30 @@ def _load_symbol_data(
     return bars_df, chain_df
 
 
-def main() -> None:
-    args = _parse_args()
-    symbols = resolve_backtest_symbols(args)
-    if len(symbols) > 1 and (args.bars is not None or args.chain is not None):
-        raise SystemExit(
-            "Custom --bars / --chain is not supported with multiple tickers; use one --symbol or auto paths."
-        )
-    out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else get_processed_data_dir(args.data_root)
+def _run_symbol(
+    sym: str,
+    args: argparse.Namespace,
+    *,
+    svc: BacktestService,
+    out_dir: Path,
+    symbols: list[str],
+) -> tuple[str, dict] | None:
+    batch = len(symbols) > 1
+    run_id = generate_run_id(f"backtest-{sym}")
+    log = get_run_logger(
+        __name__,
+        run_id=run_id,
+        command="backtest",
+        symbol=sym,
+        backend=args.backend,
+        profile=args.profile,
+    )
 
-    svc = BacktestService()
-    summaries: list[tuple[str, dict]] = []
-
-    for sym in symbols:
-        run_id = generate_run_id(f"backtest-{sym}")
-        log = get_run_logger(
-            __name__,
-            run_id=run_id,
-            command="backtest",
-            symbol=sym,
-            backend=args.backend,
-            profile=args.profile,
-        )
-
-        loaded = _load_symbol_data(sym, args, batch=len(symbols) > 1)
+    try:
+        loaded = _load_symbol_data(sym, args, batch=batch)
         if loaded is None:
             log.warning("no bars data for symbol, skipping", extra={"symbol": sym})
-            continue
+            return None
         bars_df, chain_df = loaded
 
         cfg = build_pipeline_config(args, sym)
@@ -144,7 +141,6 @@ def main() -> None:
         result = svc.run(req)
         arts = svc.write_outputs(req, result)
         summary = svc.summarize(result)
-        summaries.append((sym, summary))
 
         print(f"\n=== {sym} ===")
         if summary.get("metrics"):
@@ -166,7 +162,7 @@ def main() -> None:
             config_summary={
                 "regime_model": cfg.regime_model,
                 "walkforward": args.walkforward,
-                "symbol_batch": symbols if len(symbols) > 1 else None,
+                "symbol_batch": symbols if batch else None,
             },
             input_paths={"bars": args.bars or "auto", "chain": args.chain or "auto"},
             output_paths={
@@ -178,9 +174,36 @@ def main() -> None:
         manifest_path = write_run_manifest(manifest, data_root=args.data_root)
         log.info("backtest complete", extra={"stage": "complete", "success": True})
         print(f"Run manifest: {manifest_path}")
+        return sym, summary
+    except Exception as exc:
+        if not batch:
+            raise
+        print(f"  {sym}: ERROR - {exc}")
+        log.exception("symbol backtest failed, continuing batch", extra={"symbol": sym})
+        return None
+
+
+def main() -> None:
+    args = _parse_args()
+    symbols = resolve_backtest_symbols(args)
+    if len(symbols) > 1 and (args.bars is not None or args.chain is not None):
+        raise SystemExit(
+            "Custom --bars / --chain is not supported with multiple tickers; use one --symbol or auto paths."
+        )
+    out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else get_processed_data_dir(args.data_root)
+
+    svc = BacktestService()
+    summaries: list[tuple[str, dict]] = []
+
+    for sym in symbols:
+        summary = _run_symbol(sym, args, svc=svc, out_dir=out_dir, symbols=symbols)
+        if summary is not None:
+            summaries.append(summary)
 
     if summaries:
         _print_aggregate(summaries)
+    if len(symbols) > 1:
+        print(f"\nDone: {len(summaries)}/{len(symbols)} symbols completed.")
 
 
 if __name__ == "__main__":
