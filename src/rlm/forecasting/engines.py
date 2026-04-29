@@ -68,9 +68,6 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
         df["hmm_most_likely_next_label"] = [hmm.state_labels[int(s)] for s in top]
     if "hmm_state_label" in df.columns:
         bearish_shift = np.zeros(len(df), dtype=float)
-        for i, label in enumerate(df["hmm_state_label"].astype(str).tolist()):
-            if "bull" in label.lower() or "trend" in label.lower():
-                bearish_shift[i] = float(next_p[i].max() - probs[i].max())
         current_state = np.argmax(probs, axis=1).astype(int)
         for i, label in enumerate(df["hmm_state_label"].astype(str).tolist()):
             if "bull" in label.lower() or "trend" in label.lower():
