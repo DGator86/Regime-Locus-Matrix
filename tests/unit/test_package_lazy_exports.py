@@ -8,6 +8,10 @@ from contextlib import contextmanager
 
 @contextmanager
 def _reload_without_submodules(package_name: str, submodule_prefix: str) -> Iterator[object]:
+    parent_name, _, child_name = package_name.rpartition(".")
+    parent_module = importlib.import_module(parent_name) if parent_name else None
+    sentinel = object()
+    previous_child = getattr(parent_module, child_name, sentinel) if parent_module is not None else sentinel
     saved = {
         module_name: module
         for module_name, module in sys.modules.items()
@@ -23,6 +27,14 @@ def _reload_without_submodules(package_name: str, submodule_prefix: str) -> Iter
             if module_name == package_name or module_name.startswith(submodule_prefix):
                 sys.modules.pop(module_name, None)
         sys.modules.update(saved)
+        if parent_module is not None:
+            if previous_child is sentinel:
+                try:
+                    delattr(parent_module, child_name)
+                except AttributeError:
+                    pass
+            else:
+                setattr(parent_module, child_name, previous_child)
 
 
 def test_execution_package_exports_public_helpers_lazily() -> None:
