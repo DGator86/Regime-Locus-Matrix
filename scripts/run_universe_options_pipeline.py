@@ -121,6 +121,7 @@ def _prepare_symbol(
     event_lookahead_days: int,
     serialize_ibkr: bool,
     short_dte: bool,
+    processed_dir: Path | None,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -171,6 +172,11 @@ def _prepare_symbol(
         min_regime_train_samples=min_regime_train_samples,
         purge_bars=purge_bars,
     )
+
+    if processed_dir is not None:
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        feats.to_csv(processed_dir / f"features_{sym}.csv")
+        out.to_csv(processed_dir / f"forecast_features_{sym}.csv")
 
     last = out.iloc[-1]
     ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.now(tz="UTC").tz_localize(None)
@@ -642,6 +648,7 @@ def main() -> int:
         return 1
 
     syms = _parse_symbols(args.symbols)
+    processed_dir = (ROOT / "data" / "processed").resolve()
     live_model: LiveRegimeModelConfig | None = None
     live_model_bootstrapped = False
     live_model_path: Path | None = None
@@ -708,6 +715,7 @@ def main() -> int:
                 event_lookahead_days=int(args.event_lookahead_days),
                 serialize_ibkr=bool(args.serialize_ibkr),
                 short_dte=bool(args.short_dte),
+                processed_dir=processed_dir,
             )
         except Exception as e:
             results[i] = {
