@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rlm.forecasting.engines import HybridForecastPipeline
+from rlm.forecasting.engines import HybridForecastPipeline, _annotate_regime_ensemble
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 from rlm.scoring.state_matrix import classify_state_matrix
 
@@ -227,3 +227,99 @@ def test_online_transition_update_step_size_clamped_to_one() -> None:
     assert result.shape == (4, 4)
     assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
     assert np.all(result >= 0.0)
+
+
+# ---------------------------------------------------------------------------
+# _annotate_regime_ensemble tests
+# ---------------------------------------------------------------------------
+
+
+def _make_probs_df(
+    n: int,
+    n_states: int,
+    *,
+    with_close: bool = True,
+    seed: int = 0,
+    col: str = "hmm_probs",
+) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2025-01-01", periods=n, freq="h")
+    raw = rng.dirichlet(np.ones(n_states), size=n)
+    df = pd.DataFrame(index=idx)
+    df[col] = raw.tolist()
+    if with_close:
+        df["close"] = 100.0 + np.cumsum(rng.normal(0, 0.1, n))
+    return df
+
+
+def test_annotate_regime_ensemble_single_source_columns_and_normalization() -> None:
+    """Single hmm_probs source: all three columns are written, finite, non-negative, rows sum to 1."""
+    df = _make_probs_df(100, 4, with_close=False)
+    _annotate_regime_ensemble(df)
+
+    for col in ("regime_ensemble_probs", "regime_ensemble_state", "regime_ensemble_confidence"):
+        assert col in df.columns, f"Missing column: {col}"
+
+    ensemble = np.asarray(df["regime_ensemble_probs"].tolist(), dtype=float)
+    assert ensemble.shape == (100, 4)
+    assert np.all(np.isfinite(ensemble))
+    assert np.allclose(ensemble.sum(axis=1), 1.0, atol=1e-6)
+    assert np.all(ensemble >= 0.0)
+
+    conf = df["regime_ensemble_confidence"].to_numpy(dtype=float)
+    assert np.all(np.isfinite(conf))
+    assert np.all((conf >= 0.0) & (conf <= 1.0))
+
+    states = df["regime_ensemble_state"].to_numpy(dtype=int)
+    assert states.shape == (100,)
+    assert np.all((states >= 0) & (states < 4))
+
+
+def test_annotate_regime_ensemble_no_sources_is_noop() -> None:
+    """When neither hmm_probs nor markov_probs are present, no columns are added."""
+    df = pd.DataFrame({"foo": [1, 2, 3]})
+    _annotate_regime_ensemble(df)
+    for col in ("regime_ensemble_probs", "regime_ensemble_state", "regime_ensemble_confidence"):
+        assert col not in df.columns
+
+
+def test_annotate_regime_ensemble_incompatible_shapes_raises() -> None:
+    """hmm_probs(6 states) + markov_probs(3 states) must raise ValueError before stacking."""
+    n = 50
+    rng = np.random.default_rng(1)
+    df = pd.DataFrame(
+        {
+            "hmm_probs": rng.dirichlet(np.ones(6), size=n).tolist(),
+            "markov_probs": rng.dirichlet(np.ones(3), size=n).tolist(),
+        }
+    )
+    with pytest.raises(ValueError, match="Incompatible"):
+        _annotate_regime_ensemble(df)
+
+
+def test_annotate_regime_ensemble_shock_reduces_confidence_vs_stable() -> None:
+    """A large return shock at the last bar should temper ensemble confidence toward uniform."""
+    n = 120
+    idx = pd.date_range("2025-01-01", periods=n, freq="h")
+
+    # Highly concentrated probabilities → high baseline confidence
+    raw = np.zeros((n, 3))
+    raw[:, 0] = 0.9
+    raw[:, 1] = 0.05
+    raw[:, 2] = 0.05
+
+    # No-shock: completely flat price (all returns = 0, z-score = 0, cp_score = 0)
+    df_stable = pd.DataFrame(
+        {"hmm_probs": raw.tolist(), "close": np.full(n, 100.0)},
+        index=idx,
+    )
+    _annotate_regime_ensemble(df_stable)
+
+    # Shock: price is flat for all but the last bar, then jumps 100% → large return z-score at last row
+    close_shock = np.concatenate([np.full(n - 1, 100.0), [200.0]])
+    df_shock = pd.DataFrame({"hmm_probs": raw.tolist(), "close": close_shock}, index=idx)
+    _annotate_regime_ensemble(df_shock)
+
+    conf_stable = float(df_stable["regime_ensemble_confidence"].iloc[-1])
+    conf_shock = float(df_shock["regime_ensemble_confidence"].iloc[-1])
+    assert conf_shock < conf_stable, "Shock should temper ensemble confidence toward uniform"
