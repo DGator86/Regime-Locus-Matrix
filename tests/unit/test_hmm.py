@@ -95,3 +95,108 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     nxt = RLMHMM.one_step_predictive_probs(gamma, t)
     assert nxt.shape == gamma.shape
     assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_online_transition_update_row_stochastic_and_finite() -> None:
+    """online_transition_update must return a finite, row-stochastic matrix and mutate model.transmat_."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=5,
+            filter_backend="numpy",
+        )
+    ).fit(df, verbose=False)
+
+    gamma = m.predict_proba_filtered(df)
+    t_before = m.model.transmat_.copy()  # type: ignore[union-attr]
+
+    result = m.online_transition_update(gamma, step_size=0.1)
+
+    # shape and stochasticity
+    assert result.shape == (4, 4)
+    assert np.all(np.isfinite(result))
+    assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(result >= 0.0)
+
+    # model.transmat_ was mutated
+    assert not np.allclose(m.model.transmat_, t_before, atol=1e-10)  # type: ignore[union-attr]
+    # mutated transmat_ is also row-stochastic
+    assert np.allclose(m.model.transmat_.sum(axis=1), 1.0, atol=1e-5)  # type: ignore[union-attr]
+
+
+def test_online_transition_update_preserves_permutation_alignment() -> None:
+    """Permutation alignment: model.transmat_ is stored in raw-state space but calibrated_transmat returns permuted."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=7,
+            filter_backend="numpy",
+        )
+    ).fit(df, verbose=False)
+
+    assert m._state_permutation is not None, "Permutation must be set after fit"
+
+    gamma = m.predict_proba_filtered(df)
+    result = m.online_transition_update(gamma, step_size=0.05)
+
+    # calibrated_transmat applies pseudocount smoothing on top of the permuted view
+    calibrated = m.calibrated_transmat()
+    assert calibrated.shape == result.shape
+    assert np.allclose(calibrated.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(np.isfinite(calibrated))
+
+    # permuted_transmat (no pseudocount) should also be row-stochastic
+    permuted = m.permuted_transmat()
+    assert permuted.shape == (4, 4)
+    assert np.allclose(permuted.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_online_transition_update_zero_step_returns_calibrated_without_mutation() -> None:
+    """step_size=0.0 must return calibrated_transmat without mutating model.transmat_."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(
+            n_states=4,
+            n_iter=20,
+            random_state=9,
+            filter_backend="numpy",
+        )
+    ).fit(df, verbose=False)
+
+    gamma = m.predict_proba_filtered(df)
+    t_before = m.model.transmat_.copy()  # type: ignore[union-attr]
+    result = m.online_transition_update(gamma, step_size=0.0)
+
+    assert result.shape == (4, 4)
+    assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
+    # model.transmat_ must be unchanged
+    assert np.allclose(m.model.transmat_, t_before)  # type: ignore[union-attr]
+
+
+def test_online_transition_update_non_finite_step_raises() -> None:
+    """Non-finite step_size must raise ValueError."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(n_states=4, n_iter=20, random_state=11, filter_backend="numpy")
+    ).fit(df, verbose=False)
+    gamma = m.predict_proba_filtered(df)
+    with pytest.raises(ValueError, match="finite"):
+        m.online_transition_update(gamma, step_size=float("nan"))
+
+
+def test_online_transition_update_step_size_clamped_to_one() -> None:
+    """step_size > 1.0 must be clamped to 1.0 (not raise, not extrapolate)."""
+    df = _synthetic_scores(200)
+    m = RLMHMM(
+        HMMConfig(n_states=4, n_iter=20, random_state=13, filter_backend="numpy")
+    ).fit(df, verbose=False)
+    gamma = m.predict_proba_filtered(df)
+    # Should not raise and result must be a valid stochastic matrix
+    result = m.online_transition_update(gamma, step_size=5.0)
+    assert result.shape == (4, 4)
+    assert np.allclose(result.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(result >= 0.0)
