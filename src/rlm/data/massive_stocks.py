@@ -91,9 +91,7 @@ def massive_aggs_payload_to_bars_df(payload: Any) -> pd.DataFrame:
         )
 
     if not records:
-        return pd.DataFrame(
-            columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"]
-        )
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"])
 
     out = pd.DataFrame.from_records(records)
     return out.sort_values("timestamp").reset_index(drop=True)
@@ -180,9 +178,7 @@ def massive_quotes_payload_to_dataframe(
         )
 
     if not recs:
-        return pd.DataFrame(
-            columns=[time_field, "bid_price", "bid_size", "ask_price", "ask_size", "timestamp"]
-        )
+        return pd.DataFrame(columns=[time_field, "bid_price", "bid_size", "ask_price", "ask_size", "timestamp"])
 
     df = pd.DataFrame.from_records(recs)
     df = df.sort_values(time_field).reset_index(drop=True)

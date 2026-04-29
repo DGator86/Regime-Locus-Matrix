@@ -37,4 +37,3 @@ class MarketDataProvider(Protocol):
         *,
         symbol: str,
     ) -> ProviderOptionChainResult: ...
-

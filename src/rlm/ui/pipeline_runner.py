@@ -1,4 +1,4 @@
-"""Shared bars → factors → state matrix → forecast stack for Streamlit apps."""
+"""Shared bars → factors → state matrix → forecast stack for UI/API consumers."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import pandas as pd
 
 from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.forecasting.live_model import LiveRegimeModelConfig
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
 )
+from rlm.forecasting.live_model import LiveRegimeModelConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
-from rlm.features.scoring.state_matrix import classify_state_matrix
 
 ForecastMode = Literal["deterministic", "hmm", "markov", "probabilistic"]
 
@@ -34,9 +34,9 @@ def run_feature_forecast_stack(
 ) -> tuple[pd.DataFrame | None, str | None]:
     """
     Prepare enriched feature/state data from input market bars and run the selected forecasting pipeline, returning either the forecast dataframe or an error message.
-    
+
     This function validates and enriches the provided bars, generates factor features and a classified state matrix, selects a forecast backend according to `forecast_mode`, runs that pipeline, appends a boolean `has_major_event` column (always False), and returns the resulting dataframe. All exceptions are caught and returned as an error message.
-    
+
     Parameters:
         bars (pd.DataFrame): Input market bars; must be non-empty and contain a "close" column.
         symbol (str): Underlying symbol used for bar enrichment (uppercased internally).
@@ -50,7 +50,7 @@ def run_feature_forecast_stack(
             - "probabilistic" — uses ProbabilisticForecastPipeline (may use `probabilistic_model_path`)
         live (LiveRegimeModelConfig | None): Optional live regime configuration providing model/hyperparameters; defaults to a new LiveRegimeModelConfig() when omitted.
         probabilistic_model_path (str | Path | None): Optional path to a probabilistic model artifact; only used when `forecast_mode` is "probabilistic".
-    
+
     Returns:
         tuple[pd.DataFrame | None, str | None]:
             On success, `(forecast_dataframe, None)` where `forecast_dataframe` is a copy of the pipeline output with `has_major_event = False`.

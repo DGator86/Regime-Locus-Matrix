@@ -92,6 +92,7 @@ def test_pipeline_collects_vp_signals_and_roee_uses_gating(monkeypatch) -> None:
         use_intraday_vp=True,
         use_cumulative_wyckoff=True,
         use_hybrid_confluence=True,
+        hmm_covariance_type="diag",
         roee_config=ROEEConfig(vp_gating_enabled=True),
     )
     result = FullRLMPipeline(cfg).run(bars)

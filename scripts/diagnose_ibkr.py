@@ -6,7 +6,6 @@ import argparse
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +55,7 @@ def main() -> None:
         from ibapi.client import EClient
         from ibapi.wrapper import EWrapper
     except ImportError:
-        print("ibapi: not installed. Run: python -m pip install -e \".[ibkr]\"")
+        print('ibapi: not installed. Run: python -m pip install -e ".[ibkr]"')
         sys.exit(2)
 
     errors: list[tuple[int, int, str]] = []

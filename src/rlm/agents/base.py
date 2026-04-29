@@ -19,7 +19,7 @@ from typing import Optional
 
 @dataclass
 class Message:
-    role: str   # "system" | "user" | "assistant"
+    role: str  # "system" | "user" | "assistant"
     content: str
 
 
@@ -28,18 +28,14 @@ class LLMConfig:
     backend: str = field(default_factory=lambda: os.environ.get("LLM_BACKEND", "groq"))
     model: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", ""))
     api_key: str = field(default_factory=lambda: os.environ.get("GROQ_API_KEY", ""))
-    ollama_host: str = field(
-        default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    )
+    ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     temperature: float = 0.3
     max_tokens: int = 1024
     timeout_sec: int = 60
 
     def __post_init__(self) -> None:
         if not self.model:
-            self.model = (
-                "llama-3.3-70b-versatile" if self.backend == "groq" else "llama3.2"
-            )
+            self.model = "llama-3.3-70b-versatile" if self.backend == "groq" else "llama3.2"
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -71,9 +67,7 @@ class LLMClient:
     # ------------------------------------------------------------------
     def _call_groq(self, messages: list[dict]) -> str:
         if not self.cfg.api_key:
-            raise RuntimeError(
-                "GROQ_API_KEY not set. Get a free key at console.groq.com and add it to .env"
-            )
+            raise RuntimeError("GROQ_API_KEY not set. Get a free key at console.groq.com and add it to .env")
         payload = {
             "model": self.cfg.model,
             "messages": messages,
@@ -119,6 +113,5 @@ class LLMClient:
                 return str(result["message"]["content"])
         except urllib.error.URLError as exc:
             raise RuntimeError(
-                f"Ollama unreachable at {self.cfg.ollama_host}: {exc}. "
-                "Is Ollama running? `ollama serve`"
+                f"Ollama unreachable at {self.cfg.ollama_host}: {exc}. " "Is Ollama running? `ollama serve`"
             ) from exc

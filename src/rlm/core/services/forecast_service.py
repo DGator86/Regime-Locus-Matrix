@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -35,7 +35,21 @@ _OUTPUT_COLUMNS = [
     "forecast_source",
     "hmm_state",
     "hmm_state_label",
+    "hmm_confidence",
+    "hmm_regime_transition_entropy",
+    "hmm_expected_persistence",
+    "hmm_most_likely_next_state",
+    "hmm_most_likely_next_prob",
+    "hmm_most_likely_next_prob_calibrated",
+    "hmm_most_likely_next_label",
     "markov_state",
+    "markov_confidence",
+    "markov_regime_transition_entropy",
+    "markov_expected_persistence",
+    "markov_most_likely_next_state",
+    "markov_most_likely_next_prob",
+    "markov_most_likely_next_prob_calibrated",
+    "markov_most_likely_next_label",
     "markov_state_label",
     "kronos_confidence",
     "kronos_regime_agreement",
@@ -127,16 +141,14 @@ class ForecastService:
             return {}
 
         available = [c for c in _OUTPUT_COLUMNS if c in result.forecast_df.columns]
-        tail = result.forecast_df[available].tail(1)
+        result.forecast_df[available].tail(1)
 
         last_policy = result.policy_df.iloc[-1] if not result.policy_df.empty else None
         summary: dict = {
             "rows": len(result.forecast_df),
             "action": last_policy.get("roee_action") if last_policy is not None else None,
             "strategy": last_policy.get("roee_strategy") if last_policy is not None else None,
-            "size_fraction": (
-                last_policy.get("roee_size_fraction") if last_policy is not None else None
-            ),
+            "size_fraction": (last_policy.get("roee_size_fraction") if last_policy is not None else None),
         }
         if result.backtest_metrics:
             summary["backtest"] = result.backtest_metrics

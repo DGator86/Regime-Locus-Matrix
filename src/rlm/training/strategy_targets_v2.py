@@ -41,9 +41,7 @@ def simulate_strategy_target_row_v2(
     entry_sigma = max(_safe_float(row, "sigma", 0.01), 1e-4)
     liquidity_score = _safe_float(row, "M_L", 5.0)
     trend_strength = abs(_safe_float(row, "M_trend_strength", 0.0))
-    realized_vol = (
-        float(np.std(np.diff(np.log(np.maximum(path, 1e-8))), ddof=0)) if len(path) > 1 else 0.0
-    )
+    realized_vol = float(np.std(np.diff(np.log(np.maximum(path, 1e-8))), ddof=0)) if len(path) > 1 else 0.0
     final_price = float(path[-1])
 
     width_abs = max(strike_increment, 0.25)
@@ -81,12 +79,8 @@ def simulate_strategy_target_row_v2(
 
     transition_penalty = 0.01 * abs(_safe_float(row, "M_R_trans", 0.0))
     scores = {
-        "bull_call_spread": _normalize_target(
-            bull_value, bull.max_risk, bull.entry_price, slippage, 0.0
-        ),
-        "bear_put_spread": _normalize_target(
-            bear_value, bear.max_risk, bear.entry_price, slippage, 0.0
-        ),
+        "bull_call_spread": _normalize_target(bull_value, bull.max_risk, bull.entry_price, slippage, 0.0),
+        "bear_put_spread": _normalize_target(bear_value, bear.max_risk, bear.entry_price, slippage, 0.0),
         "iron_condor": _normalize_target(
             condor_value,
             condor.max_risk,

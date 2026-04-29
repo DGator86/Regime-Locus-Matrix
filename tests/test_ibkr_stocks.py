@@ -13,6 +13,7 @@ from rlm.data import ibkr_stocks
 
 
 def test_load_ibkr_socket_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ibkr_stocks, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.delenv("IBKR_HOST", raising=False)
     monkeypatch.delenv("IBKR_PORT", raising=False)
     monkeypatch.delenv("IBKR_CLIENT_ID", raising=False)

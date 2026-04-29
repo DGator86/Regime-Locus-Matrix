@@ -1,0 +1,21 @@
+# Copy to /etc/systemd/system/rlm-master-trader.service, adjust paths if needed.
+# First-time PDT challenge: cd repo && rlm challenge --reset --symbol SPY
+# Then: systemctl daemon-reload && systemctl enable --now rlm-master-trader
+
+[Unit]
+Description=RLM Master Trader (Options dry-run + Equity paper + PDT challenge)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+EnvironmentFile=/opt/Regime-Locus-Matrix/.env
+Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/rlm-venv/bin/python scripts/run_everything.py --master --with-equity --equity-use-account-scale --with-challenge
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -6,13 +6,14 @@ Pulls news articles from providers like Finnhub.
 from __future__ import annotations
 
 import datetime
+
 import pandas as pd
-from typing import Any
 
 try:
     import finnhub
 except ImportError:
     finnhub = None
+
 
 class NewsFetcher:
     def __init__(self, api_key: str, source: str = "finnhub"):
@@ -32,7 +33,7 @@ class NewsFetcher:
 
         end = datetime.datetime.now()
         start = end - datetime.timedelta(hours=lookback_hours)
-        
+
         # Finnhub expects YYYY-MM-DD
         start_str = start.strftime("%Y-%m-%d")
         end_str = end.strftime("%Y-%m-%d")
@@ -57,5 +58,5 @@ class NewsFetcher:
         if "datetime" in df.columns:
             threshold = start.timestamp()
             df = df[df["datetime"] >= threshold]
-            
+
         return df

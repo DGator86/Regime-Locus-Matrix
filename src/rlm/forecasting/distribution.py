@@ -30,7 +30,7 @@ def compute_baseline_vol_scale(
     """
     returns = close.pct_change()
 
-    rolling_med = returns.rolling(window=window, min_periods=max(10, window // 3)).median()
+    returns.rolling(window=window, min_periods=max(10, window // 3)).median()
 
     def _mad(x: np.ndarray) -> float:
         x = np.asarray(x, dtype=float)
@@ -81,12 +81,7 @@ def compute_sigma(
     cfg = config or ForecastConfig()
 
     s_g = s_g.fillna(0.0)
-    raw_sigma = (
-        b_sigma
-        * (0.5 + 0.5 * s_v)
-        * (1.4 - 0.7 * s_l)
-        * (1.15 - 0.45 * s_g)
-    )
+    raw_sigma = b_sigma * (0.5 + 0.5 * s_v) * (1.4 - 0.7 * s_l) * (1.15 - 0.45 * s_g)
 
     return raw_sigma.apply(lambda x: sigma_floor(x, cfg.sigma_floor))
 

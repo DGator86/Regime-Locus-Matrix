@@ -5,10 +5,6 @@ from rlm.volume_profile.auction_metrics import (
     effort_result_divergence,
     value_area_migration,
 )
-from rlm.volume_profile.profile_calculator import (
-    calculate_volume_profile,
-    identify_nodes,
-)
 from rlm.volume_profile.cumulative_wyckoff import (
     cumulative_effort_result,
     detect_absorption_climax,
@@ -25,6 +21,10 @@ from rlm.volume_profile.hybrid_confluence import (
     vp_gex_confluence,
 )
 from rlm.volume_profile.microstructure_vp import compute_intraday_vp, rolling_intraday_vp
+from rlm.volume_profile.profile_calculator import (
+    calculate_volume_profile,
+    identify_nodes,
+)
 from rlm.volume_profile.session_profiles import get_session_profile, overlap_zones
 from rlm.volume_profile.trade_models import (
     core_value_supply_demand,

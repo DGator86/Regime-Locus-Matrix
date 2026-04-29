@@ -127,9 +127,7 @@ class BacktestService:
     # Internal
     # ------------------------------------------------------------------
 
-    def _run_walkforward(
-        self, req: BacktestRequest, cfg: FullRLMConfig, base_result: PipelineResult
-    ) -> PipelineResult:
+    def _run_walkforward(self, req: BacktestRequest, cfg: FullRLMConfig, base_result: PipelineResult) -> PipelineResult:
         from rlm.backtest.walkforward import WalkForwardConfig, WalkForwardEngine
 
         out_dir = req.out_dir if req.out_dir is not None else get_processed_data_dir()

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.factors import FactorPipeline
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.types.forecast import ForecastConfig

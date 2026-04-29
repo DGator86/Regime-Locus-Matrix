@@ -66,7 +66,7 @@ def summarize_backtest(
 
     out = {
         "final_equity": float(equity.iloc[-1]),
-        "total_return_pct": float(equity.iloc[-1] / equity.iloc[0] - 1.0) if equity.iloc[0] != 0 else np.nan,
+        "total_return_pct": (float(equity.iloc[-1] / equity.iloc[0] - 1.0) if equity.iloc[0] != 0 else np.nan),
         "max_drawdown": compute_max_drawdown(equity),
         "sharpe": compute_sharpe(returns),
     }
@@ -76,7 +76,9 @@ def summarize_backtest(
         out["win_rate"] = compute_win_rate(trades_frame["pnl"])
         out["profit_factor"] = compute_profit_factor(trades_frame["pnl"])
         out["avg_trade_pnl"] = float(trades_frame["pnl"].mean())
-        out["avg_trade_pnl_pct"] = float(trades_frame["pnl_pct"].mean()) if "pnl_pct" in trades_frame.columns else np.nan
+        out["avg_trade_pnl_pct"] = (
+            float(trades_frame["pnl_pct"].mean()) if "pnl_pct" in trades_frame.columns else np.nan
+        )
         out["expectancy"] = compute_expectancy(trades_frame["pnl"])
 
     return out
@@ -113,7 +115,7 @@ def summarize_by_regime(
             "avg_return": float(pnl.mean()),
             "expectancy": compute_expectancy(pnl),
             "profit_factor": compute_profit_factor(pnl),
-            "max_drawdown": float(pnl.cumsum().sub(pnl.cumsum().cummax()).min()) if len(pnl) > 1 else np.nan,
+            "max_drawdown": (float(pnl.cumsum().sub(pnl.cumsum().cummax()).min()) if len(pnl) > 1 else np.nan),
         }
         if pnl_pct_col is not None:
             pnl_pct = group[pnl_pct_col]
@@ -141,6 +143,5 @@ def gate_regimes_by_expectancy(
     return {
         regime
         for regime, stats in regime_stats.items()
-        if np.isfinite(stats.get("expectancy", np.nan))
-        and stats["expectancy"] < expectancy_floor
+        if np.isfinite(stats.get("expectancy", np.nan)) and stats["expectancy"] < expectancy_floor
     }

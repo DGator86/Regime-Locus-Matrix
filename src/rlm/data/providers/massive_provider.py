@@ -51,4 +51,3 @@ class MassiveProvider:
             source=self.source,
             metadata={"rows": 0 if chain is None else len(chain)},
         )
-

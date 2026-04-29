@@ -42,6 +42,7 @@ dev = [
     "black",
     "ruff",
     "mypy",
+    "scikit-learn>=1.3.0",
 ]
 # Kronos foundation-model forecast layer
 # Install: pip install -e ".[kronos]"
@@ -62,11 +63,8 @@ microstructure = [
 telegram = [
     "python-telegram-bot>=20",
 ]
-# Streamlit apps (terminal, control center, dashboards)
+# Legacy UI group (Streamlit removed — Next.js dashboard in dashboard/)
 ui = [
-    "streamlit>=1.33.0",
-    "streamlit-aggrid>=1.0.0",
-    "streamlit-option-menu>=0.3.6",
     "kaleido>=0.2.1",
 ]
 # IBKR TWS API — equity history + combo order execution
@@ -119,9 +117,6 @@ all = [
     "tqdm>=4.66.0",
     "duckdb>=0.10.0",
     "pyarrow>=14.0.0",
-    "streamlit>=1.33.0",
-    "streamlit-aggrid>=1.0.0",
-    "streamlit-option-menu>=0.3.6",
     "kaleido>=0.2.1",
     "boto3",
     "polygon-api-client",
@@ -132,11 +127,20 @@ all = [
 ]
 
 [tool.black]
-line-length = 100
+line-length = 120
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+# Line length is handled by Black; long docstrings / help strings are allowed.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# CLI / tests often tweak sys.path before importing project modules.
+"scripts/**" = ["E402"]
+"tests/**" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

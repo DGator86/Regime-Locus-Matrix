@@ -98,9 +98,7 @@ def calculate_volume_profile(df: pd.DataFrame, price_precision: int = 400) -> di
     }
 
 
-def identify_nodes(
-    volume_profile_series: pd.Series, threshold_std: float = 1.0
-) -> dict[str, list[float]]:
+def identify_nodes(volume_profile_series: pd.Series, threshold_std: float = 1.0) -> dict[str, list[float]]:
     """Identify high-volume and low-volume nodes from a profile series."""
 
     profile = volume_profile_series.dropna().astype(float)

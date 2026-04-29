@@ -16,9 +16,7 @@ if str(SRC) not in sys.path:
 from rlm.notify.pnl_report import calculate_daily_pnl  # noqa: E402
 
 
-def test_eod_report_open_closed_and_worst_symbols(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_eod_report_open_closed_and_worst_symbols(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
     h = (
@@ -54,9 +52,7 @@ def _ts(y: int, m: int, d: int, hour: int, minute: int = 0) -> str:
     return datetime(y, m, d, hour, minute, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def test_small_session_exits_line_has_newline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_small_session_exits_line_has_newline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exits line must end with newline even when n_plan <= 30 (mtm_note suppressed)."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -76,9 +72,7 @@ def test_small_session_exits_line_has_newline(
     assert "\n  unique plan_id:" in text
 
 
-def test_exit_payoff_ratio_shown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_exit_payoff_ratio_shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Payoff ratio line appears when there are both wins and losses in closed exits."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -87,9 +81,9 @@ def test_exit_payoff_ratio_shown(
         "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
     )
     rows = [
-        f"{_ts(2026, 4, 24, 18)},win1,SPY,x,1,1,1.0,1.0,200.0,2,tp,1,0\n",   # closed win +200
+        f"{_ts(2026, 4, 24, 18)},win1,SPY,x,1,1,1.0,1.0,200.0,2,tp,1,0\n",  # closed win +200
         f"{_ts(2026, 4, 24, 18)},lose1,QQQ,x,1,1,0.5,0.5,-100.0,-1,stop,1,0\n",  # closed loss -100
-        f"{_ts(2026, 4, 24, 18)},lose2,IWM,x,1,1,0.5,0.5,-50.0,-1,stop,1,0\n",   # closed loss -50
+        f"{_ts(2026, 4, 24, 18)},lose2,IWM,x,1,1,0.5,0.5,-50.0,-1,stop,1,0\n",  # closed loss -50
     ]
     (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
     fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
@@ -100,9 +94,7 @@ def test_exit_payoff_ratio_shown(
     assert "2.67x" in text  # avg win 200 / avg loss 75 = 2.666...
 
 
-def test_concentration_warning_shown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_concentration_warning_shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Concentration line fires when one symbol >= 40% of total session loss."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -112,7 +104,7 @@ def test_concentration_warning_shown(
     )
     rows = [
         f"{_ts(2026, 4, 24, 18)},m1,META,x,1,1,0.5,0.5,-500.0,-1,hold,0,5\n",  # META big loss
-        f"{_ts(2026, 4, 24, 18)},s1,SPY,x,1,1,0.9,0.9,-100.0,-1,hold,0,5\n",   # SPY small loss
+        f"{_ts(2026, 4, 24, 18)},s1,SPY,x,1,1,0.9,0.9,-100.0,-1,hold,0,5\n",  # SPY small loss
     ]
     (dproc / "trade_log.csv").write_text(h + "".join(rows), encoding="utf-8")
     fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
@@ -124,9 +116,7 @@ def test_concentration_warning_shown(
     assert "83%" in text  # 500 / 600 = 83.3%
 
 
-def test_concentration_warning_not_shown_when_spread(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_concentration_warning_not_shown_when_spread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No concentration warning when no single symbol dominates."""
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
@@ -147,9 +137,7 @@ def test_concentration_warning_not_shown_when_spread(
     assert "Concentration" not in text
 
 
-def test_eod_includes_challenge_when_state_exists(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_eod_includes_challenge_when_state_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)
     (dproc / "trade_log.csv").write_text(
@@ -159,10 +147,7 @@ def test_eod_includes_challenge_when_state_exists(
     )
     ch = tmp_path / "data" / "challenge"
     ch.mkdir(parents=True)
-    ch_state = (
-        '{"balance": 1100, "seed": 1000, "target": 25000, '
-        '"open_positions": [], "trade_history": []}'
-    )
+    ch_state = '{"balance": 1100, "seed": 1000, "target": 25000, ' '"open_positions": [], "trade_history": []}'
     (ch / "state.json").write_text(ch_state, encoding="utf-8")
     fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
     monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)

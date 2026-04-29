@@ -27,11 +27,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.factors.pipeline import FactorPipeline
+from rlm.optimization.tuning import random_search_forecast_params
+
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv
-from rlm.factors.pipeline import FactorPipeline
-from rlm.optimization.tuning import random_search_forecast_params
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,9 +60,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-trades", type=int, default=15)
     p.add_argument("--drawdown-penalty", type=float, default=0.75)
     p.add_argument("--use-hmm", action="store_true", help="Slower: refit HMM each trial")
-    p.add_argument(
-        "--use-markov", action="store_true", help="Refit Markov-switching model each trial"
-    )
+    p.add_argument("--use-markov", action="store_true", help="Refit Markov-switching model each trial")
     p.add_argument("--hmm-states", type=_state_count, default=6)
     p.add_argument("--hmm-iterations", type=int, default=100)
     p.add_argument("--hmm-filter-backend", choices=("auto", "numpy", "numba"), default="auto")
@@ -160,9 +159,7 @@ def main() -> int:
         "symbol": sym,
         "best_score": best_score,
         "best_params": best_params,
-        "best_summary": {
-            k: float(v) for k, v in best_summary.items() if isinstance(v, (int, float))
-        },
+        "best_summary": {k: float(v) for k, v in best_summary.items() if isinstance(v, (int, float))},
         "top": [
             {
                 "score": float(r[0]),

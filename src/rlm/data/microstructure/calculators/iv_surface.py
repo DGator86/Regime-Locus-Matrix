@@ -27,26 +27,47 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
-from scipy.interpolate import RectBivariateSpline, griddata
 
+if TYPE_CHECKING:
+    import duckdb
+from scipy.interpolate import griddata
 
 # ---------------------------------------------------------------------------
 # Grid configuration
 # ---------------------------------------------------------------------------
 
-_MONEYNESS_GRID = np.linspace(0.50, 1.50, 60)    # K/S from deep ITM to deep OTM
-_DTE_GRID = np.array([                             # Key DTE breakpoints (non-linear)
-    1, 2, 3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180, 270, 365
-], dtype=float)
+_MONEYNESS_GRID = np.linspace(0.50, 1.50, 60)  # K/S from deep ITM to deep OTM
+_DTE_GRID = np.array(
+    [  # Key DTE breakpoints (non-linear)
+        1,
+        2,
+        3,
+        5,
+        7,
+        10,
+        14,
+        21,
+        30,
+        45,
+        60,
+        90,
+        120,
+        180,
+        270,
+        365,
+    ],
+    dtype=float,
+)
 
 
 # ---------------------------------------------------------------------------
 # Surface construction
 # ---------------------------------------------------------------------------
+
 
 def build_iv_surface(
     snapshot: pd.DataFrame,
@@ -92,9 +113,12 @@ def build_iv_surface(
     # Clean: drop NaN IV, extreme moneyness / DTE, and zero IV
     df = df.dropna(subset=["implied_vol", "moneyness", "dte"])
     df = df[
-        (df["implied_vol"] > 0.01) & (df["implied_vol"] < 5.0)  # 1%-500% IV range
-        & (df["moneyness"] >= 0.50) & (df["moneyness"] <= 1.50)
-        & (df["dte"] >= 1) & (df["dte"] <= 365)
+        (df["implied_vol"] > 0.01)
+        & (df["implied_vol"] < 5.0)  # 1%-500% IV range
+        & (df["moneyness"] >= 0.50)
+        & (df["moneyness"] <= 1.50)
+        & (df["dte"] >= 1)
+        & (df["dte"] <= 365)
     ]
 
     raw_count = len(df)
@@ -117,20 +141,22 @@ def build_iv_surface(
         grid_m, grid_d = np.meshgrid(_MONEYNESS_GRID, _DTE_GRID)
         grid_iv = np.full(grid_m.shape, float("nan"))
 
-    surface = pd.DataFrame({
-        "timestamp": str(timestamp),
-        "underlying_symbol": underlying_symbol,
-        "moneyness": grid_m.ravel(),
-        "days_to_expiry": grid_d.ravel(),
-        "implied_vol": grid_iv.ravel(),
-        "raw_iv_count": raw_count,
-    }).dropna(subset=["implied_vol"])
+    surface = pd.DataFrame(
+        {
+            "timestamp": str(timestamp),
+            "underlying_symbol": underlying_symbol,
+            "moneyness": grid_m.ravel(),
+            "days_to_expiry": grid_d.ravel(),
+            "implied_vol": grid_iv.ravel(),
+            "raw_iv_count": raw_count,
+        }
+    ).dropna(subset=["implied_vol"])
 
     return surface.reset_index(drop=True)
 
 
 def build_iv_surface_from_parquet(
-    conn: "duckdb.DuckDBPyConnection",
+    conn: duckdb.DuckDBPyConnection,
     *,
     symbol: str,
     timestamp: "str | pd.Timestamp",
@@ -168,6 +194,7 @@ def build_iv_surface_from_parquet(
 # Surface query
 # ---------------------------------------------------------------------------
 
+
 def query_iv_surface(
     surface: pd.DataFrame,
     *,
@@ -189,7 +216,7 @@ def query_iv_surface(
 
     dm = (surface["moneyness"] - moneyness) / m_range
     dd = (surface["days_to_expiry"] - dte) / d_range
-    dist = dm ** 2 + dd ** 2
+    dist = dm**2 + dd**2
 
     idx = dist.idxmin()
     return float(surface.loc[idx, "implied_vol"])
@@ -219,6 +246,7 @@ def term_structure(surface: pd.DataFrame, moneyness: float = 1.0) -> pd.Series:
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
 
 def save_iv_surface(surface: pd.DataFrame, symbol: str, data_path: str = "data/microstructure") -> None:
     """Persist IV surface to date-partitioned Parquet."""

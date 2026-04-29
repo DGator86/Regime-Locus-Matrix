@@ -1,4 +1,5 @@
 """Tests for the expiry settlement module."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,26 +21,34 @@ from rlm.backtest.expiry import (
 
 class TestLegIntrinsicValue:
     def test_long_call_itm(self) -> None:
-        assert leg_intrinsic_value(side="long", option_type="call", strike=100.0, underlying_price=110.0) == pytest.approx(10.0)
+        assert leg_intrinsic_value(
+            side="long", option_type="call", strike=100.0, underlying_price=110.0
+        ) == pytest.approx(10.0)
 
     def test_long_call_otm(self) -> None:
         assert leg_intrinsic_value(side="long", option_type="call", strike=100.0, underlying_price=90.0) == 0.0
 
     def test_short_call_itm(self) -> None:
         # Short ITM call: negative contribution (portfolio owes)
-        assert leg_intrinsic_value(side="short", option_type="call", strike=100.0, underlying_price=115.0) == pytest.approx(-15.0)
+        assert leg_intrinsic_value(
+            side="short", option_type="call", strike=100.0, underlying_price=115.0
+        ) == pytest.approx(-15.0)
 
     def test_short_call_otm(self) -> None:
         assert leg_intrinsic_value(side="short", option_type="call", strike=100.0, underlying_price=95.0) == 0.0
 
     def test_long_put_itm(self) -> None:
-        assert leg_intrinsic_value(side="long", option_type="put", strike=100.0, underlying_price=85.0) == pytest.approx(15.0)
+        assert leg_intrinsic_value(
+            side="long", option_type="put", strike=100.0, underlying_price=85.0
+        ) == pytest.approx(15.0)
 
     def test_long_put_otm(self) -> None:
         assert leg_intrinsic_value(side="long", option_type="put", strike=100.0, underlying_price=105.0) == 0.0
 
     def test_short_put_itm(self) -> None:
-        assert leg_intrinsic_value(side="short", option_type="put", strike=100.0, underlying_price=90.0) == pytest.approx(-10.0)
+        assert leg_intrinsic_value(
+            side="short", option_type="put", strike=100.0, underlying_price=90.0
+        ) == pytest.approx(-10.0)
 
     def test_short_put_otm(self) -> None:
         assert leg_intrinsic_value(side="short", option_type="put", strike=100.0, underlying_price=110.0) == 0.0

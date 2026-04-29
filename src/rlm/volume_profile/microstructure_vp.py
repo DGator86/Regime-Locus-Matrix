@@ -55,11 +55,7 @@ def _normalize_bars(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_intraday_vp(symbol: str, date: datetime, lookback_bars: int = 500) -> dict[str, Any]:
     """Compute intraday VP on the latest 5-second bars ending at ``date``."""
-    end_ts = (
-        pd.Timestamp(date, tz="UTC")
-        if pd.Timestamp(date).tzinfo is None
-        else pd.Timestamp(date).tz_convert("UTC")
-    )
+    end_ts = pd.Timestamp(date, tz="UTC") if pd.Timestamp(date).tzinfo is None else pd.Timestamp(date).tz_convert("UTC")
     start_date = (end_ts - timedelta(days=2)).date().isoformat()
     end_date = end_ts.date().isoformat()
 

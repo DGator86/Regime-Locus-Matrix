@@ -1,0 +1,60 @@
+{
+  "model": "hmm",
+  "forecast": {
+    "drift_gamma_alpha": 0.65,
+    "sigma_floor": 0.0001,
+    "direction_neutral_threshold": 0.3,
+    "move_window": 100,
+    "vol_window": 100
+  },
+  "roee": {
+    "confidence_threshold": 0.6,
+    "sizing_multiplier": 1.0,
+    "transition_penalty": 0.5,
+    "use_dynamic_sizing": false,
+    "vol_target": 0.15,
+    "max_kelly_fraction": 0.25,
+    "max_capital_fraction": 0.5,
+    "high_vol_kelly_multiplier": 0.5,
+    "transition_kelly_multiplier": 0.75,
+    "calm_trend_kelly_multiplier": 1.25
+  },
+  "hmm": {
+    "n_states": 6,
+    "n_iter": 100,
+    "filter_backend": "auto",
+    "prefer_gpu": false,
+    "transition_pseudocount": 0.1,
+    "hierarchical": true,
+    "macro_weight": 0.45,
+    "micro_timeframes": [
+      "5min",
+      "1min"
+    ]
+  },
+  "markov": {
+    "n_states": 3,
+    "switching_variance": true,
+    "trend": "c",
+    "transition_pseudocount": 0.1,
+    "hierarchical": true,
+    "macro_weight": 0.45,
+    "micro_timeframes": [
+      "5min",
+      "1min"
+    ]
+  },
+  "use_kronos": false,
+  "kronos": {
+    "model_name": "NeoQuasar/Kronos-small",
+    "tokenizer_name": "NeoQuasar/Kronos-Tokenizer-base",
+    "device": null,
+    "max_context": 512,
+    "lookback": 200,
+    "pred_len": 1,
+    "sample_count": 5,
+    "stride": 1,
+    "weight": 0.35
+  },
+  "provenance": {}
+}
