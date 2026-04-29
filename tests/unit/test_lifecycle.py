@@ -39,9 +39,7 @@ def _decision_with_one_leg(expiry: str = "2025-01-12", size_fraction: float | No
 def test_lifecycle_dte_helpers() -> None:
     cfg = LifecycleConfig(force_close_dte=1)
     assert days_to_expiry(timestamp=pd.Timestamp("2025-01-10"), expiry="2025-01-12") == 2
-    assert should_force_close_before_expiry(
-        timestamp=pd.Timestamp("2025-01-11"), expiry="2025-01-12", config=cfg
-    )
+    assert should_force_close_before_expiry(timestamp=pd.Timestamp("2025-01-11"), expiry="2025-01-12", config=cfg)
     assert is_at_or_past_expiry(timestamp=pd.Timestamp("2025-01-12"), expiry="2025-01-12")
 
 
@@ -171,7 +169,10 @@ def test_engine_forces_close_before_expiry(monkeypatch) -> None:
 
     monkeypatch.setattr("rlm.backtest.engine.decide_trade_for_bar", lambda row, **_: _decision_with_one_leg())
     monkeypatch.setattr("rlm.backtest.engine.match_legs_to_chain", lambda decision, chain_slice: decision)
-    monkeypatch.setattr("rlm.backtest.engine.select_nearest_expiry_slice", lambda row_chain, dte_min, dte_max: row_chain)
+    monkeypatch.setattr(
+        "rlm.backtest.engine.select_nearest_expiry_slice",
+        lambda row_chain, dte_min, dte_max: row_chain,
+    )
 
     engine = BacktestEngine(
         lifecycle_config=LifecycleConfig(

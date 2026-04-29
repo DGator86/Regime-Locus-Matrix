@@ -16,7 +16,6 @@ recommended actions in plain English.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -27,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from rlm.agents.base import LLMClient, LLMConfig, Message
+from rlm.agents.base import LLMClient, Message
 from rlm.utils.market_hours import is_scanner_window_open, session_label
 
 # -----------------------------------------------------------------------
@@ -64,9 +63,9 @@ _restart_last_mono: dict[str, float] = {}
 
 # Artefact staleness thresholds
 _STALE_HOURS = {
-    "universe_trade_plans.json": 2.0,
-    "trade_log.csv": 4.0,
-    "equity_positions_state.json": 4.0,
+    "universe_trade_plans.json": 0.1,  # ~6 mins
+    "trade_log.csv": 0.1,
+    "equity_positions_state.json": 0.1,
 }
 
 
@@ -162,7 +161,7 @@ class ScottyAgent:
         report.session = session_label()
 
         scanner_open = is_scanner_window_open()
-        
+
         # Determine degradation
         # We only care about regime-locus-master being dead if the scanner window is open.
         service_issues = []
@@ -176,9 +175,7 @@ class ScottyAgent:
                 service_issues.append(s.name)
 
         degraded = (
-            bool(service_issues)
-            or any(d.pct > 90 for d in report.disk)
-            or (scanner_open and bool(report.stale_files))
+            bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
         )
         report.overall_ok = not degraded
         return report
@@ -188,10 +185,16 @@ class ScottyAgent:
         for name in self.services:
             try:
                 r = subprocess.run(
-                    ["systemctl", "show", f"{name}.service",
-                     "--property=ActiveState,SubState,LoadState",
-                     "--no-pager"],
-                    capture_output=True, text=True, timeout=5,
+                    [
+                        "systemctl",
+                        "show",
+                        f"{name}.service",
+                        "--property=ActiveState,SubState,LoadState",
+                        "--no-pager",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 props: dict[str, str] = {}
                 for line in r.stdout.splitlines():
@@ -199,17 +202,23 @@ class ScottyAgent:
                         k, _, v = line.partition("=")
                         props[k.strip()] = v.strip()
                 active = props.get("ActiveState", "") == "active"
-                results.append(ServiceStatus(
-                    name=name,
-                    active=active,
-                    sub_state=props.get("SubState", "unknown"),
-                    load_state=props.get("LoadState", "unknown"),
-                ))
+                results.append(
+                    ServiceStatus(
+                        name=name,
+                        active=active,
+                        sub_state=props.get("SubState", "unknown"),
+                        load_state=props.get("LoadState", "unknown"),
+                    )
+                )
             except Exception as exc:
-                results.append(ServiceStatus(
-                    name=name, active=False,
-                    sub_state="error", load_state=str(exc)[:60],
-                ))
+                results.append(
+                    ServiceStatus(
+                        name=name,
+                        active=False,
+                        sub_state="error",
+                        load_state=str(exc)[:60],
+                    )
+                )
         return results
 
     def _check_disk(self) -> list[DiskUsage]:
@@ -225,12 +234,14 @@ class ScottyAgent:
                 usage = shutil.disk_usage(p)
                 total_gb = usage.total / 1e9
                 used_gb = usage.used / 1e9
-                results.append(DiskUsage(
-                    path=p,
-                    used_gb=used_gb,
-                    total_gb=total_gb,
-                    pct=100 * usage.used / usage.total,
-                ))
+                results.append(
+                    DiskUsage(
+                        path=p,
+                        used_gb=used_gb,
+                        total_gb=total_gb,
+                        pct=100 * usage.used / usage.total,
+                    )
+                )
             except Exception:
                 pass
         return results
@@ -259,9 +270,18 @@ class ScottyAgent:
         for service in self._journal_services():
             try:
                 r = subprocess.run(
-                    ["journalctl", "-u", f"{service}.service",
-                     "-n", str(lines), "--no-pager", "-q"],
-                    capture_output=True, text=True, timeout=10,
+                    [
+                        "journalctl",
+                        "-u",
+                        f"{service}.service",
+                        "-n",
+                        str(lines),
+                        "--no-pager",
+                        "-q",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 for line in r.stdout.splitlines():
                     low = line.lower()
@@ -296,7 +316,9 @@ class ScottyAgent:
             python = self._resolve_doctor_python()
             r = subprocess.run(
                 [python, "-m", "rlm", "doctor", "--strict"],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
                 cwd=str(self.root),
                 env={**os.environ, "PYTHONPATH": str(self.root / "src")},
             )

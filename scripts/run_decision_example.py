@@ -48,7 +48,10 @@ def main() -> int:
     for leg in decision.legs or []:
         print(f"  {leg.side} {leg.option_type} @ {leg.strike}")
     if decision.metadata:
-        print("METADATA:", {k: decision.metadata[k] for k in sorted(decision.metadata) if k != "confidence"})
+        print(
+            "METADATA:",
+            {k: decision.metadata[k] for k in sorted(decision.metadata) if k != "confidence"},
+        )
         if "confidence" in decision.metadata:
             print("  confidence:", decision.metadata["confidence"])
     return 0

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from rlm.challenge.models import (
     ChallengeAccountState,
-    ChallengeConfig,
     ChallengeDirective,
+    ChallengePipelineConfig,
     ContractProfileRecommendation,
     PDTTracker,
     RiskPlan,
@@ -24,7 +24,7 @@ class ChallengeDecisionPipeline:
 
     Usage::
 
-        from rlm.challenge import ChallengeDecisionPipeline, ChallengeConfig
+        from rlm.challenge import ChallengeDecisionPipeline, ChallengePipelineConfig
         from rlm.challenge.state import ChallengeStateManager
 
         mgr = ChallengeStateManager()
@@ -33,8 +33,8 @@ class ChallengeDecisionPipeline:
         directive = pipeline.run("SPY", persona_result, state, pdt)
     """
 
-    def __init__(self, config: ChallengeConfig | None = None) -> None:
-        self._cfg = config or ChallengeConfig()
+    def __init__(self, config: ChallengePipelineConfig | None = None) -> None:
+        self._cfg = config or ChallengePipelineConfig()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -56,7 +56,7 @@ class ChallengeDecisionPipeline:
 
         # 1. Persona veto passthrough
         if persona.sisko.directive == "no_trade":
-            return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.reason}")
+            return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.entry_policy}")
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
@@ -121,7 +121,7 @@ class ChallengeDecisionPipeline:
             + cfg.weight_signal_alignment * s.signal_alignment
             + cfg.weight_historical_edge * d.historical_edge
             + cfg.weight_dealer_support * dealer_support
-            - 0.30 * g.trap_risk          # trap penalty
+            - 0.30 * g.trap_risk  # trap penalty
         )
         score = max(0.0, min(1.0, raw_score))
 
@@ -150,7 +150,6 @@ class ChallengeDecisionPipeline:
     # ------------------------------------------------------------------
 
     def _decide_mode(self, score: SetupScoreResult, pdt: PDTTracker) -> TradeModeDecision:
-        cfg = self._cfg
 
         if score.conviction == "elite" and pdt.same_day_exit_allowed:
             return TradeModeDecision(
@@ -216,15 +215,23 @@ class ChallengeDecisionPipeline:
     def _no_trade(self, symbol: str, pdt: PDTTracker, reason: str) -> ChallengeDirective:
         cfg = self._cfg
         empty_profile = ContractProfileRecommendation(
-            target_delta_min=0.0, target_delta_max=0.0,
-            preferred_dte_min=0, preferred_dte_max=0,
-            max_spread_pct=0.0, liquidity_tier="low", note="n/a",
+            target_delta_min=0.0,
+            target_delta_max=0.0,
+            preferred_dte_min=0,
+            preferred_dte_max=0,
+            max_spread_pct=0.0,
+            liquidity_tier="low",
+            note="n/a",
         )
         empty_risk = RiskPlan(
-            premium_outlay_pct=0.0, max_account_loss_pct=0.0,
-            hard_stop_pct=cfg.hard_stop_pct, trail_activate_pct=cfg.trail_activate_pct,
-            trail_drawdown_pct=cfg.trail_drawdown_pct, profit_target_pct=cfg.profit_target_pct,
-            partial_take_pct=cfg.partial_take_pct, use_underlying_invalidation=False,
+            premium_outlay_pct=0.0,
+            max_account_loss_pct=0.0,
+            hard_stop_pct=cfg.hard_stop_pct,
+            trail_activate_pct=cfg.trail_activate_pct,
+            trail_drawdown_pct=cfg.trail_drawdown_pct,
+            profit_target_pct=cfg.profit_target_pct,
+            partial_take_pct=cfg.partial_take_pct,
+            use_underlying_invalidation=False,
             force_close_dte_threshold=1,
         )
         return ChallengeDirective(

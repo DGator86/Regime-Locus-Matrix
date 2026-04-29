@@ -36,8 +36,8 @@ import tkinter as tk
 from tkinter import ttk
 
 import pandas as pd
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import dates as mdates
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -335,7 +335,7 @@ def performance_stats(df: pd.DataFrame) -> dict[str, float | int]:
     pnl = df["pnl"]
     wins = pnl[pnl > 0]
     losses = pnl[pnl < 0]
-    flat = pnl[pnl == 0]
+    pnl[pnl == 0]
 
     gross_profit = float(wins.sum()) if len(wins) else 0.0
     gross_loss_abs = float(abs(losses.sum())) if len(losses) else 0.0
@@ -596,7 +596,15 @@ class TradingTab(tk.Frame):
             self.ax_bar.xaxis.set_major_formatter(mdates.DateFormatter("%b %d", tz=tz))
             self.ax_bar.xaxis.set_major_locator(mdates.AutoDateLocator())
         else:
-            self.ax_bar.text(0.5, 0.5, "No daily realized bars yet", ha="center", va="center", transform=self.ax_bar.transAxes, color=TEXT_DIM)
+            self.ax_bar.text(
+                0.5,
+                0.5,
+                "No daily realized bars yet",
+                ha="center",
+                va="center",
+                transform=self.ax_bar.transAxes,
+                color=TEXT_DIM,
+            )
 
         self.fig.autofmt_xdate()
         self.canvas.draw()
@@ -619,7 +627,14 @@ class DailyActivityTab(tk.Frame):
         self._opened_tv, f1 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "opened", "strategy", "open_reason"),
-            ("Book", "Symbol", "Plan ID", "Opened (local)", "Strategy (log)", "Open reason (universe)"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Opened (local)",
+                "Strategy (log)",
+                "Open reason (universe)",
+            ),
             (70, 70, 200, 130, 100, 360),
             height=5,
         )
@@ -630,7 +645,15 @@ class DailyActivityTab(tk.Frame):
         self._closed_tv, f2 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "closed", "exit", "pnl", "open_reason"),
-            ("Book", "Symbol", "Plan ID", "Closed (local)", "Exit signal", "Realized $", "Open reason (universe)"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Closed (local)",
+                "Exit signal",
+                "Realized $",
+                "Open reason (universe)",
+            ),
             (70, 70, 200, 130, 110, 90, 320),
             height=5,
         )
@@ -641,7 +664,15 @@ class DailyActivityTab(tk.Frame):
         self._hold_tv, f3 = _make_tree_frame(
             self,
             ("book", "symbol", "plan_id", "opened", "strategy", "open_reason", "mtm"),
-            ("Book", "Symbol", "Plan ID", "Opened (local)", "Strategy (log)", "Open reason (universe)", "MTM $"),
+            (
+                "Book",
+                "Symbol",
+                "Plan ID",
+                "Opened (local)",
+                "Strategy (log)",
+                "Open reason (universe)",
+                "MTM $",
+            ),
             (70, 70, 200, 130, 100, 320, 80),
             height=5,
         )
@@ -741,9 +772,14 @@ class UniverseDataTab(tk.Frame):
         meta = tk.Frame(self, bg=BG)
         meta.pack(fill=tk.X, padx=8, pady=6)
         self._meta_var = tk.StringVar(value="")
-        tk.Label(meta, textvariable=self._meta_var, bg=BG, fg=TEXT_DIM, font=("Consolas", 9), justify=tk.LEFT).pack(
-            anchor=tk.W
-        )
+        tk.Label(
+            meta,
+            textvariable=self._meta_var,
+            bg=BG,
+            fg=TEXT_DIM,
+            font=("Consolas", 9),
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W)
 
         cols = (
             "symbol",
@@ -781,7 +817,14 @@ class UniverseDataTab(tk.Frame):
         self._univ_tv.bind("<<TreeviewSelect>>", self._on_select_univ)
 
         dcols = ("symbol", "bars", "chain", "features", "forecast", "bt_equity")
-        dheads = ("Symbol", "bars_*.csv", "option_chain_*.csv", "features_*.csv", "forecast_features_*.csv", "backtest_equity_*.csv")
+        dheads = (
+            "Symbol",
+            "bars_*.csv",
+            "option_chain_*.csv",
+            "features_*.csv",
+            "forecast_features_*.csv",
+            "backtest_equity_*.csv",
+        )
         dwidths = (70, 90, 90, 90, 110, 110)
         self._disk_tv, df = _make_tree_frame(self, dcols, dheads, dwidths, height=8)
         lf2 = ttk.LabelFrame(self, text="Data on disk (processed + raw)")
@@ -962,9 +1005,7 @@ class IbkrLiveTab(tk.Frame):
             self._msg_var.set("No data.")
             return
         self._conn_var.set(f"{snap.host}:{snap.port}  clientId={snap.client_id}")
-        self._msg_var.set(
-            f"OK — {len(snap.account_summary)} summary row(s), {len(snap.positions)} position line(s)."
-        )
+        self._msg_var.set(f"OK — {len(snap.account_summary)} summary row(s), {len(snap.positions)} position line(s).")
         for r in snap.account_summary:
             self._sum_tv.insert("", tk.END, values=(r.account, r.tag, r.value, r.currency))
         for r in snap.positions:
@@ -1144,7 +1185,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--options-log", type=Path, default=DEFAULT_OPTIONS_LOG)
     ap.add_argument("--equity-log", type=Path, default=DEFAULT_EQUITY_LOG)
-    ap.add_argument("--universe-plans", type=Path, default=DEFAULT_UNIVERSE_PLANS, help="universe_trade_plans.json")
+    ap.add_argument(
+        "--universe-plans",
+        type=Path,
+        default=DEFAULT_UNIVERSE_PLANS,
+        help="universe_trade_plans.json",
+    )
     ap.add_argument(
         "--refresh-ms",
         type=int,

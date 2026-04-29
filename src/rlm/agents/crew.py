@@ -26,14 +26,15 @@ from pathlib import Path
 from typing import Optional
 
 from rlm.agents.base import LLMClient, LLMConfig
+from rlm.agents.gate import SystemGate
 from rlm.agents.kirk import CommandDecision, KirkAgent
 from rlm.agents.scotty import HealthReport, ScottyAgent
 from rlm.agents.spock import SpockAgent, SpockBriefing
 
-
 # -----------------------------------------------------------------------
 # Telegram helper (standalone, no dependency on telegram_rlm.py)
 # -----------------------------------------------------------------------
+
 
 def _notify_state_path(root: Path) -> Path:
     raw = (os.environ.get("TELEGRAM_STATE_PATH") or "").strip()
@@ -118,14 +119,15 @@ def _tg_send(text: str, token: str, chat_id: str, *, silent: bool = False) -> bo
 
 # -----------------------------------------------------------------------
 
+
 @dataclass
 class CrewConfig:
-    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "120"))
-    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300"))
-    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "600"))
+    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "60"))
+    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "60"))
+    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "3600"))
     telegram_token: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
-    silent_health_ok: bool = True     # don't spam Telegram when everything is fine
+    silent_health_ok: bool = True  # don't spam Telegram when everything is fine
     services: list = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -182,12 +184,11 @@ class StarfleetCrew:
 
     def run(self) -> None:
         """Blocking main loop."""
+        # Initial status only
         self._send(
             "<b>[Starfleet Crew] Online</b>\n"
-            f"Scotty (health every {self.cfg.health_interval}s) | "
-            f"Spock (analysis every {self.cfg.analysis_interval}s) | "
-            f"Kirk (briefings every {self.cfg.briefing_interval}s)\n"
-            f"LLM backend: {self.llm.cfg.backend} / {self.llm.cfg.model}",
+            "Autonomous Execution: ACTIVE | Silent Mode: ON\n"
+            f"Cadence: Health {self.cfg.health_interval}s | Analysis {self.cfg.analysis_interval}s | Briefing {self.cfg.briefing_interval}s",
             force_notify=True,
         )
         while True:
@@ -201,10 +202,7 @@ class StarfleetCrew:
         report, diagnosis = self.scotty.check()
         briefing = self.spock.analyse()
         decision = self.kirk.command(report, briefing, diagnosis)
-        self._send(
-            self._format_full_briefing(report, diagnosis, briefing, decision),
-            force_notify=True,
-        )
+        self._execute_orders(decision)
         return decision
 
     # ------------------------------------------------------------------
@@ -212,45 +210,33 @@ class StarfleetCrew:
     # ------------------------------------------------------------------
 
     def _tick(self) -> None:
-        # Scotty health check
+        from rlm.agents.gate import SystemGate
+
+        gate = SystemGate(self.root)
+
         now = time.monotonic()
+
+        # Scotty health check
         if now - self._last_health >= self.cfg.health_interval:
             self._last_health = now
             try:
                 report, diagnosis = self.scotty.check()
                 self._last_health_report = report
                 self._last_scotty_diag = diagnosis
-                if not report.overall_ok or not self.cfg.silent_health_ok:
-                    self._send(
-                        f"<b>[Scotty]</b>\n{diagnosis}",
-                        force_notify=(not report.overall_ok) or (not self.cfg.silent_health_ok),
-                    )
+                # INTERNAL ACTION: Scotty already tries to restart services in scotty.check()
             except Exception as exc:
-                self._send(f"<b>[Scotty ERROR]</b> {exc}", force_notify=True)
+                print(f"[Scotty ERROR] {exc}", flush=True)
 
         # Spock market analysis
-        now = time.monotonic()
         if now - self._last_analysis >= self.cfg.analysis_interval:
             self._last_analysis = now
             try:
                 briefing = self.spock.analyse()
                 self._last_briefing_obj = briefing
-                # Only send if Spock found something meaningful
-                if briefing.overall_risk in ("HIGH", "CRITICAL"):
-                    age_note = (
-                        f" | data {briefing.data_age_minutes:.0f}min old"
-                        if briefing.data_age_minutes > self.cfg.analysis_interval / 60
-                        else ""
-                    )
-                    self._send(
-                        f"<b>[Spock]</b> Risk: {briefing.overall_risk} | analysed: {briefing.timestamp}{age_note}\n{briefing.llm_text[:1200]}",
-                        force_notify=True,
-                    )
             except Exception as exc:
-                self._send(f"<b>[Spock ERROR]</b> {exc}", force_notify=True)
+                print(f"[Spock ERROR] {exc}", flush=True)
 
         # Kirk full command briefing
-        now = time.monotonic()
         if now - self._last_briefing >= self.cfg.briefing_interval:
             self._last_briefing = now
             if self._last_health_report and self._last_briefing_obj:
@@ -260,15 +246,46 @@ class StarfleetCrew:
                         self._last_briefing_obj,
                         self._last_scotty_diag,
                     )
-                    # Only send automated briefing if scanner is open OR if system is in trouble
-                    from rlm.utils.market_hours import is_scanner_window_open
-                    if is_scanner_window_open() or decision.system_status != "NOMINAL":
+                    self._execute_orders(decision, gate)
+                    # ONLY NOTIFY if it's a critical system failure that requires human manual bypass
+                    if decision.system_status == "CRITICAL" and decision.command == "ALERT OPERATOR":
                         self._send(decision.to_telegram_message(), force_notify=True)
                 except Exception as exc:
-                    self._send(f"<b>[Kirk ERROR]</b> {exc}", force_notify=True)
+                    print(f"[Kirk ERROR] {exc}", flush=True)
+
+        # EOD Report (triggered once daily around 16:15 ET / 20:15 UTC)
+        # We use a simple hour/minute check.
+        from datetime import datetime, timezone
+
+        now_utc = datetime.now(timezone.utc)
+        if now_utc.hour == 20 and now_utc.minute >= 15 and now_utc.minute < 30:
+            if not getattr(self, "_eod_sent_today", False):
+                try:
+                    from rlm.notify.pnl_report import calculate_daily_pnl
+
+                    report_text = calculate_daily_pnl(self.root)
+                    self._send(report_text, force_notify=True)
+                    self._eod_sent_today = True
+                except Exception as exc:
+                    print(f"[EOD ERROR] {exc}", flush=True)
+        elif now_utc.hour != 20:
+            self._eod_sent_today = False
+
+    def _execute_orders(self, decision: CommandDecision, gate: Optional[SystemGate] = None) -> None:
+        """Translate Kirk's decision into system-level state."""
+        g = gate or SystemGate(self.root)
+        g.update(
+            posture=decision.market_posture,
+            status=decision.system_status,
+            timestamp=decision.timestamp,
+        )
+        print(
+            f"[Crew] Executed Command: {decision.command} (Posture: {decision.market_posture})",
+            flush=True,
+        )
 
     # ------------------------------------------------------------------
-    # Formatting
+    # Formatting (kept for reference or manual runs)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -295,8 +312,10 @@ class StarfleetCrew:
     # ------------------------------------------------------------------
 
     def _send(self, text: str, *, force_notify: bool = False) -> None:
-        """If ``force_notify``, Telegram message rings even when ``silent_health_ok``."""
-        silent = bool(self.cfg.silent_health_ok and not force_notify)
+        """Send message only if force_notify is True (silences routine chatter)."""
+        if not force_notify:
+            return
+
         cid = (self.cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(self.root)
         if cid:
             self.cfg.telegram_chat_id = cid
@@ -304,6 +323,6 @@ class StarfleetCrew:
             text,
             self.cfg.telegram_token,
             cid,
-            silent=silent,
+            silent=False,
         )
         print(text, flush=True)

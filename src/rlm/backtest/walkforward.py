@@ -2,24 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from rlm.backtest.engine import BacktestEngine
-from rlm.features.factors.pipeline import FactorPipeline
+from rlm.core.pipeline import FullRLMConfig
 from rlm.features.factors.multi_timeframe import MultiTimeframeEngine
-from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig
+from rlm.features.factors.pipeline import FactorPipeline
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
     HybridProbabilisticForecastPipeline,
 )
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.probabilistic import ProbabilisticForecastPipeline
 from rlm.roee.engine import ROEEConfig
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.forecast import ForecastConfig
 
 
@@ -67,10 +69,7 @@ def _build_walkforward_windows(
         ):
             anchor_idx = nominal_is_end - 1
             anchor_regime = str(regime_keys.iloc[anchor_idx])
-            while (
-                effective_is_end > start
-                and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime
-            ):
+            while effective_is_end > start and str(regime_keys.iloc[effective_is_end - 1]) == anchor_regime:
                 effective_is_end -= 1
         if effective_is_end <= start:
             effective_is_end = nominal_is_end
@@ -156,6 +155,7 @@ def run_walkforward(
     hmm_model_dir: Path = Path("models"),
     use_mtf: bool = False,
     higher_tfs: tuple[str, ...] = ("1W", "1M"),
+    attach_vix: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg = wf_config or WalkForwardConfig()
     fc = forecast_config or ForecastConfig()
@@ -163,6 +163,8 @@ def run_walkforward(
         hmm_model_dir.mkdir(parents=True, exist_ok=True)
 
     bars = bars.sort_index().copy()
+    if option_chain is None:
+        option_chain = pd.DataFrame()
     # Local import avoids circular import: rlm.datasets.backtest_data → walkforward.
     from rlm.data.bars_enrichment import prepare_bars_for_factors
 
@@ -170,7 +172,7 @@ def run_walkforward(
         bars,
         option_chain,
         underlying=cfg.underlying_symbol,
-        attach_vix=True,
+        attach_vix=attach_vix,
     )
     all_equity = []
     all_trades = []
@@ -224,9 +226,7 @@ def run_walkforward(
                 model_path=probabilistic_model_path,
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -249,9 +249,7 @@ def run_walkforward(
                 hmm_config=hmm_config or HMMConfig(),
             )
             train_mask = feature_df.index.isin(is_bars.index)
-            feature_df = forecast_pipeline.run(
-                feature_df, train_mask=pd.Series(train_mask, index=feature_df.index)
-            )
+            feature_df = forecast_pipeline.run(feature_df, train_mask=pd.Series(train_mask, index=feature_df.index))
 
             hmm_path = hmm_model_dir / f"hmm_fold_{window_id}.pkl"
             forecast_pipeline.hmm.save(hmm_path)
@@ -287,7 +285,10 @@ def run_walkforward(
             purge_bars=cfg.purge_bars,
         )
         oos_features = feature_df.loc[oos_bars.index].copy()
-        oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
+        if option_chain is None or option_chain.empty or "timestamp" not in option_chain.columns:
+            oos_chain = pd.DataFrame()
+        else:
+            oos_chain = option_chain[option_chain["timestamp"].isin(oos_features.index)].copy()
 
         effective_roee_config = roee_config or ROEEConfig(
             use_dynamic_sizing=(cfg.use_dynamic_sizing or use_hmm or use_markov),
@@ -337,9 +338,7 @@ def run_walkforward(
             "regime_aware": bool(cfg.regime_aware),
             "regime_boundary_aware_purge": bool(cfg.regime_boundary_aware_purge),
             "unsafe_oos_bars": int((~oos_features["regime_safety_ok"]).sum()),
-            "last_oos_regime_train_samples": int(
-                oos_features["regime_train_sample_count"].iloc[-1]
-            ),
+            "last_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].iloc[-1]),
             "min_oos_regime_train_samples": int(oos_features["regime_train_sample_count"].min()),
             "regime_safety_fraction": round(float(oos_features["regime_safety_ok"].mean()), 3),
             "regime_safety_passed": float(oos_features["regime_safety_ok"].mean()) >= 0.70,
@@ -347,9 +346,7 @@ def run_walkforward(
         }
         if cfg.log_vp_metrics:
             balance_ratio = (
-                float(
-                    (oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean()
-                )
+                float((oos_features["vp_auction_state"].astype(str).str.lower() == "balance").mean())
                 if "vp_auction_state" in oos_features.columns and len(oos_features) > 0
                 else float("nan")
             )
@@ -357,28 +354,18 @@ def run_walkforward(
                 {
                     "avg_auction_state_balance_ratio": balance_ratio,
                     "avg_wyckoff_divergence": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["cumulative_wyckoff_score"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["cumulative_wyckoff_score"], errors="coerce").mean())
                         if "cumulative_wyckoff_score" in oos_features.columns
                         else float("nan")
                     ),
                     "avg_hybrid_strength": (
-                        float(
-                            pd.to_numeric(
-                                oos_features["vp_hybrid_strength_max"], errors="coerce"
-                            ).mean()
-                        )
+                        float(pd.to_numeric(oos_features["vp_hybrid_strength_max"], errors="coerce").mean())
                         if "vp_hybrid_strength_max" in oos_features.columns
                         else float("nan")
                     ),
                     "eighty_percent_rule_hit_rate": (
                         float(
-                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce")
-                            .fillna(0.0)
-                            .mean()
+                            pd.to_numeric(oos_features["vp_eighty_percent_signal"], errors="coerce").fillna(0.0).mean()
                         )
                         if "vp_eighty_percent_signal" in oos_features.columns
                         else float("nan")
@@ -393,3 +380,90 @@ def run_walkforward(
     summary_df = pd.DataFrame(window_summaries)
 
     return equity_df, trades_df, summary_df
+
+
+@dataclass
+class WalkForwardResult:
+    """Structured output from :class:`WalkForwardEngine`."""
+
+    equity_df: pd.DataFrame
+    trades_df: pd.DataFrame
+    summary_df: pd.DataFrame
+
+    @property
+    def window_results(self) -> list[dict[str, Any]]:
+        if self.summary_df.empty:
+            return []
+        return self.summary_df.to_dict(orient="records")
+
+
+class WalkForwardEngine:
+    """Run walk-forward OOS backtests with :func:`run_walkforward` and a :class:`FullRLMConfig`."""
+
+    def __init__(
+        self,
+        pipeline_config: FullRLMConfig,
+        wf_config: WalkForwardConfig | None = None,
+        *,
+        hmm_model_dir: Path | None = None,
+    ) -> None:
+        self.pipeline_config = pipeline_config
+        self.wf_config = wf_config or WalkForwardConfig()
+        self.hmm_model_dir = hmm_model_dir
+
+    def run(self, bars: pd.DataFrame, option_chain: pd.DataFrame | None) -> WalkForwardResult:
+        cfg = self.pipeline_config
+        wf = replace(
+            self.wf_config,
+            initial_capital=cfg.initial_capital,
+            underlying_symbol=cfg.symbol,
+            strike_increment=cfg.strike_increment,
+        )
+        fc = ForecastConfig(
+            drift_gamma_alpha=cfg.drift_gamma_alpha,
+            sigma_floor=cfg.sigma_floor,
+            direction_neutral_threshold=cfg.direction_neutral_threshold,
+        )
+        use_hmm = cfg.regime_model == "hmm"
+        use_markov = cfg.regime_model == "markov"
+        hmm_c = (
+            HMMConfig(
+                n_states=cfg.hmm_states,
+                transition_pseudocount=cfg.hmm_transition_pseudocount,
+            )
+            if use_hmm
+            else None
+        )
+        vp_cfg = cfg.volume_profile
+        markov_c: MarkovSwitchingConfig | None
+        if use_markov:
+            markov_c = MarkovSwitchingConfig(
+                n_states=cfg.markov_states,
+                transition_pseudocount=cfg.markov_transition_pseudocount,
+                use_intraday_vp_features=vp_cfg.enabled and vp_cfg.intraday_enabled,
+                use_wyckoff_features=vp_cfg.enabled and vp_cfg.wyckoff_enabled,
+                use_confluence_features=vp_cfg.enabled and vp_cfg.confluence_enabled,
+            )
+        else:
+            markov_c = None
+        hmm_dir = self.hmm_model_dir if self.hmm_model_dir is not None else Path("models")
+        higher = tuple(cfg.higher_tfs) if cfg.higher_tfs else ("1W", "1M")
+        oc = option_chain if option_chain is not None else pd.DataFrame()
+        eq, tr, sm = run_walkforward(
+            bars=bars,
+            option_chain=oc,
+            forecast_config=fc,
+            wf_config=wf,
+            use_hmm=use_hmm,
+            hmm_config=hmm_c,
+            use_markov=use_markov,
+            markov_config=markov_c,
+            use_probabilistic=cfg.probabilistic,
+            probabilistic_model_path=cfg.probabilistic_model_path,
+            roee_config=cfg.roee_config,
+            hmm_model_dir=hmm_dir,
+            use_mtf=cfg.mtf,
+            higher_tfs=higher,
+            attach_vix=cfg.attach_vix,
+        )
+        return WalkForwardResult(equity_df=eq, trades_df=tr, summary_df=sm)

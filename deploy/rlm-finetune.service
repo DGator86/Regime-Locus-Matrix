@@ -1,15 +1,19 @@
 [Unit]
-Description=RLM Kronos Weekend Fine-Tuning
+Description=RLM Kronos weekend fine-tuning
 After=network.target
 
 [Service]
 Type=oneshot
 User=root
-WorkingDirectory=/opt/regime-locus
-EnvironmentFile=/opt/regime-locus/.env
-# Enforce CPU limits to prevent freezing the VPS
-Environment="RLM_MAX_CPU_THREADS=1"
-Environment="OMP_NUM_THREADS=1"
-ExecStart=/opt/regime-locus/venv/bin/python3 /opt/regime-locus/scripts/wrapper_finetune.py
+WorkingDirectory=/opt/Regime-Locus-Matrix
+# Leading "-" so a missing .env does not prevent the unit from loading.
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RLM_MAX_CPU_THREADS=1
+Environment=OMP_NUM_THREADS=1
+ExecStart=/opt/rlm-venv/bin/python3 scripts/wrapper_finetune.py
 StandardOutput=append:/var/log/rlm-finetune.log
 StandardError=append:/var/log/rlm-finetune.error.log
+
+[Install]
+WantedBy=multi-user.target

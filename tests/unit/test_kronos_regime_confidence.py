@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from rlm.kronos.config import KronosConfig
 from rlm.kronos.regime_confidence import (
@@ -15,7 +14,6 @@ from rlm.kronos.regime_confidence import (
     _direction_proxy,
     _volatility_proxy,
 )
-
 
 # ── Proxy helpers ────────────────────────────────────────────────────
 
@@ -44,11 +42,14 @@ def test_volatility_proxy():
 
 
 def test_classify_path_returns_regime_key():
-    path = np.array([
-        [100, 102, 98, 101, 1000, 101000],
-        [101, 103, 99, 102, 1100, 112200],
-        [102, 104, 100, 103, 1200, 123600],
-    ], dtype=float)
+    path = np.array(
+        [
+            [100, 102, 98, 101, 1000, 101000],
+            [101, 103, 99, 102, 1100, 112200],
+            [102, 104, 100, 103, 1200, 123600],
+        ],
+        dtype=float,
+    )
     rk = _classify_path(100.0, path)
     assert isinstance(rk, str)
     assert "|" in rk
@@ -60,35 +61,37 @@ def test_classify_path_returns_regime_key():
 def _make_bars(n: int = 50) -> pd.DataFrame:
     """
     Create a synthetic OHLCV DataFrame of daily bars for testing.
-    
+
     Generates deterministic pseudo-random open, high, low, close, and volume columns with a fixed seed so repeated calls produce the same series. The DataFrame includes a daily timestamp index starting at 2024-01-01.
-    
+
     Parameters:
         n (int): Number of bars (rows) to generate. Defaults to 50.
-    
+
     Returns:
         pd.DataFrame: DataFrame with columns ["timestamp", "open", "high", "low", "close", "volume"] and length `n`.
     """
     rng = np.random.RandomState(42)
     close = 100 + np.cumsum(rng.randn(n) * 0.5)
-    return pd.DataFrame({
-        "timestamp": pd.date_range("2024-01-01", periods=n, freq="D"),
-        "open": close - rng.rand(n) * 0.2,
-        "high": close + rng.rand(n) * 0.5,
-        "low": close - rng.rand(n) * 0.5,
-        "close": close,
-        "volume": rng.randint(100_000, 200_000, size=n),
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2024-01-01", periods=n, freq="D"),
+            "open": close - rng.rand(n) * 0.2,
+            "high": close + rng.rand(n) * 0.5,
+            "low": close - rng.rand(n) * 0.5,
+            "close": close,
+            "volume": rng.randint(100_000, 200_000, size=n),
+        }
+    )
 
 
 def _mock_predictor_factory(sample_count: int = 5, pred_len: int = 3):
     """
     Create a mock predictor that implements predict_paths and returns deterministic synthetic path arrays.
-    
+
     Parameters:
         sample_count (int): Number of sample paths to generate per call.
         pred_len (int): Number of forecast steps per sample path.
-    
+
     Returns:
         mock: A mock predictor object with a `predict_paths(df, future_timestamps=None)` method that returns a NumPy array of shape (sample_count, pred_len, 6). Each entry represents synthetic OHLCV-like features for a forecast step (open, high, low, close, volume, volume_price) constructed deterministically from the input dataframe's last `close` value.
     """
@@ -97,13 +100,13 @@ def _mock_predictor_factory(sample_count: int = 5, pred_len: int = 3):
     def _predict_paths(df, future_timestamps=None):
         """
         Generate deterministic synthetic forecast paths anchored to the last close in `df`.
-        
+
         Each returned path sample simulates `pred_len` future steps and encodes six features per step in the following order: [open, high, low, close, volume, dollar_volume]. The values are produced with a small sample-dependent linear drift from the final close in `df`. The optional `future_timestamps` parameter is accepted but ignored.
-        
+
         Parameters:
             df (pd.DataFrame): Historical bars containing a `close` column; the last value is used as the reference close.
             future_timestamps: Ignored placeholder for API compatibility.
-        
+
         Returns:
             np.ndarray: Array of shape (sample_count, pred_len, 6) with synthetic forecast paths as described above.
         """

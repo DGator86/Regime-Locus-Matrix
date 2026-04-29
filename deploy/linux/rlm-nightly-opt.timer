@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for RLM nightly hyperparameter optimization (Mon–Fri 17:30 ET = 21:30 UTC)
+
+[Timer]
+# 21:30 UTC = 17:30 ET (EDT); adjust to 22:30 in EST winter if needed
+OnCalendar=Mon..Fri *-*-* 21:30:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

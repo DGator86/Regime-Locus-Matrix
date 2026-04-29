@@ -24,19 +24,40 @@ if [[ ! -x "${INSTALL_ROOT}/.venv/bin/python" ]]; then
   exit 1
 fi
 
-UNIT_SRC="${SCRIPT_DIR}/regime-locus-master.service"
-UNIT_DST="/etc/systemd/system/regime-locus-master.service"
+_install_unit() {
+  local src="$1" dst="$2"
+  local tmp
+  tmp="$(mktemp)"
+  sed "s|@INSTALL_ROOT@|${INSTALL_ROOT}|g" "${src}" >"${tmp}"
+  install -m 0644 "${tmp}" "${dst}"
+  rm -f "${tmp}"
+  echo "Installed ${dst}"
+}
 
-tmp="$(mktemp)"
-sed "s|@INSTALL_ROOT@|${INSTALL_ROOT}|g" "${UNIT_SRC}" >"${tmp}"
-install -m 0644 "${tmp}" "${UNIT_DST}"
-rm -f "${tmp}"
+_install_unit "${SCRIPT_DIR}/regime-locus-master.service" \
+              "/etc/systemd/system/regime-locus-master.service"
+
+_install_unit "${SCRIPT_DIR}/rlm-nightly-opt.service" \
+              "/etc/systemd/system/rlm-nightly-opt.service"
+_install_unit "${SCRIPT_DIR}/rlm-nightly-opt.timer" \
+              "/etc/systemd/system/rlm-nightly-opt.timer"
+
+_install_unit "${SCRIPT_DIR}/rlm-weekly-calibrate.service" \
+              "/etc/systemd/system/rlm-weekly-calibrate.service"
+_install_unit "${SCRIPT_DIR}/rlm-weekly-calibrate.timer" \
+              "/etc/systemd/system/rlm-weekly-calibrate.timer"
 
 systemctl daemon-reload
 systemctl enable regime-locus-master.service
-echo "Installed ${UNIT_DST}"
+systemctl enable rlm-nightly-opt.timer
+systemctl enable rlm-weekly-calibrate.timer
+
+echo ""
 echo "  Optional: copy deploy/systemd/ib-gateway.service.example with IB_GATEWAY_DIR sed, enable ib-gateway before master."
 echo "  Optional: deploy/systemd/rlm-preopen*.example + rlm-postclose*.example for session brief timers."
-echo "  Start now:  systemctl start regime-locus-master"
-echo "  Follow log: journalctl -u regime-locus-master -f"
-echo "  Status:     systemctl status regime-locus-master"
+echo ""
+echo "  Start master:    systemctl start regime-locus-master"
+echo "  Start timers:    systemctl start rlm-nightly-opt.timer rlm-weekly-calibrate.timer"
+echo "  Follow log:      journalctl -u regime-locus-master -f"
+echo "  Nightly opt log: tail -f /var/log/rlm-nightly-opt.log"
+echo "  Calibrate log:   tail -f /var/log/rlm-weekly-calibrate.log"

@@ -26,6 +26,7 @@ BLAS/OpenMP and PyTorch threads are capped automatically (see ``RLM_MAX_CPU_THRE
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -47,7 +48,6 @@ import numpy as np
 import pandas as pd
 
 # ruff: noqa: E402
-
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_UNIVERSE
@@ -57,13 +57,14 @@ from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.factors import FactorPipeline
+from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
     LiveRegimeModelConfig,
     apply_nightly_hyperparam_overlay,
     load_live_regime_model,
+    save_live_regime_model,
 )
-from rlm.forecasting.engines import ForecastPipeline
 from rlm.roee.chain_match import (
     estimate_entry_cost_from_matched_legs,
     estimate_mark_value_from_matched_legs,
@@ -73,8 +74,8 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
+from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
-
 
 _IBKR_HIST_LOCK = threading.Lock()
 
@@ -164,9 +165,7 @@ def _prepare_symbol(
         active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
-    out["has_major_event"] = bool(
-        has_major_event_today(sym, lookahead_days=event_lookahead_days)
-    )
+    out["has_major_event"] = bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
     out = attach_regime_safety_columns(
         out,
         min_regime_train_samples=min_regime_train_samples,
@@ -174,11 +173,7 @@ def _prepare_symbol(
     )
 
     last = out.iloc[-1]
-    ts = (
-        last.name
-        if isinstance(last.name, pd.Timestamp)
-        else pd.Timestamp.now(tz="UTC").tz_localize(None)
-    )
+    ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.now(tz="UTC").tz_localize(None)
 
     pipeline_row = {
         "live_model": active_model,
@@ -216,12 +211,27 @@ def _prepare_symbol(
         "regime_key": decision.regime_key,
         "metadata": {k: v for k, v in (decision.metadata or {}).items() if k != "matched_legs"},
     }
+    event = build_pipeline_event(
+        symbol=sym,
+        bar_id=str(ts),
+        factor_values={
+            "S_D": pipeline_row["S_D"],
+            "S_V": pipeline_row["S_V"],
+            "S_L": pipeline_row["S_L"],
+            "S_G": pipeline_row["S_G"],
+        },
+        regime_state=str(pipeline_row.get("regime_key") or ""),
+        kronos_confidence=(
+            float(last["kronos_confidence"]) if "kronos_confidence" in last and pd.notna(last["kronos_confidence"]) else None
+        ),
+        action=decision.action,
+        extra={"strategy_name": decision.strategy_name},
+    )
+    print(json.dumps({"event": "pipeline_bar", **event}, default=str), flush=True)
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
         base["skip_reason"] = (
-            "regime_safety_check"
-            if decision.strategy_name == "regime_safety_check"
-            else "roee_skip_or_no_legs"
+            "regime_safety_check" if decision.strategy_name == "regime_safety_check" else "roee_skip_or_no_legs"
         )
         return base, None, None
     return base, decision, ts
@@ -245,12 +255,8 @@ def _build_incremental_snapshot_params(
         if anchor.tzinfo is not None:
             anchor = anchor.tz_localize(None)
         anchor = anchor.normalize()
-        params["expiration_date.gte"] = str(
-            (anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date()
-        )
-        params["expiration_date.lte"] = str(
-            (anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date()
-        )
+        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date())
+        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date())
 
     strikes = [float(leg.strike) for leg in decision.legs]
     if strikes:
@@ -287,16 +293,8 @@ def _finalize_symbol(
         base["skip_reason"] = "no_tradable_option_quotes"
         return base
 
-    dte_min = (
-        int(dte_min_override)
-        if dte_min_override is not None
-        else int(candidate.target_dte_min)
-    )
-    dte_max = (
-        int(dte_max_override)
-        if dte_max_override is not None
-        else int(candidate.target_dte_max)
-    )
+    dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
+    dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
     expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
     if expiry_slice.empty:
         base["skip_reason"] = "no_contracts_in_dte_window"
@@ -381,6 +379,75 @@ def _finalize_symbol(
         }
     )
     return base
+
+
+def _strategy_name_for_row(row: dict[str, object]) -> str:
+    strategy_name = str(row.get("strategy_name") or row.get("strategy") or "").strip()
+    if strategy_name:
+        return strategy_name
+    dec = row.get("decision")
+    if isinstance(dec, dict):
+        return str(dec.get("strategy_name") or dec.get("strategy") or "").strip()
+    return ""
+
+
+def _load_open_symbols_from_trade_log(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    latest_by_plan: dict[str, dict[str, str]] = {}
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest_by_plan[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return set()
+    open_symbols: set[str] = set()
+    for row in latest_by_plan.values():
+        if str(row.get("closed") or "0").strip() == "1":
+            continue
+        sym = str(row.get("symbol") or "").strip().upper()
+        if sym:
+            open_symbols.add(sym)
+    return open_symbols
+
+
+def _apply_active_plan_guards(
+    results: list[dict[str, object]],
+    *,
+    max_active_per_symbol: int,
+    open_symbols: set[str],
+) -> None:
+    active_rows = [r for r in results if r.get("status") == "active"]
+    active_rows.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
+    seen_symbol_strategy: set[tuple[str, str]] = set()
+    active_by_symbol: dict[str, int] = {}
+
+    for row in active_rows:
+        sym = str(row.get("symbol") or "").strip().upper()
+        strategy = _strategy_name_for_row(row)
+
+        if sym and sym in open_symbols:
+            row["status"] = "trimmed"
+            row["skip_reason"] = "symbol_already_open_in_trade_log"
+            continue
+
+        key = (sym, strategy)
+        if key in seen_symbol_strategy:
+            row["status"] = "trimmed"
+            row["skip_reason"] = "duplicate_symbol_strategy_or_max_active_per_symbol"
+            continue
+
+        n_active = active_by_symbol.get(sym, 0)
+        if sym and n_active >= int(max_active_per_symbol):
+            row["status"] = "trimmed"
+            row["skip_reason"] = "duplicate_symbol_strategy_or_max_active_per_symbol"
+            continue
+
+        seen_symbol_strategy.add(key)
+        if sym:
+            active_by_symbol[sym] = n_active + 1
 
 
 def main() -> int:
@@ -498,7 +565,30 @@ def main() -> int:
         default=0,
         help="If >0, only keep N highest rank_score among active plans",
     )
-    p.add_argument("--purge-bars", type=int, default=0, help="Exclude the most recent bars from regime training counts.")
+    p.add_argument(
+        "--max-active-per-symbol",
+        type=int,
+        default=1,
+        help="Maximum active plans kept per symbol after rank sorting.",
+    )
+    p.add_argument(
+        "--respect-open-trade-log",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Trim new plans for symbols that already have open rows in --trade-log.",
+    )
+    p.add_argument(
+        "--trade-log",
+        type=Path,
+        default=Path("data/processed/trade_log.csv"),
+        help="Trade log CSV used for open-position gating when --respect-open-trade-log is enabled.",
+    )
+    p.add_argument(
+        "--purge-bars",
+        type=int,
+        default=0,
+        help="Exclude the most recent bars from regime training counts.",
+    )
     p.add_argument(
         "--min-regime-train-samples",
         type=int,
@@ -524,8 +614,12 @@ def main() -> int:
         action="store_true",
         help="Blend Kronos foundation-model return forecasts into every symbol's pipeline output.",
     )
-    p.add_argument("--kronos-weight", type=float, default=0.35,
-                   help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).")
+    p.add_argument(
+        "--kronos-weight",
+        type=float,
+        default=0.35,
+        help="Blend weight for Kronos (0=base only, 1=Kronos only, default 0.35).",
+    )
     p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
     p.add_argument("--kronos-stride", type=int, default=1)
     p.add_argument("--kronos-samples", type=int, default=5)
@@ -549,11 +643,24 @@ def main() -> int:
 
     syms = _parse_symbols(args.symbols)
     live_model: LiveRegimeModelConfig | None = None
+    live_model_bootstrapped = False
+    live_model_path: Path | None = None
     if not args.ignore_live_model:
-        live_model_path = ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        live_model_path = (
+            ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+        )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
+        else:
+            # Same defaults as versioned data/processed/live_regime_model.json; persist after overlay
+            # so hosts without that file match fresh-clone behavior. Weekly calibrate overwrites when run.
+            live_model = LiveRegimeModelConfig(model="hmm")
+            live_model_bootstrapped = True
+            print(
+                f"[live_model] {live_model_path} missing — using defaults; "
+                "saving after nightly overlay (run calibrate_regime_models.py to tune)"
+            )
     if args.use_kronos:
         kronos_params = LiveKronosParameters(
             model_name=args.kronos_model,
@@ -562,14 +669,20 @@ def main() -> int:
             weight=args.kronos_weight,
         )
         if live_model is not None:
-            live_model = live_model.model_copy(
-                update={"use_kronos": True, "kronos": kronos_params}
-            )
+            live_model = live_model.model_copy(update={"use_kronos": True, "kronos": kronos_params})
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled — weight={args.kronos_weight}, stride={args.kronos_stride}")
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
+    if (
+        live_model is not None
+        and live_model_bootstrapped
+        and live_model_path is not None
+        and not args.ignore_live_model
+    ):
+        save_live_regime_model(live_model, live_model_path)
+        print(f"[live_model] saved bootstrap config to {live_model_path}")
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
@@ -716,6 +829,15 @@ def main() -> int:
 
     actives = [r for r in final_results if r.get("status") == "active"]
     actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
+    trade_log_path = ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
+    open_symbols = _load_open_symbols_from_trade_log(trade_log_path) if args.respect_open_trade_log else set()
+    _apply_active_plan_guards(
+        final_results,
+        max_active_per_symbol=max(1, int(args.max_active_per_symbol)),
+        open_symbols=open_symbols,
+    )
+    actives = [r for r in final_results if r.get("status") == "active"]
+    actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
     if args.top > 0 and actives:
         keep_ids = {id(x) for x in actives[: args.top]}
         for r in final_results:
@@ -735,7 +857,7 @@ def main() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    print(f"\nWrote {out_path}  (active setups: {len(actives)})")
+    print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0
 
 

@@ -7,7 +7,7 @@ Telegram bot for RLM: commands + optional file-driven **push** alerts (options +
 opens / take-profit / exit signals in ``trade_log.csv`` (monitor); equity open/close in
 ``equity_positions_state.json``.
 
-**Commands**: /start, /help, /status, /universe, /portfolio, /balances, /brief (session timer JSON)
+**Commands**: /start, /help, /status, /pnl, /universe, /portfolio, /balances, /brief (session timer JSON)
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ import os
 import sys
 import threading
 import time
+import urllib.error
 from pathlib import Path
 from typing import Any
-import urllib.error
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -111,6 +111,7 @@ def _handle_message(
 ) -> None:
     from rlm.notify.telegram_rlm import (
         build_balances_text,
+        build_pnl_text,
         build_session_brief_text,
         build_status_brief,
         build_universe_and_positions,
@@ -136,11 +137,13 @@ def _handle_message(
         st.parent.mkdir(parents=True, exist_ok=True)
         st.write_text(json.dumps(blob, indent=2), encoding="utf-8")
         reply = (
-            "RLM bot online. Push alerts use this chat. Commands: /help /status /universe /portfolio /balances /brief"
+            "RLM bot online. Push alerts use this chat.\n"
+            "Commands: /help /status /pnl /universe /portfolio /balances /brief"
         )
     elif t_low.startswith("/help"):
         reply = (
             "/status — plan file summary\n"
+            "/pnl — daily / weekly / all-time P&L for equities, options, PDT challenge + IBKR balances\n"
             "/universe — ranked active trade ideas\n"
             "/portfolio — universe + open option rows (trade_log) + equity state\n"
             "/balances — IBKR net liq, cash, and STK/OPT position rows (needs Gateway + ibapi)\n"
@@ -149,6 +152,8 @@ def _handle_message(
         )
     elif t_low.startswith("/status"):
         reply = build_status_brief(ROOT)
+    elif t_low.startswith("/pnl"):
+        reply = build_pnl_text(ROOT)
     elif t_low.startswith("/portfolio") or t_low.startswith("/positions"):
         reply = build_universe_and_positions(ROOT, max_active=12, max_positions=20)
     elif t_low.startswith("/universe") or t_low.startswith("/report"):
@@ -244,7 +249,10 @@ def main() -> int:
     if allowed is not None:
         print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
     else:
-        print("[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot", flush=True)
+        print(
+            "[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot",
+            flush=True,
+        )
     lp = _long_poll_timeout_sec()
     print(f"[rlm-telegram] long-poll timeout={lp}s", flush=True)
 

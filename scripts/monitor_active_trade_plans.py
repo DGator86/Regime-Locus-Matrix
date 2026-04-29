@@ -45,6 +45,7 @@ if str(ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.dte_utils import dte_from_plan, needs_force_close
 from rlm.execution.ibkr_combo_orders import (
     assert_paper_trading_port,
@@ -113,9 +114,7 @@ def _parse_symbols(s: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _build_incremental_snapshot_params(
-    plans: list[dict], *, massive_limit: int
-) -> dict[str, object]:
+def _build_incremental_snapshot_params(plans: list[dict], *, massive_limit: int) -> dict[str, object]:
     params: dict[str, object] = {
         "limit": int(massive_limit),
         "sort": "expiration_date",
@@ -184,6 +183,9 @@ def _evaluate_plan(
     paper_close: bool,
     paper_close_dry_run: bool,
     force_close_dte: float,
+    soft_time_stop_dte: float,
+    min_profit_pct_for_soft_hold: float,
+    max_loss_pct: float,
     trade_log_path: Path | None = None,
 ) -> None:
     pid = str(plan.get("plan_id") or plan.get("symbol") or "unknown")
@@ -220,9 +222,19 @@ def _evaluate_plan(
         f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
     )
 
+    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
+    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
+    # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
+    pnl = v - entry_debit
+    pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
+
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
+    elif plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
+        pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
+    ):
+        signal = "time_stop"
     elif v >= v_tp:
         signal = "take_profit"
     elif v <= v_sl:
@@ -232,6 +244,8 @@ def _evaluate_plan(
         tstop = trailing_stop_from_peak(peak, tr_r)
         if v < tstop:
             signal = "trailing_stop"
+    if pnl_pct == pnl_pct and pnl_pct <= float(max_loss_pct):
+        signal = "max_loss_stop"
 
     if signal == "expiry_force_close":
         print(f"{msg}  ACTION: EXPIRY_FORCE_CLOSE (DTE={plan_dte:.3f} <= {force_close_dte})")
@@ -239,6 +253,13 @@ def _evaluate_plan(
         print(f"{msg}  ACTION: TAKE_PROFIT (V >= {v_tp:.2f})")
     elif signal == "hard_stop":
         print(f"{msg}  ACTION: HARD_STOP (V <= {v_sl:.2f})")
+    elif signal == "max_loss_stop":
+        print(f"{msg}  ACTION: MAX_LOSS_STOP (PnL={pnl_pct:.2f}% <= {max_loss_pct:.2f}%)")
+    elif signal == "time_stop":
+        print(
+            f"{msg}  ACTION: TIME_STOP (DTE={plan_dte:.3f} <= {soft_time_stop_dte}"
+            f" and PnL={pnl_pct:.2f}% < {min_profit_pct_for_soft_hold:.2f}%)"
+        )
     elif signal == "trailing_stop":
         peak = float(st["peak_v"])
         tstop = trailing_stop_from_peak(peak, tr_r)
@@ -254,12 +275,6 @@ def _evaluate_plan(
 
     # --- Trade log -----------------------------------------------------------
     if trade_log_path is not None:
-        entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-        entry_mid   = float(plan.get("entry_mid_mark_dollars") or 0.0)
-        # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
-        pnl = v - entry_debit
-        pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
-        exit_signals_set = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
         _append_trade_log(
             trade_log_path,
             {
@@ -274,16 +289,15 @@ def _evaluate_plan(
                 "unrealized_pnl": round(pnl, 4),
                 "unrealized_pnl_pct": round(pnl_pct, 2) if pnl_pct == pnl_pct else "",
                 "signal": signal,
-                "closed": "1" if signal in exit_signals_set else "0",
+                "closed": "1" if signal in EXIT_SIGNALS else "0",
                 "dte": round(plan_dte, 3) if plan_dte == plan_dte else "",
             },
         )
     # -------------------------------------------------------------------------
 
-    exit_signals = frozenset({"take_profit", "hard_stop", "trailing_stop", "expiry_force_close"})
     if (
         paper_close
-        and signal in exit_signals
+        and signal in EXIT_SIGNALS
         and not st.get("paper_close_sent")
         and isinstance(plan.get("ibkr_combo_spec"), dict)
     ):
@@ -300,10 +314,7 @@ def _evaluate_plan(
         close_parent = "BUY" if oa == "SELL" else "SELL"
 
         if paper_close_dry_run:
-            print(
-                f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT "
-                f"{close_parent} qty={qty} legs={len(close_legs)}"
-            )
+            print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
             st["paper_close_sent"] = True
             return
 
@@ -320,6 +331,7 @@ def _evaluate_plan(
         except Exception as e:
             print(f"[{sym}] {pid} PAPER-CLOSE FAILED: {e}", file=sys.stderr)
 
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -335,7 +347,7 @@ def main() -> int:
     p.add_argument(
         "--interval",
         type=float,
-        default=120.0,
+        default=60.0,
         help="Seconds between polls (if not --once)",
     )
     p.add_argument("--once", action="store_true", help="Single poll then exit")
@@ -381,11 +393,29 @@ def main() -> int:
     p.add_argument(
         "--force-close-dte",
         type=float,
-        default=0.0,
+        default=14.0,
         help=(
             "Force-close positions when DTE falls below this threshold (fractional days). "
-            "0.0 = disabled. Recommended: 0.1 (~2.4 h) for 0DTE positions."
+            "Default 14.0 enables a two-week expiry safety close."
         ),
+    )
+    p.add_argument(
+        "--soft-time-stop-dte",
+        type=float,
+        default=21.0,
+        help="At/under this DTE, close low-conviction positions (see --min-profit-pct-for-soft-hold).",
+    )
+    p.add_argument(
+        "--min-profit-pct-for-soft-hold",
+        type=float,
+        default=20.0,
+        help="Minimum unrealized PnL%% needed to keep a position in the soft time-stop zone.",
+    )
+    p.add_argument(
+        "--max-loss-pct",
+        type=float,
+        default=-70.0,
+        help="Max-loss kill-switch in percent; <= this unrealized PnL%% forces max_loss_stop.",
     )
     p.add_argument(
         "--rth-only-poll",
@@ -478,6 +508,9 @@ def main() -> int:
                     paper_close=bool(args.paper_close or args.paper_close_dry_run),
                     paper_close_dry_run=bool(args.paper_close_dry_run),
                     force_close_dte=args.force_close_dte,
+                    soft_time_stop_dte=args.soft_time_stop_dte,
+                    min_profit_pct_for_soft_hold=args.min_profit_pct_for_soft_hold,
+                    max_loss_pct=args.max_loss_pct,
                     trade_log_path=trade_log_path,
                 )
                 d = dte_from_plan(pl)

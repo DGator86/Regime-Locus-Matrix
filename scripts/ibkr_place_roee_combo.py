@@ -57,12 +57,17 @@ def _parse_spec(path: Path) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--spec", type=Path, required=True, help="JSON file with underlying, legs[], optional quantity")
+    p.add_argument(
+        "--spec",
+        type=Path,
+        required=True,
+        help="JSON file with underlying, legs[], optional quantity",
+    )
     p.add_argument(
         "--limit-price",
         type=float,
         default=None,
-        help="Net limit price (or set \"limit_price\" in JSON if omitted)",
+        help='Net limit price (or set "limit_price" in JSON if omitted)',
     )
     p.add_argument("--quantity", type=int, default=None, help="Override JSON quantity (default 1)")
     p.add_argument(
@@ -98,7 +103,7 @@ def main() -> int:
     qty = int(args.quantity if args.quantity is not None else data.get("quantity", 1))
     lim_raw = args.limit_price if args.limit_price is not None else data.get("limit_price")
     if lim_raw is None:
-        print("Provide --limit-price or \"limit_price\" in the JSON spec.", file=sys.stderr)
+        print('Provide --limit-price or "limit_price" in the JSON spec.', file=sys.stderr)
         return 2
     limit_price = float(lim_raw)
 

@@ -1,0 +1,20 @@
+# Regime-Locus-Matrix — weekly regime model calibration (champion/challenger).
+# Promotes the best regime model to data/processed/live_regime_model.json,
+# which run_universe_options_pipeline.py loads at session start.
+#
+# Installed by install-systemd.sh — do not edit @INSTALL_ROOT@ by hand.
+
+[Unit]
+Description=RLM weekly regime model calibration
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+EnvironmentFile=-@INSTALL_ROOT@/.env
+Environment="RLM_MAX_CPU_THREADS=2"
+Environment="OMP_NUM_THREADS=2"
+ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/calibrate_regime_models.py --promote
+StandardOutput=append:/var/log/rlm-weekly-calibrate.log
+StandardError=append:/var/log/rlm-weekly-calibrate.error.log

@@ -4,10 +4,50 @@ from __future__ import annotations
 
 import pytest
 
-from rlm.challenge.models import ChallengeAccountState, ChallengeConfig, PDTTracker
+from rlm.challenge.models import ChallengeAccountState, PDTTracker
 from rlm.challenge.pipeline import ChallengeDecisionPipeline
-from rlm.persona.models import PersonaPipelineInput
-from rlm.persona.pipeline import PersonaDecisionPipeline
+from rlm.persona.models import (
+    DataStageOutput,
+    GarakStageOutput,
+    PersonaPipelineResult,
+    SevenStageOutput,
+    SiskoStageOutput,
+)
+
+
+def _make_persona(
+    *,
+    bias: str = "bullish",
+    signal_alignment: float = 0.78,
+    confidence: float = 0.82,
+    trap_risk: float = 0.10,
+    dealer_alignment: str = "supportive",
+    veto: bool = False,
+    directive: str = "long",
+    historical_edge: float = 0.65,
+) -> PersonaPipelineResult:
+    """Construct a PersonaPipelineResult directly — no live pipeline needed."""
+    return PersonaPipelineResult(
+        seven=SevenStageOutput(bias=bias, signal_alignment=signal_alignment, confidence=confidence),  # type: ignore[arg-type]
+        garak=GarakStageOutput(
+            trap_risk=trap_risk,
+            dealer_alignment=dealer_alignment,  # type: ignore[arg-type]
+            liquidity_comment="normal",
+            veto=veto,
+        ),
+        sisko=SiskoStageOutput(
+            directive=directive,  # type: ignore[arg-type]
+            entry_policy="enter on confirmation",
+            invalidation_policy="close on reversal",
+            target_policy="2x premium",
+        ),
+        data=DataStageOutput(
+            regime_match="high",
+            historical_edge=historical_edge,
+            adaptation_note="",
+            review_flag=False,
+        ),
+    )
 
 
 def _run(
@@ -16,29 +56,20 @@ def _run(
     equity: float = 1_000.0,
     **persona_overrides,
 ) -> object:
-    """Helper: build a directive for a given symbol / persona inputs."""
-    inp = PersonaPipelineInput(
-        symbol=symbol,
-        regime_label="bull_trend",
-        regime_confidence=persona_overrides.pop("regime_confidence", 0.82),
-        forecast_return=persona_overrides.pop("forecast_return", 0.015),
-        realized_vol=0.18,
+    """Helper: build a challenge directive for given symbol / persona inputs."""
+    persona = _make_persona(
+        bias=persona_overrides.pop("bias", "bullish"),
         signal_alignment=persona_overrides.pop("signal_alignment", 0.78),
-        momentum_score=persona_overrides.pop("momentum_score", 0.6),
-        mean_reversion_score=0.0,
-        dealer_gamma_exposure=persona_overrides.pop("dealer_gamma_exposure", 0.3),
-        options_put_call_ratio=persona_overrides.pop("options_put_call_ratio", 0.9),
-        bid_ask_spread_pct=persona_overrides.pop("bid_ask_spread_pct", 0.01),
-        volume_ratio=1.3,
+        confidence=persona_overrides.pop("regime_confidence", 0.82),
+        trap_risk=persona_overrides.pop("trap_risk", 0.10),
+        dealer_alignment=persona_overrides.pop("dealer_alignment", "supportive"),
+        veto=persona_overrides.pop("veto", False),
+        directive=persona_overrides.pop("directive", "long"),
         historical_edge=persona_overrides.pop("historical_edge", 0.65),
     )
-    persona = PersonaDecisionPipeline().run(inp)
     state = ChallengeAccountState(current_equity=equity)
-
-    # Build PDT with given remaining slots
     used_slots = max(0, 3 - pdt_slots)
     pdt = PDTTracker(day_trades_used_last_5d=[used_slots])
-
     return ChallengeDecisionPipeline().run(symbol, persona, state, pdt)
 
 
@@ -56,12 +87,11 @@ class TestChallengeUniverse:
 class TestSetupScoring:
     def test_elite_bullish_gives_scalp_with_pdt(self):
         d = _run(
-            symbol="NVDA",
+            symbol="SPY",
             pdt_slots=3,
             regime_confidence=0.90,
             signal_alignment=0.88,
             historical_edge=0.72,
-            dealer_gamma_exposure=0.5,
         )
         assert d.directive == "long"
         assert d.trade_mode == "scalp"
@@ -70,7 +100,7 @@ class TestSetupScoring:
     def test_strong_bullish_no_pdt_gives_swing(self):
         d = _run(
             symbol="SPY",
-            pdt_slots=0,       # PDT exhausted
+            pdt_slots=0,  # PDT exhausted
             regime_confidence=0.82,
             signal_alignment=0.78,
         )
@@ -83,35 +113,30 @@ class TestSetupScoring:
             symbol="SPY",
             regime_confidence=0.28,
             signal_alignment=0.30,
+            historical_edge=0.20,
         )
         assert d.directive == "no_trade"
 
-    def test_high_trap_risk_gives_no_trade(self):
+    def test_garak_veto_gives_no_trade(self):
         d = _run(
             symbol="QQQ",
-            bid_ask_spread_pct=0.09,   # wide spread → Garak veto
+            veto=True,  # Garak hard veto
+            directive="no_trade",
         )
         assert d.directive == "no_trade"
 
 
 class TestBearishCase:
     def test_bearish_elite_gives_short(self):
-        inp = PersonaPipelineInput(
-            symbol="SPY",
-            regime_label="bear_vol",
-            regime_confidence=0.85,
-            forecast_return=-0.018,
-            realized_vol=0.22,
-            signal_alignment=0.20,   # bearish alignment = low bullish
-            momentum_score=-0.65,
-            mean_reversion_score=0.0,
-            dealer_gamma_exposure=-0.4,
-            options_put_call_ratio=1.7,
-            bid_ask_spread_pct=0.011,
-            volume_ratio=1.2,
+        persona = _make_persona(
+            bias="bearish",
+            signal_alignment=0.80,
+            confidence=0.85,
+            trap_risk=0.08,
+            dealer_alignment="supportive",
+            directive="short",
             historical_edge=0.64,
         )
-        persona = PersonaDecisionPipeline().run(inp)
         state = ChallengeAccountState(current_equity=5_000.0)
         pdt = PDTTracker(day_trades_used_last_5d=[0])
         d = ChallengeDecisionPipeline().run("SPY", persona, state, pdt)
@@ -138,16 +163,18 @@ class TestPDTTracker:
 
 
 class TestContractProfile:
-    def test_scalp_mode_has_tighter_delta(self):
-        # Elite setup to force scalp
+    def test_scalp_mode_has_tighter_delta_and_short_dte(self):
+        # Elite setup to force scalp (elite_setup_score now 0.70)
         d = _run(
-            symbol="SPY", pdt_slots=3,
-            regime_confidence=0.92, signal_alignment=0.90,
-            historical_edge=0.75, dealer_gamma_exposure=0.5,
+            symbol="SPY",
+            pdt_slots=3,
+            regime_confidence=0.92,
+            signal_alignment=0.90,
+            historical_edge=0.75,
         )
         if d.trade_mode == "scalp":
-            assert d.contract_profile.target_delta_max <= 0.55
-            assert d.contract_profile.preferred_dte_max <= 12
+            assert d.contract_profile.target_delta_max <= 0.65
+            assert d.contract_profile.preferred_dte_max <= 3  # scalp_dte_max=3 now
 
     def test_swing_mode_has_wider_delta(self):
         d = _run(symbol="SPY", pdt_slots=0)  # no PDT → swing
@@ -157,22 +184,37 @@ class TestContractProfile:
 
 class TestStageSizing:
     def test_stage1_sizing_applied(self):
-        d = _run(symbol="SPY", equity=1_200.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=1_200.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.12)
 
     def test_stage2_sizing_applied(self):
-        d = _run(symbol="SPY", equity=4_500.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=4_500.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.15)
 
     def test_stage3_sizing_applied(self):
-        d = _run(symbol="SPY", equity=12_000.0, pdt_slots=3,
-                 regime_confidence=0.90, signal_alignment=0.88,
-                 historical_edge=0.72)
+        d = _run(
+            symbol="SPY",
+            equity=12_000.0,
+            pdt_slots=3,
+            regime_confidence=0.90,
+            signal_alignment=0.88,
+            historical_edge=0.72,
+        )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.18)

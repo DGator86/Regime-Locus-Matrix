@@ -18,6 +18,7 @@ class NightlyHyperparams:
     move_window: int = 100
     vol_window: int = 100
     direction_neutral_threshold: float = 0.3
+    transaction_cost_frac: float = 0.001  # decimal fraction; 0.001 = 10 bps
 
     @classmethod
     def from_json(cls, path: str | Path | None = None) -> "NightlyHyperparams":

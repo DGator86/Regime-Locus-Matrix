@@ -21,13 +21,9 @@ def verify_candidate_promotion(
     min_flip_improvement: float = -0.05,
 ) -> RefreshVerification:
     sri = float(
-        candidate_summary.get("selected_realized_average", 0.0)
-        - baseline_summary.get("selected_realized_average", 0.0)
+        candidate_summary.get("selected_realized_average", 0.0) - baseline_summary.get("selected_realized_average", 0.0)
     )
-    fri = float(
-        baseline_summary.get("regime_flip_rate", 0.0)
-        - candidate_summary.get("regime_flip_rate", 0.0)
-    )
+    fri = float(baseline_summary.get("regime_flip_rate", 0.0) - candidate_summary.get("regime_flip_rate", 0.0))
     if sri < min_selected_realized_improvement:
         return RefreshVerification(False, "selected_realized_regressed", sri, fri)
     if fri < min_flip_improvement:

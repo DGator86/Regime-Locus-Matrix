@@ -32,14 +32,16 @@ Python API::
     print(f"Balance: ${summary.balance_after:,.2f}")
 """
 
-from rlm.challenge.config import ChallengeConfig, ChallengeMilestone, MILESTONES
+from rlm.challenge.config import MILESTONES, ChallengeConfig, ChallengeMilestone
 from rlm.challenge.engine import ChallengeEngine, SessionSummary
+from rlm.challenge.models import ChallengePipelineConfig
 from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
 from rlm.challenge.tracker import ChallengeTracker
 
 __all__ = [
     "ChallengeConfig",
     "ChallengeMilestone",
+    "ChallengePipelineConfig",
     "ChallengeEngine",
     "ChallengePosition",
     "ChallengeState",

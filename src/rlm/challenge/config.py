@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -15,10 +14,10 @@ class ChallengeMilestone:
 
 # Fixed progression checkpoints
 MILESTONES: tuple[ChallengeMilestone, ...] = (
-    ChallengeMilestone(2_500.0,  "Phase I — Foundation", "Prove the edge; 2.5x from seed"),
-    ChallengeMilestone(5_000.0,  "Phase II — Build",     "Compound the gains; 2x from Phase I"),
-    ChallengeMilestone(10_000.0, "Phase III — Scale",    "Increase size; 2x from Phase II"),
-    ChallengeMilestone(25_000.0, "Phase IV — Arrival",   "PDT threshold cleared"),
+    ChallengeMilestone(2_500.0, "Phase I — Foundation", "Prove the edge; 2.5x from seed"),
+    ChallengeMilestone(5_000.0, "Phase II — Build", "Compound the gains; 2x from Phase I"),
+    ChallengeMilestone(10_000.0, "Phase III — Scale", "Increase size; 2x from Phase II"),
+    ChallengeMilestone(25_000.0, "Phase IV — Arrival", "PDT threshold cleared"),
 )
 
 
@@ -62,6 +61,10 @@ class ChallengeConfig:
     """Days-to-expiry for Stage 2 buys."""
     stage3_dte: int = 21
     """Days-to-expiry for Stage 3 buys — slightly longer runway as size grows."""
+
+    scalp_dte: int = 1
+    """DTE for high-conviction intraday scalp plays. 1 = 1DTE (max gamma leverage).
+    Set to 0 for true 0DTE lottery plays (extreme risk, use only with live chain data)."""
 
     stage1_otm_pct: float = 0.010
     """1% OTM for Stage 1 — lottery-style leverage."""

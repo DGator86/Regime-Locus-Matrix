@@ -43,13 +43,9 @@ def simulate_strategy_target_row_v1(
     targets["bear_put_spread"] = -direction_edge - slippage_penalty - 0.5 * instability_penalty
     targets["iron_condor"] = range_edge - slippage_penalty - 0.3 * abs(direction_edge)
     targets["calendar_spread"] = (
-        (realized_vol - sigma) / max(sigma, 1e-4)
-        - slippage_penalty
-        - 0.25 * instability_penalty
+        (realized_vol - sigma) / max(sigma, 1e-4) - slippage_penalty - 0.25 * instability_penalty
     )
-    targets["debit_spread"] = (
-        abs(direction_edge) + 0.05 * trend - slippage_penalty - instability_penalty
-    )
+    targets["debit_spread"] = abs(direction_edge) + 0.05 * trend - slippage_penalty - instability_penalty
     targets["no_trade"] = 0.0
 
     return {name: float(targets.get(name, 0.0)) for name in STRATEGY_NAMES}

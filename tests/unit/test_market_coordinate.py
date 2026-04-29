@@ -6,10 +6,10 @@ import pytest
 
 from rlm.types.coordinates import MarketCoordinate
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def mc(D: float = 5.0, V: float = 5.0, L: float = 5.0, G: float = 5.0) -> MarketCoordinate:
     return MarketCoordinate(D=D, V=V, L=L, G=G)
@@ -290,13 +290,13 @@ def test_lattice_distance_adjacent() -> None:
 
 
 def test_lattice_distance_opposite_corners() -> None:
-    a = mc(D=0.0, V=0.0, L=0.0, G=0.0)   # (1,1,1,1)
+    a = mc(D=0.0, V=0.0, L=0.0, G=0.0)  # (1,1,1,1)
     b = mc(D=10.0, V=10.0, L=10.0, G=10.0)  # (3,3,3,3)
     assert a.lattice_distance(b) == 8
 
 
 def test_lattice_distance_two_axes() -> None:
-    a = mc(D=0.0, V=0.0)   # D=1, V=1
+    a = mc(D=0.0, V=0.0)  # D=1, V=1
     b = mc(D=10.0, V=10.0)  # D=3, V=3
     assert a.lattice_distance(b) == 4
 

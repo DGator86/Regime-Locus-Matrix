@@ -24,11 +24,7 @@ class TransactionCostBreakdown:
 
     @property
     def total(self) -> float:
-        return float(
-            self.extra_spread_cost
-            + self.underlying_slippage_cost
-            + self.market_impact_cost
-        )
+        return float(self.extra_spread_cost + self.underlying_slippage_cost + self.market_impact_cost)
 
     def to_dict(self) -> dict[str, float]:
         payload = asdict(self)
@@ -70,10 +66,7 @@ def calculate_transaction_cost(
             )
 
     underlying_slippage_cost = (
-        abs(float(underlying_price))
-        * (cfg.underlying_slippage_bps / 10_000.0)
-        * len(matched_legs)
-        * qty
+        abs(float(underlying_price)) * (cfg.underlying_slippage_bps / 10_000.0) * len(matched_legs) * qty
     )
     market_impact_cost = 0.0
     if cfg.market_impact_factor > 0.0 and volume_ratio > 0.0:

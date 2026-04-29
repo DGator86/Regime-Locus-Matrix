@@ -6,14 +6,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rlm.forecasting.hmm import HMMConfig
-from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
-from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.forecasting.engines import (
     ForecastPipeline,
     HybridForecastPipeline,
     HybridMarkovForecastPipeline,
 )
+from rlm.forecasting.hmm import HMMConfig
+from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosConfig
+from rlm.forecasting.markov_switching import MarkovSwitchingConfig
 from rlm.roee.engine import ROEEConfig
 from rlm.types.forecast import ForecastConfig
 
@@ -69,6 +69,9 @@ class LiveROEEParameters(BaseModel):
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
     max_capital_fraction: float = 0.5
+    high_vol_kelly_multiplier: float = 0.5
+    transition_kelly_multiplier: float = 0.75
+    calm_trend_kelly_multiplier: float = 1.25
 
     def to_roee_config(self) -> ROEEConfig:
         return ROEEConfig(
@@ -79,6 +82,9 @@ class LiveROEEParameters(BaseModel):
             vol_target=self.vol_target,
             max_kelly_fraction=self.max_kelly_fraction,
             max_capital_fraction=self.max_capital_fraction,
+            high_vol_kelly_multiplier=self.high_vol_kelly_multiplier,
+            transition_kelly_multiplier=self.transition_kelly_multiplier,
+            calm_trend_kelly_multiplier=self.calm_trend_kelly_multiplier,
         )
 
     def decision_kwargs(self) -> dict[str, float | bool]:
@@ -90,6 +96,9 @@ class LiveROEEParameters(BaseModel):
             "vol_target": self.vol_target,
             "max_kelly_fraction": self.max_kelly_fraction,
             "max_capital_fraction": self.max_capital_fraction,
+            "high_vol_kelly_multiplier": self.high_vol_kelly_multiplier,
+            "transition_kelly_multiplier": self.transition_kelly_multiplier,
+            "calm_trend_kelly_multiplier": self.calm_trend_kelly_multiplier,
         }
 
 
@@ -98,6 +107,7 @@ class LiveHMMParameters(BaseModel):
     n_iter: int = 100
     filter_backend: Literal["auto", "numpy", "numba"] = "auto"
     prefer_gpu: bool = False
+    transition_pseudocount: float = 0.1
     hierarchical: bool = True
     macro_weight: float = 0.45
     micro_timeframes: tuple[str, ...] = ("5min", "1min")
@@ -108,6 +118,7 @@ class LiveHMMParameters(BaseModel):
             n_iter=self.n_iter,
             filter_backend=self.filter_backend,
             prefer_gpu=self.prefer_gpu,
+            transition_pseudocount=self.transition_pseudocount,
         )
 
 
@@ -115,6 +126,7 @@ class LiveMarkovParameters(BaseModel):
     n_states: int = 3
     switching_variance: bool = True
     trend: str = "c"
+    transition_pseudocount: float = 0.1
     hierarchical: bool = True
     macro_weight: float = 0.45
     micro_timeframes: tuple[str, ...] = ("5min", "1min")
@@ -124,6 +136,7 @@ class LiveMarkovParameters(BaseModel):
             n_states=self.n_states,
             switching_variance=self.switching_variance,
             trend=self.trend,
+            transition_pseudocount=self.transition_pseudocount,
         )
 
 
@@ -148,16 +161,14 @@ class LiveRegimeModelConfig(BaseModel):
         """
         forecast_config = self.forecast.to_forecast_config()
         if self.model == "hmm":
-            base: ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline = (
-                HybridForecastPipeline(
-                    config=forecast_config,
-                    move_window=self.forecast.move_window,
-                    vol_window=self.forecast.vol_window,
-                    hmm_config=self.hmm.to_hmm_config(),
-                    hierarchical=self.hmm.hierarchical,
-                    macro_weight=self.hmm.macro_weight,
-                    micro_timeframes=self.hmm.micro_timeframes,
-                )
+            base: ForecastPipeline | HybridForecastPipeline | HybridMarkovForecastPipeline = HybridForecastPipeline(
+                config=forecast_config,
+                move_window=self.forecast.move_window,
+                vol_window=self.forecast.vol_window,
+                hmm_config=self.hmm.to_hmm_config(),
+                hierarchical=self.hmm.hierarchical,
+                macro_weight=self.hmm.macro_weight,
+                micro_timeframes=self.hmm.micro_timeframes,
             )
         elif self.model == "markov":
             base = HybridMarkovForecastPipeline(
@@ -214,6 +225,12 @@ def apply_nightly_hyperparam_overlay(cfg: LiveRegimeModelConfig, repo_root: Path
         fo["direction_neutral_threshold"] = float(v)
     if (v := raw.get("hmm_confidence_threshold")) is not None:
         rw["confidence_threshold"] = float(v)
+    if (v := raw.get("high_vol_kelly_multiplier")) is not None:
+        rw["high_vol_kelly_multiplier"] = float(v)
+    if (v := raw.get("transition_kelly_multiplier")) is not None:
+        rw["transition_kelly_multiplier"] = float(v)
+    if (v := raw.get("calm_trend_kelly_multiplier")) is not None:
+        rw["calm_trend_kelly_multiplier"] = float(v)
     d["forecast"] = fo
     d["roee"] = rw
     return LiveRegimeModelConfig.model_validate(d)

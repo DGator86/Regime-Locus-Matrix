@@ -10,9 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from rlm.factors.pipeline import FactorPipeline
+
 from rlm.datasets.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_features_csv, rel_option_chain_csv
-from rlm.factors.pipeline import FactorPipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,9 +71,7 @@ def main() -> None:
     if chain_path.is_file():
         opch = pd.read_csv(chain_path, parse_dates=["timestamp", "expiry"])
 
-    df = prepare_bars_for_factors(
-        df, opch, underlying=sym, attach_vix=not args.no_vix
-    )
+    df = prepare_bars_for_factors(df, opch, underlying=sym, attach_vix=not args.no_vix)
 
     pipeline = FactorPipeline()
     features = pipeline.run(df)

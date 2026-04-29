@@ -29,12 +29,19 @@ class ROEEConfig:
     kronos_confidence_weight: float = 0.4
     hmm_confidence_weight: float = 0.6
     kronos_transition_penalty: float = 0.3
+    kronos_epistemic_disable_threshold: float | None = 0.7
+    kronos_aleatoric_size_penalty: float = 0.5
     vp_gating_enabled: bool = False
     wyckoff_threshold: float = 0.7
     balance_haircut: float = 0.5
     eighty_percent_boost: float = 0.2
     hybrid_strength_scaling: bool = True
     gex_confluence_enabled: bool = True
+    # --- Risk & Portfolio Limits ---
+    hard_stop_loss_pct: float = -0.50
+    force_exit_dte: int = 2
+    max_total_positions: int = 10
+    max_positions_per_symbol: int = 1
 
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
@@ -61,6 +68,8 @@ def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, 
         kronos_confidence_weight=config.kronos_confidence_weight,
         hmm_confidence_weight=config.hmm_confidence_weight,
         kronos_transition_penalty=config.kronos_transition_penalty,
+        kronos_epistemic_disable_threshold=config.kronos_epistemic_disable_threshold,
+        kronos_aleatoric_size_penalty=config.kronos_aleatoric_size_penalty,
     )
 
 
@@ -146,14 +155,11 @@ def apply_roee_policy(
             vault_size_multipliers.append(float(cfg.vault_size_multiplier))
             vault_uncertainties.append(
                 float(row["forecast_uncertainty"])
-                if "forecast_uncertainty" in out.columns
-                and pd.notna(row.get("forecast_uncertainty"))
+                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
                 else float("nan")
             )
             vault_uncertainty_thresholds.append(
-                float(cfg.vault_uncertainty_threshold)
-                if cfg.vault_uncertainty_threshold is not None
-                else float("nan")
+                float(cfg.vault_uncertainty_threshold) if cfg.vault_uncertainty_threshold is not None else float("nan")
             )
             continue
         if not bool(mod["trade"]):
@@ -175,14 +181,11 @@ def apply_roee_policy(
             vault_size_multipliers.append(float(cfg.vault_size_multiplier))
             vault_uncertainties.append(
                 float(row["forecast_uncertainty"])
-                if "forecast_uncertainty" in out.columns
-                and pd.notna(row.get("forecast_uncertainty"))
+                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
                 else float("nan")
             )
             vault_uncertainty_thresholds.append(
-                float(cfg.vault_uncertainty_threshold)
-                if cfg.vault_uncertainty_threshold is not None
-                else float("nan")
+                float(cfg.vault_uncertainty_threshold) if cfg.vault_uncertainty_threshold is not None else float("nan")
             )
             continue
 
@@ -214,15 +217,13 @@ def apply_roee_policy(
                 if "forecast_return" in out.columns and pd.notna(row.get("forecast_return"))
                 else (
                     float(row["forecast_return_median"])
-                    if "forecast_return_median" in out.columns
-                    and pd.notna(row.get("forecast_return_median"))
+                    if "forecast_return_median" in out.columns and pd.notna(row.get("forecast_return_median"))
                     else None
                 )
             ),
             forecast_uncertainty=(
                 float(row["forecast_uncertainty"])
-                if "forecast_uncertainty" in out.columns
-                and pd.notna(row.get("forecast_uncertainty"))
+                if "forecast_uncertainty" in out.columns and pd.notna(row.get("forecast_uncertainty"))
                 else None
             ),
             realized_vol=(
@@ -243,8 +244,7 @@ def apply_roee_policy(
             use_volume_profile_gating=cfg.vp_gating_enabled,
             effort_result_divergence=(
                 float(row["vp_effort_result_score"])
-                if "vp_effort_result_score" in out.columns
-                and pd.notna(row.get("vp_effort_result_score"))
+                if "vp_effort_result_score" in out.columns and pd.notna(row.get("vp_effort_result_score"))
                 else None
             ),
             auction_state=(
@@ -254,14 +254,12 @@ def apply_roee_policy(
             ),
             eighty_percent_rule_signal=(
                 bool(row["vp_eighty_percent_signal"])
-                if "vp_eighty_percent_signal" in out.columns
-                and pd.notna(row.get("vp_eighty_percent_signal"))
+                if "vp_eighty_percent_signal" in out.columns and pd.notna(row.get("vp_eighty_percent_signal"))
                 else False
             ),
             cumulative_wyckoff_score=(
                 float(row["cumulative_wyckoff_score"])
-                if "cumulative_wyckoff_score" in out.columns
-                and pd.notna(row.get("cumulative_wyckoff_score"))
+                if "cumulative_wyckoff_score" in out.columns and pd.notna(row.get("cumulative_wyckoff_score"))
                 else None
             ),
             wyckoff_threshold=cfg.wyckoff_threshold,
@@ -270,15 +268,13 @@ def apply_roee_policy(
             hybrid_strength_scaling=cfg.hybrid_strength_scaling,
             hybrid_strength=(
                 float(row["vp_hybrid_strength_max"])
-                if "vp_hybrid_strength_max" in out.columns
-                and pd.notna(row.get("vp_hybrid_strength_max"))
+                if "vp_hybrid_strength_max" in out.columns and pd.notna(row.get("vp_hybrid_strength_max"))
                 else None
             ),
             gex_confluence_enabled=cfg.gex_confluence_enabled,
             gex_confluence_poc=(
                 float(row["vp_gex_confluence_poc"])
-                if "vp_gex_confluence_poc" in out.columns
-                and pd.notna(row.get("vp_gex_confluence_poc"))
+                if "vp_gex_confluence_poc" in out.columns and pd.notna(row.get("vp_gex_confluence_poc"))
                 else None
             ),
         )

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from rlm.forecasting.live_model import LiveRegimeModelConfig, load_live_regime_model, save_live_regime_model
+from rlm.forecasting.live_model import (
+    LiveRegimeModelConfig,
+    load_live_regime_model,
+    save_live_regime_model,
+)
 from rlm.roee.decision import select_trade_for_row
 from rlm.scoring.state_matrix import classify_state_matrix
 
