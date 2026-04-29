@@ -54,16 +54,28 @@ def standardize_factor_series(
     raise ValueError(f"Unsupported transform kind: {spec.transform_kind}")
 
 
+def _rolling_zscore_winsorize(series: pd.Series, window: int, clip_z: float, min_periods: int) -> pd.Series:
+    mu = series.rolling(window=window, min_periods=min_periods).mean()
+    sigma = series.rolling(window=window, min_periods=min_periods).std(ddof=0).replace(0.0, np.nan)
+    z = (series - mu) / sigma
+    return z.clip(lower=-abs(float(clip_z)), upper=abs(float(clip_z)))
+
+
 def standardize_factor_frame(
     raw_factors: pd.DataFrame,
     specs: list[FactorSpec],
+    *,
+    rolling_window: int = 126,
+    winsor_z: float = 4.0,
+    min_periods: int = 20,
 ) -> pd.DataFrame:
     columns: dict[str, pd.Series] = {}
     for spec in specs:
         if spec.name not in raw_factors.columns:
             columns[spec.name] = pd.Series(np.nan, index=raw_factors.index, dtype=float)
             continue
-        columns[spec.name] = standardize_factor_series(raw_factors[spec.name], spec)
+        normalized = _rolling_zscore_winsorize(raw_factors[spec.name].astype(float), rolling_window, winsor_z, min_periods)
+        columns[spec.name] = standardize_factor_series(normalized, spec)
     return pd.DataFrame(columns, index=raw_factors.index)
 
 

@@ -29,6 +29,8 @@ class ROEEConfig:
     kronos_confidence_weight: float = 0.4
     hmm_confidence_weight: float = 0.6
     kronos_transition_penalty: float = 0.3
+    kronos_epistemic_disable_threshold: float | None = 0.7
+    kronos_aleatoric_size_penalty: float = 0.5
     vp_gating_enabled: bool = False
     wyckoff_threshold: float = 0.7
     balance_haircut: float = 0.5
@@ -66,6 +68,8 @@ def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, 
         kronos_confidence_weight=config.kronos_confidence_weight,
         hmm_confidence_weight=config.hmm_confidence_weight,
         kronos_transition_penalty=config.kronos_transition_penalty,
+        kronos_epistemic_disable_threshold=config.kronos_epistemic_disable_threshold,
+        kronos_aleatoric_size_penalty=config.kronos_aleatoric_size_penalty,
     )
 
 

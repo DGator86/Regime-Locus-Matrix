@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - polars is optional at runtime
     pl = None
 
 from rlm.features.factors.advanced_orderflow_liquidity import AdvancedOrderFlowLiquidityFactors
+from rlm.features.factors.alternative_data import AlternativeDataFactors
 from rlm.features.factors.base import compute_composite_scores, standardize_factor_frame
 from rlm.features.factors.candle_patterns import CandlePatternFactors
 from rlm.features.factors.config import filter_specs, load_feature_engineering_config
@@ -63,6 +64,7 @@ class FactorPipeline:
             AdvancedLiquidityPoolFactors(),
             AdvancedOrderFlowLiquidityFactors(),
             KronosFactorCalculator(),
+            AlternativeDataFactors(),
         ]
         self.max_workers = max_workers if max_workers is not None else int(os.getenv("RLM_FACTOR_WORKERS", "1"))
         self.parallel_backend = str(parallel_backend)
