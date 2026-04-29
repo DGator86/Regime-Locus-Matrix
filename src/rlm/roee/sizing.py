@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
@@ -154,6 +156,8 @@ def kelly_confidence_from_uncertainty(
     try:
         u = float(forecast_uncertainty)
     except (TypeError, ValueError):
+        return 1.0
+    if math.isnan(u):
         return 1.0
     if u <= 0.0:
         return 1.0
