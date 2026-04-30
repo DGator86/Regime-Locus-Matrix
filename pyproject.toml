@@ -1,3 +1,10 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [project]
 name = "regime-locus-matrix"
 version = "0.1.1"
@@ -85,12 +92,15 @@ options_data = [
     "polygon-api-client",
     "yahooquery",
 ]
-# Starfleet AI crew — Scotty / Spock / Kirk agents
-# Primary backend: Groq (free, sign up at console.groq.com, set GROQ_API_KEY in .env)
-# Fallback backend: Ollama (local, set LLM_BACKEND=ollama, run `ollama serve`)
-# No extra Python deps required — uses stdlib urllib only.
+# Hermes agent + RLM tool registration (replaces legacy Starfleet crew).
+# Install: pip install -e ".[hermes]"
+# Crew uses OpenAI-compatible API: default local Ollama http://127.0.0.1:11434/v1
+hermes = [
+    "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
+]
+# Backward-compatible alias (same as hermes)
 agents = [
-    "python-dotenv",   # already in core deps; listed here for clarity
+    "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
 ]
 # Morning briefing protocol
 morning = [
@@ -144,7 +154,7 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.mypy]
 python_version = "3.10"

@@ -1,7 +1,7 @@
-# Regime-Locus-Matrix — Starfleet AI Crew (Scotty / Spock / Kirk)
+# Regime-Locus-Matrix — Hermes AI crew (health + market context + commander)
 #
 # Prereqs on the VPS:
-#   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[agents]")
+#   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[hermes]")
 #     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed.
 #   - .env with GROQ_API_KEY (free key from console.groq.com)
 #             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
@@ -16,7 +16,7 @@
 # Logs: journalctl -u regime-locus-crew -f
 
 [Unit]
-Description=RLM Starfleet AI Crew — Scotty health guardian + Spock analyst + Kirk commander
+Description=RLM Hermes crew — health facts, market context, commander (gate_state.json)
 After=network-online.target regime-locus-master.service
 Wants=network-online.target
 StartLimitIntervalSec=300

@@ -1,5 +1,8 @@
 """
 Global System Gate — manages system posture and trading permissions.
+
+Persists ``data/processed/gate_state.json`` with keys:
+``posture``, ``status``, ``last_updated``.
 """
 
 from __future__ import annotations
