@@ -7,13 +7,8 @@ def test_optimization_tuning_compatibility_module_exports_helpers() -> None:
     feature_tuning = importlib.import_module("rlm.features.optimization.tuning")
     optimization_tuning = importlib.import_module("rlm.optimization.tuning")
 
-    assert (
-        optimization_tuning.evaluate_forecast_backtest is feature_tuning.evaluate_forecast_backtest
-    )
-    assert (
-        optimization_tuning.random_search_forecast_params
-        is feature_tuning.random_search_forecast_params
-    )
+    assert optimization_tuning.evaluate_forecast_backtest is feature_tuning.evaluate_forecast_backtest
+    assert optimization_tuning.random_search_forecast_params is feature_tuning.random_search_forecast_params
 
 
 def test_features_optimization_package_imports_without_missing_module() -> None:
@@ -30,6 +25,7 @@ def test_public_compatibility_import_paths_remain_available() -> None:
     from rlm.data.microstructure.calculators.gex import gex_flip_level as canonical_gex_flip_level
     from rlm.data.microstructure.database.query import MicrostructureDB as CanonicalMicrostructureDB
     from rlm.data.microstructure.factors.gex_factors import GEXFactors as CanonicalGEXFactors
+    from rlm.datasets.bars_enrichment import prepare_bars_for_factors
     from rlm.features.scoring.state_matrix import classify_state_matrix as canonical_classify_state
     from rlm.features.standardization.transforms import log_tanh_ratio as canonical_log_tanh_ratio
     from rlm.forecasting.kronos_config import KronosConfig as CanonicalKronosConfig
@@ -39,8 +35,6 @@ def test_public_compatibility_import_paths_remain_available() -> None:
     from rlm.forecasting.models.kronos.regime_confidence import (
         KronosRegimeConfidence as CanonicalKronosRegimeConfidence,
     )
-
-    from rlm.datasets.bars_enrichment import prepare_bars_for_factors
     from rlm.kronos.config import KronosConfig
     from rlm.kronos.forecast import KronosForecastPipeline
     from rlm.kronos.model.kronos import Kronos
