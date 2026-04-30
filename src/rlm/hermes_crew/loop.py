@@ -122,7 +122,12 @@ def _make_agent_with_skill(root: Path, skill_prompt: str, toolsets: list[str]):
         _dflt_model = "llama3.2"
     base_url = os.environ.get("RLM_HERMES_BASE_URL", _dflt_base)
     api_key = os.environ.get("RLM_HERMES_API_KEY", _dflt_key)
-    model = os.environ.get("RLM_HERMES_MODEL", os.environ.get("LLM_MODEL", _dflt_model))
+    model = os.environ.get("RLM_HERMES_MODEL")
+    if not model:
+        if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
+            model = _dflt_model
+        else:
+            model = os.environ.get("LLM_MODEL", _dflt_model)
     skip_memory = os.environ.get("RLM_HERMES_SKIP_MEMORY", "").strip().lower() in ("1", "true", "yes")
     max_it = int(os.environ.get("RLM_HERMES_MAX_ITERATIONS", "20"))
     return AIAgent(
