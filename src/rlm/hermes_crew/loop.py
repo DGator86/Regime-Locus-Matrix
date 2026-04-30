@@ -1,4 +1,4 @@
-"""Hermes AIAgent loop replacing StarfleetCrew (Kirk briefing + gate + Telegram)."""
+"""Hermes AIAgent loop — three-agent crew: Scotty (data_monitor) → Spock (research_analyst) → Kirk (commander)."""
 
 from __future__ import annotations
 
@@ -46,6 +46,19 @@ CREW ORDERS:
   - Helm: <one directive for the trading engine>
 """
 
+_SCOTTY_FALLBACK = """\
+You are Scotty, Chief Engineer of this trading system. You are practical and direct.
+When the market is closed, do not panic about powered-down batch services.
+Summarise what is broken, what is fine, and what to do next in 3-10 short bullets (plain text, no markdown headers).
+"""
+
+_SPOCK_FALLBACK = """\
+You are Spock: logical, probability-focused, no emotional language.
+Analyse active trade plans and regime signals. Number each active plan:
+  1. SYMBOL | STRATEGY | REGIME | ACTION: [GO / HOLD / ABORT] | RATIONALE: <one sentence>
+End with: OVERALL RISK POSTURE: [LOW / MODERATE / HIGH / CRITICAL]
+"""
+
 
 @dataclass
 class HermesCrewConfig:
@@ -57,21 +70,35 @@ class HermesCrewConfig:
     silent_health_ok: bool = True
 
 
-def _load_commander_skill_text(root: Path) -> str:
-    p = root / "hermes_skills" / "commander" / "SKILL.md"
+def _load_skill_text(root: Path, skill_name: str, fallback: str) -> str:
+    p = root / "hermes_skills" / skill_name / "SKILL.md"
     if not p.is_file():
-        return _KIRK_SYSTEM
+        return fallback
     raw = p.read_text(encoding="utf-8")
     if raw.startswith("---"):
         parts = raw.split("---", 2)
         if len(parts) >= 3:
             return parts[2].strip()
-    return raw.strip() or _KIRK_SYSTEM
+    return raw.strip() or fallback
+
+
+def _load_commander_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "commander", _KIRK_SYSTEM)
+
+
+def _load_scotty_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "data_monitor", _SCOTTY_FALLBACK)
+
+
+def _load_spock_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "research_analyst", _SPOCK_FALLBACK)
 
 
 def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     os.environ.setdefault("RLM_ROOT", str(root))
-    sys.path.append(str(root))
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.append(root_str)
     try:
         import run_agent  # noqa: WPS433 — third-party entry
         import rlm_hermes_tools.register_rlm_tools  # noqa: F401, WPS433 — registers tools
@@ -82,7 +109,7 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     return run_agent.AIAgent, run_agent
 
 
-def _make_agent(root: Path):
+def _make_agent_with_skill(root: Path, skill_prompt: str, toolsets: list[str]):
     AIAgent, _ = _ensure_hermes(root)
     base_url = os.environ.get("RLM_HERMES_BASE_URL", "http://127.0.0.1:11434/v1")
     api_key = os.environ.get("RLM_HERMES_API_KEY", "ollama")
@@ -94,12 +121,79 @@ def _make_agent(root: Path):
         api_key=api_key,
         model=model,
         quiet_mode=True,
-        enabled_toolsets=["rlm"],
-        ephemeral_system_prompt=_load_commander_skill_text(root),
+        enabled_toolsets=toolsets,
+        ephemeral_system_prompt=skill_prompt,
         skip_memory=skip_memory,
         max_iterations=max_it,
         skip_context_files=True,
     )
+
+
+def _make_agent(root: Path):
+    """Commander agent (Kirk). Kept for backward compatibility."""
+    return _make_agent_with_skill(
+        root,
+        _load_commander_skill_text(root),
+        ["rlm"],
+    )
+
+
+def _run_scotty_agent(root: Path, health_facts_json: str) -> str:
+    """Run the Scotty (data_monitor) Hermes agent; returns its plain-text engineering report."""
+    agent = _make_agent_with_skill(root, _load_scotty_skill_text(root), ["rlm"])
+    return agent.chat(
+        f"Here are the raw system health facts (JSON):\n\n{health_facts_json}\n\n"
+        "Call rlm_get_health_report or rlm_get_system_gate_state if you need fresher data. "
+        "Produce your engineering report now."
+    )
+
+
+def _run_spock_agent(root: Path, market_context: str) -> str:
+    """Run the Spock (research_analyst) Hermes agent; returns its plain-text analysis."""
+    agent = _make_agent_with_skill(root, _load_spock_skill_text(root), ["rlm"])
+    return agent.chat(
+        f"Here is the current market context:\n\n{market_context}\n\n"
+        "Call rlm_get_trade_and_regime_context, rlm_get_system_gate_state, or "
+        "rlm_check_portfolio_limits if you need fresher data. "
+        "Produce your analysis now."
+    )
+
+
+def _run_full_briefing(
+    root: Path,
+    health_payload: dict,
+    market_context: str,
+) -> tuple[str, str, str]:
+    """Run all three Hermes agents in sequence: Scotty → Spock → Kirk.
+
+    Returns (scotty_report, spock_report, kirk_llm_text).
+    """
+    import json
+
+    health_json = json.dumps(health_payload, default=str)
+
+    print("[Hermes crew] Running Scotty (data_monitor) agent...", flush=True)
+    scotty_report = _run_scotty_agent(root, health_json)
+    print(f"[Hermes crew] Scotty done ({len(scotty_report)} chars)", flush=True)
+
+    print("[Hermes crew] Running Spock (research_analyst) agent...", flush=True)
+    spock_report = _run_spock_agent(root, market_context)
+    print(f"[Hermes crew] Spock done ({len(spock_report)} chars)", flush=True)
+
+    print("[Hermes crew] Running Kirk (commander) agent...", flush=True)
+    commander = _make_agent_with_skill(root, _load_commander_skill_text(root), ["rlm"])
+    kirk_user = (
+        "Here are your crew reports.\n\n"
+        f"=== Scotty's Engineering Report ===\n{scotty_report}\n\n"
+        f"=== Spock's Market Analysis ===\n{spock_report}\n\n"
+        "You may call rlm_get_health_report, rlm_get_trade_and_regime_context, "
+        "rlm_get_system_gate_state, or rlm_check_portfolio_limits if you need fresher data.\n\n"
+        "Issue your command decision in the required format."
+    )
+    kirk_text = commander.chat(kirk_user)
+    print(f"[Hermes crew] Kirk done ({len(kirk_text)} chars)", flush=True)
+
+    return scotty_report, spock_report, kirk_text
 
 
 def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> CommandDecision:
@@ -108,17 +202,9 @@ def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> Command
     health = gather_health_report(root)
     ctx = build_trade_and_regime_context(root)
     health_ok = bool(health.get("overall_ok", True))
-    health_txt = str(health.get("report_text", ""))
-    agent = _make_agent(root)
-    user = (
-        "Here are your crew reports (cached at invocation time).\n\n"
-        f"=== Scotty's Engineering Report ===\n{health_txt}\n\n"
-        f"=== Spock's Market Context ===\n{ctx}\n\n"
-        "You may call rlm_get_health_report, rlm_get_trade_and_regime_context, "
-        "rlm_get_system_gate_state, or rlm_check_portfolio_limits if you need fresher data.\n\n"
-        "Issue your command decision in the required format."
-    )
-    llm_text = agent.chat(user)
+
+    _, _, llm_text = _run_full_briefing(root, health, ctx)
+
     ts = utc_timestamp()
     decision = parse_command_decision(
         ts,
@@ -175,23 +261,13 @@ def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None
 
             if now - last_briefing >= cfg.briefing_interval:
                 last_briefing = now
-                health_txt = str(last_health_payload.get("report_text") or "")
-                if not health_txt.strip():
+                if not last_health_payload:
                     last_health_payload = gather_health_report(root)
-                    health_txt = str(last_health_payload.get("report_text", ""))
                 if not last_context.strip():
                     last_context = build_trade_and_regime_context(root)
                 health_ok = bool(last_health_payload.get("overall_ok", True))
 
-                agent = _make_agent(root)
-                user = (
-                    "Here are your crew reports:\n\n"
-                    f"=== Scotty's Engineering Report ===\n{health_txt}\n\n"
-                    f"=== Spock's Market Context ===\n{last_context}\n\n"
-                    "You may call rlm_* tools for fresher data.\n\n"
-                    "Issue your command decision in the required format."
-                )
-                llm_text = agent.chat(user)
+                _, _, llm_text = _run_full_briefing(root, last_health_payload, last_context)
                 ts = utc_timestamp()
                 decision = parse_command_decision(
                     ts,
