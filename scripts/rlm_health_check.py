@@ -533,10 +533,10 @@ for skill_name in ("commander", "data_monitor", "research_analyst"):
     else:
         fail(f"hermes_skills/{skill_name}/SKILL.md -- MISSING")
 
-tools_reg = ROOT / "rlm_hermes_tools" / "register_rlm_tools.py"
+tools_reg = ROOT / "src" / "rlm_hermes_tools" / "register_rlm_tools.py"
 check(tools_reg.is_file(),
-      "rlm_hermes_tools/register_rlm_tools.py -- present",
-      "rlm_hermes_tools/register_rlm_tools.py -- MISSING")
+      "src/rlm_hermes_tools/register_rlm_tools.py -- present",
+      "src/rlm_hermes_tools/register_rlm_tools.py -- MISSING")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
