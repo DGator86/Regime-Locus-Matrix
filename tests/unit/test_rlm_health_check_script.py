@@ -73,9 +73,9 @@ def test_health_check_default_output_does_not_modify_live_gate(monkeypatch, tmp_
 
     loop_mod = types.ModuleType("rlm.hermes_crew.loop")
     loop_roots: list[Path] = []
-    loop_mod._load_commander_skill_text = lambda root: "commander skill text"
-    loop_mod._load_scotty_skill_text = lambda root: "scotty skill text"
-    loop_mod._load_spock_skill_text = lambda root: "spock skill text"
+    loop_mod._load_commander_skill_text = lambda root: "commander skill text for isolated health check"
+    loop_mod._load_scotty_skill_text = lambda root: "scotty skill text for isolated health check"
+    loop_mod._load_spock_skill_text = lambda root: "spock skill text for isolated health check"
 
     def _agent_response(root: Path, *_args: object) -> str:
         loop_roots.append(root)
