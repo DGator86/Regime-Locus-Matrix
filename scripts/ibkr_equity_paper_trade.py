@@ -60,6 +60,7 @@ from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
 
 # ruff: noqa: E402
 from rlm.utils.market_hours import entry_window_open, is_rth_now, session_label
+from rlm.roee.system_gate import SystemGate
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -502,6 +503,15 @@ def open_equity_positions(
         print(
             f"  [equity] skip new entries — outside NYSE entry window ({session_label()}); "
             "use --no-rth-gate to override",
+            flush=True,
+        )
+        return
+
+    _gate = SystemGate(ROOT)
+    if not _gate.is_trading_allowed():
+        _gs = _gate.load()
+        print(
+            f"  [equity] trading paused by system gate — posture={_gs.posture} status={_gs.status}",
             flush=True,
         )
         return

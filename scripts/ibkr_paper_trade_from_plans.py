@@ -35,6 +35,7 @@ from rlm.execution.ibkr_combo_orders import (
     legs_from_ibkr_combo_spec,
     load_ibkr_order_socket_config,
 )
+from rlm.roee.system_gate import SystemGate
 
 
 def _load_plans(path: Path) -> dict:
@@ -87,6 +88,15 @@ def main() -> int:
         active = ranked
     else:
         active = [r for r in payload.get("results", []) if r.get("status") == "active"]
+
+    gate = SystemGate(ROOT)
+    if not gate.is_trading_allowed():
+        gs = gate.load()
+        print(
+            f"[paper-trade] trading paused by system gate — posture={gs.posture} status={gs.status}",
+            flush=True,
+        )
+        return 0
 
     # Filter to plans not yet confirmed opened (avoid re-opening)
     to_open = [r for r in active[: max(0, args.max)] if not r.get("paper_opened")]
