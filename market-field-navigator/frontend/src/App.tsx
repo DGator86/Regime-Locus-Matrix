@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchSnapshot } from './api/marketFieldApi';
 import MarketFieldScene from './scene/MarketFieldScene';
 import LeftMetricsPanel from './hud/LeftMetricsPanel';
@@ -10,6 +10,8 @@ import { useMarketFieldStore } from './state/useMarketFieldStore';
 
 export default function App(){
   const setSnapshot = useMarketFieldStore((s)=>s.setSnapshot);
-  useEffect(()=>{ fetchSnapshot().then(setSnapshot); }, [setSnapshot]);
-  return <div className='app'><LeftMetricsPanel /><div className='scene-wrap panel'><MarketFieldScene /></div><div><RightPriceScale /><Legend /><DecisionPanel /></div><BottomControls /></div>;
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState<string | null>(null);
+  useEffect(()=>{ fetchSnapshot().then(setSnapshot).catch(()=>setError('Backend offline. Start FastAPI on localhost:8000 and retry.')).finally(()=>setLoading(false)); }, [setSnapshot]);
+  return <div className='app'><LeftMetricsPanel /><div className='scene-wrap panel'>{loading ? <div>Loading market field snapshot...</div> : error ? <div>{error}</div> : <MarketFieldScene />}</div><div><RightPriceScale /><Legend /><DecisionPanel /></div><BottomControls /></div>;
 }
