@@ -508,8 +508,8 @@ def open_equity_positions(
         return
 
     _gate = SystemGate(ROOT)
-    if not _gate.is_trading_allowed():
-        _gs = _gate.load()
+    _gate_allowed, _gs = _gate.check()
+    if not _gate_allowed:
         print(
             f"  [equity] trading paused by system gate — posture={_gs.posture} status={_gs.status}",
             flush=True,

@@ -75,6 +75,15 @@ def main() -> int:
         print(f"Missing {plans_path}", file=sys.stderr)
         return 1
 
+    gate = SystemGate(ROOT)
+    gate_allowed, gs = gate.check()
+    if not gate_allowed:
+        print(
+            f"[paper-trade] trading paused by system gate — posture={gs.posture} status={gs.status}",
+            flush=True,
+        )
+        return 0
+
     _, port, _ = load_ibkr_order_socket_config()
     try:
         assert_paper_trading_port(port)
@@ -88,15 +97,6 @@ def main() -> int:
         active = ranked
     else:
         active = [r for r in payload.get("results", []) if r.get("status") == "active"]
-
-    gate = SystemGate(ROOT)
-    if not gate.is_trading_allowed():
-        gs = gate.load()
-        print(
-            f"[paper-trade] trading paused by system gate — posture={gs.posture} status={gs.status}",
-            flush=True,
-        )
-        return 0
 
     # Filter to plans not yet confirmed opened (avoid re-opening)
     to_open = [r for r in active[: max(0, args.max)] if not r.get("paper_opened")]
