@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 
 
 def test_optimization_tuning_compatibility_module_exports_helpers() -> None:
@@ -23,6 +25,8 @@ def test_public_compatibility_import_paths_remain_available() -> None:
     from rlm.core.pipeline import FullRLMPipeline as CanonicalFullRLMPipeline
     from rlm.data.bars_enrichment import prepare_bars_for_factors as canonical_prepare_bars
     from rlm.data.microstructure.calculators.gex import gex_flip_level as canonical_gex_flip_level
+    from rlm.data.microstructure.collectors.options import OptionsCollector as CanonicalOptionsCollector
+    from rlm.data.microstructure.collectors.underlying import UnderlyingCollector as CanonicalUnderlyingCollector
     from rlm.data.microstructure.database.query import MicrostructureDB as CanonicalMicrostructureDB
     from rlm.data.microstructure.factors.gex_factors import GEXFactors as CanonicalGEXFactors
     from rlm.datasets.bars_enrichment import prepare_bars_for_factors
@@ -41,6 +45,8 @@ def test_public_compatibility_import_paths_remain_available() -> None:
     from rlm.kronos.predictor import RLMKronosPredictor
     from rlm.kronos.regime_confidence import KronosRegimeConfidence
     from rlm.microstructure.calculators.gex import gex_flip_level
+    from rlm.microstructure.collectors.options import OptionsCollector
+    from rlm.microstructure.collectors.underlying import UnderlyingCollector
     from rlm.microstructure.database.query import MicrostructureDB
     from rlm.microstructure.factors.gex_factors import GEXFactors
     from rlm.pipeline import FullRLMConfig, FullRLMPipeline
@@ -55,8 +61,26 @@ def test_public_compatibility_import_paths_remain_available() -> None:
     assert KronosRegimeConfidence is CanonicalKronosRegimeConfidence
     assert RLMKronosPredictor is CanonicalRLMKronosPredictor
     assert Kronos is CanonicalKronos
+    assert OptionsCollector is CanonicalOptionsCollector
+    assert UnderlyingCollector is CanonicalUnderlyingCollector
     assert MicrostructureDB is CanonicalMicrostructureDB
     assert gex_flip_level is canonical_gex_flip_level
     assert GEXFactors is CanonicalGEXFactors
     assert classify_state_matrix is canonical_classify_state
     assert log_tanh_ratio is canonical_log_tanh_ratio
+
+
+def test_microstructure_collector_compatibility_cli_modules_show_help() -> None:
+    for module in (
+        "rlm.microstructure.collectors.options",
+        "rlm.microstructure.collectors.underlying",
+    ):
+        result = subprocess.run(
+            [sys.executable, "-m", module, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "usage:" in result.stdout
