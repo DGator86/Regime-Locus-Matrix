@@ -25,6 +25,14 @@ Quick activation (RLM + Telegram)
 
 5) **Linux systemd** (VPS)::
 
+    Pick **one** trading master unit (IBKR + universe + monitor). The templates declare
+    mutual ``Conflicts=`` so enabling a second stops the first: ``regime-locus-master.service``,
+    ``rlm-master-telegram.service``, or ``rlm-master-trader.service``. Disable any extra::
+
+      sudo systemctl disable --now regime-locus-master rlm-master-trader 2>/dev/null || true
+
+    Example install (master + embedded Telegram bot)::
+
     sudo install -m 0644 deploy/rlm-master-telegram.service.example /etc/systemd/system/rlm-master-telegram.service
     sudo systemctl daemon-reload
     sudo systemctl enable --now rlm-master-telegram

@@ -20,7 +20,7 @@ Examples::
     python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
 
 **Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
-rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
+rescans (only **Mon–Fri 09:30–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
 **paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
 With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
 (local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
@@ -199,7 +199,7 @@ def main() -> int:
     ap.add_argument(
         "--scanner-hours-et",
         action="store_true",
-        help="Gate universe rescans to Mon–Fri 09:00–16:00 America/New_York; sets --follow and "
+        help="Gate universe rescans to Mon–Fri 09:30–16:00 America/New_York; sets --follow and "
         "default 300s rescan if none given.",
     )
     ap.add_argument(
@@ -253,7 +253,7 @@ def main() -> int:
     scanner_hours_et = (args.master or args.scanner_hours_et) and not args.scanner_24h
     if scanner_hours_et:
         print(
-            "[info] Universe rescans gated to Mon–Fri 09:00–16:00 America/New_York "
+            "[info] Universe rescans gated to Mon–Fri 09:30–16:00 America/New_York "
             "(use --scanner-24h for continuous rescans).",
             flush=True,
         )
@@ -319,6 +319,18 @@ def main() -> int:
         return ccmd
 
     if not args.skip_pipeline:
+        if args.master and scanner_hours_et and not is_scanner_window_open():
+            print(
+                "[master] initial universe pipeline deferred until Mon–Fri 09:30–16:00 America/New_York.",
+                flush=True,
+            )
+            poll_sec = 45.0
+            while not is_scanner_window_open():
+                print(
+                    f"[master] waiting for rescan window ({scanner_window_label()}) …",
+                    flush=True,
+                )
+                time.sleep(poll_sec)
         rc = _run(pipeline_cmd())
         if rc != 0:
             return rc
