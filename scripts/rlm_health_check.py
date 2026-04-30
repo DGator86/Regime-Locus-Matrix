@@ -147,7 +147,9 @@ except Exception as e:
 
 try:
     from rlm.hermes_facts.kirk_command import (
-        parse_command_decision, save_decision, utc_timestamp,
+        parse_command_decision,
+        save_decision,
+        utc_timestamp,
     )
     ok("rlm.hermes_facts.kirk_command -- parse_command_decision, save_decision  [Kirk module]")
 except Exception as e:
@@ -161,9 +163,9 @@ except Exception as e:
 
 try:
     from rlm.hermes_crew.loop import (
+        _load_commander_skill_text,
         _load_scotty_skill_text,
         _load_spock_skill_text,
-        _load_commander_skill_text,
         _run_full_briefing,
     )
     ok("rlm.hermes_crew.loop -- skill loaders, _run_full_briefing  [crew loop]")
@@ -176,6 +178,7 @@ loop_mod = importlib.import_module("rlm.hermes_crew.loop")
 hermes_available = False
 try:
     import run_agent  # noqa: F401
+
     import rlm_hermes_tools.register_rlm_tools  # noqa: F401
     hermes_available = True
     ok("hermes-agent (run_agent) -- INSTALLED, LLM agents can be called live")
@@ -503,7 +506,7 @@ if kirk_llm_text:
     save_decision(ROOT, decision)
     decisions_path = ROOT / "data" / "artifacts" / "crew_decisions.json"
     check(decisions_path.is_file(),
-          f"crew_decisions.json written",
+          "crew_decisions.json written",
           "crew_decisions.json NOT written")
 
     gate2 = SystemGate(ROOT)
