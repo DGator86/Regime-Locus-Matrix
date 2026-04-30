@@ -1,9 +1,0 @@
-window_id,is_start,is_end,oos_start,oos_end,nominal_is_start,nominal_is_end,purge_bars,regime_aware,regime_boundary_aware_purge,unsafe_oos_bars,last_oos_regime_train_samples,min_oos_regime_train_samples,regime_safety_fraction,regime_safety_passed,coverage_adjusted,covered_regimes,required_regimes,avg_auction_state_balance_ratio,avg_wyckoff_divergence,avg_hybrid_strength,eighty_percent_rule_hit_rate,final_equity,total_return_pct,max_drawdown,sharpe
-0,0,98,100,149,0,98,0,False,True,20,43,2,0.6,False,0,0,0,,,,,100000.0,0.0,0.0,
-1,50,148,150,199,50,148,0,False,True,32,19,0,0.36,False,0,0,0,,,,,100000.0,0.0,0.0,
-2,100,198,200,249,100,198,0,False,True,13,43,0,0.74,True,0,0,0,,,,,100000.0,0.0,0.0,
-3,150,244,250,299,150,244,0,False,True,30,20,0,0.4,False,0,0,0,,,,,100000.0,0.0,0.0,
-4,200,292,300,349,200,292,0,False,True,18,52,1,0.64,False,0,0,0,,,,,100000.0,0.0,0.0,
-5,250,340,350,399,250,340,0,False,True,30,17,0,0.4,False,0,0,0,,,,,100000.0,0.0,0.0,
-6,300,398,400,449,300,398,0,False,True,25,45,0,0.5,False,0,0,0,,,,,100000.0,0.0,0.0,
-7,350,442,450,499,350,442,0,False,True,13,45,0,0.74,True,0,0,0,,,,,100000.0,0.0,0.0,

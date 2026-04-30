@@ -85,3 +85,18 @@ def test_run_walkforward_wrapper_allows_single_symbol_override():
     assert result.returncode == 0
     assert "not allowed with argument --universe" not in result.stderr
     assert "--universe" in result.stdout
+
+
+def test_calibrate_regime_models_help_imports_cleanly():
+    env = {**os.environ, "PYTHONPATH": "src"}
+    result = subprocess.run(
+        [sys.executable, "scripts/calibrate_regime_models.py", "--help"],
+        cwd=".",
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--promote" in result.stdout

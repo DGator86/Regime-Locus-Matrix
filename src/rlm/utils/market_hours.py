@@ -39,14 +39,9 @@ def _eastern_tz() -> tzinfo:
 
 _EASTERN = _eastern_tz()
 
-# RTH session boundaries (Eastern)
+# RTH session boundaries (Eastern) — also used for universe rescans (NYSE cash clock window).
 _RTH_OPEN = time(9, 30, 0)
 _RTH_CLOSE = time(16, 0, 0)
-
-# Universe / rescan window (US Eastern legal time via ``_eastern_tz`` — EST in winter, EDT in summer).
-# Mon–Fri inclusive; ``start`` inclusive, ``end`` exclusive (scanner stops at 16:00).
-_SCANNER_START = time(9, 0, 0)
-_SCANNER_END = time(16, 0, 0)
 
 
 def _now_eastern() -> datetime:
@@ -128,16 +123,16 @@ def is_friday_afternoon(
 
 
 def is_scanner_window_open(*, _override: Optional[datetime] = None) -> bool:
-    """True Mon–Fri when local Eastern clock is in ``[09:00, 16:00)``.
+    """True Mon–Fri when local Eastern clock is in ``[09:30, 16:00)`` (NYSE cash session).
 
     Used to gate periodic universe rescans (``run_everything`` master loop).
-    This is **not** identical to RTH (09:30–16:00); it matches a 9:00–16:00 ET scan day.
+    Same half-open interval as :func:`is_rth_now` (no pre-market 09:00–09:29 rescans).
     """
     now = _override if _override is not None else _now_eastern()
     if now.weekday() >= 5:
         return False
     t = now.time().replace(second=0, microsecond=0)
-    return _SCANNER_START <= t < _SCANNER_END
+    return _RTH_OPEN <= t < _RTH_CLOSE
 
 
 def scanner_window_label(*, _override: Optional[datetime] = None) -> str:
@@ -146,10 +141,10 @@ def scanner_window_label(*, _override: Optional[datetime] = None) -> str:
     if now.weekday() >= 5:
         return "weekend (scanner off)"
     t = now.time().replace(second=0, microsecond=0)
-    if t < _SCANNER_START:
-        return f"before_scanner_open ({_SCANNER_START.strftime('%H:%M')} ET)"
-    if t >= _SCANNER_END:
-        return f"at_or_after_scanner_close ({_SCANNER_END.strftime('%H:%M')} ET)"
+    if t < _RTH_OPEN:
+        return f"before_scanner_open ({_RTH_OPEN.strftime('%H:%M')} ET)"
+    if t >= _RTH_CLOSE:
+        return f"at_or_after_scanner_close ({_RTH_CLOSE.strftime('%H:%M')} ET)"
     return "scanner_open"
 
 
