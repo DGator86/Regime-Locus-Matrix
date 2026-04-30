@@ -96,7 +96,9 @@ def _load_spock_skill_text(root: Path) -> str:
 
 def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     os.environ.setdefault("RLM_ROOT", str(root))
-    sys.path.append(str(root))
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.append(root_str)
     try:
         import run_agent  # noqa: WPS433 — third-party entry
         import rlm_hermes_tools.register_rlm_tools  # noqa: F401, WPS433 — registers tools
