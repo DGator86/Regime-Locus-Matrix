@@ -37,6 +37,8 @@ data/options/
 
 # Bare (no-symbol) backtest output — symbol-specific files are canonical
 data/processed/backtest_equity.csv
+# Runtime outputs in data/processed are intentionally untracked to prevent
+# deploy-time merge conflicts across hosts. Keep only promoted config below.
 
 # Keep gitkeep sentinels; ignore everything else under data/ subdirs
 data/**

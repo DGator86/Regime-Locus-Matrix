@@ -115,6 +115,23 @@ interface MetricsData {
   equityPositions?: any[];
   equityTradeSummary?: TradeSummary;
   forecastTimeseries?: ForecastPoint[];
+  universeForecastLatest?: {
+    run_at_utc: string;
+    symbol: string;
+    status: string;
+    skip_reason: string;
+    action: string;
+    strategy_name: string;
+    regime_key: string;
+    close: number | null;
+    sigma?: number | null;
+    S_D?: number | null;
+    S_V?: number | null;
+    S_L?: number | null;
+    S_G?: number | null;
+    regime_safety_ok?: boolean;
+    regime_train_sample_count?: number | null;
+  }[];
   backtestEquity?: { timestamp: string; equity: number }[];
   walkforwardSummary?: any[];
   generatedAt?: string;
@@ -351,6 +368,7 @@ export default function CommandCenter() {
   }, [fetchMetrics]);
 
   const plans = metrics?.activePlans ?? [];
+  const universeLatest = metrics?.universeForecastLatest ?? [];
   const topPlan = useMemo(() => {
     if (!plans.length) return null;
     const ranked = metrics?.topRanked;
@@ -367,7 +385,12 @@ export default function CommandCenter() {
   const ts = metrics?.tradeSummary;
   const eqTs = metrics?.equityTradeSummary;
   const forecast = metrics?.forecastTimeseries ?? [];
-  const symbols = metrics?.symbolsInUniverse ?? plans.map((p) => p.symbol);
+  const symbols = useMemo(() => {
+    if (metrics?.symbolsInUniverse?.length) return metrics.symbolsInUniverse;
+    const fromLatest = universeLatest.map((r) => r.symbol).filter(Boolean);
+    if (fromLatest.length) return [...new Set(fromLatest)];
+    return plans.map((p) => p.symbol);
+  }, [metrics?.symbolsInUniverse, universeLatest, plans]);
 
   const chartData = useMemo(
     () =>

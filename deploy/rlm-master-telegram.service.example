@@ -7,9 +7,13 @@
 #
 # Telegram: this unit embeds the bot via --telegram-bot. Do NOT also enable deploy/rlm-telegram-bot.service.example
 # (or any standalone rlm_telegram_bot.py service) — one bot process only.
+#
+# Enable exactly ONE master trading loop: this unit OR regime-locus-master.service OR
+# rlm-master-trader.service (mutual Conflicts). For alerts-only, use standalone rlm-telegram.service.
 
 [Unit]
 Description=Regime-Locus-Matrix master + Telegram bot
+Conflicts=regime-locus-master.service rlm-master-trader.service
 After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target
 

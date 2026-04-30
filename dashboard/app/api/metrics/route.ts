@@ -120,6 +120,45 @@ function inferRepoRootFromCwd(): string {
     : cwd;
 }
 
+function listSymbolFiles(dataDir: string, prefix: string): { symbol: string; filePath: string }[] {
+  try {
+    const names = fs.readdirSync(dataDir);
+    return names
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".csv"))
+      .map((name) => ({
+        symbol: name.slice(prefix.length, -4).toUpperCase(),
+        filePath: path.join(dataDir, name),
+      }))
+      .filter((x) => x.symbol.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function resolvePrimarySymbol(dataDir: string, activePlans: any[]): string {
+  const envSymbol = process.env.RLM_DASHBOARD_SYMBOL?.trim();
+  if (envSymbol) return envSymbol.toUpperCase();
+
+  const firstActive = activePlans.find((p) => typeof p?.symbol === "string" && p.symbol.trim().length > 0);
+  if (firstActive?.symbol) return String(firstActive.symbol).toUpperCase();
+
+  const symbolIndex = readJson(path.join(dataDir, "universe_symbol_index.json"));
+  if (symbolIndex && Array.isArray(symbolIndex.symbols) && symbolIndex.symbols.length > 0) {
+    const first = String(symbolIndex.symbols[0] || "").trim().toUpperCase();
+    if (first) return first;
+  }
+
+  const forecasts = listSymbolFiles(dataDir, "forecast_features_");
+  if (forecasts.length > 0) {
+    const latest = forecasts
+      .map((f) => ({ ...f, mtimeMs: fs.existsSync(f.filePath) ? fs.statSync(f.filePath).mtimeMs : 0 }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+    if (latest?.symbol) return latest.symbol;
+  }
+
+  return "SPY";
+}
+
 function fileMtimeIso(filePath: string): string | null {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -159,14 +198,12 @@ function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
       ? String(marketStateLastUpdated)
       : fileMtimeIso(path.join(dataDir, "gate_state.json"));
 
-  const massiveLastUpdated = latestMtimeIso([
-    path.join(dataDir, "forecast_features_SPY.csv"),
-    path.join(dataDir, "forecast_features_QQQ.csv"),
-    path.join(dataDir, "forecast_features_IWM.csv"),
-  ]);
+  const massiveLastUpdated = latestMtimeIso(
+    listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath)
+  );
 
   const lakeLastUpdated = latestMtimeIso([
-    path.join(dataDir, "forecast_features_SPY.csv"),
+    ...listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath),
     path.join(dataDir, "universe_trade_plans.json"),
     path.join(dataDir, "trade_log.csv"),
     path.join(dataDir, "equity_trade_log.csv"),
@@ -393,10 +430,11 @@ function buildEquityTradeSummary(dataDir: string) {
   };
 }
 
-function buildForecastTimeseries(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "forecast_features_SPY.csv"));
+function buildForecastTimeseries(dataDir: string, symbol: string) {
+  const rows = readCsvFile(path.join(dataDir, `forecast_features_${symbol}.csv`));
+  const universeLatest = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
   const fallbackBarsRows = readCsvFile(
-    path.join(inferRepoRootFromCwd(), "data", "raw", "bars_SPY.csv")
+    path.join(inferRepoRootFromCwd(), "data", "raw", `bars_${symbol}.csv`)
   );
   const fallbackSeries = fallbackBarsRows.slice(-60).map((r) => ({
     timestamp: r.timestamp || r.date || r.Date || "",
@@ -418,7 +456,31 @@ function buildForecastTimeseries(dataDir: string) {
     forecast_uncertainty: null,
   }));
 
-  if (rows.length === 0) return fallbackSeries;
+  if (rows.length === 0) {
+    const one = universeLatest.filter((r) => String(r.symbol || "").toUpperCase() === symbol).slice(-60);
+    if (one.length > 0) {
+      return one.map((r) => ({
+        timestamp: r.run_at_utc || "",
+        close: num(r.close),
+        S_D: num(r.S_D),
+        S_V: num(r.S_V),
+        S_L: num(r.S_L),
+        S_G: num(r.S_G),
+        sigma: optionalNum(r.sigma),
+        mean_price: null,
+        lower_1s: null,
+        upper_1s: null,
+        lower_2s: null,
+        upper_2s: null,
+        hmm_state: null,
+        hmm_confidence: null,
+        hmm_state_label: null,
+        forecast_return: null,
+        forecast_uncertainty: null,
+      }));
+    }
+    return fallbackSeries;
+  }
 
   const fromForecast = rows.slice(-60).map((r) => {
     const hmmIdx = parseHmmStateIndex(r.hmm_state ?? r.HMM_State);
@@ -454,8 +516,29 @@ function buildForecastTimeseries(dataDir: string) {
   return staleByMs > staleThresholdMs ? fallbackSeries : fromForecast;
 }
 
-function buildBacktestEquity(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "backtest_equity_SPY.csv"));
+function buildUniverseForecastLatest(dataDir: string) {
+  const rows = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
+  return rows.map((r) => ({
+    run_at_utc: r.run_at_utc || "",
+    symbol: (r.symbol || "").toUpperCase(),
+    status: r.status || "",
+    skip_reason: r.skip_reason || "",
+    action: r.action || "",
+    strategy_name: r.strategy_name || "",
+    regime_key: r.regime_key || "",
+    close: r.close ? num(r.close) : null,
+    sigma: optionalNum(r.sigma),
+    S_D: optionalNum(r.S_D),
+    S_V: optionalNum(r.S_V),
+    S_L: optionalNum(r.S_L),
+    S_G: optionalNum(r.S_G),
+    regime_safety_ok: String(r.regime_safety_ok || "").toLowerCase() === "true",
+    regime_train_sample_count: r.regime_train_sample_count ? num(r.regime_train_sample_count) : null,
+  }));
+}
+
+function buildBacktestEquity(dataDir: string, symbol: string) {
+  const rows = readCsvFile(path.join(dataDir, `backtest_equity_${symbol}.csv`));
   if (rows.length === 0) return [];
 
   const tail = rows.slice(-200);
@@ -465,7 +548,7 @@ function buildBacktestEquity(dataDir: string) {
   }));
 }
 
-function buildWalkforwardSummary(dataDir: string) {
+function buildWalkforwardSummary(dataDir: string, symbol: string) {
   const data = readJson(path.join(dataDir, "walkforward_summary.json"));
   if (data && Array.isArray(data)) {
     return data.map((w: any) => ({
@@ -482,7 +565,7 @@ function buildWalkforwardSummary(dataDir: string) {
     }));
   }
 
-  const rows = readCsvFile(path.join(dataDir, "walkforward_summary.csv"));
+  const rows = readCsvFile(path.join(dataDir, `walkforward_summary_${symbol}.csv`));
   return rows.map((r) => ({
     windowId: num(r.window_id),
     oosStart: r.oos_start || "",
@@ -502,20 +585,23 @@ export async function GET() {
     const resolved = resolveProcessedDir();
     const dataDir = resolved.dir;
 
-    const forecastPath = path.join(dataDir, "forecast_features_SPY.csv");
+    const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
+    const universeForecastLatest = buildUniverseForecastLatest(dataDir);
+    const primarySymbol = resolvePrimarySymbol(dataDir, activePlans);
+
+    const forecastPath = path.join(dataDir, `forecast_features_${primarySymbol}.csv`);
     const plansPath = path.join(dataDir, "universe_trade_plans.json");
     const hasForecast = fs.existsSync(forecastPath);
     const hasPlans = fs.existsSync(plansPath);
 
     const marketState = buildMarketState(dataDir);
     const dataAge = buildDataAge(dataDir, marketState.lastUpdated);
-    const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
     const tradeSummary = buildTradeSummary(dataDir);
     const equityPositions = buildEquityPositions(dataDir);
     const equityTradeSummary = buildEquityTradeSummary(dataDir);
-    const forecastTimeseries = buildForecastTimeseries(dataDir);
-    const backtestEquity = buildBacktestEquity(dataDir);
-    const walkforwardSummary = buildWalkforwardSummary(dataDir);
+    const forecastTimeseries = buildForecastTimeseries(dataDir, primarySymbol);
+    const backtestEquity = buildBacktestEquity(dataDir, primarySymbol);
+    const walkforwardSummary = buildWalkforwardSummary(dataDir, primarySymbol);
 
     return NextResponse.json({
       marketState,
@@ -525,10 +611,12 @@ export async function GET() {
       equityPositions,
       equityTradeSummary,
       forecastTimeseries,
+      universeForecastLatest,
       backtestEquity,
       walkforwardSummary,
       generatedAt: new Date().toISOString(),
       dataAge,
+      primarySymbol,
       symbolsInUniverse,
       dataMeta: {
         processedDir: dataDir,

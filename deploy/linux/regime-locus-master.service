@@ -7,12 +7,15 @@
 #     or tunnel API to a machine that runs Gateway. The master loop talks to whatever IBKR_HOST points at.
 #   - Telegram: run EITHER this unit with run_master.py --telegram-bot OR a standalone rlm-telegram.service —
 #     never both (duplicate bots / double notifications). See deploy/rlm-master-telegram.service.example.
+#   - Enable exactly ONE master trading loop: this unit OR rlm-master-telegram.service OR
+#     rlm-master-trader.service (mutual Conflicts in each unit file).
 #   - This service runs run_master.py (no Tk GUI). For pnl_chart_dashboard.py use a local PC or Xvfb.
 #
 # Logs: journalctl -u regime-locus-master -f
 
 [Unit]
 Description=Regime-Locus-Matrix master loop (universe pipeline + paper equity + monitor)
+Conflicts=rlm-master-telegram.service rlm-master-trader.service
 After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target
 StartLimitIntervalSec=300

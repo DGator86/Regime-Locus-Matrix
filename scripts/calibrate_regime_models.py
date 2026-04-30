@@ -23,13 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.multi_timeframe import (
+from rlm.features.factors.multi_timeframe import (
     MultiTimeframeEngine,
     format_precompute_instructions,
     parse_higher_tfs,
 )
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.optimization.tuning import (
+from rlm.features.optimization.tuning import (
     ForecastParamSample,
     generate_forecast_param_samples,
     random_search_forecast_params,
