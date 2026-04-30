@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rlm.optimization.config import NightlyHyperparams
-
-if TYPE_CHECKING:
-    from rlm.optimization.nightly import NightlyMTFOptimizer
 
 __all__ = [
     "NightlyHyperparams",

@@ -1,0 +1,13 @@
+# Example Hermes / crew-related settings (RLM reads env vars; Hermes uses ~/.hermes/config.yaml).
+# Copy values into your environment or document them for the VPS.
+
+# OpenAI-compatible endpoint (Ollama)
+# RLM_HERMES_BASE_URL: "http://127.0.0.1:11434/v1"
+# RLM_HERMES_API_KEY: "ollama"
+# RLM_HERMES_MODEL: "llama3.2"
+
+# Optional: disable Hermes persistent memory for headless crew
+# RLM_HERMES_SKIP_MEMORY: "1"
+
+# Repo root for rlm_* tools (set automatically by scripts/run_crew.py)
+# RLM_ROOT: "/opt/Regime-Locus-Matrix"

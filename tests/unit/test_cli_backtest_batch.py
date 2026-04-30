@@ -100,3 +100,18 @@ def test_calibrate_regime_models_help_imports_cleanly():
 
     assert result.returncode == 0
     assert "--promote" in result.stdout
+
+
+def test_calibrate_regime_models_accepts_promote_flag():
+    env = {**os.environ, "PYTHONPATH": "src"}
+    result = subprocess.run(
+        [sys.executable, "scripts/calibrate_regime_models.py", "--promote", "--help"],
+        cwd=".",
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "expected one argument" not in result.stderr

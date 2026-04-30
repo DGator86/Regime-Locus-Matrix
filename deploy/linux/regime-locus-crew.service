@@ -1,8 +1,12 @@
-# Regime-Locus-Matrix — Starfleet AI Crew (Scotty / Spock / Kirk)
+# Regime-Locus-Matrix — Hermes AI crew (health + market context + commander)
 #
 # Prereqs on the VPS:
-#   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[agents]")
-#     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed.
+#   - Python venv at @INSTALL_ROOT@/.venv  (Hermes lives in this venv, not system Python.)
+#     Install from repo root (PEP 668 on Ubuntu 24+ blocks bare pip on the system interpreter):
+#       cd @INSTALL_ROOT@ && . .venv/bin/activate && pip install -e ".[hermes]"
+#     Or without activate: @INSTALL_ROOT@/.venv/bin/pip install -e ".[hermes]"  (still from cd @INSTALL_ROOT@)
+#     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed,
+#     then from repo root: /opt/rlm-venv/bin/pip install -e ".[hermes]"
 #   - .env with GROQ_API_KEY (free key from console.groq.com)
 #             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
 #   - OR: set LLM_BACKEND=ollama if you prefer a fully-local model
@@ -16,7 +20,7 @@
 # Logs: journalctl -u regime-locus-crew -f
 
 [Unit]
-Description=RLM Starfleet AI Crew — Scotty health guardian + Spock analyst + Kirk commander
+Description=RLM Hermes crew — health facts, market context, commander (gate_state.json)
 After=network-online.target regime-locus-master.service
 Wants=network-online.target
 StartLimitIntervalSec=300
