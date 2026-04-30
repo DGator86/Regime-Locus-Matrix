@@ -123,7 +123,15 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/live_regime_model.json",
         help="Promoted live-model config path (repo-relative)",
     )
-    p.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
+    promote_group = p.add_mutually_exclusive_group()
+    promote_group.add_argument(
+        "--promote",
+        dest="no_promote",
+        action="store_false",
+        default=False,
+        help="Promote the best model to the live config (default).",
+    )
+    promote_group.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
     return p.parse_args()
 
 
