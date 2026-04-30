@@ -108,6 +108,7 @@ if _force and _output_root is not None:
     raise SystemExit("Use either --force or --output-root, not both")
 
 if _force:
+    data_root = ROOT
     processed = _live_processed
     artifacts  = _live_artifacts
 else:
@@ -116,8 +117,11 @@ else:
         if _output_root is not None
         else _live_artifacts / "health_check" / datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     )
-    processed = _isolated / "processed"
-    artifacts  = _isolated / "artifacts"
+    data_root = _isolated
+    processed = data_root / "data" / "processed"
+    artifacts  = data_root / "data" / "artifacts"
+
+os.environ["RLM_ROOT"] = str(data_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +190,7 @@ except ImportError:
     info("hermes-agent (run_agent) -- NOT installed (pip install -e '.[hermes]')")
     info("Health check will exercise all Hermes infrastructure without the LLM call")
 
-output_label = "live data/" if _force else str(processed.parent)
+output_label = "live data/" if _force else str(data_root)
 info(f"Artifact output root: {output_label}")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -326,13 +330,13 @@ if pipeline_result is not None:
 # ─────────────────────────────────────────────────────────────────────────────
 step("Hermes RLM tool handlers -- exercise all 4 registered tools")
 
-# Point health/gate checks at our isolated processed dir so they read the seeded data.
-os.environ["RLM_ROOT"] = str(ROOT)
+# Point health/gate checks at our selected data root so isolated runs do not touch live state.
+os.environ["RLM_ROOT"] = str(data_root)
 
 tools_ok = 0
 
 try:
-    health_raw = gather_health_report(ROOT)
+    health_raw = gather_health_report(data_root)
     health_json = json.dumps(health_raw, default=str)
     check(
         isinstance(health_json, str) and len(health_json) > 50,
@@ -344,7 +348,7 @@ except Exception as e:
     fail(f"rlm_get_health_report: {e}")
 
 try:
-    ctx_text = build_trade_and_regime_context(ROOT)
+    ctx_text = build_trade_and_regime_context(data_root)
     ctx_json = json.dumps({"context": ctx_text})
     check(
         isinstance(ctx_text, str) and len(ctx_text) > 20 and len(ctx_json) > len('{"context":""}'),
@@ -356,7 +360,7 @@ except Exception as e:
     fail(f"rlm_get_trade_and_regime_context: {e}")
 
 try:
-    gate = SystemGate(ROOT)
+    gate = SystemGate(data_root)
     gs = gate.load()
     gate_json = json.dumps({
         "posture": gs.posture, "status": gs.status,
@@ -396,7 +400,7 @@ check(len(scotty_skill) > 20,
       f"data_monitor/SKILL.md loaded ({len(scotty_skill)} chars)",
       "data_monitor/SKILL.md missing or empty")
 
-health_payload = gather_health_report(ROOT)
+health_payload = gather_health_report(data_root)
 health_ok      = bool(health_payload.get("overall_ok", True))
 health_txt     = str(health_payload.get("report_text", ""))
 
@@ -406,7 +410,7 @@ for line in health_txt.splitlines():
 
 if hermes_available:
     try:
-        scotty_report = loop_mod._run_scotty_agent(ROOT, json.dumps(health_payload, default=str))
+        scotty_report = loop_mod._run_scotty_agent(data_root, json.dumps(health_payload, default=str))
         ok(f"Scotty Hermes agent ran live -- {len(scotty_report)} chars")
         info("--- Scotty's Hermes agent output ---")
         for line in scotty_report.splitlines():
@@ -429,7 +433,7 @@ check(len(spock_skill) > 20,
       f"research_analyst/SKILL.md loaded ({len(spock_skill)} chars)",
       "research_analyst/SKILL.md missing or empty")
 
-market_context = build_trade_and_regime_context(ROOT)
+market_context = build_trade_and_regime_context(data_root)
 
 info("--- Spock's raw market context ---")
 for line in market_context.splitlines():
@@ -437,7 +441,7 @@ for line in market_context.splitlines():
 
 if hermes_available:
     try:
-        spock_report = loop_mod._run_spock_agent(ROOT, market_context)
+        spock_report = loop_mod._run_spock_agent(data_root, market_context)
         ok(f"Spock Hermes agent ran live -- {len(spock_report)} chars")
         info("--- Spock's Hermes agent output ---")
         for line in spock_report.splitlines():
@@ -462,7 +466,7 @@ check(len(commander_skill) > 20,
 
 if hermes_available:
     try:
-        _, _, kirk_llm_text = _run_full_briefing(ROOT, health_payload, market_context)
+        _, _, kirk_llm_text = _run_full_briefing(data_root, health_payload, market_context)
         ok(f"Kirk Hermes agent ran live -- {len(kirk_llm_text)} chars")
     except Exception as e:
         fail(f"Kirk live agent: {e}")
@@ -502,14 +506,13 @@ if kirk_llm_text:
     check(bool(decision.command), f"command parsed: {decision.command}", "command is empty")
     check(bool(decision.rationale), f"rationale parsed ({len(decision.rationale)} chars)", "rationale is empty")
 
-    # Save to real artifacts dir (crew decisions are always live)
-    save_decision(ROOT, decision)
-    decisions_path = ROOT / "data" / "artifacts" / "crew_decisions.json"
+    save_decision(data_root, decision)
+    decisions_path = artifacts / "crew_decisions.json"
     check(decisions_path.is_file(),
           "crew_decisions.json written",
           "crew_decisions.json NOT written")
 
-    gate2 = SystemGate(ROOT)
+    gate2 = SystemGate(data_root)
     gate2.update(posture=decision.market_posture, status=decision.system_status, timestamp=decision.timestamp)
     gs_after = gate2.load()
     check(gs_after.posture == decision.market_posture,
