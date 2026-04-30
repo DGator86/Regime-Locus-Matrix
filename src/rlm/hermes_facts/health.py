@@ -32,6 +32,14 @@ _STALE_HOURS = {
 }
 
 
+def _resolve_services(services: Optional[list[str]]) -> list[str]:
+    if services is not None:
+        return list(services)
+    raw = os.environ.get("CREW_SERVICES", "")
+    configured = [s.strip() for s in raw.split(",") if s.strip()]
+    return configured or list(_DEFAULT_SERVICES)
+
+
 @dataclass
 class ServiceStatus:
     name: str
@@ -316,7 +324,7 @@ def gather_health_report(root: Path, services: Optional[list[str]] = None) -> di
     Runs optional Scotty-style auto-restart once, then re-gathers if any action was taken.
     """
     root = root.resolve()
-    svc = services or list(_DEFAULT_SERVICES)
+    svc = _resolve_services(services)
     report = _gather_report(root, svc)
     remed = _try_restart_inactive_services(root, report, svc)
     if remed:
