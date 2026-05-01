@@ -64,6 +64,9 @@ checkpoints/
 !data/processed/live_regime_model.json
 !dashboard/package.json
 !dashboard/tsconfig.json
+!market-field-navigator/frontend/package.json
+!market-field-navigator/frontend/package-lock.json
+!market-field-navigator/frontend/tsconfig.json
 !configs/*.json
 !configs/*.yaml
 
@@ -77,6 +80,10 @@ checkpoints/
 
 # Backup junk
 _rebase_abort_backup/
+
+# JavaScript dependencies/build artifacts
+node_modules/
+dist/
 
 # IDE
 .cursor/
