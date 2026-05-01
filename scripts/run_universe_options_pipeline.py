@@ -71,6 +71,7 @@ from rlm.roee.chain_match import (
     match_legs_to_chain,
 )
 from rlm.roee.decision import select_trade_for_row
+from rlm.roee.system_gate import SystemGate
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
@@ -122,6 +123,7 @@ def _prepare_symbol(
     serialize_ibkr: bool,
     short_dte: bool,
     processed_dir: Path | None,
+    gate: SystemGate | None = None,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -208,6 +210,7 @@ def _prepare_symbol(
         min_regime_train_samples=min_regime_train_samples,
         regime_purge_bars=purge_bars,
         short_dte=short_dte,
+        gate=gate,
     )
     base["decision"] = {
         "action": decision.action,
@@ -760,6 +763,7 @@ def main() -> int:
         save_live_regime_model(live_model, live_model_path)
         print(f"[live_model] saved bootstrap config to {live_model_path}")
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
+    gate = SystemGate(ROOT)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
 
@@ -785,6 +789,7 @@ def main() -> int:
                 serialize_ibkr=bool(args.serialize_ibkr),
                 short_dte=bool(args.short_dte),
                 processed_dir=processed_dir,
+                gate=gate,
             )
         except Exception as e:
             results[i] = {

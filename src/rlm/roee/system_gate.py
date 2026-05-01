@@ -40,6 +40,10 @@ class SystemGate:
 
     def is_trading_allowed(self) -> bool:
         state = self.load()
-        if state.status == "CRITICAL" or state.posture == "STAND-DOWN":
-            return False
-        return True
+        return state.status != "CRITICAL" and state.posture != "STAND-DOWN"
+
+    def check(self) -> tuple[bool, GateState]:
+        """Return (trading_allowed, state) from a single load — avoids redundant reads."""
+        state = self.load()
+        allowed = state.status != "CRITICAL" and state.posture != "STAND-DOWN"
+        return allowed, state

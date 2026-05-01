@@ -7,9 +7,22 @@
 #     If ExecStart is @INSTALL_ROOT@/.venv/bin/python (PEP 668: never use system pip):
 #       cd @INSTALL_ROOT@ && .venv/bin/pip install -e ".[hermes]"
 #     One-shot helper: scripts/setup_hermes_on_vps.sh (prefers /opt/rlm-venv when present).
-#   - .env with GROQ_API_KEY (free key from console.groq.com)
-#             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
-#   - OR: set LLM_BACKEND=ollama if you prefer a fully-local model
+#
+#   LLM backend — choose ONE of the two options below and add to .env:
+#
+#   Option A: Groq cloud (free tier, fast — recommended for VPS without GPU)
+#     GROQ_API_KEY=gsk_...            ← free key from console.groq.com
+#     RLM_HERMES_MODEL=llama-3.3-70b-versatile   ← optional; this is the auto-default
+#     (RLM_HERMES_BASE_URL and RLM_HERMES_API_KEY are set automatically when GROQ_API_KEY is present)
+#
+#   Option B: local Ollama
+#     RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
+#     RLM_HERMES_API_KEY=ollama
+#     RLM_HERMES_MODEL=llama3.2
+#
+#   Also add:
+#     TELEGRAM_BOT_TOKEN=...          ← same as regime-locus-master
+#     TELEGRAM_NOTIFY_CHAT_ID=...
 #
 # Install:
 #   cp deploy/linux/regime-locus-crew.service /etc/systemd/system/
@@ -32,6 +45,7 @@ User=root
 Group=root
 WorkingDirectory=@INSTALL_ROOT@
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=@INSTALL_ROOT@/src:@INSTALL_ROOT@
 EnvironmentFile=-@INSTALL_ROOT@/.env
 
 # Intervals (seconds) — override here or in .env

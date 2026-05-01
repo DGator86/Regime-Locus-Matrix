@@ -1,0 +1,14 @@
+[Unit]
+Description=RLM Forecast Pipeline (one-shot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+EnvironmentFile=@INSTALL_ROOT@/.env
+Environment=PATH=@INSTALL_ROOT@/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_forecast_pipeline.py --no-vix
+
+[Install]
+WantedBy=multi-user.target

@@ -49,10 +49,10 @@ os.environ.setdefault("RLM_ROOT", str(ROOT))
 os.environ.setdefault("RLM_HERMES_SKIP_MEMORY", "1")
 os.environ.setdefault("SCOTTY_AUTO_RESTART", "0")
 
-PASS  = "\033[32mPASS\033[0m"
-FAIL  = "\033[31mFAIL\033[0m"
-INFO  = "\033[36mINFO\033[0m"
-HEAD  = "\033[1;35m"
+PASS = "\033[32mPASS\033[0m"
+FAIL = "\033[31mFAIL\033[0m"
+INFO = "\033[36mINFO\033[0m"
+HEAD = "\033[1;35m"
 
 _failures: list[str] = []
 _step = 0
@@ -66,8 +66,14 @@ def step(title: str) -> None:
     print(f"{HEAD}{'='*64}\033[0m", flush=True)
 
 
-def ok(msg: str)   -> None: print(f"  [{PASS}] {msg}", flush=True)
-def info(msg: str) -> None: print(f"  [{INFO}] {msg}", flush=True)
+def ok(msg: str) -> None:
+    print(f"  [{PASS}] {msg}", flush=True)
+
+
+def info(msg: str) -> None:
+    print(f"  [{INFO}] {msg}", flush=True)
+
+
 def fail(msg: str) -> None:
     print(f"  [{FAIL}] {msg}", flush=True)
     _failures.append(msg)
@@ -85,7 +91,7 @@ def check(cond: bool, msg_pass: str, msg_fail: str) -> bool:
 # CLI: --force / --output-root
 # ---------------------------------------------------------------------------
 _live_processed = ROOT / "data" / "processed"
-_live_artifacts  = ROOT / "data" / "artifacts"
+_live_artifacts = ROOT / "data" / "artifacts"
 
 _force = False
 _output_root: Path | None = None
@@ -110,7 +116,7 @@ if _force and _output_root is not None:
 if _force:
     data_root = ROOT
     processed = _live_processed
-    artifacts  = _live_artifacts
+    artifacts = _live_artifacts
 else:
     _isolated = (
         _output_root
@@ -119,7 +125,9 @@ else:
     )
     data_root = _isolated
     processed = data_root / "data" / "processed"
-    artifacts  = data_root / "data" / "artifacts"
+    artifacts = data_root / "data" / "artifacts"
+
+os.environ["RLM_ROOT"] = str(data_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,43 +139,51 @@ import pandas as pd
 
 try:
     from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
+
     ok("rlm.core.pipeline -- FullRLMPipeline, FullRLMConfig")
 except Exception as e:
     fail(f"rlm.core.pipeline: {e}")
 
 try:
     from rlm.hermes_facts.health import gather_health_report
+
     ok("rlm.hermes_facts.health -- gather_health_report  [Scotty module]")
 except Exception as e:
     fail(f"rlm.hermes_facts.health: {e}")
 
 try:
     from rlm.hermes_facts.market_context import build_trade_and_regime_context
+
     ok("rlm.hermes_facts.market_context -- build_trade_and_regime_context  [Spock module]")
 except Exception as e:
     fail(f"rlm.hermes_facts.market_context: {e}")
 
 try:
     from rlm.hermes_facts.kirk_command import (
-        parse_command_decision, save_decision, utc_timestamp,
+        parse_command_decision,
+        save_decision,
+        utc_timestamp,
     )
+
     ok("rlm.hermes_facts.kirk_command -- parse_command_decision, save_decision  [Kirk module]")
 except Exception as e:
     fail(f"rlm.hermes_facts.kirk_command: {e}")
 
 try:
     from rlm.roee.system_gate import SystemGate
+
     ok("rlm.roee.system_gate -- SystemGate")
 except Exception as e:
     fail(f"rlm.roee.system_gate: {e}")
 
 try:
     from rlm.hermes_crew.loop import (
+        _load_commander_skill_text,
         _load_scotty_skill_text,
         _load_spock_skill_text,
-        _load_commander_skill_text,
         _run_full_briefing,
     )
+
     ok("rlm.hermes_crew.loop -- skill loaders, _run_full_briefing  [crew loop]")
 except Exception as e:
     fail(f"rlm.hermes_crew.loop: {e}")
@@ -178,7 +194,9 @@ loop_mod = importlib.import_module("rlm.hermes_crew.loop")
 hermes_available = False
 try:
     import run_agent  # noqa: F401
+
     import rlm_hermes_tools.register_rlm_tools  # noqa: F401
+
     hermes_available = True
     ok("hermes-agent (run_agent) -- INSTALLED, LLM agents can be called live")
 except ImportError:
@@ -198,46 +216,64 @@ artifacts.mkdir(parents=True, exist_ok=True)
 (artifacts / "runs").mkdir(parents=True, exist_ok=True)
 
 now_utc = datetime.now(tz=timezone.utc)
-ts_str  = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+ts_str = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 plans_payload = {
     "generated_at_utc": ts_str,
     "results": [
         {
-            "plan_id": "SYNTH_SPY_001", "symbol": "SPY",
-            "strategy": "bull_call_spread", "status": "active",
-            "rank_score": 0.82, "regime": 2, "regime_label": "calm_bull",
-            "regime_confidence": 0.76, "kronos_return_forecast": 0.0031,
+            "plan_id": "SYNTH_SPY_001",
+            "symbol": "SPY",
+            "strategy": "bull_call_spread",
+            "status": "active",
+            "rank_score": 0.82,
+            "regime": 2,
+            "regime_label": "calm_bull",
+            "regime_confidence": 0.76,
+            "kronos_return_forecast": 0.0031,
         },
         {
-            "plan_id": "SYNTH_QQQ_002", "symbol": "QQQ",
-            "strategy": "long_call", "status": "active",
-            "rank_score": 0.71, "regime": 2, "regime_label": "calm_bull",
-            "regime_confidence": 0.68, "kronos_return_forecast": 0.0019,
+            "plan_id": "SYNTH_QQQ_002",
+            "symbol": "QQQ",
+            "strategy": "long_call",
+            "status": "active",
+            "rank_score": 0.71,
+            "regime": 2,
+            "regime_label": "calm_bull",
+            "regime_confidence": 0.68,
+            "kronos_return_forecast": 0.0019,
         },
         {
-            "plan_id": "SYNTH_IWM_003", "symbol": "IWM",
-            "strategy": "iron_condor", "status": "active",
-            "rank_score": 0.55, "regime": 4, "regime_label": "high_vol",
-            "regime_confidence": 0.59, "kronos_return_forecast": -0.0008,
+            "plan_id": "SYNTH_IWM_003",
+            "symbol": "IWM",
+            "strategy": "iron_condor",
+            "status": "active",
+            "rank_score": 0.55,
+            "regime": 4,
+            "regime_label": "high_vol",
+            "regime_confidence": 0.59,
+            "kronos_return_forecast": -0.0008,
         },
     ],
 }
-(processed / "universe_trade_plans.json").write_text(
-    json.dumps(plans_payload, indent=2), encoding="utf-8"
-)
+(processed / "universe_trade_plans.json").write_text(json.dumps(plans_payload, indent=2), encoding="utf-8")
 ok("universe_trade_plans.json -- 3 active synthetic plans written")
 
 run_artifact = {
-    "run_id": "SYNTH_RUN_001", "symbol": "SPY", "timestamp": ts_str,
-    "regime": 2, "regime_label": "calm_bull", "regime_confidence": 0.76,
-    "kronos_return_forecast": 0.0031, "kronos_confidence": 0.71,
-    "kronos_regime_agreement": True, "kronos_transition_flag": False,
-    "roee_strategy": "bull_call_spread", "roee_confidence": 0.74,
+    "run_id": "SYNTH_RUN_001",
+    "symbol": "SPY",
+    "timestamp": ts_str,
+    "regime": 2,
+    "regime_label": "calm_bull",
+    "regime_confidence": 0.76,
+    "kronos_return_forecast": 0.0031,
+    "kronos_confidence": 0.71,
+    "kronos_regime_agreement": True,
+    "kronos_transition_flag": False,
+    "roee_strategy": "bull_call_spread",
+    "roee_confidence": 0.74,
 }
-(artifacts / "runs" / "SYNTH_RUN_001.json").write_text(
-    json.dumps(run_artifact, indent=2), encoding="utf-8"
-)
+(artifacts / "runs" / "SYNTH_RUN_001.json").write_text(json.dumps(run_artifact, indent=2), encoding="utf-8")
 ok("artifacts/runs/SYNTH_RUN_001.json -- pipeline run artifact written")
 
 wf_rows = [
@@ -288,7 +324,9 @@ if pipeline_result is not None:
 
     check(not pdf.empty, "policy_df non-empty", "policy_df is EMPTY")
     check("roee_action" in pdf.columns, "policy_df has roee_action", "policy_df MISSING roee_action")
-    check("roee_size_fraction" in pdf.columns, "policy_df has roee_size_fraction", "policy_df MISSING roee_size_fraction")
+    check(
+        "roee_size_fraction" in pdf.columns, "policy_df has roee_size_fraction", "policy_df MISSING roee_size_fraction"
+    )
     check("forecast_return" in fdf.columns, "forecast_df has forecast_return", "forecast_df MISSING forecast_return")
     check("hmm_confidence" in fdf.columns, "forecast_df has hmm_confidence", "forecast_df MISSING hmm_confidence")
 
@@ -308,26 +346,25 @@ if pipeline_result is not None:
 
     if "hmm_state" in pdf.columns and "hmm_confidence" in fdf.columns:
         live_artifact = {
-            "run_id": "LIVE_RUN_SPY", "symbol": "SPY", "timestamp": ts_str,
+            "run_id": "LIVE_RUN_SPY",
+            "symbol": "SPY",
+            "timestamp": ts_str,
             "regime": int(last.get("hmm_state", 0)),
             "regime_label": "hmm_detected",
             "regime_confidence": float(fdf["hmm_confidence"].iloc[-1]),
             "roee_strategy": str(last.get("roee_action", "hold")),
             "roee_size_fraction": float(last.get("roee_size_fraction", 0.0)),
         }
-        (artifacts / "runs" / "LIVE_RUN_SPY.json").write_text(
-            json.dumps(live_artifact, indent=2), encoding="utf-8"
-        )
-        ok("artifacts/runs/LIVE_RUN_SPY.json -- pipeline artifact persisted")
+        (artifacts / "runs" / "LIVE_RUN_SPY.json").write_text(json.dumps(live_artifact, indent=2), encoding="utf-8")
+        ok("artifacts/runs/LIVE_RUN_SPY.json -- live pipeline artifact persisted")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 -- Hermes RLM tool handlers (all 4 tools exercised directly)
 # ─────────────────────────────────────────────────────────────────────────────
 step("Hermes RLM tool handlers -- exercise all 4 registered tools")
 
-# Point Hermes tool handlers and gate/context checks at the selected data root.
-# Without --force, this must stay isolated so a health check cannot change live trading state.
-os.environ["RLM_ROOT"] = str(data_root.resolve())
+# Point health/gate checks at our selected data root so isolated runs do not touch live state.
+os.environ["RLM_ROOT"] = str(data_root)
 
 tools_ok = 0
 
@@ -358,11 +395,14 @@ except Exception as e:
 try:
     gate = SystemGate(data_root)
     gs = gate.load()
-    gate_json = json.dumps({
-        "posture": gs.posture, "status": gs.status,
-        "last_updated": gs.last_updated,
-        "trading_allowed": gate.is_trading_allowed(),
-    })
+    gate_json = json.dumps(
+        {
+            "posture": gs.posture,
+            "status": gs.status,
+            "last_updated": gs.last_updated,
+            "trading_allowed": gate.is_trading_allowed(),
+        }
+    )
     check(
         "posture" in gate_json,
         f"rlm_get_system_gate_state -- posture={gs.posture}  status={gs.status}  trading_allowed={gate.is_trading_allowed()}",
@@ -379,7 +419,11 @@ try:
         "note": "ROEE policy limits also live in YAML configs; these env vars are optional hints.",
     }
     limits_json = json.dumps({k: v for k, v in limits.items() if v or k == "note"})
-    check(isinstance(limits_json, str), f"rlm_check_portfolio_limits -- {limits_json}", "rlm_check_portfolio_limits -- failed")
+    check(
+        isinstance(limits_json, str),
+        f"rlm_check_portfolio_limits -- {limits_json}",
+        "rlm_check_portfolio_limits -- failed",
+    )
     tools_ok += 1
 except Exception as e:
     fail(f"rlm_check_portfolio_limits: {e}")
@@ -392,13 +436,15 @@ info(f"{tools_ok}/4 Hermes tool handlers verified")
 step("Scotty -- data_monitor Hermes agent (engineering health report)")
 
 scotty_skill = _load_scotty_skill_text(ROOT)
-check(len(scotty_skill) > 20,
-      f"data_monitor/SKILL.md loaded ({len(scotty_skill)} chars)",
-      "data_monitor/SKILL.md missing or empty")
+check(
+    len(scotty_skill) > 20,
+    f"data_monitor/SKILL.md loaded ({len(scotty_skill)} chars)",
+    "data_monitor/SKILL.md missing or empty",
+)
 
 health_payload = gather_health_report(data_root)
-health_ok      = bool(health_payload.get("overall_ok", True))
-health_txt     = str(health_payload.get("report_text", ""))
+health_ok = bool(health_payload.get("overall_ok", True))
+health_txt = str(health_payload.get("report_text", ""))
 
 info("--- Scotty's raw health facts ---")
 for line in health_txt.splitlines():
@@ -406,8 +452,7 @@ for line in health_txt.splitlines():
 
 if hermes_available:
     try:
-        os.environ["RLM_ROOT"] = str(data_root.resolve())
-        scotty_report = loop_mod._run_scotty_agent(ROOT, json.dumps(health_payload, default=str))
+        scotty_report = loop_mod._run_scotty_agent(data_root, json.dumps(health_payload, default=str))
         ok(f"Scotty Hermes agent ran live -- {len(scotty_report)} chars")
         info("--- Scotty's Hermes agent output ---")
         for line in scotty_report.splitlines():
@@ -426,9 +471,11 @@ else:
 step("Spock -- research_analyst Hermes agent (market & regime analysis)")
 
 spock_skill = _load_spock_skill_text(ROOT)
-check(len(spock_skill) > 20,
-      f"research_analyst/SKILL.md loaded ({len(spock_skill)} chars)",
-      "research_analyst/SKILL.md missing or empty")
+check(
+    len(spock_skill) > 20,
+    f"research_analyst/SKILL.md loaded ({len(spock_skill)} chars)",
+    "research_analyst/SKILL.md missing or empty",
+)
 
 market_context = build_trade_and_regime_context(data_root)
 
@@ -438,8 +485,7 @@ for line in market_context.splitlines():
 
 if hermes_available:
     try:
-        os.environ["RLM_ROOT"] = str(data_root.resolve())
-        spock_report = loop_mod._run_spock_agent(ROOT, market_context)
+        spock_report = loop_mod._run_spock_agent(data_root, market_context)
         ok(f"Spock Hermes agent ran live -- {len(spock_report)} chars")
         info("--- Spock's Hermes agent output ---")
         for line in spock_report.splitlines():
@@ -458,14 +504,15 @@ else:
 step("Kirk -- commander Hermes agent (final command decision)")
 
 commander_skill = _load_commander_skill_text(ROOT)
-check(len(commander_skill) > 20,
-      f"commander/SKILL.md loaded ({len(commander_skill)} chars)",
-      "commander/SKILL.md missing or empty")
+check(
+    len(commander_skill) > 20,
+    f"commander/SKILL.md loaded ({len(commander_skill)} chars)",
+    "commander/SKILL.md missing or empty",
+)
 
 if hermes_available:
     try:
-        os.environ["RLM_ROOT"] = str(data_root.resolve())
-        _, _, kirk_llm_text = _run_full_briefing(ROOT, health_payload, market_context)
+        _, _, kirk_llm_text = _run_full_briefing(data_root, health_payload, market_context)
         ok(f"Kirk Hermes agent ran live -- {len(kirk_llm_text)} chars")
     except Exception as e:
         fail(f"Kirk live agent: {e}")
@@ -493,30 +540,37 @@ if kirk_llm_text:
 
     ts = utc_timestamp()
     decision = parse_command_decision(
-        ts, kirk_llm_text, health_overall_ok=health_ok, context_for_risk=market_context,
+        ts,
+        kirk_llm_text,
+        health_overall_ok=health_ok,
+        context_for_risk=market_context,
     )
 
-    check(decision.system_status in ("NOMINAL", "DEGRADED", "CRITICAL"),
-          f"system_status parsed: {decision.system_status}",
-          f"system_status unexpected: {decision.system_status}")
-    check(decision.market_posture in ("AGGRESSIVE", "NORMAL", "DEFENSIVE", "STAND-DOWN"),
-          f"market_posture parsed: {decision.market_posture}",
-          f"market_posture unexpected: {decision.market_posture}")
+    check(
+        decision.system_status in ("NOMINAL", "DEGRADED", "CRITICAL"),
+        f"system_status parsed: {decision.system_status}",
+        f"system_status unexpected: {decision.system_status}",
+    )
+    check(
+        decision.market_posture in ("AGGRESSIVE", "NORMAL", "DEFENSIVE", "STAND-DOWN"),
+        f"market_posture parsed: {decision.market_posture}",
+        f"market_posture unexpected: {decision.market_posture}",
+    )
     check(bool(decision.command), f"command parsed: {decision.command}", "command is empty")
     check(bool(decision.rationale), f"rationale parsed ({len(decision.rationale)} chars)", "rationale is empty")
 
     save_decision(data_root, decision)
-    decisions_path = data_root / "data" / "artifacts" / "crew_decisions.json"
-    check(decisions_path.is_file(),
-          f"crew_decisions.json written",
-          "crew_decisions.json NOT written")
+    decisions_path = artifacts / "crew_decisions.json"
+    check(decisions_path.is_file(), "crew_decisions.json written", "crew_decisions.json NOT written")
 
     gate2 = SystemGate(data_root)
     gate2.update(posture=decision.market_posture, status=decision.system_status, timestamp=decision.timestamp)
     gs_after = gate2.load()
-    check(gs_after.posture == decision.market_posture,
-          f"gate_state.json updated -- posture={gs_after.posture}  status={gs_after.status}",
-          "gate_state.json NOT updated correctly")
+    check(
+        gs_after.posture == decision.market_posture,
+        f"gate_state.json updated -- posture={gs_after.posture}  status={gs_after.status}",
+        "gate_state.json NOT updated correctly",
+    )
     ok(f"Commander decision persisted -- trading_allowed={gate2.is_trading_allowed()}")
 
     info("--- Final Telegram-format briefing ---")
@@ -535,10 +589,10 @@ for skill_name in ("commander", "data_monitor", "research_analyst"):
     else:
         fail(f"hermes_skills/{skill_name}/SKILL.md -- MISSING")
 
-tools_reg = ROOT / "rlm_hermes_tools" / "register_rlm_tools.py"
+tools_reg = ROOT / "src" / "rlm_hermes_tools" / "register_rlm_tools.py"
 check(tools_reg.is_file(),
-      "rlm_hermes_tools/register_rlm_tools.py -- present",
-      "rlm_hermes_tools/register_rlm_tools.py -- MISSING")
+      "src/rlm_hermes_tools/register_rlm_tools.py -- present",
+      "src/rlm_hermes_tools/register_rlm_tools.py -- MISSING")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
@@ -554,6 +608,10 @@ if _failures:
     sys.exit(1)
 else:
     print(f"\n  [{PASS}] All {_step} steps passed -- RLM system is healthy.", flush=True)
-    hermes_status = "LIVE (LLM connected)" if hermes_available else "ACTIVATED (infrastructure verified; pip install -e '.[hermes]' for live LLM)"
+    hermes_status = (
+        "LIVE (LLM connected)"
+        if hermes_available
+        else "ACTIVATED (infrastructure verified; pip install -e '.[hermes]' for live LLM)"
+    )
     print(f"\n  Hermes crew: {hermes_status}", flush=True)
     sys.exit(0)
