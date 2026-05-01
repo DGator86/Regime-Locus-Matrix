@@ -1,13 +1,35 @@
-# Example Hermes / crew-related settings (RLM reads env vars; Hermes uses ~/.hermes/config.yaml).
-# Copy values into your environment or document them for the VPS.
-
-# OpenAI-compatible endpoint (Ollama)
-# RLM_HERMES_BASE_URL: "http://127.0.0.1:11434/v1"
-# RLM_HERMES_API_KEY: "ollama"
-# RLM_HERMES_MODEL: "llama3.2"
-
-# Optional: disable Hermes persistent memory for headless crew
-# RLM_HERMES_SKIP_MEMORY: "1"
-
-# Repo root for rlm_* tools (set automatically by scripts/run_crew.py)
-# RLM_ROOT: "/opt/Regime-Locus-Matrix"
+# RLM Hermes crew — LLM backend configuration
+#
+# The crew reads its settings from environment variables, NOT from this file.
+# Copy the block you want into your .env file (see .env.example).
+# This file is documentation only.
+#
+# ─── Option A: Groq cloud (free tier, fast — recommended for VPS without GPU) ─
+#
+# Get a free key at https://console.groq.com
+# When GROQ_API_KEY is present, run_crew.py auto-configures Groq.
+# No other RLM_HERMES_* vars needed unless you want to override the model.
+#
+#   GROQ_API_KEY=gsk_...
+#   RLM_HERMES_MODEL=llama-3.3-70b-versatile   # optional; this is the auto-default
+#
+# ─── Option B: local Ollama ───────────────────────────────────────────────────
+#
+#   RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
+#   RLM_HERMES_API_KEY=ollama
+#   RLM_HERMES_MODEL=llama3.2
+#
+# ─── Option C: any OpenAI-compatible endpoint ─────────────────────────────────
+#
+#   RLM_HERMES_BASE_URL=https://your-endpoint/v1
+#   RLM_HERMES_API_KEY=your-api-key
+#   RLM_HERMES_MODEL=your-model-id
+#
+# ─── Optional tuning ──────────────────────────────────────────────────────────
+#
+#   RLM_HERMES_MAX_ITERATIONS=20    # Hermes tool-call loop limit per agent
+#   RLM_HERMES_SKIP_MEMORY=1        # Disable Hermes persistent memory (headless VPS)
+#
+# ─── Repo root (set automatically by scripts/run_crew.py) ────────────────────
+#
+#   RLM_ROOT=/opt/Regime-Locus-Matrix

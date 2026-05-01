@@ -292,14 +292,16 @@ def select_trade_for_row(
     short_dte:
         Forward to :func:`select_trade` to activate 0DTE / 1DTE intraday strategy selection.
     """
-    if gate is not None and not gate.is_trading_allowed():
-        return TradeDecision(
-            action="skip",
-            strategy_name="system_gate_block",
-            regime_key=str(row.get("regime_key", "")),
-            rationale=f"System gate is {gate.load().posture} / {gate.load().status}. Trading paused.",
-            metadata={"gate_status": gate.load().status, "gate_posture": gate.load().posture},
-        )
+    if gate is not None:
+        _gate_allowed, _gs = gate.check()
+        if not _gate_allowed:
+            return TradeDecision(
+                action="skip",
+                strategy_name="system_gate_block",
+                regime_key=str(row.get("regime_key", "")),
+                rationale=f"System gate is {_gs.posture} / {_gs.status}. Trading paused.",
+                metadata={"gate_status": _gs.status, "gate_posture": _gs.posture},
+            )
 
     missing = [c for c in _SELECT_TRADE_ROW_COLUMNS if c not in row.index]
     if missing:
