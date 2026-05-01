@@ -111,9 +111,23 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
 
 def _make_agent_with_skill(root: Path, skill_prompt: str, toolsets: list[str]):
     AIAgent, _ = _ensure_hermes(root)
-    base_url = os.environ.get("RLM_HERMES_BASE_URL", "http://127.0.0.1:11434/v1")
-    api_key = os.environ.get("RLM_HERMES_API_KEY", "ollama")
-    model = os.environ.get("RLM_HERMES_MODEL", os.environ.get("LLM_MODEL", "llama3.2"))
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
+        _dflt_base = "https://api.groq.com/openai/v1"
+        _dflt_key = groq_key
+        _dflt_model = "llama-3.3-70b-versatile"
+    else:
+        _dflt_base = "http://127.0.0.1:11434/v1"
+        _dflt_key = "ollama"
+        _dflt_model = "llama3.2"
+    base_url = os.environ.get("RLM_HERMES_BASE_URL", _dflt_base)
+    api_key = os.environ.get("RLM_HERMES_API_KEY", _dflt_key)
+    model = os.environ.get("RLM_HERMES_MODEL")
+    if not model:
+        if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
+            model = _dflt_model
+        else:
+            model = os.environ.get("LLM_MODEL", _dflt_model)
     skip_memory = os.environ.get("RLM_HERMES_SKIP_MEMORY", "").strip().lower() in ("1", "true", "yes")
     max_it = int(os.environ.get("RLM_HERMES_MAX_ITERATIONS", "20"))
     return AIAgent(

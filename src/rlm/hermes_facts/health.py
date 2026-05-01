@@ -16,12 +16,23 @@ from rlm.utils.market_hours import is_scanner_window_open, session_label
 
 _DEFAULT_SERVICES = [
     "regime-locus-master",
+    "rlm-master-trader",
     "regime-locus-crew",
     "rlm-control-center",
     "rlm-telegram",
     "rlm-master-telegram",
     "rlm-telegram-bot",
 ]
+
+_MUTUALLY_EXCLUSIVE_SERVICE_GROUPS = (
+    frozenset(
+        {
+            "regime-locus-master",
+            "rlm-master-telegram",
+            "rlm-master-trader",
+        }
+    ),
+)
 
 _restart_last_mono: dict[str, float] = {}
 
@@ -90,6 +101,28 @@ def _journal_services(services: list[str]) -> list[str]:
     if any("run_crew" in (a or "") for a in sys.argv):
         return [s for s in services if s != "regime-locus-crew"]
     return services
+
+
+def _mutually_exclusive_group(name: str) -> frozenset[str]:
+    for group in _MUTUALLY_EXCLUSIVE_SERVICE_GROUPS:
+        if name in group:
+            return group
+    return frozenset()
+
+
+def _has_active_mutually_exclusive_sibling(name: str, statuses: list[ServiceStatus]) -> bool:
+    group = _mutually_exclusive_group(name)
+    if not group:
+        return False
+    return any(s.name in group and s.name != name and s.active for s in statuses)
+
+
+def _has_ambiguous_mutually_exclusive_restart(name: str, statuses: list[ServiceStatus]) -> bool:
+    group = _mutually_exclusive_group(name)
+    if not group:
+        return False
+    loaded_members = [s for s in statuses if s.name in group and s.load_state == "loaded"]
+    return len(loaded_members) > 1
 
 
 def _check_services(root: Path, services: list[str]) -> list[ServiceStatus]:
@@ -254,6 +287,8 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
         if s.load_state != "loaded":
             continue
         if not s.active:
+            if _has_active_mutually_exclusive_sibling(s.name, report.services):
+                continue
             if s.name == "regime-locus-master" and not scanner_open:
                 continue
             service_issues.append(s.name)
@@ -284,9 +319,15 @@ def _try_restart_inactive_services(root: Path, report: HealthReport, services: l
             continue
         if s.active:
             continue
+        key = s.name
+        if _has_active_mutually_exclusive_sibling(s.name, report.services):
+            actions.append(f"[auto] skip restart {key}.service (active mutually-exclusive sibling)")
+            continue
+        if _has_ambiguous_mutually_exclusive_restart(s.name, report.services):
+            actions.append(f"[auto] skip restart {key}.service (ambiguous mutually-exclusive master group)")
+            continue
         if s.name == "regime-locus-master" and not is_scanner_window_open():
             continue
-        key = s.name
         if key == "regime-locus-crew" and skip_crew and not allow_crew:
             actions.append(f"[auto] skip restart {key}.service (would stop this crew process)")
             continue
