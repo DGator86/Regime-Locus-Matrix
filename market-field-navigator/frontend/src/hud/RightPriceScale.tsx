@@ -12,30 +12,36 @@ export default function RightPriceScale() {
     .sort((a: any, b: any) => a.price - b.price);
 
   return (
-    <section className='panel' style={{ flex: '0 0 auto' }}>
-      <div className='section-label'>Price Scale</div>
-      <div className='metric-row'>
-        <span className='m-label'>Current</span>
-        <span className='m-val val-white'>{s.current_price.toFixed(2)}</span>
+    <section className='panel'>
+      <div className='sec'>Price Scale</div>
+      <div className='mrow'>
+        <span className='mlabel'>CURRENT</span>
+        <span className='mval v-white'>{s.current_price.toFixed(2)}</span>
       </div>
-      <div className='metric-row'>
-        <span className='m-label'>Anchor</span>
-        <span className='m-val val-cyan'>{s.anchor_price.toFixed(2)}</span>
+      <div className='mrow'>
+        <span className='mlabel'>ANCHOR</span>
+        <span className='mval v-orange'>{s.anchor_price.toFixed(2)}</span>
+      </div>
+      <div className='mrow'>
+        <span className='mlabel'>CHANGE</span>
+        <span className={`mval ${s.price_change >= 0 ? 'v-green' : 'v-red'}`}>
+          {s.price_change >= 0 ? '+' : ''}{s.price_change.toFixed(2)}
+        </span>
       </div>
 
-      <div className='section-label'>Resistance</div>
+      <div className='sec'>Resistance</div>
       {resistances.map((w: any) => (
-        <div className='sr-row' key={w.id}>
-          <span className='sr-resistance'>{w.price.toFixed(0)}</span>
-          <span style={{ color: '#3a5a7a', fontSize: 10 }}>{(w.strength * 100).toFixed(0)}%</span>
+        <div className='srrow' key={w.id}>
+          <span className='sr-res'>{w.price.toFixed(0)}</span>
+          <span className='sr-pct'>{(w.strength * 100).toFixed(0)}% STR</span>
         </div>
       ))}
 
-      <div className='section-label'>Support</div>
+      <div className='sec'>Support</div>
       {supports.map((w: any) => (
-        <div className='sr-row' key={w.id}>
-          <span className='sr-support'>{w.price.toFixed(0)}</span>
-          <span style={{ color: '#3a5a7a', fontSize: 10 }}>{(w.strength * 100).toFixed(0)}%</span>
+        <div className='srrow' key={w.id}>
+          <span className='sr-sup'>{w.price.toFixed(0)}</span>
+          <span className='sr-pct'>{(w.strength * 100).toFixed(0)}% STR</span>
         </div>
       ))}
     </section>

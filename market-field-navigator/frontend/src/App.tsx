@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchSnapshot } from './api/marketFieldApi';
-import MarketFieldScene from './scene/MarketFieldScene';
+import FieldView from './scene/FieldView';
+import HeaderBar from './hud/HeaderBar';
 import LeftMetricsPanel from './hud/LeftMetricsPanel';
 import RightPriceScale from './hud/RightPriceScale';
 import BottomControls from './hud/BottomControls';
@@ -16,25 +17,27 @@ export default function App() {
   useEffect(() => {
     fetchSnapshot()
       .then(setSnapshot)
-      .catch(() => setError('Backend offline — start FastAPI on localhost:8000 first.'))
+      .catch(() => setError('BACKEND OFFLINE — START FASTAPI ON LOCALHOST:8000'))
       .finally(() => setLoading(false));
   }, [setSnapshot]);
 
   return (
     <div className='app'>
+      <HeaderBar />
+
       <LeftMetricsPanel />
 
       <div className='scene-wrap'>
         {loading ? (
-          <div className='panel' style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3a5a7a' }}>
-            Loading market field…
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF9900', fontFamily: 'Courier New', letterSpacing: '.14em', fontSize: 13 }}>
+            INITIALIZING FIELD…
           </div>
         ) : error ? (
-          <div className='panel' style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff2255' }}>
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF2255', fontFamily: 'Courier New', letterSpacing: '.1em', fontSize: 12 }}>
             {error}
           </div>
         ) : (
-          <MarketFieldScene />
+          <FieldView />
         )}
       </div>
 

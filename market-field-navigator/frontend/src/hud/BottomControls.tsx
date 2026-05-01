@@ -1,12 +1,8 @@
 import { useMarketFieldStore } from '../state/useMarketFieldStore';
 
 const LABELS: Record<string, string> = {
-  regime: 'Regime Zones',
-  gamma: 'Gamma Force',
-  iv: 'IV Surface',
-  liquidity: 'Liquidity',
-  sr: 'S/R Walls',
-  path: 'Price Path',
+  regime: 'Regime', gamma: 'Gamma', iv: 'IV Surface',
+  liquidity: 'Liquidity', sr: 'S/R Walls', path: 'Price Path',
 };
 
 export default function BottomControls() {
@@ -14,12 +10,10 @@ export default function BottomControls() {
   const setToggle = useMarketFieldStore((s) => s.setToggle);
 
   return (
-    <section className='panel row'>
-      <span style={{ color: '#3a5a7a', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', marginRight: 4 }}>
-        Layers
-      </span>
+    <section className='row'>
+      <span className='row-label'>Active Layers</span>
       {Object.entries(toggles).map(([k, v]) => (
-        <label key={k} className={`toggle-chip${v ? ' active' : ''}`}>
+        <label key={k} className={`chip${v ? ' on' : ''}`}>
           <input type='checkbox' checked={v} onChange={(e) => setToggle(k, e.target.checked)} />
           {LABELS[k] ?? k}
         </label>
