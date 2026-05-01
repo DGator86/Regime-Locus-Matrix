@@ -1,0 +1,10 @@
+[Unit]
+Description=RLM Market Close - stop trading services at 4:31 PM ET
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/rlm-market-hours-stop.sh
+
+[Install]
+WantedBy=multi-user.target

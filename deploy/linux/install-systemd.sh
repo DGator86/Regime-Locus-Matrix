@@ -34,8 +34,36 @@ _install_unit() {
   echo "Installed ${dst}"
 }
 
+_install_script() {
+  local src="$1" dst="$2"
+  local tmp
+  tmp="$(mktemp)"
+  sed "s|@INSTALL_ROOT@|${INSTALL_ROOT}|g" "${src}" >"${tmp}"
+  install -m 0755 "${tmp}" "${dst}"
+  rm -f "${tmp}"
+  echo "Installed ${dst}"
+}
+
 _install_unit "${SCRIPT_DIR}/regime-locus-master.service" \
               "/etc/systemd/system/regime-locus-master.service"
+
+_install_unit "${SCRIPT_DIR}/rlm-forecast.service" \
+              "/etc/systemd/system/rlm-forecast.service"
+_install_unit "${SCRIPT_DIR}/rlm-forecast.timer" \
+              "/etc/systemd/system/rlm-forecast.timer"
+
+_install_script "${SCRIPT_DIR}/rlm-market-hours-start.sh" \
+                "/usr/local/bin/rlm-market-hours-start.sh"
+_install_script "${SCRIPT_DIR}/rlm-market-hours-stop.sh" \
+                "/usr/local/bin/rlm-market-hours-stop.sh"
+_install_unit "${SCRIPT_DIR}/rlm-market-open.service" \
+              "/etc/systemd/system/rlm-market-open.service"
+_install_unit "${SCRIPT_DIR}/rlm-market-open.timer" \
+              "/etc/systemd/system/rlm-market-open.timer"
+_install_unit "${SCRIPT_DIR}/rlm-market-close.service" \
+              "/etc/systemd/system/rlm-market-close.service"
+_install_unit "${SCRIPT_DIR}/rlm-market-close.timer" \
+              "/etc/systemd/system/rlm-market-close.timer"
 
 _install_unit "${SCRIPT_DIR}/rlm-nightly-opt.service" \
               "/etc/systemd/system/rlm-nightly-opt.service"
@@ -49,15 +77,19 @@ _install_unit "${SCRIPT_DIR}/rlm-weekly-calibrate.timer" \
 
 systemctl daemon-reload
 systemctl enable regime-locus-master.service
+systemctl enable rlm-forecast.timer
+systemctl enable rlm-market-open.timer
+systemctl enable rlm-market-close.timer
 systemctl enable rlm-nightly-opt.timer
 systemctl enable rlm-weekly-calibrate.timer
 
 echo ""
 echo "  Optional: copy deploy/systemd/ib-gateway.service.example with IB_GATEWAY_DIR sed, enable ib-gateway before master."
-echo "  Optional: deploy/systemd/rlm-preopen*.example + rlm-postclose*.example for session brief timers."
 echo ""
 echo "  Start master:    systemctl start regime-locus-master"
-echo "  Start timers:    systemctl start rlm-nightly-opt.timer rlm-weekly-calibrate.timer"
+echo "  Start timers:    systemctl start rlm-market-open.timer rlm-market-close.timer rlm-nightly-opt.timer rlm-weekly-calibrate.timer"
 echo "  Follow log:      journalctl -u regime-locus-master -f"
+echo "  Market open log: journalctl -u rlm-market-open.service -f"
+echo "  Market close log:journalctl -u rlm-market-close.service -f"
 echo "  Nightly opt log: tail -f /var/log/rlm-nightly-opt.log"
 echo "  Calibrate log:   tail -f /var/log/rlm-weekly-calibrate.log"
