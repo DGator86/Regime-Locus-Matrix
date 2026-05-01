@@ -1,0 +1,6 @@
+:root { --bg-main:#05070d; --panel-bg:rgba(8,14,24,.72); --panel-border:rgba(120,180,255,.22); --text-main:#e8f1ff; }
+body { margin:0; background:var(--bg-main); color:var(--text-main); font-family:Inter,system-ui,sans-serif; }
+.app { display:grid; grid-template-columns: 280px 1fr 280px; grid-template-rows: 1fr auto; height:100vh; gap:8px; padding:8px; }
+.scene-wrap { min-height:0; }
+.panel { background:var(--panel-bg); border:1px solid var(--panel-border); padding:10px; border-radius:8px; }
+.row { display:flex; gap:10px; flex-wrap:wrap; grid-column:1 / span 3; }

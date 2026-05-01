@@ -1,0 +1,1 @@
+export default function Legend() { return <section className='panel'><h4>Legend</h4><ul><li>🩷 Price Particle</li><li>🟡 Gamma Vectors</li><li>🔵 IV Surface</li><li>💧 Liquidity Wells</li><li>🧱 S/R Walls</li><li>🟢🔴 Regime Zones</li></ul></section>; }
