@@ -1,9 +1,8 @@
 [Unit]
-Description=Timer for RLM Kronos Weekend Fine-Tuning
+Description=Timer for RLM Kronos Weekend Fine-Tuning (Sat 02:00 America/New_York)
 
 [Timer]
-# Run every Saturday at 2:00 AM UTC
-OnCalendar=Sat *-*-* 02:00:00
+OnCalendar=Sat *-*-* 02:00:00 America/New_York
 Persistent=true
 RandomizedDelaySec=600
 

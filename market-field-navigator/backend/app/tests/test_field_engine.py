@@ -1,3 +1,5 @@
+from fastapi.testclient import TestClient
+from app.main import app
 from app.adapters import RLMAdapter
 from app.field_engine import MarketFieldEngine
 
@@ -35,3 +37,24 @@ def test_action_mapping_fallback() -> None:
 
     snapshot = MarketFieldEngine(adapter=UnknownActionAdapter()).generate_snapshot("SPY")
     assert snapshot.recommended_action_label == "No clean trade"
+
+
+def test_snapshot_non_empty_vectors_and_levels() -> None:
+    snapshot = MarketFieldEngine().generate_snapshot("SPY")
+    assert len(snapshot.gamma_vectors) > 0
+    assert len(snapshot.sr_walls) > 0
+    assert len(snapshot.liquidity_wells) > 0
+    assert len(snapshot.price_path) > 0
+
+
+def test_snapshot_endpoint_cors_preflight() -> None:
+    client = TestClient(app)
+    response = client.options(
+        "/api/market-field/snapshot",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code in (200, 204)
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
