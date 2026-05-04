@@ -1,17 +1,40 @@
-# Sanitized example: gnzsnz/ib-gateway-docker style layout for VPS (host-published paper API).
-# Copy beside a chmod 600 env file (e.g. .env.ibgateway) — do not commit credentials.
+# IB Gateway (gnzsnz/ib-gateway-docker) — VPS-style host networking.
 #
-# Typical vars (see upstream image docs): TWS_USERID, TWS_PASSWORD, TRADING_MODE=paper,
-# READ_ONLY_API, TWOFA_TIMEOUT_ACTION, IBC_* / TWS_* as needed for unattended restart.
+# Secrets: use a chmod 600 env file beside this compose file, e.g. `.env.ibgateway`, with at least:
+#   TWS_USERID=...
+#   TWS_PASSWORD=...
+#   TRADING_MODE=paper
+# See upstream: https://github.com/gnzsnz/ib-gateway-docker
 #
-# On the VPS, point RLM at the host port you publish (often 4004 for paper with socat/host networking):
-#   IBKR_HOST=127.0.0.1
-#   IBKR_PORT=4004
+# Existing-session dialog: if IBKR detects another login, IBC can stall and RLM will see
+# "Disconnected; resetting connection" / no API socket. Set EXISTING_SESSION_DETECTED_ACTION
+# so the container can proceed unattended (IBC templates this into config.ini).
+#
+# RLM on the same host typically uses IBKR_HOST=127.0.0.1 and IBKR_PORT=4004 when the image
+# publishes paper API via host port (e.g. socat forwarding); match your Gateway API port in .env.
 #
 services:
   ib-gateway:
-    image: ghcr.io/gnzsnz/ib-gateway:stable
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: ib-gateway
     restart: unless-stopped
     network_mode: host
     env_file:
       - .env.ibgateway
+    environment:
+      # Operational only — safe to commit; override in .env.ibgateway if needed.
+      - EXISTING_SESSION_DETECTED_ACTION=primaryoverride
+      - TWS_PORT=4002
+      - TWS_ACCEPT_INCOMING=yes
+      - READ_ONLY_API=no
+      - BYPASS_WARNING=yes
+      - TWOFA_TIMEOUT_ACTION=restart
+    ulimits:
+      nofile:
+        soft: 10240
+        hard: 10240
+    volumes:
+      - ib-gateway-data:/root/ibc
+
+volumes:
+  ib-gateway-data:
