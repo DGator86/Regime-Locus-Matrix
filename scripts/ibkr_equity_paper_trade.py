@@ -41,6 +41,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
 # Optional ibapi dependency — required for live IBKR connectivity, not needed for --dry-run.
 try:
     from ibapi.client import EClient as _EClient
@@ -62,7 +66,7 @@ EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
 EQUITY_LOG_PATH = ROOT / "data" / "processed" / "equity_trade_log.csv"
 
 IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
-IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002})
+IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
 
 # IBKR error codes that are advisory notices, not hard order rejections.
 # These are silently swallowed by the error handler so they never enter
