@@ -20,7 +20,7 @@ Examples::
     python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
 
 **Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
-rescans (only **Mon–Fri 09:30–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
+rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
 **paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
 With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
 (local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
@@ -47,7 +47,6 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from rlm.data.paths import get_data_root  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
@@ -58,7 +57,9 @@ def _run(cmd: list[str]) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument(
         "--out",
         default="data/processed/universe_trade_plans.json",
@@ -91,15 +92,21 @@ def main() -> int:
         default=argparse.SUPPRESS,
         help="Re-run universe pipeline every N seconds in the background when --follow (default: 0, or 300 with --master)",
     )
-    ap.add_argument("--skip-monitor", action="store_true", help="Only run the universe options pipeline")
-    ap.add_argument("--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)")
+    ap.add_argument(
+        "--skip-monitor", action="store_true", help="Only run the universe options pipeline"
+    )
+    ap.add_argument(
+        "--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)"
+    )
     ap.add_argument(
         "--paper-trade",
         action="store_true",
         help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
     )
     ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
-    ap.add_argument("--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)")
+    ap.add_argument(
+        "--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)"
+    )
     ap.add_argument(
         "--paper-close",
         action="store_true",
@@ -178,28 +185,10 @@ def main() -> int:
         default=10.0,
         help="Max %% of account balance per equity position (default: 10)",
     )
-    # -----------------------------------------------------------------------
-    # Challenge book flags
-    # -----------------------------------------------------------------------
-    ap.add_argument(
-        "--with-challenge",
-        action="store_true",
-        help="Run the $1K→$25K PDT challenge session on each rescan cycle.",
-    )
-    ap.add_argument(
-        "--challenge-symbol",
-        default="SPY",
-        help="Underlying for the challenge (default: SPY)",
-    )
-    ap.add_argument(
-        "--challenge-no-kronos",
-        action="store_true",
-        help="Disable Kronos overlay in the challenge persona pipeline",
-    )
     ap.add_argument(
         "--scanner-hours-et",
         action="store_true",
-        help="Gate universe rescans to Mon–Fri 09:30–16:00 America/New_York; sets --follow and "
+        help="Gate universe rescans to Mon–Fri 09:00–16:00 America/New_York; sets --follow and "
         "default 300s rescan if none given.",
     )
     ap.add_argument(
@@ -211,11 +200,6 @@ def main() -> int:
         "--telegram-bot",
         action="store_true",
         help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
-    )
-    ap.add_argument(
-        "--monitor-rth-only-poll",
-        action="store_true",
-        help="Pass --rth-only-poll to monitor (skip Massive API cycles outside NYSE RTH).",
     )
     args = ap.parse_args()
 
@@ -241,7 +225,7 @@ def main() -> int:
         )
 
     if not hasattr(args, "interval"):
-        args.interval = 60.0
+        args.interval = 60.0 if args.master else 120.0
     if not hasattr(args, "rescan_interval"):
         args.rescan_interval = 300.0 if args.master else 0.0
 
@@ -253,7 +237,7 @@ def main() -> int:
     scanner_hours_et = (args.master or args.scanner_hours_et) and not args.scanner_24h
     if scanner_hours_et:
         print(
-            "[info] Universe rescans gated to Mon–Fri 09:30–16:00 America/New_York "
+            "[info] Universe rescans gated to Mon–Fri 09:00–16:00 America/New_York "
             "(use --scanner-24h for continuous rescans).",
             flush=True,
         )
@@ -303,34 +287,7 @@ def main() -> int:
             ecmd.append("--dry-run")
         return ecmd
 
-    def challenge_cmd() -> list[str]:
-        rlm_bin = Path(py).parent / "rlm"
-        ccmd = [
-            str(rlm_bin),
-            "challenge",
-            "--run",
-            "--symbol",
-            args.challenge_symbol,
-            "--data-root",
-            str(get_data_root()),
-        ]
-        if args.challenge_no_kronos:
-            ccmd.append("--no-kronos")
-        return ccmd
-
     if not args.skip_pipeline:
-        if args.master and scanner_hours_et and not is_scanner_window_open():
-            print(
-                "[master] initial universe pipeline deferred until Mon–Fri 09:30–16:00 America/New_York.",
-                flush=True,
-            )
-            poll_sec = 45.0
-            while not is_scanner_window_open():
-                print(
-                    f"[master] waiting for rescan window ({scanner_window_label()}) …",
-                    flush=True,
-                )
-                time.sleep(poll_sec)
         rc = _run(pipeline_cmd())
         if rc != 0:
             return rc
@@ -338,7 +295,9 @@ def main() -> int:
     if args.paper_trade:
         rc = _run(paper_cmd())
         if rc != 0:
-            print(f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True)
+            print(
+                f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True
+            )
 
     if args.with_equity:
         # Run equity book in a background thread so it doesn't block the monitor
@@ -350,11 +309,6 @@ def main() -> int:
         et = threading.Thread(target=_run_equity, name="equity-trade", daemon=True)
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue
-
-    if args.with_challenge:
-        print("[rescan] challenge session", flush=True)
-        if _run(challenge_cmd()) != 0:
-            print("[rescan] challenge step failed (continuing)", flush=True)
 
     if args.skip_monitor:
         return 0
@@ -385,19 +339,12 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
-                    if args.with_challenge:
-                        print("[rescan] challenge session", flush=True)
-                        if _run(challenge_cmd()) != 0:
-                            print("[rescan] challenge step failed (continuing)", flush=True)
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
 
     if args.telegram_bot:
         tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
-        print(
-            f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)",
-            flush=True,
-        )
+        print(f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)", flush=True)
         try:
             subprocess.Popen(
                 [py, str(tscript)],
@@ -421,21 +368,9 @@ def main() -> int:
         mcmd.append("--paper-close")
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
-    # Always pass the wrapper's explicit default through; otherwise the monitor's
-    # own default can change run_everything's documented force-close behavior.
-    mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
-    if args.monitor_rth_only_poll:
-        mcmd.append("--rth-only-poll")
-    rc = _run(mcmd)
-
-    # Post-session: check win rate and re-tune if below threshold
-    _run_check = [py, str(ROOT / "scripts" / "check_performance_and_retune.py")]
-    try:
-        subprocess.run(_run_check, cwd=str(ROOT))
-    except OSError as e:
-        print(f"[warn] could not run check_performance_and_retune: {e}", flush=True)
-
-    return rc
+    if args.force_close_dte > 0.0:
+        mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    return _run(mcmd)
 
 
 if __name__ == "__main__":

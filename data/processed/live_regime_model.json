@@ -1,16 +1,21 @@
 {
-  "model": "hmm",
+  "model": "markov",
   "forecast": {
-    "drift_gamma_alpha": 0.65,
-    "sigma_floor": 0.0001,
-    "direction_neutral_threshold": 0.3,
-    "move_window": 100,
-    "vol_window": 100
+    "drift_gamma_alpha": 0.8143736291335779,
+    "sigma_floor": 0.0001250823694039145,
+    "direction_neutral_threshold": 0.42909525116809766,
+    "move_window": 61,
+    "vol_window": 141
   },
   "roee": {
     "confidence_threshold": 0.6,
     "sizing_multiplier": 1.0,
     "transition_penalty": 0.5,
+    "kronos_confidence_weight": 0.4,
+    "hmm_confidence_weight": 0.6,
+    "kronos_transition_penalty": 0.3,
+    "kronos_epistemic_disable_threshold": 0.7,
+    "kronos_aleatoric_size_penalty": 0.5,
     "use_dynamic_sizing": false,
     "vol_target": 0.15,
     "max_kelly_fraction": 0.25,
@@ -33,7 +38,7 @@
     ]
   },
   "markov": {
-    "n_states": 3,
+    "n_states": 5,
     "switching_variance": true,
     "trend": "c",
     "transition_pseudocount": 0.1,
@@ -56,5 +61,20 @@
     "stride": 1,
     "weight": 0.35
   },
-  "provenance": {}
+  "provenance": {
+    "generated_at_utc": "2026-05-04T00:58:48.406598+00:00",
+    "calibration_report": "data/processed/regime_model_calibration.json",
+    "selection_metric": "sharpe",
+    "search_objective": "sharpe",
+    "trials": 24,
+    "seed": 42,
+    "symbol": "SPY",
+    "mtf_regimes": false,
+    "hierarchical": true,
+    "macro_weight": 0.45,
+    "micro_timeframes": [
+      "5min",
+      "1min"
+    ]
+  }
 }

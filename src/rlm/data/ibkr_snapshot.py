@@ -44,21 +44,6 @@ def _format_ib_error_tail(lines: list[tuple[int, int, str]], limit: int = 12) ->
     return f"\n  Recent IB API messages:\n{body}"
 
 
-def _hint_connect_failed(code: int, host: str, port: int) -> str:
-    """Extra context for common socket failures (IB error 502, etc.)."""
-    if code != 502:
-        return ""
-    return (
-        "\n  RLM hint (502 = no API socket at this address):\n"
-        f"    • Using host={host!r} port={port} — paper is usually Gateway **4002** or TWS **7497** "
-        "(live Gateway **4001**, TWS **7496**). `IBKR_PORT` must match **Configure → API → Socket port**.\n"
-        "    • Enable **ActiveX and Socket Clients** (and **Read-Only API** if you use it) in Gateway/TWS API settings.\n"
-        "    • If this app runs on another machine than Gateway (e.g. **VPS** + Gateway on your PC), "
-        "**127.0.0.1 fails**. Set `IBKR_HOST` to the PC’s LAN IP (or tunnel) and add the client IP under "
-        "**Trusted IPs** in Gateway.\n"
-    )
-
-
 def load_ibkr_dashboard_socket_config() -> tuple[str, int, int]:
     """Host/port from ``load_ibkr_socket_config``; client id from ``IBKR_DASHBOARD_CLIENT_ID`` or ``base+20``."""
     host, port, base_cid = load_ibkr_socket_config()
@@ -226,7 +211,6 @@ def fetch_ibkr_account_snapshot(
     h = host if host is not None else h
     p = port if port is not None else p
     import random
-
     cid = (client_id if client_id is not None else cid) + random.randint(1000, 9999)
 
     app = app_cls()
@@ -243,17 +227,14 @@ def fetch_ibkr_account_snapshot(
             if app._handshake_failed.is_set() and app._last_error is not None:
                 code, msg = app._last_error
                 tail = _format_ib_error_tail(app._error_lines)
-                hint = _hint_connect_failed(code, h, p)
-                raise RuntimeError(f"IBKR handshake failed ({code}): {msg}.{tail}{hint}")
+                raise RuntimeError(f"IBKR handshake failed ({code}): {msg}.{tail}")
             time.sleep(0.05)
         else:
             tail = _format_ib_error_tail(app._error_lines)
             raise RuntimeError(
                 f"IBKR: no nextValidId from {h}:{p} within timeout. "
                 "Confirm TWS/Gateway is logged in and API is enabled."
-                f"{tail}\n"
-                f"  RLM hint: Gateway paper **4002**, TWS paper **7497**; `IBKR_HOST` must reach the machine "
-                f"running Gateway (not 127.0.0.1 from a remote server unless Gateway is on that server).\n"
+                f"{tail}"
             )
 
         app._pos_done.clear()
