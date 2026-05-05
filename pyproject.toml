@@ -23,6 +23,7 @@ dependencies = [
     "pydantic",
     "pyyaml",
     "python-dotenv",
+    "psutil",
     # Regime models
     "hmmlearn>=0.3.0",
     # Hyperparameter optimization
