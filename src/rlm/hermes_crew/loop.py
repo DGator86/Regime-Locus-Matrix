@@ -1,4 +1,8 @@
-"""Hermes AIAgent loop — three-agent crew: Scotty (data_monitor) → Spock (research_analyst) → Kirk (commander)."""
+"""Hermes AIAgent loop — crew Scotty (data_monitor) → Spock (research_analyst) → Kirk (commander).
+
+Enterprise VPS may run a separate lightweight host watchdog also historically called scotty.service;
+that process is scripts/rlm_enterprise_watchdog.py and does not replace this crew.
+"""
 
 from __future__ import annotations
 
