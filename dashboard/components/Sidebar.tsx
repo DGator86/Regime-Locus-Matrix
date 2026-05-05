@@ -15,6 +15,7 @@ import {
   Settings,
   Stethoscope,
   Waves,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 
 const primaryNav = [
   { icon: LayoutDashboard, label: "Overview", href: "/" },
+  { icon: Wallet, label: "Trading", href: "/trading" },
   { icon: Map, label: "State Map", href: "/state-map" },
   { icon: Waves, label: "Locus Matrix", href: "/matrix" },
   { icon: BarChart3, label: "Analysis", href: "/analysis" },
