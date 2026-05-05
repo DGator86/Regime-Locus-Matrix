@@ -226,6 +226,41 @@ RAM_WARN       = float(os.getenv("RAM_WARN_PCT", "85"))
 DISK_WARN      = float(os.getenv("DISK_WARN_PCT", "75"))
 WATCHED_SERVICES = [s.strip() for s in os.getenv("WATCHED_SERVICES","ollama").split(",") if s.strip()]
 
+# systemd unit names in docs vs shipped examples often differ (rlm-telegram vs rlm-telegram-bot).
+_UNIT_ALIASES = {
+    "rlm-telegram": ("rlm-telegram", "rlm-telegram-bot", "rlm-systems-control-telegram"),
+}
+
+
+def resolve_unit(name: str) -> str:
+    candidates = _UNIT_ALIASES.get(name, (name,))
+    for c in candidates:
+        try:
+            r = subprocess.run(
+                ["systemctl", "show", f"{c}.service", "--property=LoadState", "--value"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if r.stdout.strip() == "loaded":
+                return c
+        except Exception:
+            continue
+    return name
+
+
+def unit_load_state(base: str) -> str:
+    try:
+        r = subprocess.run(
+            ["systemctl", "show", f"{base}.service", "--property=LoadState", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return "unknown"
+
 Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
@@ -256,7 +291,8 @@ def get_snapshot():
     services = {}
     for svc in WATCHED_SERVICES:
         try:
-            r = subprocess.run(["systemctl","is-active",svc], capture_output=True, text=True, timeout=5)
+            resolved = resolve_unit(svc)
+            r = subprocess.run(["systemctl", "is-active", resolved], capture_output=True, text=True, timeout=5)
             services[svc] = r.stdout.strip()
         except Exception:
             services[svc] = "unknown"
@@ -273,11 +309,20 @@ def get_snapshot():
     }
 
 def restart_service(svc):
+    resolved = resolve_unit(svc)
+    if unit_load_state(resolved) != "loaded":
+        return (
+            "SKIP restart `%s`: no loaded systemd unit "
+            "(install deploy/rlm-telegram.service.example as /etc/systemd/system/rlm-telegram.service "
+            "or rename WATCHED_SERVICES to match `systemctl list-unit-files | grep telegram`)"
+        ) % svc
     try:
-        subprocess.run(["systemctl","restart",svc], check=True, timeout=30)
-        return f"Restarted `{svc}` OK"
+        subprocess.run(["systemctl", "restart", resolved], check=True, timeout=30)
+        if resolved == svc:
+            return f"Restarted `{svc}` OK"
+        return f"Restarted `{svc}` → `{resolved}` OK"
     except Exception as e:
-        return f"FAILED restart `{svc}`: {e}"
+        return f"FAILED restart `{resolved}` (watch `{svc}`): {e}"
 
 def scotty_assess(snap):
     prompt = f"""You are Scotty, chief engineer of a trading system.
@@ -307,7 +352,10 @@ def main():
             for svc, status in snap["services"].items():
                 if status != "active":
                     msg = restart_service(svc)
-                    send_telegram(msg, "restart")
+                    if msg.startswith("SKIP"):
+                        log.warning("%s", msg)
+                    else:
+                        send_telegram(msg, "restart")
             if snap["cpu_pct"] > CPU_WARN:
                 alerts.append(f"CPU {snap['cpu_pct']:.0f}%")
             if snap["ram_pct"] > RAM_WARN:

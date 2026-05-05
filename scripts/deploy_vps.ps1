@@ -42,7 +42,7 @@ if (-not $SkipRestart) {
     $unitsRaw = $SystemdUnits
     if ([string]::IsNullOrWhiteSpace($unitsRaw)) { $unitsRaw = $env:VPS_SYSTEMD_UNITS }
     if ([string]::IsNullOrWhiteSpace($unitsRaw)) {
-        $unitsRaw = "regime-locus-master,regime-locus-crew,rlm-master-telegram,rlm-telegram"
+        $unitsRaw = "regime-locus-master,regime-locus-crew,rlm-master-telegram,rlm-telegram,rlm-telegram-bot"
     }
     $unitNames = @(
         $unitsRaw.Split(",", [StringSplitOptions]::RemoveEmptyEntries) |

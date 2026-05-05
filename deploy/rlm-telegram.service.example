@@ -1,0 +1,26 @@
+# Canonical name expected by AGENTS.md, deploy_vps.ps1, and enterprise Scotty WATCHED_SERVICES=rlm-telegram.
+# Copy to /etc/systemd/system/rlm-telegram.service (same content as rlm-telegram-bot.service.example).
+#
+# Token in /opt/Regime-Locus-Matrix/.env:
+#   RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN=...   (preferred)
+#   TELEGRAM_BOT_TOKEN=...
+#
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rlm-telegram
+
+[Unit]
+Description=RLM Telegram bot (long-poll)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/rlm_telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

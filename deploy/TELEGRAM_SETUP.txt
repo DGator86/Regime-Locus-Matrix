@@ -210,6 +210,12 @@ Push alerts (if TELEGRAM_NOTIFY=1) watch:
 PART H — If something goes wrong
 --------------------------------------------------------------------------------
 
+  Symptom: Scotty Telegram spam "FAILED restart rlm-telegram"
+  → WATCHED_SERVICES must match a loaded systemd unit. The example installs rlm-telegram-bot.service;
+    docs sometimes say rlm-telegram. Fix: install deploy/rlm-telegram.service.example as
+    /etc/systemd/system/rlm-telegram.service, or set WATCHED_SERVICES to rlm-telegram-bot, or redeploy
+    Scotty from bootstrap.sh (it resolves rlm-telegram to the first loaded alias).
+
   Symptom: “Unauthorized” or 401 on getUpdates, but curl getMe with sourced .env works
   → The service may be using a different TELEGRAM_BOT_TOKEN than your shell: systemd’s
     EnvironmentFile= does not parse .env exactly like bash (avoid duplicate TELEGRAM_BOT_TOKEN=
