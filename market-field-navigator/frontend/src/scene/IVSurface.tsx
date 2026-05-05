@@ -1,67 +1,63 @@
 import { useMemo } from 'react';
-import * as THREE from 'three';
-
-const GRID_X = 32;
-const GRID_Y = 32;
+import { BufferGeometry, Float32BufferAttribute } from 'three';
+import { Line } from '@react-three/drei';
 
 export default function IVSurface({ points }: { points: any[] }) {
-  const geometry = useMemo(() => {
-    if (points.length < GRID_X * GRID_Y) return null;
-
-    const positions = new Float32Array(points.length * 3);
-    points.forEach((p, i) => {
-      positions[i * 3]     = p.x * 0.6;           // price axis
-      positions[i * 3 + 1] = p.z * 0.28 - 10;    // iv height → y, sits below scene
-      positions[i * 3 + 2] = p.y * 0.55;          // time axis → depth
-    });
-
+  const { geometry, gridX, gridY } = useMemo(() => {
+    const xs = [...new Set(points.map((p: any) => p.x))].sort((a, b) => a - b);
+    const ys = [...new Set(points.map((p: any) => p.y))].sort((a, b) => a - b);
+    const lookup = new Map(points.map((p: any) => [`${p.x}|${p.y}`, p]));
+    const vertices: number[] = [];
     const indices: number[] = [];
-    for (let ix = 0; ix < GRID_X - 1; ix++) {
-      for (let iy = 0; iy < GRID_Y - 1; iy++) {
-        const a = ix * GRID_Y + iy;
-        const b = ix * GRID_Y + iy + 1;
-        const c = (ix + 1) * GRID_Y + iy;
-        const d = (ix + 1) * GRID_Y + iy + 1;
-        indices.push(a, c, b);
-        indices.push(b, c, d);
+
+    for (let yi = 0; yi < ys.length; yi += 1) {
+      for (let xi = 0; xi < xs.length; xi += 1) {
+        const p = lookup.get(`${xs[xi]}|${ys[yi]}`);
+        if (!p) continue;
+        vertices.push(p.x, p.y, p.z - 2.4);
       }
     }
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
+    for (let yi = 0; yi < ys.length - 1; yi += 1) {
+      for (let xi = 0; xi < xs.length - 1; xi += 1) {
+        const a = yi * xs.length + xi;
+        const b = a + 1;
+        const c = a + xs.length;
+        const d = c + 1;
+        indices.push(a, b, d, a, d, c);
+      }
+    }
+
+    const g = new BufferGeometry();
+    g.setAttribute('position', new Float32BufferAttribute(vertices, 3));
+    g.setIndex(indices);
+    g.computeVertexNormals();
+    return { geometry: g, gridX: xs.length, gridY: ys.length };
   }, [points]);
 
-  if (!geometry) return null;
+  const wireRows = useMemo(() => {
+    const rows: [number, number, number][][] = [];
+    const sampleStep = Math.max(1, Math.floor(gridY / 6));
+    for (let y = 0; y < gridY; y += sampleStep) {
+      const row: [number, number, number][] = [];
+      for (let x = 0; x < gridX; x += 1) {
+        const idx = (y * gridX + x) * 3;
+        const pos = geometry.attributes.position.array as ArrayLike<number>;
+        row.push([pos[idx], pos[idx + 1], pos[idx + 2]]);
+      }
+      rows.push(row);
+    }
+    return rows;
+  }, [geometry, gridX, gridY]);
 
   return (
     <>
-      {/* solid surface */}
       <mesh geometry={geometry}>
-        <meshStandardMaterial
-          color="#0044cc"
-          emissive="#003399"
-          emissiveIntensity={1.2}
-          transparent
-          opacity={0.55}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-        />
+        <meshStandardMaterial color='#2f79e0' emissive='#1e4ea1' emissiveIntensity={0.62} transparent opacity={0.55} side={2} />
       </mesh>
-      {/* wireframe overlay for the grid lines */}
-      <mesh geometry={geometry}>
-        <meshStandardMaterial
-          color="#00aaff"
-          emissive="#00aaff"
-          emissiveIntensity={2}
-          transparent
-          opacity={0.25}
-          wireframe
-          depthWrite={false}
-        />
-      </mesh>
+      {wireRows.map((row, idx) => (
+        <Line key={`iv-row-${idx}`} points={row} color='#84c7ff' lineWidth={1.8} transparent opacity={0.72} />
+      ))}
     </>
   );
 }

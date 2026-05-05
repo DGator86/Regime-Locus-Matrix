@@ -114,6 +114,14 @@ def main() -> int:
     )
     ap.add_argument("--paper-close-dry-run", action="store_true", help="Log closes only")
     ap.add_argument(
+        "--options-trade-log",
+        default="data/processed/trade_log.csv",
+        help=(
+            "CSV path for options dry-run tracking rows written by monitor_active_trade_plans.py "
+            "(default: data/processed/trade_log.csv)"
+        ),
+    )
+    ap.add_argument(
         "--force-close-dte",
         type=float,
         default=0.0,
@@ -359,6 +367,8 @@ def main() -> int:
         str(ROOT / "scripts" / "monitor_active_trade_plans.py"),
         "--plans",
         plans,
+        "--trade-log",
+        str(args.options_trade_log),
     ]
     if args.follow:
         mcmd.extend(["--interval", str(args.interval)])

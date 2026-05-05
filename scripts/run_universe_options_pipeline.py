@@ -4,13 +4,13 @@
 
 For each symbol (default: ``LIQUID_UNIVERSE`` = Mag7 + SPY + QQQ):
 
-1. IBKR daily bars -> ``prepare_bars_for_factors`` -> factors -> state matrix -> forecast (latest bar).
-2. ``select_trade_for_row`` -> strategy + abstract legs.
-3. If **enter**: fetch a filtered Massive option snapshot (paginated), normalize,
-   DTE slice, ``match_legs_to_chain``.
-4. Build **entry debit** (bid/ask), **mid mark** ``V0``, take-profit /
-   hard-stop / trailing activation levels
-   (:mod:`rlm.execution.risk_targets`), plus JSON suitable for ``ibkr_place_roee_combo.py``.
+1. IBKR bars at ``--bar-size`` / duration (overridable via ``live_regime_model.json`` → ``timeframe_hierarchy.primary_*``).
+2. Factors → state matrix → forecast/regime (``live_regime_model.model``: forecast | hmm | markov).
+3. Optional **confirmation timeframes**: ``timeframe_hierarchy.confirmation_bar_sizes`` triggers separate IBKR
+   fetches (short ``confirmation_duration``); downstream alignment gates ROEE when finer bars disagree with primary bias.
+4. ``select_trade_for_row`` → strategy + abstract legs under regime + forecast + confirmation context.
+5. If **enter**: Massive chain match + risk plan JSON.
+
 
 Output: JSON file consumed by ``scripts/monitor_active_trade_plans.py``.
 
@@ -61,6 +61,7 @@ from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
     LiveRegimeModelConfig,
+    LiveTimeframeHierarchy,
     apply_nightly_hyperparam_overlay,
     load_live_regime_model,
     save_live_regime_model,
@@ -85,6 +86,90 @@ def _env_truthy(key: str) -> bool:
 
 
 _IBKR_HIST_LOCK = threading.Lock()
+
+
+def _regime_key_head(regime_key: object | None) -> str:
+    if regime_key is None or (isinstance(regime_key, float) and pd.isna(regime_key)):
+        return ""
+    return str(regime_key).split("|")[0].strip().lower()
+
+
+def _finite_sd(val: object) -> float:
+    try:
+        x = float(val)
+    except (TypeError, ValueError):
+        return 0.0
+    if pd.isna(x):
+        return 0.0
+    return float(x)
+
+
+def _direction_aligned(primary_sd: float, confirm_sd: float) -> bool:
+    if primary_sd == 0.0 and confirm_sd == 0.0:
+        return True
+    if primary_sd == 0.0 or confirm_sd == 0.0:
+        return False
+    return (primary_sd > 0.0 and confirm_sd > 0.0) or (primary_sd < 0.0 and confirm_sd < 0.0)
+
+
+def _tf_confirmation_layers_agree(
+    primary: pd.Series,
+    confirm: pd.Series,
+    *,
+    mode: str,
+) -> bool:
+    direction_ok = _direction_aligned(_finite_sd(primary.get("S_D")), _finite_sd(confirm.get("S_D")))
+    head_ok = _regime_key_head(primary.get("regime_key")) == _regime_key_head(confirm.get("regime_key"))
+    if mode == "direction":
+        return direction_ok
+    if mode == "regime_head":
+        return head_ok
+    return direction_ok and head_ok
+
+
+def _forecast_final_row(
+    sym: str,
+    *,
+    duration: str,
+    bar_size: str,
+    attach_vix: bool,
+    live_model: LiveRegimeModelConfig | None,
+    move_window: int,
+    vol_window: int,
+    min_regime_train_samples: int,
+    purge_bars: int,
+    event_lookahead_days: int,
+    serialize_ibkr: bool,
+) -> pd.Series | None:
+    """Run bars → factors → regime/forecast stack; return latest row (for TF confirmation)."""
+    fetch_kw: dict[str, object] = {
+        "duration": duration,
+        "bar_size": bar_size,
+        "timeout_sec": 120.0,
+    }
+    if serialize_ibkr:
+        with _IBKR_HIST_LOCK:
+            bars = fetch_historical_stock_bars(sym, **fetch_kw)
+    else:
+        bars = fetch_historical_stock_bars(sym, **fetch_kw)
+    if bars.empty:
+        return None
+    df = bars.sort_values("timestamp").set_index("timestamp")
+    df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
+    feats = FactorPipeline().run(df)
+    feats = classify_state_matrix(feats)
+    if live_model is not None:
+        forecast = live_model.build_pipeline()
+    else:
+        forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
+    out = forecast.run(feats).copy()
+    out["has_major_event"] = bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
+    out = attach_regime_safety_columns(
+        out,
+        min_regime_train_samples=min_regime_train_samples,
+        purge_bars=purge_bars,
+    )
+    return out.iloc[-1]
 
 
 def _parse_symbols(s: str) -> list[str]:
@@ -186,8 +271,49 @@ def _prepare_symbol(
         feats.to_csv(processed_dir / f"features_{sym}.csv")
         out.to_csv(processed_dir / f"forecast_features_{sym}.csv")
 
-    last = out.iloc[-1]
+    last = out.iloc[-1].copy()
     ts = last.name if isinstance(last.name, pd.Timestamp) else pd.Timestamp.now(tz="UTC").tz_localize(None)
+
+    hier = live_model.timeframe_hierarchy if live_model is not None else LiveTimeframeHierarchy()
+    if hier.confirmation_bar_sizes:
+        detail_map: dict[str, object] = {}
+        layer_ok: list[bool] = []
+        for cf_bar in hier.confirmation_bar_sizes:
+            cfbs = str(cf_bar).strip()
+            if not cfbs:
+                continue
+            cf_last = _forecast_final_row(
+                sym,
+                duration=str(hier.confirmation_duration).strip(),
+                bar_size=cfbs,
+                attach_vix=attach_vix,
+                live_model=live_model,
+                move_window=move_window,
+                vol_window=vol_window,
+                min_regime_train_samples=min_regime_train_samples,
+                purge_bars=purge_bars,
+                event_lookahead_days=event_lookahead_days,
+                serialize_ibkr=serialize_ibkr,
+            )
+            if cf_last is None:
+                layer_ok.append(False)
+                detail_map[cfbs] = {"ok": False, "reason": "no_ibkr_bars"}
+                continue
+            ok = _tf_confirmation_layers_agree(last, cf_last, mode=hier.confirmation_mode)
+            layer_ok.append(ok)
+            detail_map[cfbs] = {
+                "ok": ok,
+                "regime_key": str(cf_last.get("regime_key", "")),
+                "S_D": float(cf_last["S_D"]) if pd.notna(cf_last.get("S_D")) else None,
+            }
+        if layer_ok:
+            agg = all(layer_ok) if hier.require_all_confirmations else any(layer_ok)
+            last["tf_confirmation_failed"] = not agg
+            last["tf_confirmation_detail"] = json.dumps(detail_map, default=str)
+            last["tf_confirmation_rationale"] = (
+                "Primary timeframe bias disagreed with confirmation timeframe(s) "
+                f"(mode={hier.confirmation_mode})."
+            )
 
     pipeline_row = {
         "live_model": active_model,
@@ -206,6 +332,13 @@ def _prepare_symbol(
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
         "S_G": float(last["S_G"]) if pd.notna(last["S_G"]) else None,
     }
+    if "tf_confirmation_failed" in last.index:
+        pipeline_row["tf_confirmation_failed"] = bool(last["tf_confirmation_failed"])
+        detail = last.get("tf_confirmation_detail")
+        pipeline_row["tf_confirmation_detail"] = (
+            str(detail) if detail is not None and pd.notna(detail) else None
+        )
+
     base["pipeline"] = pipeline_row
 
     decision = select_trade_for_row(
@@ -245,9 +378,12 @@ def _prepare_symbol(
     print(json.dumps({"event": "pipeline_bar", **event}, default=str), flush=True)
 
     if decision.action != "enter" or not decision.candidate or not decision.legs:
-        base["skip_reason"] = (
-            "regime_safety_check" if decision.strategy_name == "regime_safety_check" else "roee_skip_or_no_legs"
-        )
+        if decision.strategy_name == "regime_safety_check":
+            base["skip_reason"] = "regime_safety_check"
+        elif decision.strategy_name == "timeframe_confirmation_block":
+            base["skip_reason"] = "timeframe_confirmation_block"
+        else:
+            base["skip_reason"] = "roee_skip_or_no_legs"
         return base, None, None
     return base, decision, ts
 
@@ -709,16 +845,6 @@ def main() -> int:
     p.add_argument("--kronos-samples", type=int, default=5)
     args = p.parse_args()
 
-    duration = str(args.duration)
-    bar_size = str(args.bar_size)
-    if bar_size != "1 day" and duration.endswith(" D"):
-        try:
-            days = int(duration.split()[0])
-            if days < 30:
-                duration = "30 D"
-        except (ValueError, IndexError):
-            pass
-
     try:
         client = MassiveClient()
     except ValueError as e:
@@ -768,6 +894,27 @@ def main() -> int:
     ):
         save_live_regime_model(live_model, live_model_path)
         print(f"[live_model] saved bootstrap config to {live_model_path}")
+
+    duration = str(args.duration)
+    bar_size = str(args.bar_size)
+    if live_model is not None:
+        th = live_model.timeframe_hierarchy
+        if th.primary_duration:
+            pdur = str(th.primary_duration).strip()
+            if pdur:
+                duration = pdur
+        if th.primary_bar_size:
+            pbs = str(th.primary_bar_size).strip()
+            if pbs:
+                bar_size = pbs
+    if bar_size != "1 day" and duration.endswith(" D"):
+        try:
+            days = int(duration.split()[0])
+            if days < 30:
+                duration = "30 D"
+        except (ValueError, IndexError):
+            pass
+
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     # When Hermes (or manual edits) sets STAND-DOWN, ROEE returns system_gate_block for every symbol.
     # Paper hosts often want the quant pipeline independent of LLM posture; set RLM_SKIP_SYSTEM_GATE=1.

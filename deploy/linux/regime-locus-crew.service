@@ -20,8 +20,11 @@
 #     RLM_HERMES_API_KEY=ollama
 #     RLM_HERMES_MODEL=llama3.2
 #
-#   Also add:
-#     TELEGRAM_BOT_TOKEN=...          ← same as regime-locus-master
+#   Also add (Hermes channel bot; dedicated token):
+#     RLM_HERMES_TELEGRAM_BOT_TOKEN=...
+#     RLM_HERMES_TELEGRAM_CHAT_ID=...
+#   Legacy fallback still supported:
+#     TELEGRAM_BOT_TOKEN=...
 #     TELEGRAM_NOTIFY_CHAT_ID=...
 #
 # Install:

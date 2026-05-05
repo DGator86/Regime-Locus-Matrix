@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,10 +20,18 @@ from typing import Any, Callable
 from rlm.execution.exit_signals import EXIT_SIGNALS
 
 
+def _resolve_trade_log_path(root: Path) -> Path:
+    raw = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else root / p
+    return root / "data" / "processed" / "trade_log.csv"
+
+
 def default_paths(root: Path) -> dict[str, Path]:
     return {
         "plans": root / "data" / "processed" / "universe_trade_plans.json",
-        "trade_log": root / "data" / "processed" / "trade_log.csv",
+        "trade_log": _resolve_trade_log_path(root),
         "equity_trade_log": root / "data" / "processed" / "equity_trade_log.csv",
         "equity_state": root / "data" / "processed" / "equity_positions_state.json",
         "state": root / "data" / "processed" / "telegram_notify_state.json",

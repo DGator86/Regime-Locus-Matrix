@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections.abc import Iterator
 from datetime import date as date_type
 from datetime import datetime, timezone
@@ -30,6 +31,14 @@ _ET = ZoneInfo("America/New_York")
 _CH_TITLE = "Challenge $1K→$25K (PDT / dry-run)"
 _EQUITY_TITLE = "Equities (IBKR regime log)"
 _OPT_TITLE = "Options (universe monitor / swing or large acct)"
+
+
+def _options_trade_log_path(root: Path) -> Path:
+    raw = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else root / p
+    return root / "data" / "processed" / "trade_log.csv"
 
 
 def _now_utc() -> datetime:
@@ -254,7 +263,7 @@ def calculate_daily_pnl(root: Path) -> str:
             f"Challenge = PDT $1K→$25K dry-run</i>\n",
         ]
 
-        opt_path = root / "data" / "processed" / "trade_log.csv"
+        opt_path = _options_trade_log_path(root)
         if opt_path.is_file():
             raw = _load_all_rows(opt_path)
             if not raw:

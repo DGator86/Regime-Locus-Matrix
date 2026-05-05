@@ -40,10 +40,24 @@ def _load_env() -> None:
         load_dotenv(p, override=True)
 
 
+def _env_first(*keys: str) -> str:
+    for k in keys:
+        v = (os.environ.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def _token() -> str:
-    t = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    t = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_BOT_TOKEN",
+    )
     if not t:
-        print("Set TELEGRAM_BOT_TOKEN in the environment or .env", file=sys.stderr)
+        print(
+            "Set RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN (preferred) or TELEGRAM_BOT_TOKEN in the environment or .env",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
     return t
 
@@ -58,7 +72,10 @@ def _long_poll_timeout_sec() -> int:
 
 
 def _allowed() -> set[int] | None:
-    raw = (os.environ.get("TELEGRAM_ALLOWED_USER_IDS") or "").strip()
+    raw = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+    )
     if not raw:
         return None
     out: set[int] = set()
@@ -175,7 +192,10 @@ def _chunk_text(s: str, max_len: int) -> list[str]:
 
 
 def _chat_for_push() -> int | None:
-    raw = (os.environ.get("TELEGRAM_NOTIFY_CHAT_ID") or "").strip()
+    raw = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+    )
     if raw:
         try:
             return int(raw)
@@ -268,7 +288,7 @@ def main() -> int:
                 print(
                     "[rlm-telegram] getUpdates HTTP 409 Conflict — only one client may long-poll this bot. "
                     "Stop any other rlm_telegram_bot, run_master.py --telegram-bot, IDE test, or second server "
-                    "using the same TELEGRAM_BOT_TOKEN; then restart this service.",
+                    "using the same RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_TOKEN; then restart this service.",
                     flush=True,
                 )
             else:

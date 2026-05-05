@@ -1,58 +1,29 @@
-import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import { useRef } from 'react';
+import type { Mesh } from 'three';
 
-function Well({ well, onSelect }: { well: any; onSelect: (v: any) => void }) {
-  const outerRef = useRef<THREE.Mesh>(null);
-  const innerRef = useRef<THREE.Mesh>(null);
-
+function Well({ l, onSelect }: { l: any; onSelect: (v: any) => void }) {
+  const ringA = useRef<Mesh>(null);
+  const ringB = useRef<Mesh>(null);
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
-    if (outerRef.current) outerRef.current.rotation.z = t * 0.6;
-    if (innerRef.current) innerRef.current.rotation.z = -t * 1.1;
+    if (ringA.current) ringA.current.rotation.z = t * 0.9;
+    if (ringB.current) ringB.current.rotation.z = -t * 0.6;
   });
 
-  const color = well.type === 'supportive' ? '#27c7ff' : '#aa44ff';
-  const r = 1.0 + well.strength * 1.4;
-
   return (
-    <group
-      position={[well.x, -1, 0]}
-      onClick={(e) => { e.stopPropagation(); onSelect(well); }}
-    >
-      {/* outer ring */}
-      <mesh ref={outerRef}>
-        <torusGeometry args={[r, 0.14, 12, 48]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={3}
-          transparent
-          opacity={0.75}
-        />
+    <group position={[l.x, -2, 0]} onClick={() => onSelect(l)}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[1.35 + l.strength * 1.1, 48]} />
+        <meshStandardMaterial color='#4dd9ff' emissive='#1baeff' emissiveIntensity={0.75} transparent opacity={0.26} />
       </mesh>
-      {/* inner ring */}
-      <mesh ref={innerRef}>
-        <torusGeometry args={[r * 0.55, 0.08, 10, 36]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={4}
-          transparent
-          opacity={0.9}
-        />
+      <mesh ref={ringA} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[1.3 + l.strength, 0.14, 18, 90]} />
+        <meshStandardMaterial color='#6fe4ff' emissive='#3ccfff' emissiveIntensity={1.05} />
       </mesh>
-      {/* floor glow disc */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]}>
-        <circleGeometry args={[r * 1.2, 32]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={0.8}
-          transparent
-          opacity={0.08}
-          depthWrite={false}
-        />
+      <mesh ref={ringB} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[1.8 + l.strength * 1.2, 0.06, 14, 60]} />
+        <meshStandardMaterial color='#d6f8ff' emissive='#7fe9ff' emissiveIntensity={0.85} />
       </mesh>
     </group>
   );
@@ -61,9 +32,7 @@ function Well({ well, onSelect }: { well: any; onSelect: (v: any) => void }) {
 export default function LiquidityWells({ wells, onSelect }: { wells: any[]; onSelect: (v: any) => void }) {
   return (
     <>
-      {wells.map((l: any) => (
-        <Well key={l.id} well={l} onSelect={onSelect} />
-      ))}
+      {wells.map((l: any) => <Well key={l.id} l={l} onSelect={onSelect} />)}
     </>
   );
 }

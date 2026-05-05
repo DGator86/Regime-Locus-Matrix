@@ -1,54 +1,27 @@
-import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import { useRef } from 'react';
+import type { Mesh } from 'three';
 
 export default function PriceParticle({ x, onClick }: { x: number; onClick: () => void }) {
-  const coreRef = useRef<THREE.Mesh>(null);
-
+  const orbRef = useRef<Mesh>(null);
+  const ringRef = useRef<Mesh>(null);
   useFrame(({ clock }) => {
-    if (coreRef.current) {
-      const s = 1 + 0.18 * Math.sin(clock.getElapsedTime() * 2.8);
-      coreRef.current.scale.setScalar(s);
-    }
+    const t = clock.getElapsedTime();
+    if (orbRef.current) orbRef.current.scale.setScalar(1 + Math.sin(t * 2.2) * 0.05);
+    if (ringRef.current) ringRef.current.rotation.z = t * 0.8;
   });
 
   return (
-    <group position={[x, 0.5, 0]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-      {/* wide outer halo */}
-      <mesh>
-        <sphereGeometry args={[5, 16, 16]} />
-        <meshStandardMaterial
-          color="#ff1a55"
-          emissive="#ff1a55"
-          emissiveIntensity={0.6}
-          transparent
-          opacity={0.06}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
+    <group position={[x, 0, 0]} onClick={onClick}>
+      <pointLight color='#ff5e9e' intensity={320} distance={16} />
+      <mesh ref={orbRef}>
+        <sphereGeometry args={[1.1, 42, 42]} />
+        <meshStandardMaterial color='#ff89be' emissive='#ff4a8d' emissiveIntensity={1.9} roughness={0.12} metalness={0.2} />
       </mesh>
-      {/* mid glow ring */}
-      <mesh>
-        <sphereGeometry args={[2.4, 16, 16]} />
-        <meshStandardMaterial
-          color="#ff1a55"
-          emissive="#ff1a55"
-          emissiveIntensity={1}
-          transparent
-          opacity={0.12}
-          depthWrite={false}
-        />
+      <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[1.9, 0.06, 12, 72]} />
+        <meshStandardMaterial color='#ffd2e6' emissive='#ff88b8' emissiveIntensity={1.1} />
       </mesh>
-      {/* bright core */}
-      <mesh ref={coreRef}>
-        <sphereGeometry args={[1.1, 32, 32]} />
-        <meshStandardMaterial
-          color="#ff3366"
-          emissive="#ff3366"
-          emissiveIntensity={5}
-        />
-      </mesh>
-      <pointLight color="#ff2255" intensity={10} distance={35} decay={2} />
     </group>
   );
 }

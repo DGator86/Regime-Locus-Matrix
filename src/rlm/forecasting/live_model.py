@@ -155,6 +155,27 @@ class LiveMarkovParameters(BaseModel):
         )
 
 
+ConfirmationMode = Literal["direction", "regime_head", "both"]
+
+
+class LiveTimeframeHierarchy(BaseModel):
+    """Primary IBKR bar stream sets regime + forecast; finer streams confirm before entries.
+
+    ``HybridForecastPipeline`` hierarchical mode resamples the *same* bar dataframe; on coarse
+    primary bars (e.g. daily) micro-HMM fits are skipped because ``len(resampled) >= len(df)``.
+    For real lower-timeframe confirmation while keeping a slow primary bias, list IBKR bar sizes
+    here — each is fetched separately (short ``confirmation_duration`` window) and aligned to
+    the primary decision row inside ``run_universe_options_pipeline``.
+    """
+
+    primary_bar_size: str | None = None
+    primary_duration: str | None = None
+    confirmation_bar_sizes: tuple[str, ...] = ()
+    confirmation_duration: str = "10 D"
+    confirmation_mode: ConfirmationMode = "direction"
+    require_all_confirmations: bool = True
+
+
 class LiveRegimeModelConfig(BaseModel):
     model: RegimeModelName = "forecast"
     forecast: LiveForecastParameters = Field(default_factory=LiveForecastParameters)
@@ -163,6 +184,7 @@ class LiveRegimeModelConfig(BaseModel):
     markov: LiveMarkovParameters = Field(default_factory=LiveMarkovParameters)
     use_kronos: bool = False
     kronos: LiveKronosParameters = Field(default_factory=LiveKronosParameters)
+    timeframe_hierarchy: LiveTimeframeHierarchy = Field(default_factory=LiveTimeframeHierarchy)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
     def build_pipeline(

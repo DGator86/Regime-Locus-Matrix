@@ -311,6 +311,22 @@ def select_trade_for_row(
             metadata={"missing_columns": missing},
         )
 
+    if bool(row.get("tf_confirmation_failed", False)):
+        return TradeDecision(
+            action="skip",
+            strategy_name="timeframe_confirmation_block",
+            regime_key=str(row.get("regime_key", "")),
+            rationale=str(
+                row.get(
+                    "tf_confirmation_rationale",
+                    "Confirmation timeframes disagreed with primary bias.",
+                )
+            ),
+            metadata={
+                "tf_confirmation_detail": row.get("tf_confirmation_detail"),
+            },
+        )
+
     use_hmm = hmm_confidence_threshold is not None
     regime_modulator_kwargs = {
         "kronos_confidence_weight": kronos_confidence_weight,

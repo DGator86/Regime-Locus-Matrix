@@ -19,7 +19,7 @@ _DEFAULT_SERVICES = [
     "rlm-master-trader",
     "regime-locus-crew",
     "rlm-control-center",
-    "rlm-telegram",
+    "rlm-systems-control-telegram",
     "rlm-master-telegram",
     "rlm-telegram-bot",
 ]

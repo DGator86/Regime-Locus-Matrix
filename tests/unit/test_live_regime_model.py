@@ -4,6 +4,7 @@ import pandas as pd
 
 from rlm.forecasting.live_model import (
     LiveRegimeModelConfig,
+    LiveTimeframeHierarchy,
     load_live_regime_model,
     save_live_regime_model,
 )
@@ -56,6 +57,34 @@ def test_select_trade_for_row_uses_markov_probabilities() -> None:
     assert decision.strategy_name == "markov_gate"
     assert decision.metadata["regime_model"] == "markov"
     assert decision.metadata["regime_trade_allowed"] is False
+
+
+def test_live_regime_model_timeframe_hierarchy_defaults_roundtrip(tmp_path) -> None:
+    cfg = LiveRegimeModelConfig(model="forecast")
+    assert cfg.timeframe_hierarchy.confirmation_bar_sizes == ()
+    path = tmp_path / "live_regime_model.json"
+    save_live_regime_model(cfg, path)
+    loaded = load_live_regime_model(path)
+    assert loaded.timeframe_hierarchy.confirmation_duration == "10 D"
+
+
+def test_live_regime_model_timeframe_hierarchy_with_confirmations_roundtrip(tmp_path) -> None:
+    cfg = LiveRegimeModelConfig(
+        model="forecast",
+        timeframe_hierarchy=LiveTimeframeHierarchy(
+            primary_bar_size="1 day",
+            primary_duration="252 D",
+            confirmation_bar_sizes=("15 mins", "5 mins"),
+            confirmation_mode="both",
+            require_all_confirmations=False,
+        ),
+    )
+    path = tmp_path / "live_regime_model.json"
+    save_live_regime_model(cfg, path)
+    loaded = load_live_regime_model(path)
+    assert loaded.timeframe_hierarchy.primary_bar_size == "1 day"
+    assert loaded.timeframe_hierarchy.confirmation_bar_sizes == ("15 mins", "5 mins")
+    assert loaded.timeframe_hierarchy.require_all_confirmations is False
 
 
 def test_live_regime_model_round_trip_builds_markov_pipeline(tmp_path) -> None:

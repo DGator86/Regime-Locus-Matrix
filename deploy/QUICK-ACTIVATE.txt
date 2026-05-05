@@ -10,8 +10,10 @@ Quick activation (RLM + Telegram)
     pip install -U pip
     pip install -e ".[ibkr,ui]"
 
-2) ``.env`` (never commit): MASSIVE_*, IBKR_HOST, IBKR_PORT, TELEGRAM_BOT_TOKEN, optional
-   TELEGRAM_ALLOWED_USER_IDS, TELEGRAM_NOTIFY=1, TELEGRAM_LONG_POLL_SEC=10 on flaky networks.
+2) ``.env`` (never commit): MASSIVE_*, IBKR_HOST, IBKR_PORT, and preferred split-bot vars:
+   ``RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN``, ``RLM_HERMES_TELEGRAM_BOT_TOKEN``.
+   Optional: ``RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS``,
+   ``RLM_HERMES_TELEGRAM_CHAT_ID``, ``TELEGRAM_NOTIFY=1``, ``TELEGRAM_LONG_POLL_SEC=10``.
 
 3) **One process** = master + Telegram (script starts the bot subprocess)::
 

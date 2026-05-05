@@ -18,7 +18,8 @@ Environment:
     RLM_HERMES_API_KEY      default ollama
     RLM_HERMES_MODEL        default llama3.2 or LLM_MODEL
     RLM_HERMES_SKIP_MEMORY  1 to disable Hermes persistent memory reads/writes
-    TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID
+    RLM_HERMES_TELEGRAM_BOT_TOKEN, RLM_HERMES_TELEGRAM_CHAT_ID
+    (legacy fallback: TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID)
     CREW_HEALTH_INTERVAL, CREW_ANALYSIS_INTERVAL, CREW_BRIEFING_INTERVAL
     SCOTTY_*                same semantics as legacy Scotty
 """

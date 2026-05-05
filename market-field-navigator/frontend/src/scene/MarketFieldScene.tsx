@@ -1,6 +1,6 @@
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { OrbitControls, Stars } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { useMarketFieldStore } from '../state/useMarketFieldStore';
 import PriceParticle from './PriceParticle';
 import SRWalls from './SRWalls';
@@ -17,67 +17,27 @@ export default function MarketFieldScene() {
   if (!snapshot) return <div className='panel'>Loading scene...</div>;
 
   return (
-    <Canvas
-      camera={{ position: [0, 38, 65], fov: 52 }}
-      gl={{ antialias: true, alpha: false }}
-    >
-      <color attach="background" args={['#020810']} />
-      <fog attach="fog" args={['#020810', 80, 160]} />
-
-      <ambientLight intensity={0.15} />
-      <pointLight position={[-40, 30, 20]} color="#00aaff" intensity={6} distance={120} />
-      <pointLight position={[40, 30, 20]} color="#ff2255" intensity={4} distance={120} />
-      <pointLight position={[0, 10, 0]} color="#ffffff" intensity={1.5} distance={60} />
-
-      <PriceParticle
-        x={snapshot.particle.x}
-        onClick={() => setSelected({ type: 'particle', ...snapshot.particle })}
-      />
-      {toggles.regime && (
-        <RegimeZones
-          zones={snapshot.regime_zones}
-          onSelect={(z) => setSelected({ type: 'regime', ...z })}
-        />
-      )}
-      {toggles.sr && (
-        <SRWalls
-          walls={snapshot.sr_walls}
-          onSelect={(w) => setSelected({ type: 'wall', ...w })}
-        />
-      )}
-      {toggles.liquidity && (
-        <LiquidityWells
-          wells={snapshot.liquidity_wells}
-          onSelect={(l) => setSelected({ type: 'liquidity', ...l })}
-        />
-      )}
-      {toggles.gamma && (
-        <GammaVectors
-          vectors={snapshot.gamma_vectors}
-          onSelect={(g) => setSelected({ type: 'gamma', ...g })}
-        />
-      )}
+    <Canvas camera={{ position: [24, 22, 46], fov: 48 }}>
+      <color attach='background' args={['#020810']} />
+      <fog attach='fog' args={['#020810', 50, 130]} />
+      <ambientLight intensity={0.26} />
+      <pointLight position={[-24, 16, 14]} color='#2489ff' intensity={1050} />
+      <pointLight position={[22, 18, 16]} color='#ff315e' intensity={850} />
+      <pointLight position={[0, -6, 26]} color='#70d6ff' intensity={420} />
+      <Stars radius={140} depth={45} count={1200} factor={4} saturation={0} fade speed={0.22} />
+      <PriceParticle x={snapshot.particle.x} onClick={() => setSelected({ type: 'particle', ...snapshot.particle })} />
+      {toggles.regime && <RegimeZones zones={snapshot.regime_zones} onSelect={(z) => setSelected({ type: 'regime', ...z })} />}
+      {toggles.sr && <SRWalls walls={snapshot.sr_walls} onSelect={(w) => setSelected({ type: 'wall', ...w })} />}
+      {toggles.liquidity && <LiquidityWells wells={snapshot.liquidity_wells} onSelect={(l) => setSelected({ type: 'liquidity', ...l })} />}
+      {toggles.gamma && <GammaVectors vectors={snapshot.gamma_vectors} onSelect={(g) => setSelected({ type: 'gamma', ...g })} />}
       {toggles.path && <PricePath points={snapshot.price_path} />}
       {toggles.iv && <IVSurface points={snapshot.iv_surface.points} />}
-
-      <gridHelper args={[140, 48, '#0a2040', '#060e1e']} />
-
+      <gridHelper args={[120, 48, '#11406b', '#0c2136']} position={[0, -4.1, 0]} />
+      <OrbitControls maxDistance={80} minDistance={26} maxPolarAngle={1.48} />
       <EffectComposer>
-        <Bloom
-          intensity={1.8}
-          luminanceThreshold={0.08}
-          luminanceSmoothing={0.8}
-          mipmapBlur
-        />
+        <Bloom intensity={1.15} luminanceThreshold={0.13} luminanceSmoothing={0.22} mipmapBlur />
+        <Vignette eskil={false} offset={0.22} darkness={0.6} />
       </EffectComposer>
-
-      <OrbitControls
-        enablePan
-        enableZoom
-        minDistance={15}
-        maxDistance={130}
-        maxPolarAngle={Math.PI * 0.48}
-      />
     </Canvas>
   );
 }

@@ -64,6 +64,8 @@ _install_unit "${SCRIPT_DIR}/rlm-market-close.service" \
               "/etc/systemd/system/rlm-market-close.service"
 _install_unit "${SCRIPT_DIR}/rlm-market-close.timer" \
               "/etc/systemd/system/rlm-market-close.timer"
+_install_unit "${SCRIPT_DIR}/rlm-challenge-loop.service" \
+              "/etc/systemd/system/rlm-challenge-loop.service"
 
 _install_unit "${SCRIPT_DIR}/rlm-nightly-opt.service" \
               "/etc/systemd/system/rlm-nightly-opt.service"
@@ -80,6 +82,7 @@ systemctl enable regime-locus-master.service
 systemctl enable rlm-forecast.timer
 systemctl enable rlm-market-open.timer
 systemctl enable rlm-market-close.timer
+systemctl enable rlm-challenge-loop.service
 systemctl enable rlm-nightly-opt.timer
 systemctl enable rlm-weekly-calibrate.timer
 

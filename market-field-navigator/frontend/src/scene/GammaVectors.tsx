@@ -1,46 +1,17 @@
-import * as THREE from 'three';
-
-const UP = new THREE.Vector3(0, 1, 0);
-
-function Arrow({ vector, onSelect }: { vector: any; onSelect: (v: any) => void }) {
-  const dir = new THREE.Vector3(vector.direction.x, vector.direction.y, vector.direction.z).normalize();
-  const q = new THREE.Quaternion().setFromUnitVectors(UP, dir);
-  const len = 2.5 + vector.magnitude * 5;
-  const color = '#ffc845';
-
-  return (
-    <group
-      position={[vector.origin.x, vector.origin.y, vector.origin.z]}
-      quaternion={q}
-      onClick={(e) => { e.stopPropagation(); onSelect(vector); }}
-    >
-      {/* shaft */}
-      <mesh position={[0, len * 0.42, 0]}>
-        <cylinderGeometry args={[0.1, 0.18, len * 0.85, 7]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={3}
-        />
-      </mesh>
-      {/* arrowhead */}
-      <mesh position={[0, len, 0]}>
-        <coneGeometry args={[0.45, 1.4, 7]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={4}
-        />
-      </mesh>
-    </group>
-  );
-}
-
 export default function GammaVectors({ vectors, onSelect }: { vectors: any[]; onSelect: (v: any) => void }) {
   return (
     <>
       {vectors.map((g: any) => (
-        <Arrow key={g.id} vector={g} onSelect={onSelect} />
+        <group key={g.id} position={[g.origin.x, g.origin.y, g.origin.z]} onClick={() => onSelect(g)}>
+          <mesh rotation={[0, 0, Math.atan2(g.direction.y, g.direction.x)]} position={[0.8 + g.magnitude * 2.2, 0, 0]}>
+            <cylinderGeometry args={[0.08, 0.08, 1.8 + g.magnitude * 4.2, 12]} />
+            <meshStandardMaterial color='#ffc957' emissive='#ffbf3b' emissiveIntensity={1.2} />
+          </mesh>
+          <mesh rotation={[0, 0, Math.atan2(g.direction.y, g.direction.x) - Math.PI / 2]} position={[1.8 + g.magnitude * 3.9, 0, 0]}>
+            <coneGeometry args={[0.25, 0.95, 14]} />
+            <meshStandardMaterial color='#ffd788' emissive='#ffc74a' emissiveIntensity={1.45} />
+          </mesh>
+        </group>
       ))}
     </>
   );

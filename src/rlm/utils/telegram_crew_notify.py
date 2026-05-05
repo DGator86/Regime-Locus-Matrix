@@ -19,7 +19,10 @@ def _notify_state_path(root: Path) -> Path:
 
 def resolve_telegram_chat_id(root: Path) -> str:
     """``TELEGRAM_NOTIFY_CHAT_ID`` or ``notify_chat_id`` from bot ``/start`` state file."""
-    raw = (os.environ.get("TELEGRAM_NOTIFY_CHAT_ID") or "").strip()
+    raw = (
+        (os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID") or "").strip()
+        or (os.environ.get("TELEGRAM_NOTIFY_CHAT_ID") or "").strip()
+    )
     if raw:
         return raw
     st = _notify_state_path(root)
@@ -37,11 +40,14 @@ def resolve_telegram_chat_id(root: Path) -> str:
 
 def telegram_crew_send(text: str, token: str, chat_id: str, *, silent: bool = False) -> bool:
     if not token:
-        print("[crew-telegram] TELEGRAM_BOT_TOKEN missing — not sending", flush=True)
+        print(
+            "[crew-telegram] RLM_HERMES_TELEGRAM_BOT_TOKEN (or TELEGRAM_BOT_TOKEN) missing — not sending",
+            flush=True,
+        )
         return False
     if not chat_id:
         print(
-            "[crew-telegram] No chat id — set TELEGRAM_NOTIFY_CHAT_ID in .env or send /start to the bot",
+            "[crew-telegram] No chat id — set RLM_HERMES_TELEGRAM_CHAT_ID (or TELEGRAM_NOTIFY_CHAT_ID) in .env",
             flush=True,
         )
         return False
