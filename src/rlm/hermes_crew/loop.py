@@ -65,8 +65,14 @@ class HermesCrewConfig:
     health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "120"))
     analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300"))
     briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "600"))
-    telegram_token: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    telegram_chat_id: str = os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
+    telegram_token: str = (
+        os.environ.get("RLM_HERMES_TELEGRAM_BOT_TOKEN")
+        or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    )
+    telegram_chat_id: str = (
+        os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID")
+        or os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
+    )
     silent_health_ok: bool = True
 
 
@@ -94,6 +100,12 @@ def _load_spock_skill_text(root: Path) -> str:
     return _load_skill_text(root, "research_analyst", _SPOCK_FALLBACK)
 
 
+def _hermes_updates_system_gate() -> bool:
+    """When false, Kirk/Hermes still briefs but does not overwrite gate_state.json."""
+    v = (os.environ.get("RLM_HERMES_UPDATE_GATE") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     os.environ.setdefault("RLM_ROOT", str(root))
     root_str = str(root)
@@ -109,25 +121,51 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     return run_agent.AIAgent, run_agent
 
 
-def _make_agent_with_skill(root: Path, skill_prompt: str, toolsets: list[str]):
-    AIAgent, _ = _ensure_hermes(root)
+def _env_first(*keys: str) -> str:
+    for key in keys:
+        value = (os.environ.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_hermes_backends() -> list[tuple[str, str, str]]:
     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
     if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
         _dflt_base = "https://api.groq.com/openai/v1"
         _dflt_key = groq_key
-        _dflt_model = "llama-3.3-70b-versatile"
+        _dflt_model = "llama-3.1-8b-instant"
     else:
         _dflt_base = "http://127.0.0.1:11434/v1"
         _dflt_key = "ollama"
         _dflt_model = "llama3.2"
-    base_url = os.environ.get("RLM_HERMES_BASE_URL", _dflt_base)
-    api_key = os.environ.get("RLM_HERMES_API_KEY", _dflt_key)
-    model = os.environ.get("RLM_HERMES_MODEL")
-    if not model:
-        if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
-            model = _dflt_model
-        else:
-            model = os.environ.get("LLM_MODEL", _dflt_model)
+
+    primary_base = _env_first("RLM_HERMES_BASE_URL") or _dflt_base
+    primary_key = _env_first("RLM_HERMES_API_KEY") or _dflt_key
+    primary_model = _env_first("RLM_HERMES_MODEL", "LLM_MODEL") or _dflt_model
+
+    fallback_model = _env_first("RLM_HERMES_FALLBACK_MODEL")
+    fallback_base = _env_first("RLM_HERMES_FALLBACK_BASE_URL")
+    fallback_key = _env_first("RLM_HERMES_FALLBACK_API_KEY")
+    if fallback_model and not fallback_base:
+        fallback_base = "https://openrouter.ai/api/v1"
+    if fallback_base and not fallback_key:
+        fallback_key = _env_first("OPENROUTER_API_KEY")
+
+    backends: list[tuple[str, str, str]] = [(primary_base, primary_key, primary_model)]
+    if fallback_base and fallback_key and fallback_model:
+        backends.append((fallback_base, fallback_key, fallback_model))
+    return backends
+
+
+def _make_agent_with_skill(
+    root: Path,
+    skill_prompt: str,
+    toolsets: list[str],
+    backend: tuple[str, str, str],
+):
+    AIAgent, _ = _ensure_hermes(root)
+    base_url, api_key, model = backend
     skip_memory = os.environ.get("RLM_HERMES_SKIP_MEMORY", "").strip().lower() in ("1", "true", "yes")
     max_it = int(os.environ.get("RLM_HERMES_MAX_ITERATIONS", "20"))
     return AIAgent(
@@ -143,6 +181,34 @@ def _make_agent_with_skill(root: Path, skill_prompt: str, toolsets: list[str]):
     )
 
 
+def _chat_with_failover(root: Path, skill_prompt: str, user_prompt: str, toolsets: list[str]) -> str:
+    backends = _resolve_hermes_backends()
+    last_error: Exception | None = None
+    for idx, backend in enumerate(backends, start=1):
+        base_url, _, model = backend
+        try:
+            if idx > 1:
+                print(
+                    f"[Hermes crew] retrying with fallback backend #{idx}: {base_url} model={model}",
+                    flush=True,
+                )
+            agent = _make_agent_with_skill(root, skill_prompt, toolsets, backend)
+            out = agent.chat(user_prompt)
+            if out:
+                return out
+            raise RuntimeError("Hermes returned empty response")
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            print(
+                f"[Hermes crew] backend #{idx} failed ({base_url} model={model}): {exc}",
+                flush=True,
+            )
+            continue
+    if last_error is None:
+        raise RuntimeError("No Hermes backends configured")
+    raise RuntimeError(f"All Hermes backends failed: {last_error}")
+
+
 def _make_agent(root: Path):
     """Commander agent (Kirk). Kept for backward compatibility."""
     return _make_agent_with_skill(
@@ -154,22 +220,26 @@ def _make_agent(root: Path):
 
 def _run_scotty_agent(root: Path, health_facts_json: str) -> str:
     """Run the Scotty (data_monitor) Hermes agent; returns its plain-text engineering report."""
-    agent = _make_agent_with_skill(root, _load_scotty_skill_text(root), ["rlm"])
-    return agent.chat(
+    return _chat_with_failover(
+        root,
+        _load_scotty_skill_text(root),
         f"Here are the raw system health facts (JSON):\n\n{health_facts_json}\n\n"
         "Call rlm_get_health_report or rlm_get_system_gate_state if you need fresher data. "
-        "Produce your engineering report now."
+        "Produce your engineering report now.",
+        ["rlm"],
     )
 
 
 def _run_spock_agent(root: Path, market_context: str) -> str:
     """Run the Spock (research_analyst) Hermes agent; returns its plain-text analysis."""
-    agent = _make_agent_with_skill(root, _load_spock_skill_text(root), ["rlm"])
-    return agent.chat(
+    return _chat_with_failover(
+        root,
+        _load_spock_skill_text(root),
         f"Here is the current market context:\n\n{market_context}\n\n"
         "Call rlm_get_trade_and_regime_context, rlm_get_system_gate_state, or "
         "rlm_check_portfolio_limits if you need fresher data. "
-        "Produce your analysis now."
+        "Produce your analysis now.",
+        ["rlm"],
     )
 
 
@@ -195,7 +265,6 @@ def _run_full_briefing(
     print(f"[Hermes crew] Spock done ({len(spock_report)} chars)", flush=True)
 
     print("[Hermes crew] Running Kirk (commander) agent...", flush=True)
-    commander = _make_agent_with_skill(root, _load_commander_skill_text(root), ["rlm"])
     kirk_user = (
         "Here are your crew reports.\n\n"
         f"=== Scotty's Engineering Report ===\n{scotty_report}\n\n"
@@ -204,7 +273,7 @@ def _run_full_briefing(
         "rlm_get_system_gate_state, or rlm_check_portfolio_limits if you need fresher data.\n\n"
         "Issue your command decision in the required format."
     )
-    kirk_text = commander.chat(kirk_user)
+    kirk_text = _chat_with_failover(root, _load_commander_skill_text(root), kirk_user, ["rlm"])
     print(f"[Hermes crew] Kirk done ({len(kirk_text)} chars)", flush=True)
 
     return scotty_report, spock_report, kirk_text
@@ -227,12 +296,13 @@ def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> Command
         context_for_risk=ctx,
     )
     save_decision(root, decision)
-    gate = SystemGate(root)
-    gate.update(
-        posture=decision.market_posture,
-        status=decision.system_status,
-        timestamp=decision.timestamp,
-    )
+    if _hermes_updates_system_gate():
+        gate = SystemGate(root)
+        gate.update(
+            posture=decision.market_posture,
+            status=decision.system_status,
+            timestamp=decision.timestamp,
+        )
     if decision.system_status == "CRITICAL" and "ALERT OPERATOR" in decision.command.upper():
         cid = (cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(root)
         telegram_crew_send(
@@ -290,11 +360,12 @@ def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None
                     context_for_risk=last_context,
                 )
                 save_decision(root, decision)
-                gate.update(
-                    posture=decision.market_posture,
-                    status=decision.system_status,
-                    timestamp=decision.timestamp,
-                )
+                if _hermes_updates_system_gate():
+                    gate.update(
+                        posture=decision.market_posture,
+                        status=decision.system_status,
+                        timestamp=decision.timestamp,
+                    )
                 print(
                     f"[Hermes crew] Command: {decision.command} "
                     f"(Posture: {decision.market_posture})",

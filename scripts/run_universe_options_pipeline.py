@@ -78,6 +78,12 @@ from rlm.types.options import TradeDecision
 from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
 
+
+def _env_truthy(key: str) -> bool:
+    v = (os.environ.get(key) or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 _IBKR_HIST_LOCK = threading.Lock()
 
 
@@ -763,7 +769,11 @@ def main() -> int:
         save_live_regime_model(live_model, live_model_path)
         print(f"[live_model] saved bootstrap config to {live_model_path}")
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
-    gate = SystemGate(ROOT)
+    # When Hermes (or manual edits) sets STAND-DOWN, ROEE returns system_gate_block for every symbol.
+    # Paper hosts often want the quant pipeline independent of LLM posture; set RLM_SKIP_SYSTEM_GATE=1.
+    gate: SystemGate | None = None if _env_truthy("RLM_SKIP_SYSTEM_GATE") else SystemGate(ROOT)
+    if gate is None:
+        print("[gate] RLM_SKIP_SYSTEM_GATE=1 — ROEE ignores data/processed/gate_state.json", flush=True)
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
 

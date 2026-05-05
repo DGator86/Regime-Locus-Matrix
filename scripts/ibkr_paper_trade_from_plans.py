@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,6 +37,11 @@ from rlm.execution.ibkr_combo_orders import (
     load_ibkr_order_socket_config,
 )
 from rlm.roee.system_gate import SystemGate
+
+
+def _env_truthy(key: str) -> bool:
+    v = (os.environ.get(key) or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 def _load_plans(path: Path) -> dict:
@@ -76,7 +82,11 @@ def main() -> int:
         return 1
 
     gate = SystemGate(ROOT)
-    gate_allowed, gs = gate.check()
+    if _env_truthy("RLM_SKIP_SYSTEM_GATE"):
+        gate_allowed, gs = True, gate.load()
+        print("[paper-trade] RLM_SKIP_SYSTEM_GATE=1 — ignoring system gate for this run", flush=True)
+    else:
+        gate_allowed, gs = gate.check()
     if not gate_allowed:
         print(
             f"[paper-trade] trading paused by system gate — posture={gs.posture} status={gs.status}",
