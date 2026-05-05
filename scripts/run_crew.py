@@ -21,7 +21,8 @@ Environment:
     RLM_HERMES_TELEGRAM_BOT_TOKEN, RLM_HERMES_TELEGRAM_CHAT_ID
     (legacy fallback: TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID)
     CREW_HEALTH_INTERVAL, CREW_ANALYSIS_INTERVAL, CREW_BRIEFING_INTERVAL
-    SCOTTY_*                same semantics as legacy Scotty
+    RLM_HEALTH_AUTO_RESTART, RLM_HEALTH_RESTART_ALLOW_CREW, RLM_HEALTH_RESTART_COOLDOWN_SEC
+        (optional ``SCOTTY_*`` legacy aliases still honored by gather_health_report)
 """
 
 from __future__ import annotations

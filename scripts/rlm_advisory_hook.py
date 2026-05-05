@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Optional pre-trade hook wrapper around the offline Spock advisory.
+Optional wrapper around :func:`analyze_trade_context` in ``rlm_offline_advisory``.
 
-Production trading decisions come from ROEE + pipelines; Hermes \"Kirk\" lives in regime-locus-crew.
-This module is for experiments or custom orchestration only.
+Not used by ROEE or Hermes; for custom orchestration experiments only.
 """
 
 from __future__ import annotations
@@ -28,19 +27,19 @@ for _d in (_HERE, _ENTERPRISE_AGENTS):
         sys.path.insert(0, str(_d))
 
 try:
-    from spock import spock_analyze
+    from offline_advisory import analyze_trade_context
 except ImportError:
-    from rlm_spock_advisory import spock_analyze
+    from rlm_offline_advisory import analyze_trade_context
 
-log = logging.getLogger("rlm-kirk-hook")
+log = logging.getLogger("rlm-advisory-hook")
 
-SPOCK_ENABLED = os.getenv("SPOCK_ENABLED", "true").lower() == "true"
-OVERRIDE_KEY = os.getenv("SPOCK_OVERRIDE_KEY", "")
-DECISION_LOG = os.getenv("DECISION_LOG", "/opt/enterprise/data/decisions.jsonl")
+ADVISORY_ENABLED = os.getenv("OFFLINE_ADVISORY_ENABLED", os.getenv("SPOCK_ENABLED", "false")).lower() == "true"
+OVERRIDE_KEY = os.getenv("OFFLINE_ADVISORY_OVERRIDE_KEY") or os.getenv("SPOCK_OVERRIDE_KEY", "")
+DECISION_LOG = os.getenv("ADVISORY_DECISION_LOG") or os.getenv("DECISION_LOG", "/opt/enterprise/data/decisions.jsonl")
 
 
 @dataclass
-class KirkDecision:
+class AdvisoryDecision:
     proceed: bool
     action: str
     confidence: float
@@ -51,13 +50,13 @@ class KirkDecision:
     bypassed: bool = False
 
 
-def consult_spock(trade_context: dict, override: str = "") -> KirkDecision:
+def consult_offline_advisory(trade_context: dict, override: str = "") -> AdvisoryDecision:
     if override and override == OVERRIDE_KEY:
-        return KirkDecision(True, "MANUAL_OVERRIDE", 1.0, "Override", "None", bypassed=True)
-    if not SPOCK_ENABLED:
-        return KirkDecision(True, "UNANALYZED", 0.5, "Advisory disabled", "None", bypassed=True)
-    v = spock_analyze(trade_context)
-    d = KirkDecision(
+        return AdvisoryDecision(True, "MANUAL_OVERRIDE", 1.0, "Override", "None", bypassed=True)
+    if not ADVISORY_ENABLED:
+        return AdvisoryDecision(True, "UNANALYZED", 0.5, "Advisory disabled", "None", bypassed=True)
+    v = analyze_trade_context(trade_context)
+    d = AdvisoryDecision(
         proceed=v["proceed"],
         action=v["action"],
         confidence=v["confidence"],
@@ -74,7 +73,7 @@ def consult_spock(trade_context: dict, override: str = "") -> KirkDecision:
     return d
 
 
-def _log_decision(ctx: dict, d: KirkDecision) -> None:
+def _log_decision(ctx: dict, d: AdvisoryDecision) -> None:
     try:
         Path(DECISION_LOG).parent.mkdir(parents=True, exist_ok=True)
         with open(DECISION_LOG, "a", encoding="utf-8") as f:
@@ -84,7 +83,7 @@ def _log_decision(ctx: dict, d: KirkDecision) -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [rlm-kirk-hook] %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [advisory-hook] %(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument("--stats", action="store_true")
     args = parser.parse_args()

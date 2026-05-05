@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Optional offline advisory — NOT used by ROEE or Hermes crew.
+Optional offline LLM advisory — NOT used by ROEE or the Hermes crew.
 
-Hermes \"Spock\" runs inside regime-locus-crew with tools + research_analyst SKILL.md.
-This script is for manual / hook experiments: feed it an options/regime JSON blob,
-get structured GO/HOLD/ABORT JSON via local Ollama.
+Hermes regime research runs inside ``regime-locus-crew`` with tools + research_analyst SKILL.md.
+This script is for manual experiments only: JSON trade/regime context in → GO/HOLD/ABORT JSON out via local Ollama.
 """
 
 from __future__ import annotations
@@ -23,13 +22,13 @@ from dotenv import load_dotenv
 load_dotenv("/opt/enterprise/config/.env")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-SPOCK_MODEL = os.getenv("SPOCK_MODEL", "qwen2.5:7b")
-SPOCK_TIMEOUT = int(os.getenv("SPOCK_TIMEOUT_SECONDS", "90"))
-MIN_CONF = float(os.getenv("SPOCK_MIN_CONFIDENCE", "0.65"))
+ADVISORY_MODEL = os.getenv("OFFLINE_ADVISORY_MODEL") or os.getenv("SPOCK_MODEL", "qwen2.5:7b")
+ADVISORY_TIMEOUT = int(os.getenv("OFFLINE_ADVISORY_TIMEOUT_SEC") or os.getenv("SPOCK_TIMEOUT_SECONDS", "90"))
+MIN_CONF = float(os.getenv("OFFLINE_ADVISORY_MIN_CONF") or os.getenv("SPOCK_MIN_CONFIDENCE", "0.65"))
 
-log = logging.getLogger("rlm-spock-advisory")
+log = logging.getLogger("rlm-offline-advisory")
 
-SPOCK_SYSTEM = """You are the RLM research advisory aid (options / regime context only).
+_ADVISORY_SYSTEM = """You are the RLM offline research advisory aid (options / regime context only).
 
 You do NOT execute trades. ROEE + Hermes crew own production decisions.
 
@@ -50,7 +49,7 @@ Rules:
 - Prefer HOLD when data stale or incomplete"""
 
 
-def spock_analyze(trade_context: dict) -> dict:
+def analyze_trade_context(trade_context: dict) -> dict:
     prompt = f"Analyse this Regime Locus Matrix trade context:\n{json.dumps(trade_context, indent=2, default=str)}"
     t0 = datetime.now()
     raw = ""
@@ -58,17 +57,17 @@ def spock_analyze(trade_context: dict) -> dict:
         r = requests.post(
             OLLAMA_URL,
             json={
-                "model": SPOCK_MODEL,
-                "system": SPOCK_SYSTEM,
+                "model": ADVISORY_MODEL,
+                "system": _ADVISORY_SYSTEM,
                 "prompt": prompt,
                 "stream": False,
                 "options": {"temperature": 0.05, "num_predict": 400},
             },
-            timeout=SPOCK_TIMEOUT,
+            timeout=ADVISORY_TIMEOUT,
         )
         raw = str(r.json().get("response", "")).strip()
     except Exception as e:
-        log.error("Spock error: %s", e)
+        log.error("offline advisory error: %s", e)
         return {
             "proceed": False,
             "action": "ABORT",
@@ -130,10 +129,10 @@ def run_test() -> None:
         "target_dte_days": 14,
         "notes": "Synthetic example — not live.",
     }
-    print("\nRLM Spock advisory test\n" + "─" * 50)
+    print("\nRLM offline advisory test\n" + "─" * 50)
     print(json.dumps(ctx, indent=2))
     print("\nQuerying Ollama...\n")
-    v = spock_analyze(ctx)
+    v = analyze_trade_context(ctx)
     print("─" * 50)
     print(f"ACTION:     {v['action']}")
     print(f"CONFIDENCE: {v['confidence']:.0%}")
@@ -146,8 +145,8 @@ def run_test() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [rlm-spock] %(message)s")
-    parser = argparse.ArgumentParser(description="RLM offline Spock-style advisory (not production path)")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [offline-advisory] %(message)s")
+    parser = argparse.ArgumentParser(description="RLM offline advisory via Ollama (not production)")
     parser.add_argument("--test", action="store_true")
     args = parser.parse_args()
     if args.test:

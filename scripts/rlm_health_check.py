@@ -12,9 +12,9 @@ Steps:
   2  Seed synthetic artifacts (trade plans, walkforward, gate_state)
   3  FullRLMPipeline: bars_SPY.csv -> factors -> HMM regime -> ROEE policy
   4  Hermes tool handlers (all 4 RLM tools exercised directly)
-  5  Scotty: data_monitor Hermes agent (engineering health report)
-  6  Spock:  research_analyst Hermes agent (market & regime analysis)
-  7  Kirk:   commander Hermes agent (final command decision + gate update)
+  5  Pipeline health: data_monitor Hermes agent (engineering report)
+  6  Regime research: research_analyst Hermes agent (market & regime analysis)
+  7  Commander: final crew decision + gate update
   8  Hermes skill file inventory
 """
 
@@ -47,7 +47,7 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("RLM_ROOT", str(ROOT))
 os.environ.setdefault("RLM_HERMES_SKIP_MEMORY", "1")
-os.environ.setdefault("SCOTTY_AUTO_RESTART", "0")
+os.environ.setdefault("RLM_HEALTH_AUTO_RESTART", "0")
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -147,27 +147,27 @@ except Exception as e:
 try:
     from rlm.hermes_facts.health import gather_health_report
 
-    ok("rlm.hermes_facts.health -- gather_health_report  [Scotty module]")
+    ok("rlm.hermes_facts.health -- gather_health_report")
 except Exception as e:
     fail(f"rlm.hermes_facts.health: {e}")
 
 try:
     from rlm.hermes_facts.market_context import build_trade_and_regime_context
 
-    ok("rlm.hermes_facts.market_context -- build_trade_and_regime_context  [Spock module]")
+    ok("rlm.hermes_facts.market_context -- build_trade_and_regime_context")
 except Exception as e:
     fail(f"rlm.hermes_facts.market_context: {e}")
 
 try:
-    from rlm.hermes_facts.kirk_command import (
+    from rlm.hermes_facts.crew_command import (
         parse_command_decision,
         save_decision,
         utc_timestamp,
     )
 
-    ok("rlm.hermes_facts.kirk_command -- parse_command_decision, save_decision  [Kirk module]")
+    ok("rlm.hermes_facts.crew_command -- parse_command_decision, save_decision")
 except Exception as e:
-    fail(f"rlm.hermes_facts.kirk_command: {e}")
+    fail(f"rlm.hermes_facts.crew_command: {e}")
 
 try:
     from rlm.roee.system_gate import SystemGate
@@ -179,12 +179,12 @@ except Exception as e:
 try:
     from rlm.hermes_crew.loop import (
         _load_commander_skill_text,
-        _load_scotty_skill_text,
-        _load_spock_skill_text,
+        _load_pipeline_health_skill_text,
+        _load_regime_research_skill_text,
         _run_full_briefing,
     )
 
-    ok("rlm.hermes_crew.loop -- skill loaders, _run_full_briefing  [crew loop]")
+    ok("rlm.hermes_crew.loop -- skill loaders, _run_full_briefing")
 except Exception as e:
     fail(f"rlm.hermes_crew.loop: {e}")
 
@@ -431,14 +431,14 @@ except Exception as e:
 info(f"{tools_ok}/4 Hermes tool handlers verified")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 -- Scotty (data_monitor) Hermes agent
+# STEP 5 -- Pipeline health (data_monitor) Hermes agent
 # ─────────────────────────────────────────────────────────────────────────────
-step("Scotty -- data_monitor Hermes agent (engineering health report)")
+step("Pipeline health -- data_monitor Hermes agent")
 
-scotty_skill = _load_scotty_skill_text(ROOT)
+pipeline_health_skill = _load_pipeline_health_skill_text(ROOT)
 check(
-    len(scotty_skill) > 20,
-    f"data_monitor/SKILL.md loaded ({len(scotty_skill)} chars)",
+    len(pipeline_health_skill) > 20,
+    f"data_monitor/SKILL.md loaded ({len(pipeline_health_skill)} chars)",
     "data_monitor/SKILL.md missing or empty",
 )
 
@@ -446,62 +446,62 @@ health_payload = gather_health_report(data_root)
 health_ok = bool(health_payload.get("overall_ok", True))
 health_txt = str(health_payload.get("report_text", ""))
 
-info("--- Scotty's raw health facts ---")
+info("--- Raw health facts ---")
 for line in health_txt.splitlines():
     info(f"  {line}")
 
 if hermes_available:
     try:
-        scotty_report = loop_mod._run_scotty_agent(data_root, json.dumps(health_payload, default=str))
-        ok(f"Scotty Hermes agent ran live -- {len(scotty_report)} chars")
-        info("--- Scotty's Hermes agent output ---")
-        for line in scotty_report.splitlines():
+        health_report = loop_mod._run_pipeline_health_agent(data_root, json.dumps(health_payload, default=str))
+        ok(f"Pipeline health agent ran live -- {len(health_report)} chars")
+        info("--- Pipeline health agent output ---")
+        for line in health_report.splitlines():
             info(f"  {line}")
     except Exception as e:
-        fail(f"Scotty live agent: {e}")
-        scotty_report = health_txt
+        fail(f"Pipeline health live agent: {e}")
+        health_report = health_txt
 else:
-    info("Hermes LLM not available -- using direct health facts as Scotty's report")
-    scotty_report = health_txt
-    ok(f"Scotty facts gathered ({len(scotty_report)} chars) -- ready to feed commander")
+    info("Hermes LLM not available -- using direct health facts as pipeline health report")
+    health_report = health_txt
+    ok(f"Pipeline health facts gathered ({len(health_report)} chars) -- ready for commander")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 6 -- Spock (research_analyst) Hermes agent
+# STEP 6 -- Regime research (research_analyst) Hermes agent
 # ─────────────────────────────────────────────────────────────────────────────
-step("Spock -- research_analyst Hermes agent (market & regime analysis)")
+step("Regime research -- research_analyst Hermes agent")
 
-spock_skill = _load_spock_skill_text(ROOT)
+regime_research_skill = _load_regime_research_skill_text(ROOT)
 check(
-    len(spock_skill) > 20,
-    f"research_analyst/SKILL.md loaded ({len(spock_skill)} chars)",
+    len(regime_research_skill) > 20,
+    f"research_analyst/SKILL.md loaded ({len(regime_research_skill)} chars)",
     "research_analyst/SKILL.md missing or empty",
 )
 
 market_context = build_trade_and_regime_context(data_root)
 
-info("--- Spock's raw market context ---")
+info("--- Raw market context ---")
 for line in market_context.splitlines():
     info(f"  {line}")
 
 if hermes_available:
     try:
-        spock_report = loop_mod._run_spock_agent(data_root, market_context)
-        ok(f"Spock Hermes agent ran live -- {len(spock_report)} chars")
-        info("--- Spock's Hermes agent output ---")
-        for line in spock_report.splitlines():
+        research_report = loop_mod._run_regime_research_agent(data_root, market_context)
+        ok(f"Regime research agent ran live -- {len(research_report)} chars")
+        info("--- Regime research agent output ---")
+        for line in research_report.splitlines():
             info(f"  {line}")
     except Exception as e:
-        fail(f"Spock live agent: {e}")
-        spock_report = market_context
+        fail(f"Regime research live agent: {e}")
+        research_report = market_context
 else:
-    info("Hermes LLM not available -- using market context as Spock's analysis input")
-    spock_report = market_context
-    ok(f"Spock context gathered ({len(spock_report)} chars) -- ready to feed commander")
+    info("Hermes LLM not available -- using market context as regime research input")
+    research_report = market_context
+    ok(f"Regime research context gathered ({len(research_report)} chars) -- ready for commander")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 7 -- Kirk (commander) decision cycle
+# STEP 7 -- Commander decision cycle
 # ─────────────────────────────────────────────────────────────────────────────
-step("Kirk -- commander Hermes agent (final command decision)")
+step("Commander -- Hermes crew decision")
 
 commander_skill = _load_commander_skill_text(ROOT)
 check(
@@ -512,36 +512,36 @@ check(
 
 if hermes_available:
     try:
-        _, _, kirk_llm_text = _run_full_briefing(data_root, health_payload, market_context)
-        ok(f"Kirk Hermes agent ran live -- {len(kirk_llm_text)} chars")
+        _, _, commander_llm_text = _run_full_briefing(data_root, health_payload, market_context)
+        ok(f"Commander agent ran live -- {len(commander_llm_text)} chars")
     except Exception as e:
-        fail(f"Kirk live agent: {e}")
-        kirk_llm_text = None
+        fail(f"Commander live agent: {e}")
+        commander_llm_text = None
 else:
-    kirk_llm_text = (
+    commander_llm_text = (
         "SYSTEM STATUS: NOMINAL\n"
         "MARKET POSTURE: NORMAL\n"
         "COMMAND DECISION: HOLD -- regime signals are calm-bullish; no immediate entry trigger.\n"
-        "RATIONALE: Scotty reports all systems nominal with no journal errors. "
-        "Spock's analysis shows 3 active plans in calm_bull regime with 68-76% confidence. "
+        "RATIONALE: Pipeline health reports all systems nominal with no journal errors. "
+        "Regime research shows 3 active plans in calm_bull regime with 68-76% confidence. "
         "No critical threshold breaches detected; maintain current posture.\n"
         "CREW ORDERS:\n"
-        "  - Scotty: maintain current status\n"
-        "  - Spock: continue monitoring regime confidence for state transitions\n"
-        "  - Helm: hold current positions; await RTH open before new entries\n"
+        "  - Pipeline Health: maintain current status\n"
+        "  - Regime Research: continue monitoring regime confidence for state transitions\n"
+        "  - Trading Engine: hold current positions; await RTH open before new entries\n"
         "OVERALL RISK POSTURE: LOW\n"
     )
     info("Hermes LLM not available -- synthetic commander response (all parse/persist paths exercised)")
 
-if kirk_llm_text:
-    info("--- Kirk's commander output ---")
-    for line in kirk_llm_text.splitlines():
+if commander_llm_text:
+    info("--- Commander output ---")
+    for line in commander_llm_text.splitlines():
         info(f"  {line}")
 
     ts = utc_timestamp()
     decision = parse_command_decision(
         ts,
-        kirk_llm_text,
+        commander_llm_text,
         health_overall_ok=health_ok,
         context_for_risk=market_context,
     )

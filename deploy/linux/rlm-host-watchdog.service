@@ -1,0 +1,25 @@
+# Example: copy to /etc/systemd/system/rlm-host-watchdog.service and adjust paths.
+# Hermes crew is regime-locus-crew — this unit is only the VPS host watchdog + optional Telegram.
+#
+# Environment in /opt/enterprise/config/.env (see bootstrap.sh and enterprise.env template).
+#
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rlm-host-watchdog
+
+[Unit]
+Description=RLM host watchdog (systemd resources + optional Telegram; Hermes crew is separate)
+After=network.target ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/opt/Regime-Locus-Matrix/.venv/bin/python3 /opt/enterprise/agents/host_watchdog.py
+WorkingDirectory=/opt/enterprise
+Restart=always
+RestartSec=15
+StandardOutput=append:/var/log/enterprise/host-watchdog.service.log
+StandardError=append:/var/log/enterprise/host-watchdog_error.log
+EnvironmentFile=/opt/enterprise/config/.env
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

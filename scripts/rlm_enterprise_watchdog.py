@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-RLM enterprise host watchdog (systemd: often installed as /opt/enterprise/agents/scotty.py).
+RLM host watchdog — systemd unit ``rlm-host-watchdog.service`` (installed as ``/opt/enterprise/agents/host_watchdog.py``).
 
-This is NOT the Hermes \"Scotty\" LLM — that runs inside regime-locus-crew via Hermes + skills.
-This process only:
+Separate from the Hermes crew (``regime-locus-crew``). This process only:
   - polls systemd + CPU/RAM/disk
-  - optionally pulls JSON from rlm.hermes_facts.health (same facts crew Scotty uses)
+  - optionally merges JSON from rlm.hermes_facts.health (same facts as crew pipeline-health step)
   - sends terse Telegram alerts + lightweight Ollama commentary
 
-Configure via /opt/enterprise/config/.env (see bootstrap.sh).
+Configure via /opt/enterprise/config/.env (see bootstrap.sh). Legacy env prefixes SCOTTY_* / SCOTTY_RLM_HEALTH still read as fallbacks.
 """
 
 from __future__ import annotations
@@ -39,11 +38,11 @@ def _load_env() -> None:
 _load_env()
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-SCOTTY_MODEL = os.getenv("SCOTTY_MODEL", "llama3.2:3b")
+OLLAMA_ASSESS_MODEL = os.getenv("HOST_WATCHDOG_MODEL") or os.getenv("SCOTTY_MODEL", "llama3.2:3b")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.getenv("TELEGRAM_CHAT_ID", "")
-POLL_INTERVAL = int(os.getenv("SCOTTY_POLL_SECONDS", "60"))
-LOG_PATH = os.getenv("SCOTTY_LOG", "/var/log/enterprise/scotty.log")
+POLL_INTERVAL = int(os.getenv("HOST_WATCHDOG_POLL_SECONDS") or os.getenv("SCOTTY_POLL_SECONDS", "60"))
+LOG_PATH = os.getenv("HOST_WATCHDOG_LOG") or os.getenv("SCOTTY_LOG", "/var/log/enterprise/host-watchdog.log")
 CPU_WARN = float(os.getenv("CPU_WARN_PCT", "80"))
 RAM_WARN = float(os.getenv("RAM_WARN_PCT", "85"))
 DISK_WARN = float(os.getenv("DISK_WARN_PCT", "75"))
@@ -53,7 +52,9 @@ WATCHED_SERVICES = [
 
 RLM_ROOT = Path(os.getenv("RLM_ROOT", "/opt/Regime-Locus-Matrix")).resolve()
 RLM_HEALTH_PYTHON = (os.getenv("RLM_HEALTH_PYTHON") or "").strip()
-SCOTTY_RLM_HEALTH = os.getenv("SCOTTY_RLM_HEALTH", "0").strip().lower() in (
+INCLUDE_RLM_HEALTH_JSON = (
+    os.getenv("HOST_WATCHDOG_RLM_HEALTH") or os.getenv("SCOTTY_RLM_HEALTH", "0")
+).strip().lower() in (
     "1",
     "true",
     "yes",
@@ -112,12 +113,12 @@ def unit_load_state(base: str) -> str:
 
 
 def optional_rlm_health_payload() -> dict[str, object] | None:
-    """Same structured facts as Hermes crew Scotty — optional second python interpreter."""
-    if not SCOTTY_RLM_HEALTH:
+    """Optional merge of gather_health_report JSON (Hermes pipeline-health input)."""
+    if not INCLUDE_RLM_HEALTH_JSON:
         return None
     py = RLM_HEALTH_PYTHON or ""
     if not py:
-        log.warning("SCOTTY_RLM_HEALTH=1 but RLM_HEALTH_PYTHON unset — skipping health JSON")
+        log.warning("HOST_WATCHDOG_RLM_HEALTH=1 but RLM_HEALTH_PYTHON unset — skipping health JSON")
         return None
     if not Path(py).exists():
         log.warning("RLM_HEALTH_PYTHON=%s missing — skipping health JSON", py)
@@ -157,7 +158,7 @@ def send_telegram(msg: str, priority: str = "normal") -> None:
         return
     icons = {"normal": "⚙️", "warn": "⚠️", "critical": "🚨", "ok": "✅", "restart": "🔧"}
     icon = icons.get(priority, "⚙️")
-    text = f"{icon} *RLM Watch* | {datetime.now().strftime('%H:%M:%S')}\n{msg}"
+    text = f"{icon} *Host Watchdog* | {datetime.now().strftime('%H:%M:%S')}\n{msg}"
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -225,7 +226,7 @@ def restart_service(svc: str) -> str:
         return f"FAILED restart `{resolved}` (watch `{svc}`): {e}"
 
 
-def scotty_assess(snap: dict[str, object]) -> str:
+def ollama_assess_snapshot(snap: dict[str, object]) -> str:
     """Tiny local LLM layer — same engineering voice as Hermes data_monitor skill."""
     prompt = f"""You are the RLM host engineer (offline sibling of Hermes skill \"data_monitor\").
 
@@ -245,7 +246,7 @@ Reply in 2 short sentences (plain text). No markdown."""
         r = requests.post(
             OLLAMA_URL,
             json={
-                "model": SCOTTY_MODEL,
+                "model": OLLAMA_ASSESS_MODEL,
                 "prompt": prompt,
                 "stream": False,
                 "options": {"temperature": 0.1, "num_predict": 150},
@@ -262,13 +263,13 @@ def main() -> None:
         "RLM host watchdog online — services=%s RLM_ROOT=%s health_json=%s",
         ", ".join(WATCHED_SERVICES),
         RLM_ROOT,
-        SCOTTY_RLM_HEALTH,
+        INCLUDE_RLM_HEALTH_JSON,
     )
     send_telegram(
         "Host watchdog online.\n"
         f"Watching: `{', '.join(WATCHED_SERVICES)}`\n"
         f"RLM_ROOT=`{RLM_ROOT}`\n"
-        f"Hermes crew Scotty/Spock/Kirk run separately in `regime-locus-crew`.\n"
+        f"Hermes crew (`regime-locus-crew`): pipeline health → regime research → commander.\n"
         f"Thresholds: CPU>{CPU_WARN}% | RAM>{RAM_WARN}% | Disk>{DISK_WARN}%",
         "ok",
     )
@@ -295,7 +296,7 @@ def main() -> None:
                 alerts.append(f"Disk {disk:.0f}% ({snap['disk_free_gb']}GB free)")
             if alerts:
                 streak += 1
-                assessment = scotty_assess(snap)
+                assessment = ollama_assess_snapshot(snap)
                 priority = "critical" if streak >= 3 else "warn"
                 send_telegram(f"*Stress:* {' | '.join(alerts)}\n_{assessment}_", priority)
                 log.warning("ALERT streak=%d: %s", streak, " | ".join(alerts))

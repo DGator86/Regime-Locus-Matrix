@@ -1,4 +1,4 @@
-"""Parse commander-style LLM output and persist decisions (ex-Kirk)."""
+"""Parse Hermes commander LLM output and persist crew decisions."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def parse_command_decision(
     alert_on_degraded: bool = True,
     alert_on_high_risk: bool = True,
 ) -> CommandDecision:
-    """Same parsing rules as legacy KirkAgent._parse (without SpockBriefing object)."""
+    """Derive CommandDecision from commander-format plain text."""
     sys_status = "NOMINAL" if health_overall_ok else "DEGRADED"
     overall_risk = infer_overall_risk_from_text(context_for_risk)
     mkt_posture = _RISK_TO_POSTURE.get(overall_risk, "NORMAL")

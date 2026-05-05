@@ -74,8 +74,8 @@ def test_health_check_default_output_does_not_modify_live_gate(monkeypatch, tmp_
     loop_mod = types.ModuleType("rlm.hermes_crew.loop")
     loop_roots: list[Path] = []
     loop_mod._load_commander_skill_text = lambda root: "commander skill text for isolated health check"
-    loop_mod._load_scotty_skill_text = lambda root: "scotty skill text for isolated health check"
-    loop_mod._load_spock_skill_text = lambda root: "spock skill text for isolated health check"
+    loop_mod._load_pipeline_health_skill_text = lambda root: "pipeline health skill stub"
+    loop_mod._load_regime_research_skill_text = lambda root: "regime research skill stub"
 
     def _agent_response(root: Path, *_args: object) -> str:
         loop_roots.append(root)
@@ -84,20 +84,20 @@ def test_health_check_default_output_does_not_modify_live_gate(monkeypatch, tmp_
     def _run_full_briefing(root: Path, *_args: object) -> tuple[str, str, str]:
         loop_roots.append(root)
         return (
-            "scotty report",
-            "spock report",
+            "pipeline health report",
+            "regime research report",
             "SYSTEM STATUS: NOMINAL\n"
             "MARKET POSTURE: NORMAL\n"
             "COMMAND DECISION: HOLD\n"
             "RATIONALE: synthetic isolated health check\n"
             "CREW ORDERS:\n"
-            "  - Scotty: maintain current status\n"
-            "  - Spock: continue monitoring\n"
-            "  - Helm: hold\n",
+            "  - Pipeline Health: maintain current status\n"
+            "  - Regime Research: continue monitoring\n"
+            "  - Trading Engine: hold\n",
         )
 
-    loop_mod._run_scotty_agent = _agent_response
-    loop_mod._run_spock_agent = _agent_response
+    loop_mod._run_pipeline_health_agent = _agent_response
+    loop_mod._run_regime_research_agent = _agent_response
     loop_mod._run_full_briefing = _run_full_briefing
 
     monkeypatch.setitem(sys.modules, "rlm.core.pipeline", pipeline_mod)

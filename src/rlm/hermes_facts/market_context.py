@@ -1,4 +1,4 @@
-"""Pre-formatted trade + regime context (ex-Spock ``_build_context``), no LLM."""
+"""Pre-formatted trade + regime context for Hermes tools, no LLM."""
 
 from __future__ import annotations
 

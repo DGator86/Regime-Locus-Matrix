@@ -1,7 +1,6 @@
-"""Hermes AIAgent loop — crew Scotty (data_monitor) → Spock (research_analyst) → Kirk (commander).
+"""Hermes AI crew loop: pipeline health (data_monitor) → regime research (research_analyst) → commander.
 
-Enterprise VPS may run a separate lightweight host watchdog also historically called scotty.service;
-that process is scripts/rlm_enterprise_watchdog.py and does not replace this crew.
+A separate VPS service ``rlm-host-watchdog`` runs `scripts/rlm_enterprise_watchdog.py`; it is not this crew.
 """
 
 from __future__ import annotations
@@ -14,50 +13,49 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from rlm.hermes_facts.health import gather_health_report
-from rlm.hermes_facts.kirk_command import (
+from rlm.hermes_facts.crew_command import (
     CommandDecision,
     parse_command_decision,
     save_decision,
     utc_timestamp,
 )
+from rlm.hermes_facts.health import gather_health_report
 from rlm.hermes_facts.market_context import build_trade_and_regime_context
 from rlm.roee.system_gate import SystemGate
 from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id, telegram_crew_send
 
-_KIRK_SYSTEM = """\
-You are Captain Kirk, the commanding officer of this trading system.
-You have received reports from your Chief Engineer (Scotty) and Science Officer (Spock).
-Your role: make the final command decision and communicate it clearly to the crew.
+_COMMANDER_SYSTEM = """\
+You are the Hermes Crew Commander for Regime Locus Matrix (options / regime trading stack).
+You have two prior reports: Pipeline Health (engineering/systems) and Regime Research (markets/plans).
+Your role: issue one clear command decision and crew orders.
 
 You may call the rlm_* tools to refresh live facts from the trading host before deciding.
 
 SYSTEM HOURS:
 - Market State: [rth / pre_market / after_hours / weekend]
-- If the state is 'after_hours' or 'weekend', the starship is in power-save mode.
-- "Everything being dark" (services offline) is INTENDED and NORMAL.
-- Maintain a STAND-DOWN posture and HOLD command.
+- If the state is 'after_hours' or 'weekend', batch services may be idle — that is often NORMAL.
+- Maintain STAND-DOWN / HOLD when flat risk budgets after hours unless facts justify otherwise.
 - Do not alert the operator for expected after-hours service closures.
 
 Response format (plain text, no markdown):
 SYSTEM STATUS: [NOMINAL / DEGRADED / CRITICAL]
 MARKET POSTURE: [AGGRESSIVE / NORMAL / DEFENSIVE / STAND-DOWN]
 COMMAND DECISION: <one decisive sentence — GO / HOLD / STAND-DOWN / ALERT OPERATOR>
-RATIONALE: <2-3 sentences max, referencing Scotty and Spock's key findings>
+RATIONALE: <2-3 sentences max, referencing the pipeline health and regime research highlights>
 CREW ORDERS:
-  - Scotty: <one action item or "maintain current status">
-  - Spock: <one action item or "continue monitoring">
-  - Helm: <one directive for the trading engine>
+  - Pipeline Health: <one action item or "maintain current status">
+  - Regime Research: <one action item or "continue monitoring">
+  - Trading Engine: <one directive for execution / risk controls>
 """
 
-_SCOTTY_FALLBACK = """\
-You are Scotty, Chief Engineer of this trading system. You are practical and direct.
+_PIPELINE_HEALTH_FALLBACK = """\
+You are the Pipeline Health analyst for Regime Locus Matrix. Be practical and direct.
 When the market is closed, do not panic about powered-down batch services.
 Summarise what is broken, what is fine, and what to do next in 3-10 short bullets (plain text, no markdown headers).
 """
 
-_SPOCK_FALLBACK = """\
-You are Spock: logical, probability-focused, no emotional language.
+_REGIME_RESEARCH_FALLBACK = """\
+You are the Regime Research analyst: logical, probability-focused, no emotional language.
 Analyse active trade plans and regime signals. Number each active plan:
   1. SYMBOL | STRATEGY | REGIME | ACTION: [GO / HOLD / ABORT] | RATIONALE: <one sentence>
 End with: OVERALL RISK POSTURE: [LOW / MODERATE / HIGH / CRITICAL]
@@ -93,19 +91,19 @@ def _load_skill_text(root: Path, skill_name: str, fallback: str) -> str:
 
 
 def _load_commander_skill_text(root: Path) -> str:
-    return _load_skill_text(root, "commander", _KIRK_SYSTEM)
+    return _load_skill_text(root, "commander", _COMMANDER_SYSTEM)
 
 
-def _load_scotty_skill_text(root: Path) -> str:
-    return _load_skill_text(root, "data_monitor", _SCOTTY_FALLBACK)
+def _load_pipeline_health_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "data_monitor", _PIPELINE_HEALTH_FALLBACK)
 
 
-def _load_spock_skill_text(root: Path) -> str:
-    return _load_skill_text(root, "research_analyst", _SPOCK_FALLBACK)
+def _load_regime_research_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "research_analyst", _REGIME_RESEARCH_FALLBACK)
 
 
 def _hermes_updates_system_gate() -> bool:
-    """When false, Kirk/Hermes still briefs but does not overwrite gate_state.json."""
+    """When false, commander briefing still runs but gate_state.json is not overwritten."""
     v = (os.environ.get("RLM_HERMES_UPDATE_GATE") or "1").strip().lower()
     return v not in ("0", "false", "no", "off")
 
@@ -120,7 +118,7 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
         import rlm_hermes_tools.register_rlm_tools  # noqa: F401, WPS433 — registers tools
     except ImportError as e:
         raise RuntimeError(
-            "Hermes agent is not installed. Install with: pip install -e \".[hermes]\""
+            'Hermes agent is not installed. Install with: pip install -e ".[hermes]"'
         ) from e
     return run_agent.AIAgent, run_agent
 
@@ -214,7 +212,7 @@ def _chat_with_failover(root: Path, skill_prompt: str, user_prompt: str, toolset
 
 
 def _make_agent(root: Path):
-    """Commander agent (Kirk). Kept for backward compatibility."""
+    """Commander Hermes agent (backward-compatible helper)."""
     return _make_agent_with_skill(
         root,
         _load_commander_skill_text(root),
@@ -222,11 +220,11 @@ def _make_agent(root: Path):
     )
 
 
-def _run_scotty_agent(root: Path, health_facts_json: str) -> str:
-    """Run the Scotty (data_monitor) Hermes agent; returns its plain-text engineering report."""
+def _run_pipeline_health_agent(root: Path, health_facts_json: str) -> str:
+    """Run the data_monitor (pipeline health) Hermes agent."""
     return _chat_with_failover(
         root,
-        _load_scotty_skill_text(root),
+        _load_pipeline_health_skill_text(root),
         f"Here are the raw system health facts (JSON):\n\n{health_facts_json}\n\n"
         "Call rlm_get_health_report or rlm_get_system_gate_state if you need fresher data. "
         "Produce your engineering report now.",
@@ -234,11 +232,11 @@ def _run_scotty_agent(root: Path, health_facts_json: str) -> str:
     )
 
 
-def _run_spock_agent(root: Path, market_context: str) -> str:
-    """Run the Spock (research_analyst) Hermes agent; returns its plain-text analysis."""
+def _run_regime_research_agent(root: Path, market_context: str) -> str:
+    """Run the research_analyst Hermes agent."""
     return _chat_with_failover(
         root,
-        _load_spock_skill_text(root),
+        _load_regime_research_skill_text(root),
         f"Here is the current market context:\n\n{market_context}\n\n"
         "Call rlm_get_trade_and_regime_context, rlm_get_system_gate_state, or "
         "rlm_check_portfolio_limits if you need fresher data. "
@@ -252,35 +250,32 @@ def _run_full_briefing(
     health_payload: dict,
     market_context: str,
 ) -> tuple[str, str, str]:
-    """Run all three Hermes agents in sequence: Scotty → Spock → Kirk.
-
-    Returns (scotty_report, spock_report, kirk_llm_text).
-    """
+    """Pipeline health → regime research → commander. Returns (health_text, research_text, commander_text)."""
     import json
 
     health_json = json.dumps(health_payload, default=str)
 
-    print("[Hermes crew] Running Scotty (data_monitor) agent...", flush=True)
-    scotty_report = _run_scotty_agent(root, health_json)
-    print(f"[Hermes crew] Scotty done ({len(scotty_report)} chars)", flush=True)
+    print("[Hermes crew] Pipeline health agent (data_monitor)...", flush=True)
+    health_report = _run_pipeline_health_agent(root, health_json)
+    print(f"[Hermes crew] Pipeline health done ({len(health_report)} chars)", flush=True)
 
-    print("[Hermes crew] Running Spock (research_analyst) agent...", flush=True)
-    spock_report = _run_spock_agent(root, market_context)
-    print(f"[Hermes crew] Spock done ({len(spock_report)} chars)", flush=True)
+    print("[Hermes crew] Regime research agent (research_analyst)...", flush=True)
+    research_report = _run_regime_research_agent(root, market_context)
+    print(f"[Hermes crew] Regime research done ({len(research_report)} chars)", flush=True)
 
-    print("[Hermes crew] Running Kirk (commander) agent...", flush=True)
-    kirk_user = (
+    print("[Hermes crew] Commander agent...", flush=True)
+    commander_prompt = (
         "Here are your crew reports.\n\n"
-        f"=== Scotty's Engineering Report ===\n{scotty_report}\n\n"
-        f"=== Spock's Market Analysis ===\n{spock_report}\n\n"
+        f"=== Pipeline health report ===\n{health_report}\n\n"
+        f"=== Regime research summary ===\n{research_report}\n\n"
         "You may call rlm_get_health_report, rlm_get_trade_and_regime_context, "
         "rlm_get_system_gate_state, or rlm_check_portfolio_limits if you need fresher data.\n\n"
         "Issue your command decision in the required format."
     )
-    kirk_text = _chat_with_failover(root, _load_commander_skill_text(root), kirk_user, ["rlm"])
-    print(f"[Hermes crew] Kirk done ({len(kirk_text)} chars)", flush=True)
+    commander_text = _chat_with_failover(root, _load_commander_skill_text(root), commander_prompt, ["rlm"])
+    print(f"[Hermes crew] Commander done ({len(commander_text)} chars)", flush=True)
 
-    return scotty_report, spock_report, kirk_text
+    return health_report, research_report, commander_text
 
 
 def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> CommandDecision:

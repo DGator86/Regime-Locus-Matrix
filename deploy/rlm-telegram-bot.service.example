@@ -1,5 +1,5 @@
 # Example systemd — copy to /etc/systemd/system/rlm-telegram-bot.service, adjust paths.
-# Alias of deploy/rlm-telegram.service.example (Scotty WATCHED_SERVICES may list either name).
+# Alias of deploy/rlm-telegram.service.example (host watchdog WATCHED_SERVICES may list either name).
 # Token lives only in /opt/Regime-Locus-Matrix/.env:
 #   RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN=...   (preferred)
 #   TELEGRAM_BOT_TOKEN=...                       (legacy fallback)

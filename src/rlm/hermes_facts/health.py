@@ -1,4 +1,4 @@
-"""Structured health facts (ex-Scotty ``_gather`` + optional auto-restart)."""
+"""Structured health facts (pipeline / host gather + optional auto-restart)."""
 
 from __future__ import annotations
 
@@ -300,15 +300,21 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
 
 
 def _try_restart_inactive_services(root: Path, report: HealthReport, services: list[str]) -> list[str]:
-    raw = (os.environ.get("SCOTTY_AUTO_RESTART") or "1").strip().lower()
+    raw = (
+        os.environ.get("RLM_HEALTH_AUTO_RESTART") or os.environ.get("SCOTTY_AUTO_RESTART") or "1"
+    ).strip().lower()
     if raw in ("0", "false", "no", "off"):
         return []
     if shutil.which("systemctl") is None:
         return []
-    allow_crew = (os.environ.get("SCOTTY_RESTART_ALLOW_CREW") or "").strip() in ("1", "true", "yes")
+    allow_crew = (
+        os.environ.get("RLM_HEALTH_RESTART_ALLOW_CREW") or os.environ.get("SCOTTY_RESTART_ALLOW_CREW") or ""
+    ).strip() in ("1", "true", "yes")
     skip_crew = any("run_crew" in (a or "") for a in sys.argv)
     try:
-        cooldown = float((os.environ.get("SCOTTY_RESTART_COOLDOWN_SEC") or "180").strip())
+        cooldown = float(
+            (os.environ.get("RLM_HEALTH_RESTART_COOLDOWN_SEC") or os.environ.get("SCOTTY_RESTART_COOLDOWN_SEC") or "180").strip()
+        )
     except ValueError:
         cooldown = 180.0
     cooldown = max(30.0, cooldown)
@@ -362,7 +368,7 @@ def gather_health_report(root: Path, services: Optional[list[str]] = None) -> di
     """
     Return a JSON-serialisable dict of host / pipeline health (no LLM).
 
-    Runs optional Scotty-style auto-restart once, then re-gathers if any action was taken.
+    Runs optional systemd auto-restart once (when enabled via env), then re-gathers if any action was taken.
     """
     root = root.resolve()
     svc = _resolve_services(services)

@@ -74,7 +74,7 @@ RLM_CONTEXT_SCHEMA = {
     "name": "rlm_get_trade_and_regime_context",
     "description": (
         "Return JSON with a single `context` string: active trade plans, latest pipeline run "
-        "artefact, equity positions, walk-forward summaries (same as legacy Spock context)."
+        "artefact, equity positions, walk-forward summaries (regime research snapshot)."
     ),
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
@@ -98,7 +98,7 @@ registry.register(
     schema=RLM_HEALTH_SCHEMA,
     handler=lambda args, **kw: _rlm_get_health_report_json(args or {}, **kw),
     check_fn=_check_rlm_root,
-    emoji="🖖",
+    emoji="🔧",
 )
 
 registry.register(

@@ -136,10 +136,10 @@ log "Ollama running on :11434"
 # ══════════════════════════════════════════════════════════════════════════════
 step "5 / 10  Pull AI models"
 # ══════════════════════════════════════════════════════════════════════════════
-info "Pulling Scotty model: llama3.2:3b (~2.0 GB — Scotty brain)..."
+info "Pulling Ollama model for host watchdog commentary: llama3.2:3b (~2.0 GB)..."
 ollama pull llama3.2:3b && log "llama3.2:3b ready"
 
-info "Pulling Spock model: qwen2.5:7b (~4.7 GB — Spock brain)..."
+info "Pulling Ollama model for optional offline advisory: qwen2.5:7b (~4.7 GB)..."
 ollama pull qwen2.5:7b && log "qwen2.5:7b ready"
 
 ollama list
@@ -169,36 +169,40 @@ VENV=${VENV}
 
 # ── Ollama ──────────────────────────────────────────
 OLLAMA_URL=http://localhost:11434/api/generate
+HOST_WATCHDOG_MODEL=llama3.2:3b
+OFFLINE_ADVISORY_MODEL=qwen2.5:7b
+# Legacy fallbacks still honored by scripts:
 SCOTTY_MODEL=llama3.2:3b
 SPOCK_MODEL=qwen2.5:7b
 
-# ── Telegram / Regime Locus Bot ─────────────────────
+# ── Telegram (host watchdog alerts) ─────────────────
 TELEGRAM_BOT_TOKEN=${TELEGRAM_TOKEN}
 TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
 
-# ── RLM Watch (host watchdog — NOT Hermes crew; crew runs regime-locus-crew) ──
+# ── Host watchdog (systemd: rlm-host-watchdog.service) ─────────────────────────
 RLM_ROOT=${REPO_DIR}
 RLM_HEALTH_PYTHON=/opt/rlm-venv/bin/python
-SCOTTY_RLM_HEALTH=0
-
-# ── Scotty (legacy env prefix — process is RLM host watchdog) ─────────────────
-SCOTTY_POLL_SECONDS=60
-SCOTTY_LOG=${LOG_DIR}/scotty.log
+HOST_WATCHDOG_RLM_HEALTH=0
+HOST_WATCHDOG_POLL_SECONDS=60
+HOST_WATCHDOG_LOG=${LOG_DIR}/host-watchdog.log
 CPU_WARN_PCT=80
 RAM_WARN_PCT=85
 DISK_WARN_PCT=75
 
 # systemd base names — must match loaded units (see deploy/*.service.example).
-# Typical Hostinger: telegram bot = rlm-systems-control-telegram; crew = regime-locus-crew.
 WATCHED_SERVICES=ollama,rlm-systems-control-telegram,rlm-master-trader,regime-locus-crew
 
-# ── Offline Ollama advisory (optional — NOT wired to ROEE or Hermes) ────────────
+# ── Offline Ollama advisory (optional; not Hermes, not ROEE) ───────────────────
+OFFLINE_ADVISORY_TIMEOUT_SEC=90
+OFFLINE_ADVISORY_MIN_CONF=0.65
+OFFLINE_ADVISORY_ENABLED=false
+OFFLINE_ADVISORY_OVERRIDE_KEY=
+# Legacy: SPOCK_*, DECISION_LOG
 SPOCK_TIMEOUT_SECONDS=90
 SPOCK_MIN_CONFIDENCE=0.65
 SPOCK_ENABLED=false
 SPOCK_OVERRIDE_KEY=
 
-# ── Kirk ────────────────────────────────────────────
 DECISION_LOG=${ENTERPRISE_DIR}/data/decisions.jsonl
 ENV
 
@@ -210,46 +214,48 @@ log "Config written to $ENTERPRISE_DIR/config/.env"
 step "8 / 10  Install Enterprise agents"
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Copy versioned agents from repo (Hermes crew Scotty/Spock/Kirk are separate — see scripts/run_crew.py).
+# Copy versioned agents from repo (Hermes crew = scripts/run_crew.py + hermes_skills/).
 WATCH_SRC="$REPO_DIR/scripts/rlm_enterprise_watchdog.py"
 [[ -f "$WATCH_SRC" ]] || error "Missing $WATCH_SRC — clone Regime-Locus-Matrix at REPO_DIR=$REPO_DIR"
-cp "$WATCH_SRC" "$ENTERPRISE_DIR/agents/scotty.py"
-cp "$REPO_DIR/scripts/rlm_spock_advisory.py" "$ENTERPRISE_DIR/agents/spock.py"
-cp "$REPO_DIR/scripts/rlm_kirk_hook.py" "$ENTERPRISE_DIR/agents/kirk_hook.py"
+cp "$WATCH_SRC" "$ENTERPRISE_DIR/agents/host_watchdog.py"
+cp "$REPO_DIR/scripts/rlm_offline_advisory.py" "$ENTERPRISE_DIR/agents/offline_advisory.py"
+cp "$REPO_DIR/scripts/rlm_advisory_hook.py" "$ENTERPRISE_DIR/agents/advisory_hook.py"
 chmod +x "$ENTERPRISE_DIR/agents/"*.py
-log "Enterprise agents installed from repo scripts (watchdog→scotty.py; offline advisory→spock/kirk_hook)"
+log "Enterprise agents installed (host_watchdog.py, offline_advisory.py, advisory_hook.py)"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 step "9 / 10  Register systemd services"
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Scotty service
-cat > /etc/systemd/system/scotty.service << SCOSERVICE
+# Host watchdog (VPS AI/sysdig helper — not Hermes crew)
+systemctl disable --now scotty.service 2>/dev/null || true
+cat > /etc/systemd/system/rlm-host-watchdog.service << 'HOSTWATCHSVC'
 [Unit]
-Description=RLM host watchdog (Telegram + systemd; Hermes crew is separate)
+Description=RLM host watchdog (systemd resources + optional Telegram; Hermes crew is separate)
 After=network.target ollama.service
 Requires=ollama.service
 
 [Service]
 Type=simple
-ExecStart=${VENV}/bin/python3 ${ENTERPRISE_DIR}/agents/scotty.py
-WorkingDirectory=${ENTERPRISE_DIR}
+ExecStart=EXECSTART_PLACEHOLDER
+WorkingDirectory=/opt/enterprise
 Restart=always
 RestartSec=15
-StandardOutput=append:${LOG_DIR}/scotty.log
-StandardError=append:${LOG_DIR}/scotty_error.log
-EnvironmentFile=${ENTERPRISE_DIR}/config/.env
+StandardOutput=append:/var/log/enterprise/host-watchdog.service.log
+StandardError=append:/var/log/enterprise/host-watchdog_error.log
+EnvironmentFile=/opt/enterprise/config/.env
 MemoryMax=512M
 
 [Install]
 WantedBy=multi-user.target
-SCOSERVICE
+HOSTWATCHSVC
+sed -i "s|EXECSTART_PLACEHOLDER|${VENV}/bin/python3 ${ENTERPRISE_DIR}/agents/host_watchdog.py|" /etc/systemd/system/rlm-host-watchdog.service
 
 systemctl daemon-reload
-systemctl enable scotty
-systemctl start scotty
-log "Scotty service started"
+systemctl enable rlm-host-watchdog
+systemctl start rlm-host-watchdog
+log "rlm-host-watchdog.service started (legacy scotty.service disabled if present)"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -260,15 +266,15 @@ sleep 5
 echo ""
 echo "  Service status:"
 systemctl is-active --quiet ollama && echo "  ✅ ollama" || echo "  ❌ ollama"
-systemctl is-active --quiet scotty && echo "  ✅ scotty" || echo "  ❌ scotty"
+systemctl is-active --quiet rlm-host-watchdog && echo "  ✅ rlm-host-watchdog" || echo "  ❌ rlm-host-watchdog"
 
 echo ""
 echo "  Ollama models:"
 ollama list
 
 echo ""
-echo "  Scotty log (last 5 lines):"
-tail -5 "$LOG_DIR/scotty.log" 2>/dev/null || echo "  (no log yet)"
+echo "  Host watchdog log (last 5 lines):"
+tail -5 "$LOG_DIR/host-watchdog.service.log" 2>/dev/null || tail -5 "$LOG_DIR/host-watchdog.log" 2>/dev/null || echo "  (no log yet)"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -282,14 +288,14 @@ echo "  Agents:   $ENTERPRISE_DIR/agents/"
 echo "  Config:   $ENTERPRISE_DIR/config/.env"
 echo "  Logs:     $LOG_DIR/"
 echo ""
-echo "  Test Spock:"
-echo "    $VENV/bin/python3 $ENTERPRISE_DIR/agents/spock.py --test"
+echo "  Test offline advisory (optional):"
+echo "    $VENV/bin/python3 $ENTERPRISE_DIR/agents/offline_advisory.py --test"
 echo ""
 echo "  Live logs:"
-echo "    tail -f $LOG_DIR/scotty.log"
+echo "    journalctl -u rlm-host-watchdog -f"
 echo ""
-echo "  Hermes AI crew (production Scotty/Spock/Kirk): pip install -e '.[hermes]' && python3 scripts/run_crew.py"
-echo "  Host watchdog unit still named scotty.service for compatibility."
+echo "  Hermes AI crew: pip install -e '.[hermes]' && python3 scripts/run_crew.py"
+echo "    (pipeline health → regime research → commander — see hermes_skills/)"
 echo ""
 echo "  Keep TELEGRAM_* secrets only in /opt/enterprise/config/.env — revoke any leaked BotFather tokens."
 echo ""
