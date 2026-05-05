@@ -18,6 +18,8 @@ fi
 
 echo "[market-start] Starting NYSE-hours services"
 
+systemctl start ollama.service || true
+systemctl start rlm-host-watchdog.service || true
 systemctl start rlm-master-trader.service || true
 systemctl start rlm-forecast.timer || true
 systemctl start rlm-systems-control-telegram.service || true

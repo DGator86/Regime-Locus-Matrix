@@ -3,7 +3,7 @@ Description=RLM Market Open Timer (NYSE) - fire at 09:00 America/New_York Mon-Fr
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 09:00:00 America/New_York
-Persistent=false
+Persistent=true
 
 [Install]
 WantedBy=timers.target
