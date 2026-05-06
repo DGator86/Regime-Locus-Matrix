@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rlm.trading_agents.config import _auto_detect_provider, _parse_int_env
+from rlm.trading_agents.config import _GROQ_BASE_URL, _auto_detect_provider, _parse_int_env
 from rlm.trading_agents.integration import _safe_float
 
 
@@ -68,7 +68,7 @@ def test_auto_detect_groq_priority(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIza_test")  # lower priority
     provider, deep, quick, backend = _auto_detect_provider()
     assert provider == "openai"
-    assert "groq.com" in (backend or "")
+    assert backend == _GROQ_BASE_URL
     assert "llama" in deep.lower()
 
 
