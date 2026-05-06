@@ -107,6 +107,21 @@ _TRADE_LOG_COLUMNS = [
 ]
 
 
+def _kronos_stub_available() -> bool:
+    try:
+        from rlm.forecasting.models.kronos.model.kronos import KronosTokenizer
+
+        method = getattr(KronosTokenizer, "from_pretrained", None)
+        if method is None:
+            return False
+        consts = getattr(method, "__code__", None)
+        if consts is None:
+            return False
+        return any("stub module" in str(c).lower() for c in consts.co_consts if isinstance(c, str))
+    except Exception:
+        return False
+
+
 def _ensure_trade_log_with_header(path: Path) -> None:
     if path.is_file():
         return
@@ -932,6 +947,9 @@ def main() -> int:
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled - weight={args.kronos_weight}, stride={args.kronos_stride}")
+    if live_model is not None and bool(live_model.use_kronos) and _kronos_stub_available():
+        live_model = live_model.model_copy(update={"use_kronos": False})
+        print("[kronos] Disabled for this run: vendored Kronos runtime is stub-only on this host.", flush=True)
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
     min_regime_train_samples = int(args.min_regime_train_samples)

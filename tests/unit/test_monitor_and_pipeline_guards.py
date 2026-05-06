@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from scripts.monitor_active_trade_plans import _evaluate_plan
 from scripts.run_universe_options_pipeline import (
+    _kronos_stub_available,
     _apply_active_plan_guards,
     _load_open_symbols_from_trade_log,
 )
@@ -182,3 +183,7 @@ def test_full_pipeline_nightly_overlay_ignores_stale_mtf_regimes(tmp_path: Path)
 
     assert pipe.config.move_window == 91
     assert pipe.config.mtf_regimes is False
+
+
+def test_kronos_stub_detector_returns_bool() -> None:
+    assert isinstance(_kronos_stub_available(), bool)

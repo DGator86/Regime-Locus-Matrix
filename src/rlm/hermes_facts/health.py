@@ -202,11 +202,25 @@ def _check_staleness(root: Path) -> list[str]:
     processed = root / "data" / "processed"
     stale: list[str] = []
     now = time.time()
+    active_plans_count = 0
+    plans_path = processed / "universe_trade_plans.json"
+    if plans_path.is_file():
+        try:
+            import json
+
+            payload = json.loads(plans_path.read_text(encoding="utf-8"))
+            rows = payload.get("results") if isinstance(payload, dict) else []
+            if isinstance(rows, list):
+                active_plans_count = sum(1 for r in rows if isinstance(r, dict) and str(r.get("status")) == "active")
+        except Exception:
+            active_plans_count = 0
     for fname, max_hours in _STALE_HOURS.items():
         fpath = processed / fname
         if not fpath.exists():
             continue
         age_hours = (now - fpath.stat().st_mtime) / 3600
+        if fname == "trade_log.csv" and active_plans_count <= 0:
+            continue
         if age_hours > max_hours:
             stale.append(f"{fname} ({age_hours:.1f}h old)")
     return stale

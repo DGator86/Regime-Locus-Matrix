@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from rlm.hermes_facts import health
@@ -116,3 +118,19 @@ def test_auto_restart_skips_inactive_master_when_sibling_is_active(
 
     assert calls == []
     assert actions == ["[auto] skip restart regime-locus-master.service (active mutually-exclusive sibling)"]
+
+
+def test_staleness_ignores_trade_log_when_no_active_plans(tmp_path: Path, monkeypatch) -> None:
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    plans = {"results": [{"symbol": "SPY", "status": "skipped"}]}
+    (processed / "universe_trade_plans.json").write_text(json.dumps(plans), encoding="utf-8")
+    tlog = processed / "trade_log.csv"
+    tlog.write_text("timestamp_utc,plan_id,symbol\n", encoding="utf-8")
+
+    old = os.path.getmtime(tlog) - 3 * 3600
+    os.utime(tlog, (old, old))
+
+    monkeypatch.setattr(health, "_STALE_HOURS", {"trade_log.csv": 0.1})
+    stale = health._check_staleness(tmp_path)
+    assert stale == []
