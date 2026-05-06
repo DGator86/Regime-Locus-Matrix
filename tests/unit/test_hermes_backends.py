@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
+from rlm.hermes_crew import backends as hermes_backends
 from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
 
 
@@ -58,3 +57,24 @@ def test_openrouter_precedence_over_groq_key_without_auto(monkeypatch: pytest.Mo
     [(base, key, _)] = resolve_hermes_backend_tuples()
     assert "openrouter" in base
     assert key == "sk-or-test"
+
+
+def test_local_ollama_auto_selects_installed_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("RLM_HERMES_BASE_URL", raising=False)
+    monkeypatch.delenv("RLM_HERMES_MODEL", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.setattr(hermes_backends, "_detect_ollama_model", lambda _base: "qwen2.5:7b-instruct")
+    [(_, _, model)] = resolve_hermes_backend_tuples()
+    assert model == "qwen2.5:7b-instruct"
+
+
+def test_env_model_overrides_auto_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("RLM_HERMES_BASE_URL", raising=False)
+    monkeypatch.setenv("RLM_HERMES_MODEL", "my-fixed-model")
+    monkeypatch.setattr(hermes_backends, "_detect_ollama_model", lambda _base: "qwen2.5:7b-instruct")
+    [(_, _, model)] = resolve_hermes_backend_tuples()
+    assert model == "my-fixed-model"
