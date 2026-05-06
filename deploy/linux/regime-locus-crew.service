@@ -8,14 +8,20 @@
 #       cd @INSTALL_ROOT@ && .venv/bin/pip install -e ".[hermes]"
 #     One-shot helper: scripts/setup_hermes_on_vps.sh (prefers /opt/rlm-venv when present).
 #
-#   LLM backend — choose ONE of the two options below and add to .env:
+#   LLM backend — add to .env (precedence: explicit BASE_URL > AUTO_GROQ > OpenRouter key > Ollama):
 #
-#   Option A: Groq cloud (free tier, fast — recommended for VPS without GPU)
-#     GROQ_API_KEY=gsk_...            ← free key from console.groq.com
-#     RLM_HERMES_MODEL=llama-3.3-70b-versatile   ← optional; this is the auto-default
-#     (RLM_HERMES_BASE_URL and RLM_HERMES_API_KEY are set automatically when GROQ_API_KEY is present)
+#   Option A — OpenRouter (free :free models; get key at https://openrouter.ai )
+#     OPENROUTER_API_KEY=sk-or-...
+#     # Optional overrides:
+#     # RLM_HERMES_MODEL=meta-llama/llama-3.2-3b-instruct:free
+#     # RLM_HERMES_OPENROUTER_MODEL=...
 #
-#   Option B: local Ollama
+#   Option B — Groq (only when explicitly enabled; avoids silent daily cap when key is left in .env)
+#     GROQ_API_KEY=gsk_...
+#     RLM_HERMES_AUTO_GROQ=1
+#     # RLM_HERMES_MODEL=llama-3.3-70b-versatile
+#
+#   Option C — local Ollama (no cloud keys)
 #     RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
 #     RLM_HERMES_API_KEY=ollama
 #     RLM_HERMES_MODEL=llama3.2
@@ -59,8 +65,7 @@ Environment=CREW_BRIEFING_INTERVAL=600
 Environment=RLM_HEALTH_AUTO_RESTART=1
 Environment=RLM_HEALTH_RESTART_COOLDOWN_SEC=180
 
-# After install, replace with /opt/rlm-venv/bin/python if that is your venv.
-ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_crew.py
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_crew.py
 
 Restart=always
 RestartSec=30

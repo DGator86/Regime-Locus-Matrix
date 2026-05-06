@@ -14,9 +14,11 @@ Requires: ``pip install -e ".[hermes]"`` and a reachable OpenAI-compatible endpo
 
 Environment:
     RLM_ROOT / --root       repo root (default: parent of scripts/)
-    RLM_HERMES_BASE_URL     default http://127.0.0.1:11434/v1
-    RLM_HERMES_API_KEY      default ollama
-    RLM_HERMES_MODEL        default llama3.2 or LLM_MODEL
+    RLM_HERMES_BASE_URL     optional explicit OpenAI-compatible base URL
+    OPENROUTER_API_KEY      if set (and BASE_URL unset), uses OpenRouter free-tier defaults
+    RLM_HERMES_AUTO_GROQ    set 1 with GROQ_API_KEY to use Groq (Groq is never implied from the key alone)
+    RLM_HERMES_API_KEY      API key for explicit BASE_URL (default ollama for Ollama)
+    RLM_HERMES_MODEL        model id (defaults vary by backend)
     RLM_HERMES_SKIP_MEMORY  1 to disable Hermes persistent memory reads/writes
     RLM_HERMES_TELEGRAM_BOT_TOKEN, RLM_HERMES_TELEGRAM_CHAT_ID
     (legacy fallback: TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID)
@@ -84,6 +86,7 @@ def main() -> int:
         print(build_trade_and_regime_context(root))
         return 0
 
+    from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
     from rlm.hermes_crew.loop import HermesCrewConfig, run_crew_forever, run_crew_once
 
     cfg = HermesCrewConfig(
@@ -91,9 +94,11 @@ def main() -> int:
         analysis_interval=args.analysis_interval,
         briefing_interval=args.briefing_interval,
     )
+    backends = resolve_hermes_backend_tuples()
+    primary = backends[0]
     print(
-        f"[Crew] Hermes mode — root={root} "
-        f"model={os.environ.get('RLM_HERMES_MODEL', os.environ.get('LLM_MODEL', 'llama3.2'))}",
+        f"[Crew] Hermes backends — root={root} primary={primary[0]!r} model={primary[2]!r}"
+        + (f" fallbacks={len(backends) - 1}" if len(backends) > 1 else ""),
         flush=True,
     )
     if args.once:

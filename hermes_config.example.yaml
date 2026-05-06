@@ -4,22 +4,24 @@
 # Copy the block you want into your .env file (see .env.example).
 # This file is documentation only.
 #
-# ─── Option A: Groq cloud (free tier, fast — recommended for VPS without GPU) ─
+# ─── OpenRouter (recommended free cloud when BASE_URL unset) ─────────────────
 #
-# Get a free key at https://console.groq.com
-# When GROQ_API_KEY is present, run_crew.py auto-configures Groq.
-# No other RLM_HERMES_* vars needed unless you want to override the model.
+#   OPENROUTER_API_KEY=sk-or-...
+#   # Optional: RLM_HERMES_MODEL=meta-llama/llama-3.2-3b-instruct:free
+#
+# ─── Groq (opt-in — set AUTO_GROQ so a leftover GROQ_API_KEY does not hijack Ollama / OpenRouter) ──
 #
 #   GROQ_API_KEY=gsk_...
-#   RLM_HERMES_MODEL=llama-3.3-70b-versatile   # optional; this is the auto-default
+#   RLM_HERMES_AUTO_GROQ=1
+#   # Optional: RLM_HERMES_MODEL=llama-3.3-70b-versatile
 #
-# ─── Option B: local Ollama ───────────────────────────────────────────────────
+# ─── local Ollama ─────────────────────────────────────────────────────────────
 #
 #   RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
 #   RLM_HERMES_API_KEY=ollama
 #   RLM_HERMES_MODEL=llama3.2
 #
-# ─── Option C: any OpenAI-compatible endpoint ─────────────────────────────────
+# ─── any OpenAI-compatible endpoint (explicit BASE_URL) ───────────────────────
 #
 #   RLM_HERMES_BASE_URL=https://your-endpoint/v1
 #   RLM_HERMES_API_KEY=your-api-key

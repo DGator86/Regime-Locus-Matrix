@@ -15,6 +15,6 @@ WorkingDirectory=@INSTALL_ROOT@
 EnvironmentFile=-@INSTALL_ROOT@/.env
 Environment="RLM_MAX_CPU_THREADS=2"
 Environment="OMP_NUM_THREADS=2"
-ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_nightly_hyperparam_opt.py --trials 40
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_nightly_hyperparam_opt.py --trials 40
 StandardOutput=append:/var/log/rlm-nightly-opt.log
 StandardError=append:/var/log/rlm-nightly-opt.error.log

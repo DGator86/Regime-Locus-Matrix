@@ -7,8 +7,8 @@ Type=oneshot
 User=root
 WorkingDirectory=@INSTALL_ROOT@
 EnvironmentFile=@INSTALL_ROOT@/.env
-Environment=PATH=@INSTALL_ROOT@/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_forecast_pipeline.py --no-vix
+Environment=PATH=@INSTALL_ROOT@/.venv/bin:/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_forecast_pipeline.py --no-vix
 
 [Install]
 WantedBy=multi-user.target

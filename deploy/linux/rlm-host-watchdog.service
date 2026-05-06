@@ -1,9 +1,6 @@
-# VPS / canonical Hostinger layout:
-#   Repo: /opt/Regime-Locus-Matrix  |  venv: /opt/rlm-venv
+# Template: install via deploy/linux/install-systemd.sh (replaces @INSTALL_ROOT@).
 # Optional Telegram + tuning: /opt/enterprise/config/.env (loaded by the script by default).
-#
-#   sudo cp deploy/linux/rlm-host-watchdog.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now rlm-host-watchdog
+# After=ollama is optional — disable on hosts without Ollama.
 
 [Unit]
 Description=RLM host watchdog (systemd + resources + optional Telegram; Hermes crew is separate)
@@ -13,10 +10,10 @@ Wants=network-online.target ollama.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/Regime-Locus-Matrix
+WorkingDirectory=@INSTALL_ROOT@
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
-ExecStart=/opt/rlm-venv/bin/python3 /opt/Regime-Locus-Matrix/scripts/rlm_enterprise_watchdog.py
+EnvironmentFile=-@INSTALL_ROOT@/.env
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/rlm_enterprise_watchdog.py
 Restart=always
 RestartSec=15
 StandardOutput=journal

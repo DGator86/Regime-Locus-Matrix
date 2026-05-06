@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
 from rlm.hermes_facts.crew_command import (
     CommandDecision,
     parse_command_decision,
@@ -123,43 +124,6 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     return run_agent.AIAgent, run_agent
 
 
-def _env_first(*keys: str) -> str:
-    for key in keys:
-        value = (os.environ.get(key) or "").strip()
-        if value:
-            return value
-    return ""
-
-
-def _resolve_hermes_backends() -> list[tuple[str, str, str]]:
-    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
-    if groq_key and not os.environ.get("RLM_HERMES_BASE_URL", "").strip():
-        _dflt_base = "https://api.groq.com/openai/v1"
-        _dflt_key = groq_key
-        _dflt_model = "llama-3.1-8b-instant"
-    else:
-        _dflt_base = "http://127.0.0.1:11434/v1"
-        _dflt_key = "ollama"
-        _dflt_model = "llama3.2"
-
-    primary_base = _env_first("RLM_HERMES_BASE_URL") or _dflt_base
-    primary_key = _env_first("RLM_HERMES_API_KEY") or _dflt_key
-    primary_model = _env_first("RLM_HERMES_MODEL", "LLM_MODEL") or _dflt_model
-
-    fallback_model = _env_first("RLM_HERMES_FALLBACK_MODEL")
-    fallback_base = _env_first("RLM_HERMES_FALLBACK_BASE_URL")
-    fallback_key = _env_first("RLM_HERMES_FALLBACK_API_KEY")
-    if fallback_model and not fallback_base:
-        fallback_base = "https://openrouter.ai/api/v1"
-    if fallback_base and not fallback_key:
-        fallback_key = _env_first("OPENROUTER_API_KEY")
-
-    backends: list[tuple[str, str, str]] = [(primary_base, primary_key, primary_model)]
-    if fallback_base and fallback_key and fallback_model:
-        backends.append((fallback_base, fallback_key, fallback_model))
-    return backends
-
-
 def _make_agent_with_skill(
     root: Path,
     skill_prompt: str,
@@ -184,7 +148,7 @@ def _make_agent_with_skill(
 
 
 def _chat_with_failover(root: Path, skill_prompt: str, user_prompt: str, toolsets: list[str]) -> str:
-    backends = _resolve_hermes_backends()
+    backends = resolve_hermes_backend_tuples()
     last_error: Exception | None = None
     for idx, backend in enumerate(backends, start=1):
         base_url, _, model = backend
@@ -213,10 +177,12 @@ def _chat_with_failover(root: Path, skill_prompt: str, user_prompt: str, toolset
 
 def _make_agent(root: Path):
     """Commander Hermes agent (backward-compatible helper)."""
+    backend = resolve_hermes_backend_tuples()[0]
     return _make_agent_with_skill(
         root,
         _load_commander_skill_text(root),
         ["rlm"],
+        backend,
     )
 
 

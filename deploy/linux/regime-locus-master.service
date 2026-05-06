@@ -29,7 +29,7 @@ WorkingDirectory=@INSTALL_ROOT@
 Environment=PYTHONUNBUFFERED=1
 # systemd parses KEY=VALUE only; keep .env free of "export " prefixes
 EnvironmentFile=-@INSTALL_ROOT@/.env
-ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_master.py
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_master.py
 # "always" = come back after reboot (via enable) and after any process exit; use "on-failure" for crash-only
 Restart=always
 RestartSec=20

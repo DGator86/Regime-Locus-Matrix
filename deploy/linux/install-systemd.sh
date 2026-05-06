@@ -19,8 +19,12 @@ if [[ ! -f "${INSTALL_ROOT}/scripts/run_master.py" ]]; then
   echo "error: INSTALL_ROOT=${INSTALL_ROOT} does not look like the repo (missing scripts/run_master.py)" >&2
   exit 1
 fi
-if [[ ! -x "${INSTALL_ROOT}/.venv/bin/python" ]]; then
-  echo "error: venv not found at ${INSTALL_ROOT}/.venv/bin/python — create it and pip install -e . first" >&2
+if [[ -x "${INSTALL_ROOT}/.venv/bin/python" ]]; then
+  :
+elif [[ -x /opt/rlm-venv/bin/python ]]; then
+  echo "note: INSTALL_ROOT has no .venv; scripts/systemd_exec_python.sh will use /opt/rlm-venv/bin/python"
+else
+  echo "error: no Python venv — expected ${INSTALL_ROOT}/.venv/bin/python or /opt/rlm-venv/bin/python" >&2
   exit 1
 fi
 

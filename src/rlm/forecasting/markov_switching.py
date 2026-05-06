@@ -42,8 +42,15 @@ class RLMMarkovSwitching:
         if "close" not in df.columns:
             raise ValueError("Missing required 'close' column for Markov-switching observations.")
         close = pd.to_numeric(df["close"], errors="coerce")
-        returns = close.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        return returns.astype(float)
+        returns = close.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0).astype(float)
+        returns.name = "returns"
+        idx = returns.index
+        if isinstance(idx, pd.DatetimeIndex) and idx.freq is None:
+            inferred = pd.infer_freq(idx)
+            if inferred is not None:
+                returns = returns.copy()
+                returns.index = pd.DatetimeIndex(idx, freq=inferred)
+        return returns
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame | None:
         """Build optional exogenous features for regime conditioning."""
@@ -113,7 +120,7 @@ class RLMMarkovSwitching:
             trend=self.config.trend,
             switching_variance=self.config.switching_variance,
         )
-        self.fit_result = model.fit(disp=False)
+        self.fit_result = model.fit(disp=False, maxiter=500)
         if verbose:
             print(
                 f"Markov-switching fitted with {self.config.n_states} states, "
