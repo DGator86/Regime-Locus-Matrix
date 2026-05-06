@@ -35,6 +35,26 @@ RLM (Regime Locus Matrix) is a pure-Python quantitative options-trading framewor
 
 When you change this codebase in a session, **commit** the intended files, then **run `.\scripts\deploy_vps.ps1`** from the repo root. That script **`git push origin main`**, SSH **`git pull`** on the VPS repo path, then **`systemctl restart`** on **active** units from the deploy list (override with `-SystemdUnits` or `VPS_SYSTEMD_UNITS`). Require a **clean** working tree before the push step (stash or drop unrelated edits first). Skip only when the user explicitly opts out.
 
+### Agent note: VPS and GPU — operate directly
+
+**Do not** defer Hostinger VPS work to the user (no “you should SSH and…” handoffs). Unless they explicitly say they will handle infra themselves, **you** run commands, push fixes, and validate.
+
+**VPS (default `root@2.24.28.77`, repo `/opt/Regime-Locus-Matrix`, venv often `/opt/rlm-venv`):**
+
+- Use non-interactive SSH (`ssh -o BatchMode=yes`) from the dev machine when keys are configured; honour `VPS_HOST`, `VPS_USER`, `VPS_REPO` if set.
+- After code or unit-template changes: **`deploy_vps.ps1`**, then if **`deploy/linux/*.service`** changed, **reinstall units on the server** (sed ` @INSTALL_ROOT@` → repo path into `/etc/systemd/system/`, `systemctl daemon-reload`, restart affected units).
+- Diagnose with `systemctl status/list-units`, `journalctl`, log tails, `df`/`free`, and masked `grep` of `.env` (never print secrets).
+- Edit remote `.env` via small scripts checked into `scripts/` (e.g. migrations), backups, and `systemctl restart` — not by telling the user to paste keys.
+- Use Hostinger MCP (`VPS_getVirtualMachinesV1`, `VPS_getMetricsV1`, etc.) when cloud-side state matters.
+
+**GPU:**
+
+- Confirm **where** training or inference is supposed to run (this VPS is usually **CPU-only** KVM). Do not assume CUDA on the server.
+- For local/GPU hosts: check `nvidia-smi`, `torch.cuda.is_available()`, Ollama GPU use, and env (`CUDA_VISIBLE_DEVICES`) as part of troubleshooting — run the checks yourself when you have shell access.
+- Kronos defaults are **CPU-viable**; GPU is an optimization, not a requirement for “correct” behaviour.
+
+**Exception:** If SSH or MCP auth fails or the user has no deploy path, say so once and state what is blocked — still avoid generic “run these steps” without attempting them from the environment you have.
+
 ### Gotchas
 
 - Use `python3` (not `python`); the VM has Python 3.12 but no `python` symlink.
