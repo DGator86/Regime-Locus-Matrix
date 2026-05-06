@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import date as _date
@@ -34,6 +35,10 @@ from typing import Any, Dict, Generator, Optional
 from rlm.trading_agents.config import _GROQ_BASE_URL
 
 log = logging.getLogger(__name__)
+
+# Serializes the monkey-patch window so concurrent Groq analyses don't
+# interfere with each other's ChatOpenAI.__init__ replacement.
+_groq_patch_lock = threading.Lock()
 
 # Keys tried in order when extracting fields from the decision object/dict.
 _ACTION_KEYS = ("action", "final_trade_decision", "trade_decision", "decision")
@@ -121,38 +126,41 @@ def _groq_compat_env(groq_key: str) -> Generator[None, None, None]:
        Groq does not implement.  We temporarily replace ``ChatOpenAI.__init__``
        to drop that kwarg for the duration of the ``propagate()`` call.
     """
+    # Always replace OPENAI_API_KEY with the Groq key for the duration so
+    # requests authenticate correctly even when OPENAI_API_KEY is already set
+    # to a different (OpenAI) key.
     saved_key = os.environ.get("OPENAI_API_KEY")
-    if not saved_key:
-        os.environ["OPENAI_API_KEY"] = groq_key
+    os.environ["OPENAI_API_KEY"] = groq_key
 
-    _orig = None
-    try:
-        import langchain_openai as _lo
+    with _groq_patch_lock:
+        _orig = None
+        try:
+            import langchain_openai as _lo
 
-        _orig = _lo.ChatOpenAI.__init__
+            _orig = _lo.ChatOpenAI.__init__
 
-        def _patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            kwargs.pop("use_responses_api", None)
-            _orig(self, *args, **kwargs)
+            def _patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                kwargs.pop("use_responses_api", None)
+                _orig(self, *args, **kwargs)
 
-        _lo.ChatOpenAI.__init__ = _patched_init
-    except (ImportError, AttributeError):
-        pass
+            _lo.ChatOpenAI.__init__ = _patched_init
+        except (ImportError, AttributeError):
+            pass
 
-    try:
-        yield
-    finally:
-        if saved_key is None:
-            os.environ.pop("OPENAI_API_KEY", None)
-        else:
-            os.environ["OPENAI_API_KEY"] = saved_key
-        if _orig is not None:
-            try:
-                import langchain_openai as _lo  # noqa: F811
+        try:
+            yield
+        finally:
+            if saved_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = saved_key
+            if _orig is not None:
+                try:
+                    import langchain_openai as _lo  # noqa: F811
 
-                _lo.ChatOpenAI.__init__ = _orig
-            except (ImportError, AttributeError):
-                pass
+                    _lo.ChatOpenAI.__init__ = _orig
+                except (ImportError, AttributeError):
+                    pass
 
 
 class TradingAgentsAdapter:

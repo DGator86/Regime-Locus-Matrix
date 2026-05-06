@@ -17,6 +17,23 @@ def _parse_int_env(name: str, default: int) -> int:
         return default
 
 
+# Sensible model defaults per provider so users only need to set
+# TRADING_AGENTS_LLM_PROVIDER without also specifying model names.
+_PROVIDER_DEFAULTS: dict = {
+    "openai":     ("gpt-4o",                              "gpt-4o-mini"),
+    "anthropic":  ("claude-opus-4-7",                     "claude-haiku-4-5-20251001"),
+    "google":     ("gemini-2.0-flash",                    "gemini-2.0-flash"),
+    "openrouter": ("meta-llama/llama-4-maverick:free",    "google/gemini-2.0-flash-exp:free"),
+    "deepseek":   ("deepseek-reasoner",                   "deepseek-chat"),
+    "xai":        ("grok-2",                              "grok-2"),
+    "ollama":     ("llama3.2",                            "llama3.2"),
+    "qwen":       ("qwen-max",                            "qwen-turbo"),
+    "glm":        ("glm-4",                               "glm-4-flash"),
+    # Groq via openai-compat endpoint
+    "_groq":      ("llama-3.3-70b-versatile",             "llama-3.1-8b-instant"),
+}
+
+
 def _auto_detect_provider() -> Tuple[str, str, str, Optional[str]]:
     """Return (provider, deep_model, quick_model, backend_url) from available API keys.
 
@@ -83,8 +100,11 @@ class TradingAgentsConfig:
 
         if explicit_provider:
             provider = explicit_provider
-            deep = explicit_deep or "llama-3.3-70b-versatile"
-            quick = explicit_quick or "llama-3.1-8b-instant"
+            default_deep, default_quick = _PROVIDER_DEFAULTS.get(
+                explicit_provider.lower(), ("gpt-4o", "gpt-4o-mini")
+            )
+            deep = explicit_deep or default_deep
+            quick = explicit_quick or default_quick
             backend = explicit_backend
         else:
             provider, deep, quick, backend = _auto_detect_provider()

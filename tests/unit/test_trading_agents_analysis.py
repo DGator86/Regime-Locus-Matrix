@@ -1,30 +1,11 @@
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
-
-import pytest
-
 import rlm.hermes_facts.trading_agents_analysis as ta_module
 
 
 def test_returns_unavailable_when_package_not_installed(monkeypatch):
-    """Graceful degradation: missing tradingagents package → available=False."""
-    # Simulate ImportError inside the fact gatherer
-    original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "rlm.trading_agents.integration":
-            raise ImportError("tradingagents not installed")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(ta_module, "gather_trading_agents_analysis", ta_module.gather_trading_agents_analysis)
-
-    # Patch at the module level: make the import inside the function fail
-    import rlm.trading_agents.integration as _integration_mod  # noqa: F401 — ensure it's cached
-
-    # Replace TradingAgentsAdapter with one that raises ImportError
-    original_adapter = getattr(_integration_mod, "TradingAgentsAdapter", None)
+    """Graceful degradation: TradingAgentsAdapter raises ImportError → available=False."""
+    import rlm.trading_agents.integration as _integration_mod
 
     class _BrokenAdapter:
         def __init__(self, *a, **kw):
