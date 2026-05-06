@@ -255,6 +255,9 @@ def main() -> int:
 
     def pipeline_cmd() -> list[str]:
         cmd = [py, str(ROOT / "scripts" / "run_universe_options_pipeline.py"), "--out", plans]
+        env_pipeline_args = (os.environ.get("RLM_PIPELINE_ARGS") or "").strip()
+        if env_pipeline_args:
+            cmd.extend(shlex.split(env_pipeline_args))
         if args.pipeline_args.strip():
             cmd.extend(shlex.split(args.pipeline_args))
         if args.use_vp_gating and "--use-vp-gating" not in cmd:

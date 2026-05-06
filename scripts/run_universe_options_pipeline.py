@@ -220,6 +220,7 @@ def _forecast_final_row(
     min_regime_train_samples: int,
     purge_bars: int,
     event_lookahead_days: int,
+    ignore_major_events: bool,
     serialize_ibkr: bool,
     factor_option_chain: pd.DataFrame | None = None,
 ) -> pd.Series | None:
@@ -237,7 +238,9 @@ def _forecast_final_row(
     else:
         forecast = ForecastPipeline(move_window=move_window, vol_window=vol_window)
     out = forecast.run(feats).copy()
-    out["has_major_event"] = bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
+    out["has_major_event"] = (
+        False if ignore_major_events else bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
+    )
     out = attach_regime_safety_columns(
         out,
         min_regime_train_samples=min_regime_train_samples,
@@ -285,6 +288,7 @@ def _prepare_symbol(
     buffer_open_minutes: int,
     buffer_close_minutes: int,
     event_lookahead_days: int,
+    ignore_major_events: bool,
     serialize_ibkr: bool,
     short_dte: bool,
     processed_dir: Path | None,
@@ -327,7 +331,9 @@ def _prepare_symbol(
         active_model = "forecast"
     out = forecast.run(feats)
     out = out.copy()
-    out["has_major_event"] = bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
+    out["has_major_event"] = (
+        False if ignore_major_events else bool(has_major_event_today(sym, lookahead_days=event_lookahead_days))
+    )
     out = attach_regime_safety_columns(
         out,
         min_regime_train_samples=min_regime_train_samples,
@@ -361,6 +367,7 @@ def _prepare_symbol(
                 min_regime_train_samples=min_regime_train_samples,
                 purge_bars=purge_bars,
                 event_lookahead_days=event_lookahead_days,
+                ignore_major_events=ignore_major_events,
                 serialize_ibkr=serialize_ibkr,
                 factor_option_chain=None,
             )
@@ -775,6 +782,11 @@ def main() -> int:
         help="Forward days for earnings/macro event check (has_major_event)",
     )
     p.add_argument(
+        "--ignore-major-events",
+        action="store_true",
+        help="Disable earnings/macro event risk filter and treat has_major_event as False.",
+    )
+    p.add_argument(
         "--serialize-ibkr",
         action="store_true",
         help="Serialize IBKR historical requests (use with parallel workers)",
@@ -1105,6 +1117,7 @@ def main() -> int:
                 buffer_open_minutes=int(args.buffer_open_minutes),
                 buffer_close_minutes=int(args.buffer_close_minutes),
                 event_lookahead_days=int(args.event_lookahead_days),
+                ignore_major_events=bool(args.ignore_major_events),
                 serialize_ibkr=bool(args.serialize_ibkr),
                 short_dte=bool(args.short_dte),
                 processed_dir=processed_dir,
