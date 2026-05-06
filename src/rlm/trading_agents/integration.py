@@ -9,18 +9,33 @@ TradingAgents runs a multi-agent LLM pipeline:
 
 The adapter normalises the final PortfolioDecision into a flat dict
 that can be serialised to JSON and returned to the Hermes crew.
+
+Provider routing
+----------------
+By default the adapter auto-detects the best available free LLM provider
+(Groq → Google Gemini → OpenRouter → Anthropic → OpenAI).  Groq requires
+a small compatibility shim: TradingAgents routes it through the ``openai``
+provider with a custom ``backend_url``, but langchain-openai adds
+``use_responses_api=True`` for that provider, which Groq does not implement.
+``_groq_compat_env`` suppresses that flag for the duration of each
+``propagate()`` call and ensures ``OPENAI_API_KEY`` is populated from
+``GROQ_API_KEY`` so the request authenticates correctly.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import date as _date
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
+
+from rlm.trading_agents.config import _GROQ_BASE_URL
 
 log = logging.getLogger(__name__)
 
-# Keys tried in order when extracting the action from the decision object/dict.
+# Keys tried in order when extracting fields from the decision object/dict.
 _ACTION_KEYS = ("action", "final_trade_decision", "trade_decision", "decision")
 _RATIONALE_KEYS = ("investment_thesis", "reasoning", "rationale", "summary", "executive_summary")
 _ENTRY_KEYS = ("entry_price", "entry", "price_target")
@@ -93,6 +108,53 @@ def _derive_confidence(state: dict) -> str:
     return "LOW"
 
 
+@contextmanager
+def _groq_compat_env(groq_key: str) -> Generator[None, None, None]:
+    """Shim that makes Groq work with TradingAgents' ``openai`` provider.
+
+    Two problems to solve:
+    1. ``OPENAI_API_KEY`` must be set so langchain-openai authenticates against
+       Groq's endpoint (Groq accepts the key in the Authorization header, same
+       as OpenAI's format).
+    2. TradingAgents' ``openai`` provider sets ``use_responses_api=True`` on
+       ``ChatOpenAI``, which routes requests to ``/v1/responses`` — an endpoint
+       Groq does not implement.  We temporarily replace ``ChatOpenAI.__init__``
+       to drop that kwarg for the duration of the ``propagate()`` call.
+    """
+    saved_key = os.environ.get("OPENAI_API_KEY")
+    if not saved_key:
+        os.environ["OPENAI_API_KEY"] = groq_key
+
+    _orig = None
+    try:
+        import langchain_openai as _lo
+
+        _orig = _lo.ChatOpenAI.__init__
+
+        def _patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            kwargs.pop("use_responses_api", None)
+            _orig(self, *args, **kwargs)
+
+        _lo.ChatOpenAI.__init__ = _patched_init
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        yield
+    finally:
+        if saved_key is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = saved_key
+        if _orig is not None:
+            try:
+                import langchain_openai as _lo  # noqa: F811
+
+                _lo.ChatOpenAI.__init__ = _orig
+            except (ImportError, AttributeError):
+                pass
+
+
 class TradingAgentsAdapter:
     """Thin wrapper around TradingAgentsGraph that reads config from env vars.
 
@@ -106,6 +168,24 @@ class TradingAgentsAdapter:
         cfg = config or _Cfg.from_env()
         self._cfg = cfg
         self._graph = self._build_graph(cfg)
+        self._groq_mode = (
+            bool(os.environ.get("GROQ_API_KEY"))
+            and (cfg.backend_url or "").rstrip("/") == _GROQ_BASE_URL.rstrip("/")
+            and cfg.llm_provider == "openai"
+        )
+        if self._groq_mode:
+            log.info(
+                "TradingAgents: using Groq (%s / %s) via openai-compat endpoint",
+                cfg.deep_think_llm,
+                cfg.quick_think_llm,
+            )
+        else:
+            log.info(
+                "TradingAgents: using provider=%s deep=%s quick=%s",
+                cfg.llm_provider,
+                cfg.deep_think_llm,
+                cfg.quick_think_llm,
+            )
 
     @staticmethod
     def _build_graph(cfg: "TradingAgentsConfig") -> Any:
@@ -122,6 +202,7 @@ class TradingAgentsAdapter:
         ta_config["llm_provider"] = cfg.llm_provider
         ta_config["deep_think_llm"] = cfg.deep_think_llm
         ta_config["quick_think_llm"] = cfg.quick_think_llm
+        ta_config["backend_url"] = cfg.backend_url
         ta_config["max_debate_rounds"] = cfg.max_debate_rounds
         ta_config["max_risk_discuss_rounds"] = cfg.max_risk_discuss_rounds
         ta_config["online_tools"] = cfg.online_tools
@@ -137,9 +218,18 @@ class TradingAgentsAdapter:
         if analysis_date is None:
             analysis_date = _date.today().strftime("%Y-%m-%d")
 
-        log.info("TradingAgents: analyzing %s for %s with analysts=%s", symbol, analysis_date, self._cfg.selected_analysts)
+        log.info(
+            "TradingAgents: analyzing %s for %s with analysts=%s",
+            symbol,
+            analysis_date,
+            self._cfg.selected_analysts,
+        )
 
-        state, decision = self._graph.propagate(symbol, analysis_date)
+        ctx = _groq_compat_env(os.environ["GROQ_API_KEY"]) if self._groq_mode else nullcontext()
+
+        with ctx:
+            state, decision = self._graph.propagate(symbol, analysis_date)
+
         state_dict: dict = state if isinstance(state, dict) else {}
 
         raw_action = _pick(decision, _ACTION_KEYS, _pick(state_dict, _ACTION_KEYS, "HOLD"))
