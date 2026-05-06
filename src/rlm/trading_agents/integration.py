@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass
 from datetime import date as _date
 from typing import Any, Dict, Generator, Optional
 
-from rlm.trading_agents.config import _GROQ_BASE_URL
+from rlm.trading_agents.config import _GROQ_BASE_URL, TradingAgentsConfig
 
 log = logging.getLogger(__name__)
 
@@ -170,10 +170,8 @@ class TradingAgentsAdapter:
     optional dependency is not installed (ImportError raised at call time).
     """
 
-    def __init__(self, config: "TradingAgentsConfig | None" = None) -> None:
-        from rlm.trading_agents.config import TradingAgentsConfig as _Cfg
-
-        cfg = config or _Cfg.from_env()
+    def __init__(self, config: TradingAgentsConfig | None = None) -> None:
+        cfg = config or TradingAgentsConfig.from_env()
         self._cfg = cfg
         self._graph = self._build_graph(cfg)
         self._groq_mode = (
@@ -196,7 +194,7 @@ class TradingAgentsAdapter:
             )
 
     @staticmethod
-    def _build_graph(cfg: "TradingAgentsConfig") -> Any:
+    def _build_graph(cfg: TradingAgentsConfig) -> Any:
         try:
             from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
