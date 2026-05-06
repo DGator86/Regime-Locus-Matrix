@@ -327,14 +327,16 @@ class KronosForecastPipeline:
         computes empirical quantiles.  Otherwise uses a realised-vol interval.
         """
         cfg = self.config
+        x_ts_series = pd.Series(x_ts)
+        y_ts_series = pd.Series(y_ts)
 
         if cfg.sample_count > 1:
             sample_returns = []
             for _ in range(cfg.sample_count):
                 pred_df = predictor.predict(
                     df=x_df,
-                    x_timestamp=x_ts,
-                    y_timestamp=y_ts,
+                    x_timestamp=x_ts_series,
+                    y_timestamp=y_ts_series,
                     pred_len=cfg.pred_len,
                     T=cfg.temperature,
                     top_k=cfg.top_k,
@@ -352,8 +354,8 @@ class KronosForecastPipeline:
         else:
             pred_df = predictor.predict(
                 df=x_df,
-                x_timestamp=x_ts,
-                y_timestamp=y_ts,
+                x_timestamp=x_ts_series,
+                y_timestamp=y_ts_series,
                 pred_len=cfg.pred_len,
                 T=cfg.temperature,
                 top_k=cfg.top_k,
