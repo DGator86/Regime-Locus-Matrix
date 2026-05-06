@@ -103,6 +103,21 @@ hermes = [
 agents = [
     "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
 ]
+# TradingAgents multi-agent LLM pipeline (TauricResearch/TradingAgents).
+# Adds Analyst Team, Bull/Bear researcher debate, Trader, Risk Management,
+# and Portfolio Manager agents as a Hermes tool (rlm_get_trading_agents_analysis).
+# Install: pip install -e ".[trading_agents]"
+trading_agents = [
+    "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git",
+    "langchain-core>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-sqlite>=1.0.0",
+    "yfinance",
+    "stockstats>=0.6.0",
+    "pandas",
+]
 # Morning briefing protocol
 morning = [
     "finnhub-python>=2.4.0",
