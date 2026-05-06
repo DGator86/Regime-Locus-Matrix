@@ -120,7 +120,22 @@ class RLMMarkovSwitching:
             trend=self.config.trend,
             switching_variance=self.config.switching_variance,
         )
-        self.fit_result = model.fit(disp=False, maxiter=500)
+        fit_result = None
+        for method in ("bfgs", "nm"):
+            try:
+                fit_result = model.fit(disp=False, maxiter=1200, method=method)
+                converged = True
+                ret = getattr(fit_result, "mle_retvals", None)
+                if isinstance(ret, dict):
+                    converged = bool(ret.get("converged", True))
+                if converged or method == "nm":
+                    break
+            except Exception:
+                fit_result = None
+                continue
+        if fit_result is None:
+            fit_result = model.fit(disp=False, maxiter=2000, method="bfgs")
+        self.fit_result = fit_result
         if verbose:
             print(
                 f"Markov-switching fitted with {self.config.n_states} states, "

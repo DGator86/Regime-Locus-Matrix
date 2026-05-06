@@ -5,11 +5,13 @@
 For each symbol (default: ``LIQUID_UNIVERSE`` = Mag7 + SPY + QQQ):
 
 1. IBKR bars at ``--bar-size`` / duration (overridable via ``live_regime_model.json`` → ``timeframe_hierarchy.primary_*``).
-2. Factors → state matrix → forecast/regime (``live_regime_model.model``: forecast | hmm | markov).
-3. Optional **confirmation timeframes**: ``timeframe_hierarchy.confirmation_bar_sizes`` triggers separate IBKR
+2. **Massive option snapshot** (broad chain) joined in ``prepare_bars_for_factors`` so GEX, volume/OI,
+   and surface features feed factors before the regime/forecast stack (unless ``--no-chain-for-factors``).
+3. Factors → state matrix → forecast/regime (``live_regime_model.model``: forecast | hmm | markov).
+4. Optional **confirmation timeframes**: ``timeframe_hierarchy.confirmation_bar_sizes`` triggers separate IBKR
    fetches (short ``confirmation_duration``); downstream alignment gates ROEE when finer bars disagree with primary bias.
-4. ``select_trade_for_row`` → strategy + abstract legs under regime + forecast + confirmation context.
-5. If **enter**: Massive chain match + risk plan JSON.
+5. ``select_trade_for_row`` → strategy + abstract legs under regime + forecast + confirmation context.
+6. If **enter**: Massive chain match + risk plan JSON.
 
 
 Output: JSON file consumed by ``scripts/monitor_active_trade_plans.py``.
@@ -87,6 +89,58 @@ def _env_truthy(key: str) -> bool:
 
 _IBKR_HIST_LOCK = threading.Lock()
 
+# Keep in sync with ``scripts/monitor_active_trade_plans._TRADE_LOG_COLUMNS``.
+_TRADE_LOG_COLUMNS = [
+    "timestamp_utc",
+    "plan_id",
+    "symbol",
+    "strategy",
+    "entry_debit",
+    "entry_mid",
+    "current_mark",
+    "peak_mark",
+    "unrealized_pnl",
+    "unrealized_pnl_pct",
+    "signal",
+    "closed",
+    "dte",
+]
+
+
+def _ensure_trade_log_with_header(path: Path) -> None:
+    if path.is_file():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerow(_TRADE_LOG_COLUMNS)
+
+
+def _fetch_ibkr_bars(
+    sym: str,
+    *,
+    duration: str,
+    bar_size: str,
+    serialize_ibkr: bool,
+) -> pd.DataFrame:
+    fetch_kw: dict[str, object] = {
+        "duration": duration,
+        "bar_size": bar_size,
+        "timeout_sec": 120.0,
+    }
+    if serialize_ibkr:
+        with _IBKR_HIST_LOCK:
+            return fetch_historical_stock_bars(sym, **fetch_kw)
+    return fetch_historical_stock_bars(sym, **fetch_kw)
+
+
+def _factor_snapshot_params(massive_limit: int) -> dict[str, object]:
+    """Wide snapshot for GEX / surface / volume–OI enrichment (no strike window)."""
+    return {
+        "limit": int(massive_limit),
+        "sort": "expiration_date",
+        "order": "asc",
+    }
+
 
 def _regime_key_head(regime_key: object | None) -> str:
     if regime_key is None or (isinstance(regime_key, float) and pd.isna(regime_key)):
@@ -140,22 +194,15 @@ def _forecast_final_row(
     purge_bars: int,
     event_lookahead_days: int,
     serialize_ibkr: bool,
+    factor_option_chain: pd.DataFrame | None = None,
 ) -> pd.Series | None:
     """Run bars → factors → regime/forecast stack; return latest row (for TF confirmation)."""
-    fetch_kw: dict[str, object] = {
-        "duration": duration,
-        "bar_size": bar_size,
-        "timeout_sec": 120.0,
-    }
-    if serialize_ibkr:
-        with _IBKR_HIST_LOCK:
-            bars = fetch_historical_stock_bars(sym, **fetch_kw)
-    else:
-        bars = fetch_historical_stock_bars(sym, **fetch_kw)
+    bars = _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
     if bars.empty:
         return None
     df = bars.sort_values("timestamp").set_index("timestamp")
-    df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
+    chain = factor_option_chain if factor_option_chain is not None and not factor_option_chain.empty else None
+    df = prepare_bars_for_factors(df, option_chain=chain, underlying=sym, attach_vix=attach_vix)
     feats = FactorPipeline().run(df)
     feats = classify_state_matrix(feats)
     if live_model is not None:
@@ -215,6 +262,8 @@ def _prepare_symbol(
     short_dte: bool,
     processed_dir: Path | None,
     gate: SystemGate | None = None,
+    bars: pd.DataFrame | None = None,
+    factor_option_chain: pd.DataFrame | None = None,
 ) -> tuple[dict[str, object], TradeDecision | None, pd.Timestamp | None]:
     run_at = datetime.now(timezone.utc).isoformat()
     base: dict[str, object] = {
@@ -230,22 +279,14 @@ def _prepare_symbol(
         base["skip_reason"] = f"outside_entry_window ({session_label()})"
         return base, None, None
 
-    fetch_kw: dict[str, object] = {
-        "duration": duration,
-        "bar_size": bar_size,
-        "timeout_sec": 120.0,
-    }
-    if serialize_ibkr:
-        with _IBKR_HIST_LOCK:
-            bars = fetch_historical_stock_bars(sym, **fetch_kw)
-    else:
-        bars = fetch_historical_stock_bars(sym, **fetch_kw)
-    if bars.empty:
+    raw_bars = bars if bars is not None else _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
+    if raw_bars.empty:
         base["skip_reason"] = "no_ibkr_bars"
         return base, None, None
 
-    df = bars.sort_values("timestamp").set_index("timestamp")
-    df = prepare_bars_for_factors(df, option_chain=None, underlying=sym, attach_vix=attach_vix)
+    df = raw_bars.sort_values("timestamp").set_index("timestamp")
+    chain = factor_option_chain if factor_option_chain is not None and not factor_option_chain.empty else None
+    df = prepare_bars_for_factors(df, option_chain=chain, underlying=sym, attach_vix=attach_vix)
 
     feats = FactorPipeline().run(df)
     feats = classify_state_matrix(feats)
@@ -294,6 +335,7 @@ def _prepare_symbol(
                 purge_bars=purge_bars,
                 event_lookahead_days=event_lookahead_days,
                 serialize_ibkr=serialize_ibkr,
+                factor_option_chain=None,
             )
             if cf_last is None:
                 layer_ok.append(False)
@@ -812,8 +854,14 @@ def main() -> int:
     p.add_argument(
         "--min-regime-train-samples",
         type=int,
-        default=5,
+        default=0,
         help="Pause new trades when the current regime has fewer prior training samples than this threshold.",
+    )
+    p.add_argument(
+        "--chain-for-factors",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fetch Massive option snapshots before factor prep (GEX, volume/OI, surface features).",
     )
     p.add_argument(
         "--live-model-config",
@@ -886,6 +934,10 @@ def main() -> int:
         print(f"[kronos] Blend enabled - weight={args.kronos_weight}, stride={args.kronos_stride}")
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
+    min_regime_train_samples = int(args.min_regime_train_samples)
+    if live_model is not None and live_model.min_regime_train_samples is not None:
+        min_regime_train_samples = int(live_model.min_regime_train_samples)
+
     if (
         live_model is not None
         and live_model_bootstrapped
@@ -921,12 +973,92 @@ def main() -> int:
     gate: SystemGate | None = None if _env_truthy("RLM_SKIP_SYSTEM_GATE") else SystemGate(ROOT)
     if gate is None:
         print("[gate] RLM_SKIP_SYSTEM_GATE=1 — ROEE ignores data/processed/gate_state.json", flush=True)
+    trade_log_path = ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
+    _ensure_trade_log_with_header(trade_log_path)
+
+    chain_for_factors = bool(args.chain_for_factors) and not _env_truthy("RLM_NO_CHAIN_FOR_FACTORS")
+    if not chain_for_factors:
+        print(
+            "[chain] factor-stage Massive snapshots disabled (--no-chain-for-factors or RLM_NO_CHAIN_FOR_FACTORS)",
+            flush=True,
+        )
+
     results: list[dict[str, object] | None] = [None] * len(syms)
     pending: list[_PendingUniverseSymbol] = []
 
+    def _outside_reason() -> str | None:
+        if not bool(args.market_hours_only):
+            return None
+        if entry_window_open(
+            buffer_open_minutes=int(args.buffer_open_minutes),
+            buffer_close_minutes=int(args.buffer_close_minutes),
+        ):
+            return None
+        return f"outside_entry_window ({session_label()})"
+
+    bars_by_index: list[pd.DataFrame | None] = [None] * len(syms)
     for i, sym in enumerate(syms):
+        orsn = _outside_reason()
+        if orsn is not None:
+            results[i] = {
+                "symbol": sym,
+                "run_at_utc": datetime.now(timezone.utc).isoformat(),
+                "status": "skipped",
+                "skip_reason": orsn,
+            }
+            continue
         if i:
             time.sleep(max(0.0, args.ibkr_delay))
+        try:
+            bdf = _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=bool(args.serialize_ibkr))
+            if bdf.empty:
+                results[i] = {
+                    "symbol": sym,
+                    "run_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "status": "skipped",
+                    "skip_reason": "no_ibkr_bars",
+                }
+                continue
+            bars_by_index[i] = bdf
+        except Exception as e:
+            results[i] = {
+                "symbol": sym,
+                "run_at_utc": datetime.now(timezone.utc).isoformat(),
+                "status": "error",
+                "skip_reason": str(e)[:500],
+            }
+
+    factor_chains: dict[str, pd.DataFrame] = {}
+    if chain_for_factors:
+        prefetch_syms: list[str] = []
+        ts_map: dict[str, pd.Timestamp] = {}
+        for i, sym in enumerate(syms):
+            bdf = bars_by_index[i]
+            if bdf is None:
+                continue
+            df_ix = bdf.sort_values("timestamp").set_index("timestamp")
+            prefetch_syms.append(sym)
+            ts_map[sym] = df_ix.index[-1]
+        if prefetch_syms:
+            fp = _factor_snapshot_params(args.massive_limit)
+            batch_fc = massive_option_chains_from_client(
+                client,
+                prefetch_syms,
+                timestamps=ts_map,
+                max_workers=max(1, int(args.massive_workers)),
+                cache_ttl_s=0.0,
+                **fp,
+            )
+            factor_chains = dict(batch_fc.chains)
+            for esym, err in batch_fc.errors.items():
+                print(f"[chain] factor-stage Massive error {esym}: {err}", flush=True)
+
+    for i, sym in enumerate(syms):
+        if results[i] is not None:
+            continue
+        bdf = bars_by_index[i]
+        if bdf is None:
+            continue
         try:
             base, decision, ts = _prepare_symbol(
                 sym,
@@ -936,7 +1068,7 @@ def main() -> int:
                 vol_window=args.vol_window,
                 strike_increment=args.strike_increment,
                 attach_vix=not args.no_vix,
-                min_regime_train_samples=args.min_regime_train_samples,
+                min_regime_train_samples=min_regime_train_samples,
                 purge_bars=args.purge_bars,
                 live_model=live_model,
                 market_hours_only=bool(args.market_hours_only),
@@ -947,6 +1079,8 @@ def main() -> int:
                 short_dte=bool(args.short_dte),
                 processed_dir=processed_dir,
                 gate=gate,
+                bars=bdf,
+                factor_option_chain=factor_chains.get(sym),
             )
         except Exception as e:
             results[i] = {
@@ -1068,7 +1202,6 @@ def main() -> int:
 
     actives = [r for r in final_results if r.get("status") == "active"]
     actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
-    trade_log_path = ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
     open_symbols = _load_open_symbols_from_trade_log(trade_log_path) if args.respect_open_trade_log else set()
     _apply_active_plan_guards(
         final_results,

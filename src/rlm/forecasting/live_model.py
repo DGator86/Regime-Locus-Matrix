@@ -186,6 +186,8 @@ class LiveRegimeModelConfig(BaseModel):
     kronos: LiveKronosParameters = Field(default_factory=LiveKronosParameters)
     timeframe_hierarchy: LiveTimeframeHierarchy = Field(default_factory=LiveTimeframeHierarchy)
     provenance: dict[str, Any] = Field(default_factory=dict)
+    #: When set, overrides ``--min-regime-train-samples`` for regime safety / ROEE gating.
+    min_regime_train_samples: int | None = None
 
     def build_pipeline(
         self,

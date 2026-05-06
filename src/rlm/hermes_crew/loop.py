@@ -25,6 +25,8 @@ from rlm.hermes_facts.market_context import build_trade_and_regime_context
 from rlm.roee.system_gate import SystemGate
 from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id, telegram_crew_send
 
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
+
 _COMMANDER_SYSTEM = """\
 You are the Hermes Crew Commander for Regime Locus Matrix (options / regime trading stack).
 You have two prior reports: Pipeline Health (engineering/systems) and Regime Research (markets/plans).
@@ -124,6 +126,18 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
     return run_agent.AIAgent, run_agent
 
 
+def _hermes_effective_toolsets(toolsets: list[str]) -> list[str]:
+    """OpenRouter free routes often omit tool-calling; disable tools unless explicitly enabled."""
+    if (os.environ.get("RLM_HERMES_DISABLE_TOOLS") or "").strip().lower() in _TRUTHY_ENV:
+        return []
+    if (os.environ.get("RLM_HERMES_ENABLE_TOOLS") or "").strip().lower() in _TRUTHY_ENV:
+        return list(toolsets)
+    base = (os.environ.get("RLM_HERMES_BASE_URL") or "").lower()
+    if "openrouter.ai" in base:
+        return []
+    return list(toolsets)
+
+
 def _make_agent_with_skill(
     root: Path,
     skill_prompt: str,
@@ -139,7 +153,7 @@ def _make_agent_with_skill(
         api_key=api_key,
         model=model,
         quiet_mode=True,
-        enabled_toolsets=toolsets,
+        enabled_toolsets=_hermes_effective_toolsets(toolsets),
         ephemeral_system_prompt=skill_prompt,
         skip_memory=skip_memory,
         max_iterations=max_it,

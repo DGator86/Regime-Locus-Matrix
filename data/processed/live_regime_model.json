@@ -8,14 +8,14 @@
     "vol_window": 141
   },
   "roee": {
-    "confidence_threshold": 0.6,
+    "confidence_threshold": 0.4,
     "sizing_multiplier": 1.0,
     "transition_penalty": 0.5,
     "kronos_confidence_weight": 0.4,
     "hmm_confidence_weight": 0.6,
-    "kronos_transition_penalty": 0.3,
-    "kronos_epistemic_disable_threshold": 0.7,
-    "kronos_aleatoric_size_penalty": 0.5,
+    "kronos_transition_penalty": 0.25,
+    "kronos_epistemic_disable_threshold": null,
+    "kronos_aleatoric_size_penalty": 0.35,
     "use_dynamic_sizing": false,
     "vol_target": 0.15,
     "max_kelly_fraction": 0.25,
@@ -32,10 +32,7 @@
     "transition_pseudocount": 0.1,
     "hierarchical": true,
     "macro_weight": 0.45,
-    "micro_timeframes": [
-      "5min",
-      "1min"
-    ]
+    "micro_timeframes": ["5min", "1min"]
   },
   "markov": {
     "n_states": 5,
@@ -44,14 +41,11 @@
     "transition_pseudocount": 0.1,
     "hierarchical": true,
     "macro_weight": 0.45,
-    "micro_timeframes": [
-      "5min",
-      "1min"
-    ]
+    "micro_timeframes": ["5min", "1min"]
   },
-  "use_kronos": false,
+  "use_kronos": true,
   "kronos": {
-    "model_name": "NeoQuasar/Kronos-small",
+    "model_name": "NeoQuasar/Kronos-mini",
     "tokenizer_name": "NeoQuasar/Kronos-Tokenizer-base",
     "device": null,
     "max_context": 512,
@@ -61,6 +55,15 @@
     "stride": 1,
     "weight": 0.35
   },
+  "timeframe_hierarchy": {
+    "primary_bar_size": "1 day",
+    "primary_duration": "180 D",
+    "confirmation_bar_sizes": [],
+    "confirmation_duration": "10 D",
+    "confirmation_mode": "direction",
+    "require_all_confirmations": true
+  },
+  "min_regime_train_samples": 0,
   "provenance": {
     "generated_at_utc": "2026-05-04T00:58:48.406598+00:00",
     "calibration_report": "data/processed/regime_model_calibration.json",
@@ -72,9 +75,6 @@
     "mtf_regimes": false,
     "hierarchical": true,
     "macro_weight": 0.45,
-    "micro_timeframes": [
-      "5min",
-      "1min"
-    ]
+    "micro_timeframes": ["5min", "1min"]
   }
 }

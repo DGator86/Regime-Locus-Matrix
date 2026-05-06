@@ -45,6 +45,8 @@ data/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/live_regime_model.json
+!data/processed/live_nightly_hyperparams.json
+!data/processed/regime_transition_calibration.json
 !data/challenge/.gitkeep
 
 # Model / experiment artifacts
@@ -62,6 +64,8 @@ checkpoints/
 *.csv
 *.json
 !data/processed/live_regime_model.json
+!data/processed/live_nightly_hyperparams.json
+!data/processed/regime_transition_calibration.json
 !dashboard/package.json
 !dashboard/tsconfig.json
 !market-field-navigator/frontend/package.json

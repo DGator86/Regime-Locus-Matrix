@@ -1,0 +1,9 @@
+{
+  "move_window": 100,
+  "vol_window": 100,
+  "direction_neutral_threshold": 0.35,
+  "hmm_confidence_threshold": 0.42,
+  "high_vol_kelly_multiplier": 0.5,
+  "transition_kelly_multiplier": 0.75,
+  "calm_trend_kelly_multiplier": 1.25
+}
