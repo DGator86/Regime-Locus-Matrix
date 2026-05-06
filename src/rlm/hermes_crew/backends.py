@@ -89,7 +89,7 @@ def _ollama_context_length(base_url: str, model: str) -> int | None:
     info = raw.get("model_info")
     if not isinstance(info, dict):
         return None
-    for key in ("llama.context_length", "qwen2.context_length", "context_length"):
+    for key in ("llama.context_length", "qwen2.context_length", "qwen35.context_length", "context_length"):
         val = info.get(key)
         if val is None:
             continue

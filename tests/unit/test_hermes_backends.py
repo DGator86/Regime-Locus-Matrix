@@ -78,3 +78,33 @@ def test_env_model_overrides_auto_detection(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(hermes_backends, "_detect_ollama_model", lambda _base: "qwen2.5:7b-instruct")
     [(_, _, model)] = resolve_hermes_backend_tuples()
     assert model == "my-fixed-model"
+
+
+def test_qwen35_context_field_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RLM_HERMES_OLLAMA_TAGS_TIMEOUT_SEC", raising=False)
+
+    class _Resp:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def read(self) -> bytes:
+            import json
+
+            return json.dumps(self._payload).encode("utf-8")
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    def _fake_urlopen(req: object, timeout: float = 2.0) -> _Resp:
+        _ = timeout
+        full_url = getattr(req, "full_url", str(req))
+        if str(full_url).endswith("/api/show"):
+            return _Resp({"model_info": {"qwen35.context_length": 262144}})
+        return _Resp({"models": [{"name": "qwen3.6:27b"}]})
+
+    monkeypatch.setattr(hermes_backends, "urlopen", _fake_urlopen)
+    model = hermes_backends._detect_ollama_model("http://127.0.0.1:11434/v1")
+    assert model == "qwen3.6:27b"
