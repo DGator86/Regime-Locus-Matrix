@@ -8,8 +8,10 @@ Documentation index: https://massive.com/docs/llms.txt
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import time
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
@@ -19,6 +21,7 @@ from dotenv import load_dotenv
 
 DEFAULT_BASE_URL = "https://api.massive.com"
 DEFAULT_TIMEOUT_S = 60.0
+_RETRYABLE_HTTP_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 
 
 def load_massive_api_key(*, env_var: str = "MASSIVE_API_KEY") -> str:
@@ -82,19 +85,32 @@ class MassiveClient:
             method="GET",
             headers={"Accept": "application/json"},
         )
-        try:
-            with urlopen(req, timeout=self.timeout_s) as resp:
-                raw = resp.read().decode("utf-8")
-        except HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")[:2000]
-            path_hint = urlparse(url).path or url[:80]
-            raise RuntimeError(f"Massive HTTP {e.code} for {path_hint}: {body}") from e
-        except URLError as e:
-            raise RuntimeError(f"Massive request failed for {url[:120]}: {e}") from e
+        retries = _massive_retry_count()
+        attempt = 0
+        while True:
+            try:
+                with urlopen(req, timeout=self.timeout_s) as resp:
+                    raw = resp.read().decode("utf-8")
+                break
+            except HTTPError as e:
+                if attempt < retries and int(getattr(e, "code", 0) or 0) in _RETRYABLE_HTTP_CODES:
+                    _sleep_retry_backoff(attempt)
+                    attempt += 1
+                    continue
+                body = e.read().decode("utf-8", errors="replace")[:2000]
+                path_hint = urlparse(url).path or url[:80]
+                raise RuntimeError(f"Massive HTTP {e.code} for {path_hint}: {body}") from e
+            except (URLError, TimeoutError, http.client.IncompleteRead) as e:
+                if attempt < retries:
+                    _sleep_retry_backoff(attempt)
+                    attempt += 1
+                    continue
+                raise RuntimeError(f"Massive request failed for {url[:120]}: {e}") from e
 
         if not raw.strip():
             return None
         return json.loads(raw)
+
 
     def option_chain_snapshot(
         self,
@@ -176,3 +192,19 @@ class MassiveClient:
         """GET ``/v3/quotes/{optionsTicker}`` (paginated)."""
         t = quote(str(options_ticker).upper(), safe="")
         return self.get(f"/v3/quotes/{t}", params)
+
+
+def _sleep_retry_backoff(attempt: int) -> None:
+    base = 0.5
+    delay = min(4.0, base * (2**max(0, attempt)))
+    time.sleep(delay)
+
+
+def _massive_retry_count() -> int:
+    raw = (os.environ.get("RLM_MASSIVE_RETRIES") or "").strip()
+    if not raw:
+        return 3
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 3

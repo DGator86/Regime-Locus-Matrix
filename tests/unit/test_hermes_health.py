@@ -134,3 +134,22 @@ def test_staleness_ignores_trade_log_when_no_active_plans(tmp_path: Path, monkey
     monkeypatch.setattr(health, "_STALE_HOURS", {"trade_log.csv": 0.1})
     stale = health._check_staleness(tmp_path)
     assert stale == []
+
+
+def test_health_degrades_on_recent_errors(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        health,
+        "_check_services",
+        lambda root, services: [
+            health.ServiceStatus(name="rlm-master-trader", active=True, sub_state="running", load_state="loaded"),
+        ],
+    )
+    monkeypatch.setattr(health, "_check_disk", lambda root: [])
+    monkeypatch.setattr(health, "_check_staleness", lambda root: [])
+    monkeypatch.setattr(health, "_check_logs", lambda root, services: ["Massive HTTP 401 for /v3/snapshot/options/SPY"])
+    monkeypatch.setattr(health, "_run_doctor", lambda root: "")
+    monkeypatch.setattr(health, "session_label", lambda: "rth")
+    monkeypatch.setattr(health, "is_scanner_window_open", lambda: True)
+
+    report = health._gather_report(tmp_path, ["rlm-master-trader"])
+    assert report.overall_ok is False

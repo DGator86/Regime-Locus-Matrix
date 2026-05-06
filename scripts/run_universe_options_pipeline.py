@@ -34,6 +34,7 @@ import os
 import sys
 import threading
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,13 @@ from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.types.options import TradeDecision
 from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
+
+# Statsmodels emits this repeatedly for our non-fixed-frequency trading calendar index.
+# It is expected and buries actionable operational logs.
+warnings.filterwarnings(
+    "ignore",
+    message="A date index has been provided, but it has no associated frequency information and so will be ignored",
+)
 
 
 def _env_truthy(key: str) -> bool:

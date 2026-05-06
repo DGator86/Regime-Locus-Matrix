@@ -108,3 +108,8 @@ def test_qwen35_context_field_is_accepted(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(hermes_backends, "urlopen", _fake_urlopen)
     model = hermes_backends._detect_ollama_model("http://127.0.0.1:11434/v1")
     assert model == "qwen3.6:27b"
+
+
+def test_select_preferred_ollama_model_avoids_heavy_by_default() -> None:
+    picked = hermes_backends._select_preferred_ollama_model(["qwen3.6:27b", "llama3.2:3b"])
+    assert picked == "llama3.2:3b"

@@ -13,12 +13,29 @@ _OPENROUTER_URL = "https://openrouter.ai/api/v1"
 _DEFAULT_OPENROUTER_FREE_MODEL = "meta-llama/llama-3.2-3b-instruct:free"
 _DEFAULT_OLLAMA_MODEL = "llama3.2"
 _DEFAULT_OLLAMA_MIN_CONTEXT = 64000
+_DEFAULT_OLLAMA_AVOID_HEAVY_SUFFIXES = (
+    "70b",
+    "72b",
+    "34b",
+    "32b",
+    "30b",
+    "27b",
+    "24b",
+    "22b",
+)
+
+
+def _looks_heavy_model(name: str) -> bool:
+    low = name.lower()
+    return any(tag in low for tag in _DEFAULT_OLLAMA_AVOID_HEAVY_SUFFIXES)
+
+
+def _prefer_non_heavy(models: list[str]) -> list[str]:
+    light = [m for m in models if not _looks_heavy_model(m)]
+    return light or models
+
+
 _DEFAULT_OLLAMA_PREFERRED_MODELS = (
-    "qwen3",
-    "qwen2.5",
-    "qwen2",
-    "qwen",
-    "llama3.3",
     "llama3.2",
     "phi4",
     "phi3",
@@ -55,6 +72,7 @@ def _preferred_ollama_prefixes() -> tuple[str, ...]:
 def _select_preferred_ollama_model(candidates: list[str]) -> str | None:
     if not candidates:
         return None
+    candidates = _prefer_non_heavy(candidates)
     lowered = [c.lower() for c in candidates]
     for pref in _preferred_ollama_prefixes():
         for idx, item in enumerate(lowered):

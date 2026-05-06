@@ -46,6 +46,10 @@ _STALE_HOURS = {
     "trade_log.csv": 0.1,
     "equity_positions_state.json": 0.1,
 }
+_BENIGN_LOG_PATTERNS = (
+    "failed to kill control group",
+    "recent log errors (",
+)
 
 
 def _resolve_services(services: Optional[list[str]]) -> list[str]:
@@ -235,6 +239,8 @@ def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
     ):
         return []
     errors: list[str] = []
+    window_minutes = _health_log_window_minutes()
+    since_arg = f"-{window_minutes}min"
     for service in _journal_services(services):
         try:
             r = subprocess.run(
@@ -242,6 +248,8 @@ def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
                     "journalctl",
                     "-u",
                     f"{service}.service",
+                    "--since",
+                    since_arg,
                     "-n",
                     str(lines),
                     "--no-pager",
@@ -254,10 +262,22 @@ def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
             for line in r.stdout.splitlines():
                 low = line.lower()
                 if any(kw in low for kw in ("error", "traceback", "exception", "critical", "failed")):
+                    if any(skip in low for skip in _BENIGN_LOG_PATTERNS):
+                        continue
                     errors.append(line[-180:])
         except Exception:
             pass
     return errors[:20]
+
+
+def _health_log_window_minutes() -> int:
+    raw = (os.environ.get("RLM_HEALTH_LOG_WINDOW_MINUTES") or "").strip()
+    if not raw:
+        return 45
+    try:
+        return max(5, int(raw))
+    except ValueError:
+        return 45
 
 
 def _resolve_doctor_python(root: Path) -> str:
@@ -325,9 +345,9 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
             if s.name == "regime-locus-master" and not scanner_open:
                 continue
             service_issues.append(s.name)
-    degraded = (
-        bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
-    )
+    degraded = bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
+    if report.recent_errors:
+        degraded = True
     report.overall_ok = not degraded
     return report
 
