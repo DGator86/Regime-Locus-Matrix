@@ -378,8 +378,7 @@ def main() -> int:
         mcmd.append("--paper-close")
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
-    if args.force_close_dte > 0.0:
-        mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
     return _run(mcmd)
 
 
