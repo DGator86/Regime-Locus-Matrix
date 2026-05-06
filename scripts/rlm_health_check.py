@@ -45,6 +45,12 @@ if str(ROOT / "src") not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
+# Workstation health (often Windows): skip journal/doctor subprocesses that stall or add 30s+.
+# Linux/VPS does not set these unless the env is already present.
+if sys.platform == "win32":
+    os.environ.setdefault("RLM_HEALTH_SKIP_JOURNAL", "1")
+    os.environ.setdefault("RLM_HEALTH_SKIP_DOCTOR", "1")
+
 os.environ.setdefault("RLM_ROOT", str(ROOT))
 os.environ.setdefault("RLM_HERMES_SKIP_MEMORY", "1")
 os.environ.setdefault("RLM_HEALTH_AUTO_RESTART", "0")

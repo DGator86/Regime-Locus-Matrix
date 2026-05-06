@@ -1,4 +1,9 @@
-"""Structured health facts (pipeline / host gather + optional auto-restart)."""
+"""Structured health facts (pipeline / host gather + optional auto-restart).
+
+Environment: ``RLM_HEALTH_SKIP_JOURNAL=1`` skips ``journalctl`` (typical on Windows);
+``RLM_HEALTH_SKIP_DOCTOR=1`` skips ``rlm doctor --strict``. ``scripts/rlm_health_check.py``
+sets both by default on ``win32``.
+"""
 
 from __future__ import annotations
 
@@ -208,6 +213,13 @@ def _check_staleness(root: Path) -> list[str]:
 
 
 def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
+    if (os.environ.get("RLM_HEALTH_SKIP_JOURNAL") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return []
     errors: list[str] = []
     for service in _journal_services(services):
         try:
@@ -256,6 +268,13 @@ def _resolve_doctor_python(root: Path) -> str:
 
 
 def _run_doctor(root: Path) -> str:
+    if (os.environ.get("RLM_HEALTH_SKIP_DOCTOR") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return "(skipped — set RLM_HEALTH_SKIP_DOCTOR=0 to run `rlm doctor`)"
     try:
         python = _resolve_doctor_python(root)
         r = subprocess.run(
