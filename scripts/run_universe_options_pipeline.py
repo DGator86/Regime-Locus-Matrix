@@ -88,6 +88,10 @@ warnings.filterwarnings(
     "ignore",
     message="A date index has been provided, but it has no associated frequency information and so will be ignored",
 )
+warnings.filterwarnings(
+    "ignore",
+    message="Maximum Likelihood optimization failed to converge",
+)
 
 
 def _env_truthy(key: str) -> bool:

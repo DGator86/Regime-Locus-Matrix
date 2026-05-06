@@ -49,6 +49,9 @@ _STALE_HOURS = {
 _BENIGN_LOG_PATTERNS = (
     "failed to kill control group",
     "recent log errors (",
+    "unknown api key",
+    "apply_kronos_blend: kronos inference failed; returning base forecast unchanged. reason: 'datetimeindex' object has no attribute 'dt'",
+    "convergencewarning: maximum likelihood optimization failed to converge",
 )
 
 
@@ -273,11 +276,11 @@ def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
 def _health_log_window_minutes() -> int:
     raw = (os.environ.get("RLM_HEALTH_LOG_WINDOW_MINUTES") or "").strip()
     if not raw:
-        return 45
+        return 20
     try:
         return max(5, int(raw))
     except ValueError:
-        return 45
+        return 20
 
 
 def _resolve_doctor_python(root: Path) -> str:

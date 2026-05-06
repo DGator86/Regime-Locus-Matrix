@@ -203,8 +203,8 @@ def _sleep_retry_backoff(attempt: int) -> None:
 def _massive_retry_count() -> int:
     raw = (os.environ.get("RLM_MASSIVE_RETRIES") or "").strip()
     if not raw:
-        return 3
+        return 5
     try:
         return max(0, int(raw))
     except ValueError:
-        return 3
+        return 5
