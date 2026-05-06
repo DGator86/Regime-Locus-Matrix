@@ -68,6 +68,20 @@ def _normalise_action(raw: Any) -> str:
     return "HOLD"
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    """Parse a numeric value from LLM output, stripping common non-numeric chars."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        cleaned = str(value).replace("$", "").replace(",", "").strip()
+        try:
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return None
+
+
 def _derive_confidence(state: dict) -> str:
     """Estimate conviction from debate agreement in the final state."""
     researcher_plan = state.get("research_plan") or state.get("final_research_plan", {})
@@ -139,8 +153,8 @@ class TradingAgentsAdapter:
             analysis_date=analysis_date,
             action=_normalise_action(raw_action),
             rationale=str(raw_rationale or "").strip(),
-            entry_price=float(raw_entry) if raw_entry is not None else None,
-            stop_loss=float(raw_stop) if raw_stop is not None else None,
+            entry_price=_safe_float(raw_entry),
+            stop_loss=_safe_float(raw_stop),
             risk_level=str(raw_risk or "MODERATE").upper(),
             confidence=_derive_confidence(state_dict),
         )

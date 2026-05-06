@@ -5,6 +5,16 @@ from dataclasses import dataclass, field
 from typing import List
 
 
+def _parse_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 @dataclass
 class TradingAgentsConfig:
     """Configuration for the TradingAgents multi-agent analysis pipeline.
@@ -32,8 +42,8 @@ class TradingAgentsConfig:
             llm_provider=os.environ.get("TRADING_AGENTS_LLM_PROVIDER", "anthropic"),
             deep_think_llm=os.environ.get("TRADING_AGENTS_DEEP_THINK_LLM", "claude-opus-4-7"),
             quick_think_llm=os.environ.get("TRADING_AGENTS_QUICK_THINK_LLM", "claude-haiku-4-5-20251001"),
-            max_debate_rounds=int(os.environ.get("TRADING_AGENTS_MAX_DEBATE_ROUNDS", "1")),
-            max_risk_discuss_rounds=int(os.environ.get("TRADING_AGENTS_MAX_RISK_ROUNDS", "1")),
+            max_debate_rounds=_parse_int_env("TRADING_AGENTS_MAX_DEBATE_ROUNDS", 1),
+            max_risk_discuss_rounds=_parse_int_env("TRADING_AGENTS_MAX_RISK_ROUNDS", 1),
             selected_analysts=analysts,
             online_tools=os.environ.get("TRADING_AGENTS_ONLINE_TOOLS", "0").lower() in ("1", "true", "yes"),
             checkpoint_enabled=os.environ.get("TRADING_AGENTS_CHECKPOINT", "0").lower() in ("1", "true", "yes"),

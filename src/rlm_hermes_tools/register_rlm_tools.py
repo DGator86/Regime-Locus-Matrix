@@ -52,7 +52,7 @@ def _rlm_get_trading_agents_analysis_json(args: dict | None = None, **kw) -> str
     params = args or {}
     symbol = str(params.get("symbol", "")).strip().upper()
     if not symbol:
-        return json.dumps({"error": "symbol parameter is required"})
+        return json.dumps({"available": False, "error": "symbol parameter is required", "symbol": ""})
     date_str = params.get("date") or params.get("analysis_date")
     result = gather_trading_agents_analysis(symbol, date_str)
     return json.dumps(result, ensure_ascii=False, default=str)
