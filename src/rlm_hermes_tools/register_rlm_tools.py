@@ -15,6 +15,7 @@ from tools.registry import registry
 
 from rlm.hermes_facts.health import gather_health_report
 from rlm.hermes_facts.market_context import build_trade_and_regime_context
+from rlm.hermes_facts.trading_agents_analysis import gather_trading_agents_analysis
 from rlm.roee.system_gate import SystemGate
 
 
@@ -45,6 +46,16 @@ def _rlm_get_system_gate_state_json(args: dict | None = None, **kw) -> str:
         },
         ensure_ascii=False,
     )
+
+
+def _rlm_get_trading_agents_analysis_json(args: dict | None = None, **kw) -> str:
+    params = args or {}
+    symbol = str(params.get("symbol", "")).strip().upper()
+    if not symbol:
+        return json.dumps({"error": "symbol parameter is required"})
+    date_str = params.get("date") or params.get("analysis_date")
+    result = gather_trading_agents_analysis(symbol, date_str)
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 def _rlm_check_portfolio_limits_json(args: dict | None = None, **kw) -> str:
@@ -91,6 +102,32 @@ RLM_LIMITS_SCHEMA = {
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
+RLM_TRADING_AGENTS_SCHEMA = {
+    "name": "rlm_get_trading_agents_analysis",
+    "description": (
+        "Run the TradingAgents multi-agent LLM pipeline for a ticker and return a structured "
+        "JSON analysis. The pipeline assembles an Analyst Team (market/news/fundamentals), a "
+        "Bull/Bear researcher debate, a Trader proposal, a Risk Management debate, and a final "
+        "Portfolio Manager decision. Returns: symbol, analysis_date, action (BUY/HOLD/SELL), "
+        "rationale, entry_price, stop_loss, risk_level, confidence. "
+        "Use this to get LLM-based fundamental + macro conviction to complement regime signals."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "symbol": {
+                "type": "string",
+                "description": "Ticker symbol to analyse (e.g. 'SPY', 'NVDA', 'QQQ').",
+            },
+            "date": {
+                "type": "string",
+                "description": "ISO date for the analysis (YYYY-MM-DD). Defaults to today.",
+            },
+        },
+        "required": ["symbol"],
+    },
+}
+
 
 registry.register(
     name="rlm_get_health_report",
@@ -126,4 +163,13 @@ registry.register(
     handler=lambda args, **kw: _rlm_check_portfolio_limits_json(args or {}, **kw),
     check_fn=lambda: True,
     emoji="⚖️",
+)
+
+registry.register(
+    name="rlm_get_trading_agents_analysis",
+    toolset="rlm",
+    schema=RLM_TRADING_AGENTS_SCHEMA,
+    handler=lambda args, **kw: _rlm_get_trading_agents_analysis_json(args or {}, **kw),
+    check_fn=lambda: True,
+    emoji="🤖",
 )
