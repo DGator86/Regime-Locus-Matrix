@@ -80,9 +80,9 @@ class TradingAgentsConfig:
     """
 
     llm_provider: str = "openai"
-    deep_think_llm: str = "llama-3.3-70b-versatile"
-    quick_think_llm: str = "llama-3.1-8b-instant"
-    backend_url: Optional[str] = _GROQ_BASE_URL
+    deep_think_llm: str = "gpt-4o"
+    quick_think_llm: str = "gpt-4o-mini"
+    backend_url: Optional[str] = None  # None = use provider's native endpoint
     max_debate_rounds: int = 1
     max_risk_discuss_rounds: int = 1
     selected_analysts: List[str] = field(

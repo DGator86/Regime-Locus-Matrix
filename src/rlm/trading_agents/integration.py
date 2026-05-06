@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
@@ -47,24 +48,36 @@ _ENTRY_KEYS = ("entry_price", "entry", "price_target")
 _STOP_KEYS = ("stop_loss", "stop", "stop_price")
 _RISK_KEYS = ("risk_level", "risk", "risk_rating")
 
+# ISO-8601 date pattern used to validate analysis_date inputs.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Valid action tokens and their canonical form.
+_BUY_TOKENS = frozenset({"BUY", "STRONG BUY", "STRONG_BUY", "OVERWEIGHT"})
+_SELL_TOKENS = frozenset({"SELL", "STRONG SELL", "STRONG_SELL", "UNDERWEIGHT"})
+
+# Canonical risk levels and common LLM synonyms.
+_RISK_HIGH = frozenset({"HIGH", "HIGH RISK", "HIGH_RISK", "AGGRESSIVE", "VERY HIGH"})
+_RISK_LOW = frozenset({"LOW", "LOW RISK", "LOW_RISK", "CONSERVATIVE", "MINIMAL", "VERY LOW"})
+_RISK_MODERATE = frozenset({"MODERATE", "MEDIUM", "NEUTRAL", "BALANCED", "NORMAL", "MODERATE RISK"})
+
 
 @dataclass
 class TradingAgentsResult:
     symbol: str
     analysis_date: str
-    action: str  # BUY / HOLD / SELL
+    action: str       # BUY | HOLD | SELL
     rationale: str
     entry_price: Optional[float]
     stop_loss: Optional[float]
-    risk_level: str
-    confidence: str  # HIGH / MEDIUM / LOW derived from consensus
+    risk_level: str   # HIGH | MODERATE | LOW
+    confidence: str   # HIGH | MEDIUM | LOW
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 
 def _pick(obj: Any, keys: tuple, default: Any = None) -> Any:
-    """Extract the first matching key from a dict or object."""
+    """Extract the first non-None matching key from a dict or object."""
     if isinstance(obj, dict):
         for k in keys:
             if k in obj and obj[k] is not None:
@@ -78,14 +91,32 @@ def _pick(obj: Any, keys: tuple, default: Any = None) -> Any:
 
 
 def _normalise_action(raw: Any) -> str:
+    """Map raw LLM action tokens to BUY | HOLD | SELL."""
     if raw is None:
         return "HOLD"
     s = str(raw).strip().upper()
-    if s in ("BUY", "OVERWEIGHT", "STRONG BUY"):
+    if s in _BUY_TOKENS:
         return "BUY"
-    if s in ("SELL", "UNDERWEIGHT", "STRONG SELL"):
+    if s in _SELL_TOKENS:
         return "SELL"
     return "HOLD"
+
+
+def _normalise_risk(raw: Any) -> str:
+    """Map raw LLM risk tokens to HIGH | MODERATE | LOW."""
+    if raw is None:
+        return "MODERATE"
+    s = str(raw).strip().upper()
+    if not s:
+        return "MODERATE"
+    if s in _RISK_HIGH:
+        return "HIGH"
+    if s in _RISK_LOW:
+        return "LOW"
+    if s in _RISK_MODERATE:
+        return "MODERATE"
+    # Unknown string: uppercase and pass through so callers can inspect it.
+    return s
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -103,13 +134,25 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 def _derive_confidence(state: dict) -> str:
-    """Estimate conviction from debate agreement in the final state."""
-    researcher_plan = state.get("research_plan") or state.get("final_research_plan", {})
+    """Estimate conviction level from the researcher debate plan in the state.
+
+    Returns HIGH | MEDIUM | LOW:
+    - No research plan present          → MEDIUM  (no signal to read)
+    - Rating has strong directional word → HIGH   (STRONG / OVER / UNDER)
+    - Rating has directional word        → MEDIUM (BUY / SELL without qualifier)
+    - Rating field absent or empty       → MEDIUM  (cannot assess)
+    - Rating is HOLD / NEUTRAL / other   → LOW    (low-conviction consensus)
+    """
+    researcher_plan = state.get("research_plan") or state.get("final_research_plan") or {}
     if not researcher_plan:
         return "MEDIUM"
-    rating = str(_pick(researcher_plan, ("rating", "score", "confidence"), "")).upper()
+    rating = str(_pick(researcher_plan, ("rating", "score", "confidence"), "") or "").upper().strip()
+    if not rating:
+        return "MEDIUM"
+    if any(w in rating for w in ("STRONG", "OVER", "UNDER")):
+        return "HIGH"
     if "BUY" in rating or "SELL" in rating:
-        return "HIGH" if "STRONG" in rating or "OVER" in rating or "UNDER" in rating else "MEDIUM"
+        return "MEDIUM"
     return "LOW"
 
 
@@ -120,15 +163,16 @@ def _groq_compat_env(groq_key: str) -> Generator[None, None, None]:
     Two problems to solve:
     1. ``OPENAI_API_KEY`` must be set so langchain-openai authenticates against
        Groq's endpoint (Groq accepts the key in the Authorization header, same
-       as OpenAI's format).
+       as OpenAI's format).  We always replace it for the duration — including
+       when the user already has ``OPENAI_API_KEY`` set to a real OpenAI key.
     2. TradingAgents' ``openai`` provider sets ``use_responses_api=True`` on
        ``ChatOpenAI``, which routes requests to ``/v1/responses`` — an endpoint
        Groq does not implement.  We temporarily replace ``ChatOpenAI.__init__``
        to drop that kwarg for the duration of the ``propagate()`` call.
+
+    The module-level ``_groq_patch_lock`` serialises concurrent Groq analyses
+    so the monkey-patch on the global ``ChatOpenAI`` class is never raced.
     """
-    # Always replace OPENAI_API_KEY with the Groq key for the duration so
-    # requests authenticate correctly even when OPENAI_API_KEY is already set
-    # to a different (OpenAI) key.
     saved_key = os.environ.get("OPENAI_API_KEY")
     os.environ["OPENAI_API_KEY"] = groq_key
 
@@ -221,8 +265,14 @@ class TradingAgentsAdapter:
         )
 
     def analyze(self, symbol: str, analysis_date: str | None = None) -> TradingAgentsResult:
+        symbol = symbol.strip().upper()
+        if not symbol:
+            raise ValueError("symbol must be a non-empty ticker string")
+
         if analysis_date is None:
             analysis_date = _date.today().strftime("%Y-%m-%d")
+        elif not _DATE_RE.match(analysis_date):
+            raise ValueError(f"analysis_date must be YYYY-MM-DD, got: {analysis_date!r}")
 
         log.info(
             "TradingAgents: analyzing %s for %s with analysts=%s",
@@ -231,11 +281,14 @@ class TradingAgentsAdapter:
             self._cfg.selected_analysts,
         )
 
-        ctx = _groq_compat_env(os.environ["GROQ_API_KEY"]) if self._groq_mode else nullcontext()
+        groq_key = os.environ.get("GROQ_API_KEY", "") if self._groq_mode else ""
+        ctx = _groq_compat_env(groq_key) if self._groq_mode and groq_key else nullcontext()
 
         with ctx:
             state, decision = self._graph.propagate(symbol, analysis_date)
 
+        if not isinstance(state, dict):
+            log.debug("TradingAgents: state is %s, not dict — defaulting to {}", type(state).__name__)
         state_dict: dict = state if isinstance(state, dict) else {}
 
         raw_action = _pick(decision, _ACTION_KEYS, _pick(state_dict, _ACTION_KEYS, "HOLD"))
@@ -251,6 +304,6 @@ class TradingAgentsAdapter:
             rationale=str(raw_rationale or "").strip(),
             entry_price=_safe_float(raw_entry),
             stop_loss=_safe_float(raw_stop),
-            risk_level=str(raw_risk or "MODERATE").upper(),
+            risk_level=_normalise_risk(raw_risk),
             confidence=_derive_confidence(state_dict),
         )
