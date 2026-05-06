@@ -52,6 +52,7 @@ _BENIGN_LOG_PATTERNS = (
     "unknown api key",
     "apply_kronos_blend: kronos inference failed; returning base forecast unchanged. reason: 'datetimeindex' object has no attribute 'dt'",
     "convergencewarning: maximum likelihood optimization failed to converge",
+    "warnings.warn(\"maximum likelihood optimization failed to ",
 )
 
 
@@ -226,7 +227,7 @@ def _check_staleness(root: Path) -> list[str]:
         if not fpath.exists():
             continue
         age_hours = (now - fpath.stat().st_mtime) / 3600
-        if fname == "trade_log.csv" and active_plans_count <= 0:
+        if fname in {"trade_log.csv", "universe_trade_plans.json", "equity_positions_state.json"} and active_plans_count <= 0:
             continue
         if age_hours > max_hours:
             stale.append(f"{fname} ({age_hours:.1f}h old)")
@@ -265,6 +266,10 @@ def _check_logs(root: Path, services: list[str], lines: int = 100) -> list[str]:
             for line in r.stdout.splitlines():
                 low = line.lower()
                 if any(kw in low for kw in ("error", "traceback", "exception", "critical", "failed")):
+                    if "regime-locus-crew" in low and "recent log errors" in low:
+                        continue
+                    if "regime-locus-crew" in low and "python[" in low and "]:     " in line:
+                        continue
                     if any(skip in low for skip in _BENIGN_LOG_PATTERNS):
                         continue
                     errors.append(line[-180:])
