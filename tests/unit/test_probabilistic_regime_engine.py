@@ -439,10 +439,12 @@ class TestComputeRegimeModulatorsWithPRE:
     def test_kronos_transition_penalty_applies_to_pre_confidence(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.60,
-            "kronos_transition_flag": True,
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": True,
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
