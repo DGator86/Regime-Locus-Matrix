@@ -829,7 +829,6 @@ class ProbabilisticRegimeEngineMTF:
             raise RuntimeError("ProbabilisticRegimeEngineMTF must be fitted before run_batch().")
         self._reset_beliefs()
         cfg = self.config
-        arts = self._artefacts
 
         # Pre-compute HTF features aligned to LTF index
         if htf_df is None or htf_df.empty:
@@ -840,6 +839,8 @@ class ProbabilisticRegimeEngineMTF:
         is_week_end_flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
+
+        ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
 
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
@@ -865,6 +866,13 @@ class ProbabilisticRegimeEngineMTF:
 
             sig = self.update(
                 ltf_observations[i],
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
+
+            sig = self.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
                 kronos_forecast=kf,
                 is_week_boundary=is_wb,
                 new_htf_features=htf_feats,
