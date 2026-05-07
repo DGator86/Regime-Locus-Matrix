@@ -996,7 +996,9 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
 
     This is the integration point for ``compute_regime_modulators`` in
     ``rlm.roee.decision``.  When a non-null ``pre_confidence`` is present, the
-    decision layer uses it directly instead of computing the binary gate.
+    decision layer uses it directly instead of computing the binary gate.  The
+    PRE score is a probability-like confidence, so consumers defensively enforce
+    the [0, 1] invariant before it reaches position sizing.
     """
     val = row.get("pre_confidence", None)
     if val is None:
@@ -1005,6 +1007,8 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
         import math
 
         f = float(val)
-        return f if math.isfinite(f) else None
+        if not math.isfinite(f):
+            return None
+        return float(np.clip(f, 0.0, 1.0))
     except (TypeError, ValueError):
         return None

@@ -343,6 +343,10 @@ class TestExtractPreConfidence:
         result = extract_pre_confidence(row)
         assert result == pytest.approx(0.72)
 
+    def test_clamps_to_probability_range(self):
+        assert extract_pre_confidence(pd.Series({"pre_confidence": 20.0})) == pytest.approx(1.0)
+        assert extract_pre_confidence(pd.Series({"pre_confidence": -2.0})) == pytest.approx(0.0)
+
     def test_returns_none_when_absent(self):
         row = pd.Series({"hmm_probs": [0.5, 0.3, 0.2]})
         result = extract_pre_confidence(row)
@@ -418,6 +422,20 @@ class TestComputeRegimeModulatorsWithPRE:
             row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.5
         )
         assert result["size_mult"] >= 0.0
+
+    def test_pre_confidence_cannot_overscale_size(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series({"pre_confidence": 20.0})
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.5,
+            use_pre_confidence=True,
+        )
+        assert result["confidence"] == pytest.approx(1.0)
+        assert result["size_mult"] <= 1.0
 
     def test_epistemic_gate_overrides_pre(self):
         from rlm.roee.decision import compute_regime_modulators
