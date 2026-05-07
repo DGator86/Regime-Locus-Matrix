@@ -179,6 +179,24 @@ def build_legs_from_candidate(
             OptionLeg(side="long", option_type="call", strike=atm),
         ]
 
+    # ------------------------------------------------------------------
+    # Aggressive day-trader sniper legs (challenge module)
+    # ------------------------------------------------------------------
+    elif name == "aggressive_daytrader_call":
+        strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.2, strike_increment)
+        legs = [OptionLeg(side="long", option_type="call", strike=strike)]
+
+    elif name == "aggressive_daytrader_put":
+        strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or -0.2, strike_increment)
+        legs = [OptionLeg(side="long", option_type="put", strike=strike)]
+
+    elif name == "aggressive_daytrader_0DTE_straddle":
+        atm = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.0, strike_increment)
+        legs = [
+            OptionLeg(side="long", option_type="call", strike=atm),
+            OptionLeg(side="long", option_type="put", strike=atm),
+        ]
+
     else:
         legs = []
 
