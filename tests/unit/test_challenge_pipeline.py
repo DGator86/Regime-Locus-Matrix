@@ -297,8 +297,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "conflicts" in d.reason_summary
@@ -312,11 +317,37 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "multi-leg" in d.reason_summary
+
+    def test_sniper_requires_available_pdt_slot(self):
+        """A day-trade sniper setup must not become an overnight swing directive."""
+        persona = _make_persona(directive="long", signal_alignment=0.78, confidence=0.82)
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[3])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert d.trade_mode == "no_trade"
+        assert "PDT slot" in d.reason_summary
 
     def test_bearish_destabilizing_regime_passes_sniper(self):
         """Bear + destabilizing dealer flow is mapped and resolves to a put strategy."""
