@@ -91,7 +91,7 @@ class TestHorizonAveragedScore:
         g = np.array([0.8, 0.2, 0.5])
         T = np.ones((K, K)) / K
         p = np.ones(K) / K
-        score, path = _horizon_averaged_score(p, T, g, horizon=5)
+        score, _ = _horizon_averaged_score(p, T, g, horizon=5)
         expected = float(np.mean(g))
         assert score == pytest.approx(expected, abs=1e-6)
 
