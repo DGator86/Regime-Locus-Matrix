@@ -25,6 +25,7 @@ from rlm.forecasting.probabilistic_regime_engine import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_ltf_df(n: int = 300, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     means = np.array([[1.2, -0.9, 0.7, 0.6], [-1.0, 1.1, -0.5, -0.8], [0.2, 0.3, -1.1, 0.9]])
@@ -45,6 +46,7 @@ def _make_htf_df(ltf_df: pd.DataFrame) -> pd.DataFrame:
 
 def _small_config() -> PREConfig:
     from rlm.forecasting.hmm import HMMConfig
+
     return PREConfig(
         k_l=3,
         k_h=2,
@@ -62,10 +64,11 @@ def _small_config() -> PREConfig:
 # Pure mathematical helpers
 # ---------------------------------------------------------------------------
 
+
 class TestComputeAttractiveness:
     def test_normal_case(self):
         returns_by_state = {
-            0: np.array([0.01, 0.02, 0.015, 0.012, 0.018]),   # positive mean
+            0: np.array([0.01, 0.02, 0.015, 0.012, 0.018]),  # positive mean
             1: np.array([-0.01, -0.02, -0.015, -0.012, -0.018]),  # negative mean
             2: np.array([]),  # no data → fallback 0.5
         }
@@ -154,6 +157,7 @@ class TestBayesianKronosUpdate:
 # ProbabilisticRegimeEngine — single timeframe
 # ---------------------------------------------------------------------------
 
+
 class TestProbabilisticRegimeEngine:
     def test_fit_and_score_smoke(self, ltf_df):
         cfg = _small_config()
@@ -206,8 +210,12 @@ class TestProbabilisticRegimeEngine:
         engine.fit(ltf_df)
         out = engine.run_batch(ltf_df)
         expected_cols = [
-            "pre_confidence", "pre_spot_attractiveness", "pre_ltf_state",
-            "pre_ltf_probs", "pre_ltf_probs_post_kronos", "pre_attractiveness_path",
+            "pre_confidence",
+            "pre_spot_attractiveness",
+            "pre_ltf_state",
+            "pre_ltf_probs",
+            "pre_ltf_probs_post_kronos",
+            "pre_attractiveness_path",
         ]
         for col in expected_cols:
             assert col in out.columns, f"Missing column: {col}"
@@ -232,6 +240,7 @@ class TestProbabilisticRegimeEngine:
 # ---------------------------------------------------------------------------
 # ProbabilisticRegimeEngineMTF
 # ---------------------------------------------------------------------------
+
 
 class TestProbabilisticRegimeEngineMTF:
     def test_fit_smoke(self, ltf_df, htf_df):
@@ -290,10 +299,14 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df)
         out = engine.run_batch(ltf_df, htf_df)
         expected_cols = [
-            "pre_confidence", "pre_spot_attractiveness",
-            "pre_ltf_state", "pre_htf_state",
-            "pre_ltf_probs", "pre_ltf_probs_post_kronos",
-            "pre_htf_probs", "pre_attractiveness_path",
+            "pre_confidence",
+            "pre_spot_attractiveness",
+            "pre_ltf_state",
+            "pre_htf_state",
+            "pre_ltf_probs",
+            "pre_ltf_probs_post_kronos",
+            "pre_htf_probs",
+            "pre_attractiveness_path",
         ]
         for col in expected_cols:
             assert col in out.columns, f"Missing column: {col}"
@@ -356,6 +369,7 @@ class TestProbabilisticRegimeEngineMTF:
 # Decision layer integration
 # ---------------------------------------------------------------------------
 
+
 class TestExtractPreConfidence:
     def test_returns_float_when_present(self):
         row = pd.Series({"pre_confidence": 0.72})
@@ -388,10 +402,12 @@ class TestComputeRegimeModulatorsWithPRE:
     def test_pre_confidence_used_as_composite(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.80,
-            "hmm_probs": [0.3, 0.4, 0.3],
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.80,
+                "hmm_probs": [0.3, 0.4, 0.3],
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -449,10 +465,12 @@ class TestComputeRegimeModulatorsWithPRE:
     def test_pre_confidence_disabled_falls_back_to_hmm(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.80,
-            "hmm_probs": [0.8, 0.1, 0.1],
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.80,
+                "hmm_probs": [0.8, 0.1, 0.1],
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -466,18 +484,18 @@ class TestComputeRegimeModulatorsWithPRE:
         from rlm.roee.decision import compute_regime_modulators
 
         row = pd.Series({"pre_confidence": 0.65})
-        result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.5
-        )
+        result = compute_regime_modulators(row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.5)
         assert result["size_mult"] >= 0.0
 
     def test_epistemic_gate_overrides_pre(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.90,
-            "kronos_epistemic_uncertainty": 0.85,
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.90,
+                "kronos_epistemic_uncertainty": 0.85,
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -492,6 +510,7 @@ class TestComputeRegimeModulatorsWithPRE:
 # ---------------------------------------------------------------------------
 # Pytest fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def ltf_df():
