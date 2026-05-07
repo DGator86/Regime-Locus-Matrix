@@ -45,8 +45,9 @@
 Description=RLM Hermes crew — health facts, market context, commander (gate_state.json)
 After=network-online.target regime-locus-master.service
 Wants=network-online.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
+# Do not rate-limit restarts: transient import/config errors used to exhaust StartLimitBurst
+# and leave the unit permanently failed ("Start request repeated too quickly").
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -68,9 +69,11 @@ Environment=RLM_HEALTH_RESTART_COOLDOWN_SEC=180
 ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_crew.py
 
 Restart=always
-RestartSec=30
+RestartSec=15
 KillMode=mixed
 TimeoutStopSec=60
+# Slightly prefer keeping this process when the OOM killer scans (best-effort).
+OOMScoreAdjust=-50
 
 StandardOutput=journal
 StandardError=journal

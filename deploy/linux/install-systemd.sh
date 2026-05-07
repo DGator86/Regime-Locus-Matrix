@@ -51,6 +51,9 @@ _install_script() {
 _install_unit "${SCRIPT_DIR}/regime-locus-master.service" \
               "/etc/systemd/system/regime-locus-master.service"
 
+_install_unit "${SCRIPT_DIR}/regime-locus-crew.service" \
+              "/etc/systemd/system/regime-locus-crew.service"
+
 _install_unit "${SCRIPT_DIR}/rlm-forecast.service" \
               "/etc/systemd/system/rlm-forecast.service"
 _install_unit "${SCRIPT_DIR}/rlm-forecast.timer" \
@@ -86,6 +89,7 @@ _install_unit "${SCRIPT_DIR}/rlm-weekly-calibrate.timer" \
 
 systemctl daemon-reload
 systemctl enable regime-locus-master.service
+systemctl enable regime-locus-crew.service
 systemctl enable rlm-forecast.timer
 systemctl enable rlm-market-open.timer
 systemctl enable rlm-market-close.timer

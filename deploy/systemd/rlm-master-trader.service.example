@@ -12,6 +12,7 @@ Description=RLM Master Trader (Options dry-run + Equity paper)
 Conflicts=regime-locus-master.service rlm-master-telegram.service
 After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target docker.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -19,9 +20,10 @@ User=root
 WorkingDirectory=/opt/Regime-Locus-Matrix
 EnvironmentFile=/opt/Regime-Locus-Matrix/.env
 Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/opt/rlm-venv/bin/python scripts/run_everything.py --master --with-equity --equity-use-account-scale
-Restart=on-failure
-RestartSec=30
+ExecStart=/opt/Regime-Locus-Matrix/scripts/systemd_exec_python.sh scripts/run_everything.py --master --with-equity --equity-use-account-scale
+Restart=always
+RestartSec=20
+OOMScoreAdjust=-50
 
 [Install]
 WantedBy=multi-user.target
