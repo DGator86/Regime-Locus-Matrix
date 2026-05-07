@@ -192,6 +192,15 @@ class TestProbabilisticRegimeEngine:
         sig = engine.score(probs[-1], kronos_forecast=None)
         assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
 
+    def test_score_treats_nullable_kronos_as_absent(self, ltf_df):
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(ltf_df)
+        probs = engine._artefacts.hmm.predict_proba_filtered(ltf_df)
+
+        sig = engine.score(probs[-1], kronos_forecast=pd.NA)
+
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
+
     def test_score_without_fit_raises(self):
         engine = ProbabilisticRegimeEngine()
         with pytest.raises(RuntimeError):
@@ -221,6 +230,18 @@ class TestProbabilisticRegimeEngine:
             assert col in out.columns, f"Missing column: {col}"
         assert (out["pre_confidence"] >= 0.0).all()
         assert (out["pre_confidence"] <= 1.0).all()
+
+    def test_run_batch_treats_nullable_kronos_as_absent(self, ltf_df):
+        df = ltf_df.copy()
+        df["kronos_forecast"] = pd.Series(df["kronos_forecast"].to_numpy(), index=df.index, dtype="Float64")
+        df.loc[df.index[10], "kronos_forecast"] = pd.NA
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(df)
+
+        out = engine.run_batch(df)
+
+        assert len(out) == len(df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
 
     def test_run_batch_without_fit_raises(self, ltf_df):
         with pytest.raises(RuntimeError):
@@ -304,6 +325,15 @@ class TestProbabilisticRegimeEngineMTF:
         assert sig.joint_belief.shape == (2 * 3,)
         assert sig.current_most_likely_htf_state in range(2)
 
+    def test_update_treats_nullable_kronos_as_absent(self, ltf_df, htf_df):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(ltf_df, htf_df)
+        ltf_row = ltf_df[["S_D", "S_V", "S_L", "S_G"]].iloc[-1].values
+
+        sig = engine.update(ltf_row, kronos_forecast=pd.NA)
+
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
+
     def test_update_week_boundary(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
         engine.fit(ltf_df, htf_df)
@@ -342,6 +372,18 @@ class TestProbabilisticRegimeEngineMTF:
             assert col in out.columns, f"Missing column: {col}"
         assert (out["pre_confidence"] >= 0.0).all()
         assert (out["pre_confidence"] <= 1.0).all()
+
+    def test_run_batch_treats_nullable_kronos_as_absent(self, ltf_df, htf_df):
+        df = ltf_df.copy()
+        df["kronos_forecast"] = pd.Series(df["kronos_forecast"].to_numpy(), index=df.index, dtype="Float64")
+        df.loc[df.index[10], "kronos_forecast"] = pd.NA
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(df, htf_df)
+
+        out = engine.run_batch(df, htf_df)
+
+        assert len(out) == len(df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
 
     def test_run_batch_same_length_as_input(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())

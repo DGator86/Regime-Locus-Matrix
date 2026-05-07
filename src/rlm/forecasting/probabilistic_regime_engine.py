@@ -182,6 +182,19 @@ def _bayesian_kronos_update(
     return posterior / total
 
 
+def _optional_finite_float(value: object) -> float | None:
+    """Return a finite scalar float, or ``None`` for missing/invalid optional sensors."""
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result):
+        return None
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Fitted artefact containers (lightweight, serialisable)
 # ---------------------------------------------------------------------------
@@ -341,8 +354,9 @@ class ProbabilisticRegimeEngine:
         alpha /= alpha.sum()
 
         # Bayesian Kronos update
-        if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(alpha, kronos_forecast, arts.kronos_means, arts.kronos_stds)
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
+            posterior = _bayesian_kronos_update(alpha, kf, arts.kronos_means, arts.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -393,11 +407,7 @@ class ProbabilisticRegimeEngine:
         paths: list[list[float]] = []
 
         for i in range(len(df)):
-            kf = (
-                float(kronos_series.iloc[i])
-                if kronos_series is not None and np.isfinite(kronos_series.iloc[i])
-                else None
-            )
+            kf = _optional_finite_float(kronos_series.iloc[i]) if kronos_series is not None else None
             sig = self.score(filtered_probs[i], kronos_forecast=kf)
             confidences.append(sig.confidence)
             spot_attrs.append(sig.instantaneous_attractiveness)
@@ -637,8 +647,9 @@ class ProbabilisticRegimeEngineMTF:
         alpha = new_ltf.copy()
 
         # --- 3. Kronos Bayesian update ------------------------------------
-        if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds)
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
+            posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -848,11 +859,7 @@ class ProbabilisticRegimeEngineMTF:
             if is_wb and htf_is_datetime:
                 htf_feats = _lookup_htf_features(ltf_df.index[i], htf_features_by_period, htf_df)
 
-            kf = (
-                float(kronos_series.iloc[i])
-                if kronos_series is not None and np.isfinite(kronos_series.iloc[i])
-                else None
-            )
+            kf = _optional_finite_float(kronos_series.iloc[i]) if kronos_series is not None else None
 
             sig = self.update(
                 ltf_observations[i],
