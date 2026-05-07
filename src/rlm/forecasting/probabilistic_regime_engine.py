@@ -190,6 +190,25 @@ def _optional_finite_float(value: object) -> float | None:
         is_missing = pd.isna(value)
         if isinstance(is_missing, (bool, np.bool_)) and is_missing:
             return None
+    """Return a finite scalar float, or ``None`` for missing/invalid optional sensors."""
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result):
+        return None
+    return result
+    """Return a finite float for optional scalar inputs, treating pandas nulls as missing."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
         f = float(value)
     except (TypeError, ValueError):
         return None
@@ -369,6 +388,8 @@ class ProbabilisticRegimeEngine:
         alpha /= alpha.sum()
 
         # Bayesian Kronos update
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
         kf = _optional_finite_float(kronos_forecast)
         if self.config.kronos_enabled and kf is not None:
             posterior = _bayesian_kronos_update(alpha, kf, arts.kronos_means, arts.kronos_stds)
@@ -662,6 +683,8 @@ class ProbabilisticRegimeEngineMTF:
         alpha = new_ltf.copy()
 
         # --- 3. Kronos Bayesian update ------------------------------------
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
         kf = _optional_finite_float(kronos_forecast)
         if self.config.kronos_enabled and kf is not None:
             posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
@@ -705,6 +728,7 @@ class ProbabilisticRegimeEngineMTF:
         try:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is None (not initialized or fitted)")
+            feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
             feature_row = pd.DataFrame(
                 [new_htf_features],
                 columns=_infer_htf_columns(new_htf_features, htf_arts.hmm),
@@ -840,7 +864,6 @@ class ProbabilisticRegimeEngineMTF:
             raise RuntimeError("ProbabilisticRegimeEngineMTF must be fitted before run_batch().")
         self._reset_beliefs()
         cfg = self.config
-        arts = self._artefacts
 
         # Pre-compute HTF features aligned to LTF index
         if htf_df is None or htf_df.empty:
@@ -852,9 +875,15 @@ class ProbabilisticRegimeEngineMTF:
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
 
+        ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
+
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
+        missing_ltf_cols = [col for col in _HMM_SCORE_COLUMNS if col not in ltf_df.columns]
+        if missing_ltf_cols:
+            raise ValueError(f"Missing required columns for HMM observations: {missing_ltf_cols}")
+        ltf_feature_rows = ltf_df[_HMM_SCORE_COLUMNS]
         ltf_observations = arts.ltf.hmm.prepare_observations(ltf_df)
 
         confidences: list[float] = []
@@ -876,6 +905,24 @@ class ProbabilisticRegimeEngineMTF:
 
             sig = self.update(
                 ltf_observations[i],
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
+
+            if is_wb:
+                beta_new = self._update_htf_belief(htf_feats, arts.htf)
+                self._htf_belief = beta_new
+
+            beta = self._htf_belief.copy()  # type: ignore[union-attr]
+            mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
+            alpha = self._step_ltf_belief(
+                ltf_features=ltf_feature_rows.iloc[i].to_numpy(),
+                prev_belief=self._ltf_belief,  # type: ignore[arg-type]
+                transmat=mixture_T,
+                hmm=arts.ltf.hmm,
+            sig = self.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
                 kronos_forecast=kf,
                 is_week_boundary=is_wb,
                 new_htf_features=htf_feats,
