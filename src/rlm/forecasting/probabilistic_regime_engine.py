@@ -824,12 +824,10 @@ class ProbabilisticRegimeEngineMTF:
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
 
-        # Pre-compute LTF filtered probabilities for the whole batch
-        ltf_filtered = arts.ltf.hmm.predict_proba_filtered(ltf_df)
-
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
+        ltf_features = arts.ltf.hmm.prepare_observations(ltf_df)
 
         confidences: list[float] = []
         spot_attrs: list[float] = []
@@ -852,21 +850,19 @@ class ProbabilisticRegimeEngineMTF:
                 else None
             )
 
-            # Override the HMM emission step with pre-computed filtered probs
-            # (avoids redundant forward-filter computation mid-batch)
             if is_wb:
                 beta_new = self._update_htf_belief(htf_feats, arts.htf)
                 self._htf_belief = beta_new
 
             beta = self._htf_belief.copy()  # type: ignore[union-attr]
-            alpha_raw = np.clip(ltf_filtered[i], 1e-12, None)
-            alpha_raw /= alpha_raw.sum()
-            # Update streaming LTF belief via mixture transmat
             mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            # Use pre-computed filtered probabilities directly (already includes
-            # emission likelihood update from the HMM forward-filter pass)
-            self._ltf_belief = alpha_raw
-            alpha = alpha_raw.copy()
+            alpha = self._step_ltf_belief(
+                ltf_features=ltf_features[i],
+                prev_belief=self._ltf_belief,  # type: ignore[arg-type]
+                transmat=mixture_T,
+                hmm=arts.ltf.hmm,
+            )
+            self._ltf_belief = alpha.copy()
 
             # Kronos update
             if cfg.kronos_enabled and kf is not None:

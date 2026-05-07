@@ -13,8 +13,11 @@ from rlm.forecasting.probabilistic_regime_engine import (
     ProbabilisticRegimeEngineMTF,
     RegimeSignal,
     _bayesian_kronos_update,
+    _build_htf_feature_lookup,
     _compute_attractiveness,
+    _compute_week_boundary_flags,
     _horizon_averaged_score,
+    _lookup_htf_features,
     extract_pre_confidence,
 )
 
@@ -315,6 +318,41 @@ class TestProbabilisticRegimeEngineMTF:
         out = engine.run_batch(ltf_df, htf_df)
         # There should be meaningful variation (std > 0)
         assert out["pre_confidence"].std() > 1e-6
+
+    def test_run_batch_matches_streaming_update(self, ltf_df, htf_df):
+        cfg = _small_config()
+        cfg.kronos_enabled = False
+        engine = ProbabilisticRegimeEngineMTF(cfg)
+        engine.fit(ltf_df, htf_df)
+
+        batch = engine.run_batch(ltf_df, htf_df)
+
+        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        engine._reset_beliefs()
+
+        streaming_confidences: list[float] = []
+        streaming_ltf_probs: list[np.ndarray] = []
+        for i, (idx, row) in enumerate(ltf_df.iterrows()):
+            htf_features = _lookup_htf_features(idx, htf_lookup, htf_df) if flags[i] else None
+            sig = engine.update(
+                row[["S_D", "S_V", "S_L", "S_G"]].values.astype(float),
+                is_week_boundary=bool(flags[i]),
+                new_htf_features=htf_features,
+            )
+            streaming_confidences.append(sig.confidence)
+            streaming_ltf_probs.append(sig.ltf_belief_raw)
+
+        assert np.allclose(
+            batch["pre_confidence"].to_numpy(),
+            np.array(streaming_confidences),
+            atol=1e-12,
+        )
+        assert np.allclose(
+            np.vstack(batch["pre_ltf_probs"].to_numpy()),
+            np.vstack(streaming_ltf_probs),
+            atol=1e-12,
+        )
 
 
 # ---------------------------------------------------------------------------
