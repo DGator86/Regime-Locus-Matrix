@@ -308,7 +308,7 @@ class TestSniperGate:
         assert d.directive == "no_trade"
         assert "conflicts" in d.reason_summary
 
-    def test_sniper_requires_available_pdt_slot(self):
+    def test_sniper_requires_available_pdt_slot_reason_mentions_slot(self):
         """Aggressive sniper setups are day trades, not forced overnight swings."""
         persona = _make_persona(directive="long", signal_alignment=0.90, confidence=0.90)
         state = ChallengeAccountState(current_equity=1_000.0)

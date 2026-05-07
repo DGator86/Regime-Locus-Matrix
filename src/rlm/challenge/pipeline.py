@@ -107,11 +107,6 @@ class ChallengeDecisionPipeline:
                 )
             if not pdt.same_day_exit_allowed:
                 return self._no_trade(symbol, pdt, "aggressive sniper strategy requires an available PDT slot")
-                return self._no_trade(
-                    symbol,
-                    pdt,
-                    "aggressive sniper requires an available PDT slot for same-day exit",
-                )
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
