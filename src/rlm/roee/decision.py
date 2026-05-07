@@ -67,6 +67,19 @@ def _finite_float(x: object, default: float = 0.0) -> float:
         return default
 
 
+def _truthy_flag(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return bool(value)
+
+
 def _extract_regime_probabilities(row: pd.Series) -> tuple[np.ndarray | None, str]:
     if "regime_ensemble_probs" in row and row.get("regime_ensemble_probs") is not None:
         probs = np.array(row["regime_ensemble_probs"], dtype=float)
@@ -129,7 +142,7 @@ def compute_regime_modulators(
         pre_conf = extract_pre_confidence(row)
         if pre_conf is not None:
             composite = pre_conf
-            if bool(row.get("kronos_transition_flag", False)):
+            if _truthy_flag(row.get("kronos_transition_flag", False)):
                 composite *= 1.0 - kronos_transition_penalty
             aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
             epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
@@ -165,7 +178,7 @@ def compute_regime_modulators(
     # --- Kronos confidence (if present) ---
     kronos_agree = _finite_float(row.get("kronos_regime_agreement"), default=np.nan)
     kronos_agree = kronos_agree if math.isfinite(kronos_agree) else None
-    kronos_trans = bool(row.get("kronos_transition_flag", False))
+    kronos_trans = _truthy_flag(row.get("kronos_transition_flag", False))
 
     # --- Blend into composite confidence ---
     if hmm_confidence is not None and kronos_agree is not None:

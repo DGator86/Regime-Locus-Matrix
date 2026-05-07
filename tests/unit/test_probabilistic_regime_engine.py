@@ -457,6 +457,29 @@ class TestComputeRegimeModulatorsWithPRE:
         assert result["confidence"] == pytest.approx(0.42)
         assert result["trade"] is False
 
+    @pytest.mark.parametrize("missing_flag", [np.nan, pd.NA, None])
+    def test_missing_kronos_transition_flag_does_not_penalize_pre_confidence(self, missing_flag):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": missing_flag,
+            },
+            dtype=object,
+        )
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+
+        assert result["confidence"] == pytest.approx(0.60)
+        assert result["trade"] is True
+
 
 # ---------------------------------------------------------------------------
 # Pytest fixtures
