@@ -681,9 +681,7 @@ class ProbabilisticRegimeEngineMTF:
                 [new_htf_features],
                 columns=_infer_htf_columns(new_htf_features, htf_arts.hmm),
             )
-            log_ll = htf_arts.hmm.model._compute_log_likelihood(
-                htf_arts.hmm.prepare_observations(feature_row)
-            )
+            log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
             log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
@@ -930,9 +928,7 @@ def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
     """
     required = ["S_D", "S_V", "S_L", "S_G"]
     if len(features) < 4:
-        raise ValueError(
-            f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}"
-        )
+        raise ValueError(f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}")
     if len(features) == 4:
         return required
     # Extend beyond standard 4 columns if needed
