@@ -246,10 +246,23 @@ class TestProbabilisticRegimeEngineMTF:
         assert engine.is_fitted
 
     def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+        idx = pd.date_range("2024-01-02", periods=3, freq="B")
+        ltf_df = pd.DataFrame(
+            {
+                "S_D": [0.1, 0.2, 0.3],
+                "S_V": [0.4, 0.5, 0.6],
+                "S_L": [0.7, 0.8, 0.9],
+                "S_G": [1.0, 1.1, 1.2],
+            },
+            index=idx,
+        )
         engine = ProbabilisticRegimeEngineMTF(_small_config())
-        short_ltf = _make_ltf_df(n=10)
-        htf = engine._build_htf_df(short_ltf)
-        assert not htf.empty
+
+        htf = engine._build_htf_df(ltf_df)
+
+        assert len(htf) == 1
+        assert htf.index[0] == pd.Timestamp("2024-01-31")
+        assert htf["S_D"].iloc[0] == pytest.approx(0.3)
 
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
@@ -440,6 +453,27 @@ class TestComputeRegimeModulatorsWithPRE:
             kronos_epistemic_disable_threshold=0.7,
             use_pre_confidence=True,
         )
+        assert result["trade"] is False
+
+    def test_kronos_transition_penalty_applies_to_pre_confidence(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": True,
+            }
+        )
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+
+        assert result["confidence"] == pytest.approx(0.42)
         assert result["trade"] is False
 
 
