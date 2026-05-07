@@ -14,8 +14,10 @@ from rlm.forecasting.probabilistic_regime_engine import (
     RegimeSignal,
     _bayesian_kronos_update,
     _build_htf_feature_lookup,
+    _compute_week_boundary_flags,
     _compute_attractiveness,
     _horizon_averaged_score,
+    _lookup_htf_features,
     extract_pre_confidence,
 )
 
@@ -333,6 +335,42 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df)
         out = engine.run_batch(ltf_df, htf_df)
         assert len(out) == len(ltf_df)
+
+    def test_run_batch_matches_streaming_update_path(self, ltf_df, htf_df):
+        cfg = _small_config()
+        batch_engine = ProbabilisticRegimeEngineMTF(cfg)
+        batch_engine.fit(ltf_df, htf_df)
+        batch = batch_engine.run_batch(ltf_df, htf_df)
+
+        stream_engine = ProbabilisticRegimeEngineMTF(cfg)
+        stream_engine.fit(ltf_df, htf_df)
+        stream_engine._reset_beliefs()
+        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+
+        stream_confidences: list[float] = []
+        stream_spot_attrs: list[float] = []
+        stream_ltf_probs: list[np.ndarray] = []
+        stream_htf_probs: list[np.ndarray] = []
+        for i, (_, row) in enumerate(ltf_df.iterrows()):
+            is_wb = bool(flags[i])
+            htf_feats = _lookup_htf_features(ltf_df.index[i], htf_lookup, htf_df) if is_wb else None
+            kf = float(row["kronos_forecast"]) if np.isfinite(row["kronos_forecast"]) else None
+            sig = stream_engine.update(
+                row[["S_D", "S_V", "S_L", "S_G"]].values.astype(float),
+                kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
+            stream_confidences.append(sig.confidence)
+            stream_spot_attrs.append(sig.instantaneous_attractiveness)
+            stream_ltf_probs.append(sig.ltf_belief_raw)
+            stream_htf_probs.append(sig.htf_belief)
+
+        assert batch["pre_confidence"].to_numpy() == pytest.approx(stream_confidences)
+        assert batch["pre_spot_attractiveness"].to_numpy() == pytest.approx(stream_spot_attrs)
+        assert np.allclose(np.vstack(batch["pre_ltf_probs"].to_numpy()), np.vstack(stream_ltf_probs))
+        assert np.allclose(np.vstack(batch["pre_htf_probs"].to_numpy()), np.vstack(stream_htf_probs))
 
     def test_htf_lookup_uses_score_columns_in_hmm_order(self):
         htf = pd.DataFrame(
