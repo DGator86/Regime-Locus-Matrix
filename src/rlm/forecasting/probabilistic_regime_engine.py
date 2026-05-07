@@ -570,7 +570,7 @@ class ProbabilisticRegimeEngineMTF:
         htf = ltf_df.resample(rule).last().dropna(how="all")
         if htf.empty or len(htf) < 4:
             # Fall back to monthly if weekly produces too few rows
-            htf = ltf_df.resample("M").last().dropna(how="all")
+            htf = ltf_df.resample("ME").last().dropna(how="all")
         return htf
 
     def _reset_beliefs(self) -> None:
@@ -814,7 +814,6 @@ class ProbabilisticRegimeEngineMTF:
             raise RuntimeError("ProbabilisticRegimeEngineMTF must be fitted before run_batch().")
         self._reset_beliefs()
         cfg = self.config
-        arts = self._artefacts
 
         # Pre-compute HTF features aligned to LTF index
         if htf_df is None or htf_df.empty:
@@ -826,8 +825,7 @@ class ProbabilisticRegimeEngineMTF:
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
 
-        # Pre-compute LTF filtered probabilities for the whole batch
-        ltf_filtered = arts.ltf.hmm.predict_proba_filtered(ltf_df)
+        ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
 
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
@@ -854,44 +852,21 @@ class ProbabilisticRegimeEngineMTF:
                 else None
             )
 
-            # Override the HMM emission step with pre-computed filtered probs
-            # (avoids redundant forward-filter computation mid-batch)
-            if is_wb:
-                beta_new = self._update_htf_belief(htf_feats, arts.htf)
-                self._htf_belief = beta_new
+            sig = self.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
 
-            beta = self._htf_belief.copy()  # type: ignore[union-attr]
-            alpha_raw = np.clip(ltf_filtered[i], 1e-12, None)
-            alpha_raw /= alpha_raw.sum()
-            # Update streaming LTF belief via mixture transmat
-            mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            # Use pre-computed filtered probabilities for the current-step
-            # posterior (they already include the emission likelihood update
-            # from the HMM forward-filter pass), but carry forward the
-            # streaming LTF belief using the same HTF-conditioned predictive
-            # transition semantics as `update()`.
-            alpha = alpha_raw.copy()
-            alpha_pred = np.clip(alpha @ mixture_T, 1e-12, None)
-            alpha_pred /= alpha_pred.sum()
-            self._ltf_belief = alpha_pred
-
-            # Kronos update
-            if cfg.kronos_enabled and kf is not None:
-                posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
-            else:
-                posterior = alpha.copy()
-
-            g_eff = self._effective_attractiveness(beta, arts.htf.attractiveness, arts.ltf.attractiveness)
-            confidence, path = _horizon_averaged_score(posterior, mixture_T, g_eff, cfg.horizon)
-
-            confidences.append(float(np.clip(confidence, 0.0, 1.0)))
-            spot_attrs.append(float(np.clip(posterior @ g_eff, 0.0, 1.0)))
-            ltf_states.append(int(np.argmax(posterior)))
-            htf_states.append(int(np.argmax(beta)))
-            ltf_probs_raw.append(alpha.tolist())
-            ltf_probs_post.append(posterior.tolist())
-            htf_probs_list.append(beta.tolist())
-            paths.append(path.tolist())
+            confidences.append(sig.confidence)
+            spot_attrs.append(sig.instantaneous_attractiveness)
+            ltf_states.append(sig.current_most_likely_ltf_state)
+            htf_states.append(int(sig.current_most_likely_htf_state or 0))
+            ltf_probs_raw.append(sig.ltf_belief_raw.tolist())
+            ltf_probs_post.append(sig.ltf_belief_post_kronos.tolist())
+            htf_probs_list.append(sig.htf_belief.tolist() if sig.htf_belief is not None else [])
+            paths.append(sig.expected_attractiveness_path.tolist())
 
         out = ltf_df.copy()
         out["pre_confidence"] = confidences
@@ -1037,6 +1012,6 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
         import math
 
         f = float(val)
-        return f if math.isfinite(f) else None
+        return float(np.clip(f, 0.0, 1.0)) if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None

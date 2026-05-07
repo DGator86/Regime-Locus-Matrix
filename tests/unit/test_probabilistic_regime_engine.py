@@ -14,8 +14,10 @@ from rlm.forecasting.probabilistic_regime_engine import (
     RegimeSignal,
     _bayesian_kronos_update,
     _build_htf_feature_lookup,
+    _compute_week_boundary_flags,
     _compute_attractiveness,
     _horizon_averaged_score,
+    _lookup_htf_features,
     extract_pre_confidence,
 )
 
@@ -245,6 +247,12 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
 
+    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        short_ltf = _make_ltf_df(n=3)
+        htf = engine._build_htf_df(short_ltf)
+        assert not htf.empty
+
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
         engine = ProbabilisticRegimeEngineMTF(cfg)
@@ -304,6 +312,51 @@ class TestProbabilisticRegimeEngineMTF:
         out = engine.run_batch(ltf_df, htf_df)
         assert len(out) == len(ltf_df)
 
+    def test_run_batch_matches_streaming_update_path(self, ltf_df, htf_df):
+        cfg = _small_config()
+        batch_engine = ProbabilisticRegimeEngineMTF(cfg)
+        batch_engine.fit(ltf_df, htf_df)
+        out = batch_engine.run_batch(ltf_df, htf_df)
+
+        stream_engine = ProbabilisticRegimeEngineMTF(cfg)
+        stream_engine._artefacts = batch_engine._artefacts
+        stream_engine._reset_beliefs()
+
+        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        ltf_score_df = (
+            ltf_df[["S_D", "S_V", "S_L", "S_G"]]
+            .apply(pd.to_numeric, errors="coerce")
+            .ffill()
+            .fillna(0.0)
+        )
+        kronos_series = pd.to_numeric(ltf_df["kronos_forecast"], errors="coerce")
+
+        expected_confidences = []
+        expected_htf_probs = []
+        for i in range(len(ltf_df)):
+            htf_features = None
+            if flags[i]:
+                htf_features = _lookup_htf_features(ltf_df.index[i], htf_lookup, htf_df)
+            kronos_forecast = (
+                float(kronos_series.iloc[i])
+                if np.isfinite(kronos_series.iloc[i])
+                else None
+            )
+            sig = stream_engine.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
+                kronos_forecast=kronos_forecast,
+                is_week_boundary=bool(flags[i]),
+                new_htf_features=htf_features,
+            )
+            expected_confidences.append(sig.confidence)
+            expected_htf_probs.append(sig.htf_belief.tolist())
+
+        assert out["pre_confidence"].tolist() == pytest.approx(expected_confidences)
+        assert np.array(out["pre_htf_probs"].tolist()) == pytest.approx(
+            np.array(expected_htf_probs)
+        )
+
     def test_htf_lookup_uses_score_columns_in_hmm_order(self):
         htf = pd.DataFrame(
             {
@@ -358,6 +411,14 @@ class TestExtractPreConfidence:
         result = extract_pre_confidence(row)
         assert result is None
 
+    def test_clamps_finite_values_to_unit_interval(self):
+        assert extract_pre_confidence(pd.Series({"pre_confidence": 1.25})) == pytest.approx(
+            1.0
+        )
+        assert extract_pre_confidence(pd.Series({"pre_confidence": -0.25})) == pytest.approx(
+            0.0
+        )
+
 
 class TestComputeRegimeModulatorsWithPRE:
     """Verify that ``pre_confidence`` column triggers the PRE fast-path."""
@@ -391,6 +452,22 @@ class TestComputeRegimeModulatorsWithPRE:
             transition_penalty=0.2,
             use_pre_confidence=True,
         )
+        assert result["trade"] is False
+        assert result["model"] == "pre"
+
+    def test_pre_confidence_applies_kronos_transition_penalty(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series({"pre_confidence": 0.60, "kronos_transition_flag": True})
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+        assert result["confidence"] == pytest.approx(0.42)
         assert result["trade"] is False
         assert result["model"] == "pre"
 
