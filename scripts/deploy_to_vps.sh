@@ -46,12 +46,13 @@ if [[ "$SKIP_PUSH" -eq 0 ]]; then
     git push -u origin "$CURRENT_BRANCH"
 fi
 
-# ── 2. SSH into VPS ──────────────────────────────────────────────────────────
-SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${VPS_USER}@${VPS_HOST}"
+# ── 2–4. Remote script via stdin (avoids nested-quote breaks on bash -c "$multi_line")
+SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${VPS_USER}@${VPS_HOST}")
 
 echo "[deploy] Connecting to ${VPS_USER}@${VPS_HOST}..."
 
-VPS_CMD="
+{
+    cat <<EOF
 set -euo pipefail
 cd ${VPS_REPO}
 
@@ -81,32 +82,29 @@ fi
 # Install/update package in case pyproject.toml changed
 echo '[vps] pip install -e . (quiet)...'
 \$PY -m pip install -e '.' -q
-"
+EOF
 
-# ── 3. Restart systemd units ─────────────────────────────────────────────────
-if [[ "$SKIP_RESTART" -eq 0 ]]; then
-    VPS_CMD+="
+    if [[ "$SKIP_RESTART" -eq 0 ]]; then
+        cat <<'RESTART'
 UNITS=(regime-locus-master regime-locus-crew rlm-control-center rlm-telegram rlm-master-telegram rlm-telegram-bot)
-for unit in \"\${UNITS[@]}\"; do
-    if systemctl is-active --quiet \"\${unit}.service\" 2>/dev/null; then
-        echo \"[vps] Restarting \${unit}.service...\"
-        systemctl restart \"\${unit}.service\" && echo \"[vps]   OK\" || echo \"[vps]   FAILED (not fatal)\"
+for unit in "${UNITS[@]}"; do
+    if systemctl is-active --quiet "${unit}.service" 2>/dev/null; then
+        echo "[vps] Restarting ${unit}.service..."
+        systemctl restart "${unit}.service" && echo "[vps]   OK" || echo "[vps]   FAILED (not fatal)"
     fi
 done
 echo '[vps] Active RLM services:'
 systemctl list-units 'regime-locus-*' 'rlm-*' --no-pager --no-legend 2>/dev/null | head -20 || true
-"
-fi
+RESTART
+    fi
 
-# ── 4. Health check on VPS ───────────────────────────────────────────────────
-if [[ "$RUN_HEALTH_CHECK" -eq 1 ]]; then
-    VPS_CMD+="
+    if [[ "$RUN_HEALTH_CHECK" -eq 1 ]]; then
+        cat <<EOF
 echo '[vps] Running rlm_health_check.py...'
 cd ${VPS_REPO}
 \$PY scripts/rlm_health_check.py --force
-"
-fi
-
-$SSH bash -c "$VPS_CMD"
+EOF
+    fi
+} | "${SSH[@]}" bash -s
 
 echo "[deploy] Done. VPS is on ${VPS_BRANCH} at ${VPS_HOST}:${VPS_REPO}"
