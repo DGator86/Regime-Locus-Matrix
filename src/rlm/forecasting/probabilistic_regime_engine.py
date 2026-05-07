@@ -874,7 +874,13 @@ class ProbabilisticRegimeEngineMTF:
         is_week_end_flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
+        htf_feature_rows = list(htf_features_by_period.values())
+        htf_boundary_pos = 0
 
+        missing_ltf = [col for col in _HMM_SCORE_COLUMNS if col not in ltf_df.columns]
+        if missing_ltf:
+            raise ValueError(f"Missing required columns for PRE MTF LTF observations: {missing_ltf}")
+        ltf_features_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
         ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
 
         kronos_series: pd.Series | None = None
@@ -898,8 +904,12 @@ class ProbabilisticRegimeEngineMTF:
         for i in range(len(ltf_df)):
             is_wb = bool(is_week_end_flags[i])
             htf_feats: np.ndarray | None = None
-            if is_wb and htf_is_datetime:
-                htf_feats = _lookup_htf_features(ltf_df.index[i], htf_features_by_period, htf_df)
+            if is_wb:
+                if htf_is_datetime:
+                    htf_feats = _lookup_htf_features(ltf_df.index[i], htf_features_by_period, htf_df)
+                elif htf_boundary_pos < len(htf_feature_rows):
+                    htf_feats = htf_feature_rows[htf_boundary_pos]
+                htf_boundary_pos += 1
 
             kf = _optional_finite_float(kronos_series.iloc[i]) if kronos_series is not None else None
 
@@ -910,6 +920,9 @@ class ProbabilisticRegimeEngineMTF:
                 new_htf_features=htf_feats,
             )
 
+            sig = self.update(
+                ltf_features_df.iloc[i].values.astype(np.float64),
+                kf,
             if is_wb:
                 beta_new = self._update_htf_belief(htf_feats, arts.htf)
                 self._htf_belief = beta_new
