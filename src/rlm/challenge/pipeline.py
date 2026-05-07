@@ -94,6 +94,7 @@ class ChallengeDecisionPipeline:
             if sniper_strategy not in _SNIPER_DIRECTIONAL_DIRECTIVES:
                 return self._no_trade(
                     symbol, pdt, f"aggressive strategy {sniper_strategy} requires multi-leg execution"
+                    symbol, pdt, f"aggressive sniper strategy {sniper_strategy} requires multi-leg execution"
                 )
             sniper_directive = _SNIPER_DIRECTIONAL_DIRECTIVES[sniper_strategy]
             if persona.sisko.directive != sniper_directive:
@@ -105,6 +106,11 @@ class ChallengeDecisionPipeline:
                 )
             if not pdt.same_day_exit_allowed:
                 return self._no_trade(symbol, pdt, "aggressive sniper strategy requires an available PDT slot")
+                return self._no_trade(
+                    symbol,
+                    pdt,
+                    "aggressive sniper requires an available PDT slot for same-day exit",
+                )
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
