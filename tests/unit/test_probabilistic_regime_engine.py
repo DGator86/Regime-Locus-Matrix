@@ -192,6 +192,15 @@ class TestProbabilisticRegimeEngine:
         sig = engine.score(probs[-1], kronos_forecast=None)
         assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
 
+    def test_score_skips_nullable_missing_kronos(self, ltf_df):
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(ltf_df)
+        probs = engine._artefacts.hmm.predict_proba_filtered(ltf_df)
+
+        sig = engine.score(probs[-1], kronos_forecast=pd.NA)
+
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
+
     def test_score_without_fit_raises(self):
         engine = ProbabilisticRegimeEngine()
         with pytest.raises(RuntimeError):
@@ -381,6 +390,21 @@ class TestProbabilisticRegimeEngineMTF:
 
         assert batch["pre_confidence"].to_numpy() == pytest.approx(expected_confidences)
         assert np.allclose(batch["pre_ltf_probs"].tolist(), expected_ltf_probs)
+
+    def test_run_batch_skips_nullable_missing_kronos(self, ltf_df, htf_df):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(ltf_df, htf_df)
+        sample = ltf_df.iloc[:60].copy()
+        sample["kronos_forecast"] = pd.Series(sample["kronos_forecast"], dtype="Float64", index=sample.index)
+        missing_idx = sample.index[10]
+        sample.loc[missing_idx, "kronos_forecast"] = pd.NA
+
+        batch = engine.run_batch(sample, htf_df)
+
+        assert np.allclose(
+            batch.loc[missing_idx, "pre_ltf_probs"],
+            batch.loc[missing_idx, "pre_ltf_probs_post_kronos"],
+        )
 
     def test_htf_lookup_uses_score_columns_in_hmm_order(self):
         htf = pd.DataFrame(
