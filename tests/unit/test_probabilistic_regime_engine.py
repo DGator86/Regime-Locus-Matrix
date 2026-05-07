@@ -44,6 +44,14 @@ def _make_htf_df(ltf_df: pd.DataFrame) -> pd.DataFrame:
     return ltf_df.resample("W-FRI").last().dropna(how="all")
 
 
+def _with_nullable_missing_kronos(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    kronos = pd.Series(out["kronos_forecast"].to_numpy(), index=out.index, dtype="Float64")
+    kronos.iloc[0] = pd.NA
+    out["kronos_forecast"] = kronos
+    return out
+
+
 def _small_config() -> PREConfig:
     from rlm.forecasting.hmm import HMMConfig
 
@@ -222,6 +230,16 @@ class TestProbabilisticRegimeEngine:
         assert (out["pre_confidence"] >= 0.0).all()
         assert (out["pre_confidence"] <= 1.0).all()
 
+    def test_run_batch_treats_nullable_missing_kronos_as_absent(self, ltf_df):
+        nullable_df = _with_nullable_missing_kronos(ltf_df)
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(nullable_df)
+
+        out = engine.run_batch(nullable_df)
+
+        assert len(out) == len(nullable_df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
+
     def test_run_batch_without_fit_raises(self, ltf_df):
         with pytest.raises(RuntimeError):
             ProbabilisticRegimeEngine().run_batch(ltf_df)
@@ -304,6 +322,15 @@ class TestProbabilisticRegimeEngineMTF:
         assert sig.joint_belief.shape == (2 * 3,)
         assert sig.current_most_likely_htf_state in range(2)
 
+    def test_update_treats_nullable_missing_kronos_as_absent(self, ltf_df, htf_df):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(ltf_df, htf_df)
+        ltf_row = ltf_df[["S_D", "S_V", "S_L", "S_G"]].iloc[-1].values
+
+        sig = engine.update(ltf_row, kronos_forecast=pd.NA, is_week_boundary=False)
+
+        assert 0.0 <= sig.confidence <= 1.0
+
     def test_update_week_boundary(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
         engine.fit(ltf_df, htf_df)
@@ -342,6 +369,16 @@ class TestProbabilisticRegimeEngineMTF:
             assert col in out.columns, f"Missing column: {col}"
         assert (out["pre_confidence"] >= 0.0).all()
         assert (out["pre_confidence"] <= 1.0).all()
+
+    def test_run_batch_treats_nullable_missing_kronos_as_absent(self, ltf_df, htf_df):
+        nullable_df = _with_nullable_missing_kronos(ltf_df)
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(nullable_df, htf_df)
+
+        out = engine.run_batch(nullable_df, htf_df)
+
+        assert len(out) == len(nullable_df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
 
     def test_run_batch_same_length_as_input(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
