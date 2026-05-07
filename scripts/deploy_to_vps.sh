@@ -65,9 +65,13 @@ git pull --ff-only origin ${VPS_BRANCH}
 
 echo '[vps] Latest commit:' \$(git log --oneline -1)
 
-# Resolve Python
+# Resolve Python (avoid PEP 668 system python on Ubuntu when no repo .venv)
 if [[ -x .venv/bin/python ]]; then
     PY=.venv/bin/python
+elif [[ -x /opt/rlm-venv/bin/python ]]; then
+    PY=/opt/rlm-venv/bin/python
+elif [[ -x /opt/rlm-venv/bin/python3 ]]; then
+    PY=/opt/rlm-venv/bin/python3
 elif command -v python3 &>/dev/null; then
     PY=python3
 else
