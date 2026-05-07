@@ -129,6 +129,8 @@ def compute_regime_modulators(
         pre_conf = extract_pre_confidence(row)
         if pre_conf is not None:
             composite = pre_conf
+            if bool(row.get("kronos_transition_flag", False)):
+                composite *= 1.0 - kronos_transition_penalty
             aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
             epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
             trans_risk = float(np.clip(1.0 - composite, 0.0, 1.0))
