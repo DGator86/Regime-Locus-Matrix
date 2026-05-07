@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.probabilistic_regime_engine import (
     PREConfig,
     ProbabilisticRegimeEngine,
@@ -17,8 +18,6 @@ from rlm.forecasting.probabilistic_regime_engine import (
     _horizon_averaged_score,
     extract_pre_confidence,
 )
-from rlm.features.scoring.state_matrix import classify_state_matrix
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
