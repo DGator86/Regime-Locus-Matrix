@@ -245,7 +245,7 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
 
-    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+    def test_build_htf_df_monthly_fallback_uses_version_neutral_offset(self, monkeypatch):
         idx = pd.date_range("2024-01-02", periods=3, freq="B")
         ltf_df = pd.DataFrame(
             {
@@ -257,12 +257,23 @@ class TestProbabilisticRegimeEngineMTF:
             index=idx,
         )
         engine = ProbabilisticRegimeEngineMTF(_small_config())
+        resample_rules = []
+        original_resample = pd.DataFrame.resample
+
+        def tracking_resample(self, rule, *args, **kwargs):
+            resample_rules.append(rule)
+            if rule in {"M", "ME"}:
+                raise AssertionError("monthly fallback must not use pandas-version-specific string aliases")
+            return original_resample(self, rule, *args, **kwargs)
+
+        monkeypatch.setattr(pd.DataFrame, "resample", tracking_resample)
 
         htf = engine._build_htf_df(ltf_df)
 
         assert len(htf) == 1
         assert htf.index[0] == pd.Timestamp("2024-01-31")
         assert htf["S_D"].iloc[0] == pytest.approx(0.3)
+        assert any(isinstance(rule, pd.offsets.MonthEnd) for rule in resample_rules)
 
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
