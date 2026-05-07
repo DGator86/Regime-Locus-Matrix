@@ -101,6 +101,12 @@ class ChallengeDecisionPipeline:
                     f"aggressive sniper strategy {sniper_strategy} conflicts with persona directive "
                     f"{persona.sisko.directive}",
                 )
+            if not pdt.same_day_exit_allowed:
+                return self._no_trade(
+                    symbol,
+                    pdt,
+                    "aggressive sniper requires an available PDT slot for same-day exit",
+                )
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)

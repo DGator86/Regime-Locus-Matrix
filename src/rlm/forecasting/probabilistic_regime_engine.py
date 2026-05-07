@@ -570,7 +570,7 @@ class ProbabilisticRegimeEngineMTF:
         htf = ltf_df.resample(rule).last().dropna(how="all")
         if htf.empty or len(htf) < 4:
             # Fall back to monthly if weekly produces too few rows
-            htf = ltf_df.resample("ME").last().dropna(how="all")
+            htf = ltf_df.resample(pd.offsets.MonthEnd()).last().dropna(how="all")
         return htf
 
     def _reset_beliefs(self) -> None:
@@ -686,7 +686,7 @@ class ProbabilisticRegimeEngineMTF:
             )
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
-            log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
+            log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation to likelihoods
@@ -1028,7 +1028,9 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
 
     This is the integration point for ``compute_regime_modulators`` in
     ``rlm.roee.decision``.  When a non-null ``pre_confidence`` is present, the
-    decision layer uses it directly instead of computing the binary gate.
+    decision layer uses it directly instead of computing the binary gate.  The
+    PRE score is a probability-like confidence, so consumers defensively enforce
+    the [0, 1] invariant before it reaches position sizing.
     """
     val = row.get("pre_confidence", None)
     if val is None:
@@ -1037,6 +1039,8 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
         import math
 
         f = float(val)
-        return f if math.isfinite(f) else None
+        if not math.isfinite(f):
+            return None
+        return float(np.clip(f, 0.0, 1.0))
     except (TypeError, ValueError):
         return None
