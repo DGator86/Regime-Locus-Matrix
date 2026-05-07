@@ -13,6 +13,7 @@ Regime label vocabulary matches the canonical RLM classifiers:
 from __future__ import annotations
 
 import datetime
+import math
 from typing import TYPE_CHECKING
 
 from rlm.data.paths import get_data_root
@@ -47,23 +48,41 @@ def is_great_daytrade_setup(
     intraday_df:
         Full intraday 1-min OHLCV history for the current session.
     """
-    direction, vol, liquidity, flow = regime
+    try:
+        direction, vol, liquidity, flow = regime
+    except (TypeError, ValueError):
+        return False
 
     if intraday_df is None or intraday_df.empty or current_bar is None:
         return False
 
+    volume = _numeric_column(intraday_df, "volume")
+    high = _numeric_column(intraday_df, "high")
+    low = _numeric_column(intraday_df, "low")
+    close = _numeric_column(intraday_df, "close")
+    if volume is None or high is None or low is None or close is None:
+        return False
+
+    bar_volume = _numeric_bar_value(current_bar, "volume")
+    bar_high = _numeric_bar_value(current_bar, "high")
+    bar_low = _numeric_bar_value(current_bar, "low")
+    bar_close = _numeric_bar_value(current_bar, "close")
+    if bar_volume is None or bar_high is None or bar_low is None or bar_close is None:
+        return False
+
     # Relative volume vs 20-bar rolling average
-    avg_vol = (
-        intraday_df["volume"].rolling(20).mean().iloc[-1]
-        if len(intraday_df) >= 20
-        else 0.0
-    )
-    rvol = current_bar["volume"] / avg_vol if avg_vol > 0 else 0.0
+    avg_vol = volume.rolling(20).mean().iloc[-1] if len(intraday_df) >= 20 else 0.0
+    rvol = bar_volume / avg_vol if math.isfinite(float(avg_vol)) and avg_vol > 0 else 0.0
 
     # Session VWAP
-    tp = (intraday_df["high"] + intraday_df["low"] + intraday_df["close"]) / 3.0
-    vwap = (tp * intraday_df["volume"]).cumsum() / intraday_df["volume"].cumsum()
+    volume_cumsum = volume.cumsum()
+    if volume_cumsum.empty or not math.isfinite(float(volume_cumsum.iloc[-1])) or volume_cumsum.iloc[-1] <= 0:
+        return False
+    tp = (high + low + close) / 3.0
+    vwap = (tp * volume).cumsum() / volume_cumsum
     current_vwap = float(vwap.iloc[-1])
+    if not math.isfinite(current_vwap):
+        return False
 
     # Pre-market levels (0.0 = bypass when no feed is wired)
     pm_high = get_premarket_high(symbol)
@@ -74,14 +93,14 @@ def is_great_daytrade_setup(
 
     # Bullish gate: dealer-supported bull + above VWAP + strong rvol + PM breakout + cheap premium
     if direction == "bull" and liquidity == "high_liquidity" and flow == "supportive":
-        pm_break = pm_high == 0.0 or current_bar["high"] > pm_high
-        if current_bar["close"] > current_vwap and rvol > 1.5 and pm_break and iv_rank < 40:
+        pm_break = pm_high == 0.0 or bar_high > pm_high
+        if bar_close > current_vwap and rvol > 1.5 and pm_break and iv_rank < 40:
             return True
 
     # Bearish gate: bear momentum + below VWAP + strong rvol + PM breakdown
     if direction == "bear" and liquidity == "high_liquidity":
-        pm_break = pm_low == 0.0 or current_bar["low"] < pm_low
-        if current_bar["close"] < current_vwap and rvol > 1.5 and pm_break and iv_rank > 30:
+        pm_break = pm_low == 0.0 or bar_low < pm_low
+        if bar_close < current_vwap and rvol > 1.5 and pm_break and iv_rank > 30:
             return True
 
     # Event straddle: high-vol regime + catalyst within 30 minutes
@@ -90,6 +109,52 @@ def is_great_daytrade_setup(
             return True
 
     return False
+
+
+def _numeric_column(df: "pd.DataFrame", name: str) -> "pd.Series | None":
+    """Return a finite numeric OHLCV column, accepting common case variants."""
+    try:
+        import pandas as pd  # noqa: PLC0415
+
+        col_name = name if name in df.columns else None
+        if col_name is None:
+            for candidate in df.columns:
+                if str(candidate).lower() == name:
+                    col_name = candidate
+                    break
+        if col_name is None:
+            return None
+        series = pd.to_numeric(df[col_name], errors="coerce")
+        return series if not series.empty else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _numeric_bar_value(bar: object, name: str) -> float | None:
+    """Read one numeric value from a Series/dict-like bar without raising."""
+    value = None
+    try:
+        getter = getattr(bar, "get", None)
+        if callable(getter):
+            value = getter(name)
+            if value is None:
+                labels = getattr(bar, "index", None)
+                if labels is None:
+                    keys = getattr(bar, "keys", None)
+                    labels = keys() if callable(keys) else ()
+                for candidate in labels:
+                    if str(candidate).lower() == name:
+                        value = getter(candidate)
+                        break
+        elif name in bar:  # type: ignore[operator]
+            value = bar[name]  # type: ignore[index]
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
 
 
 # ---------------------------------------------------------------------------
