@@ -690,13 +690,8 @@ class ProbabilisticRegimeEngineMTF:
         try:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is None (not initialized or fitted)")
-            feature_row = pd.DataFrame(
-                [new_htf_features],
-                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
-            )
-            log_ll = htf_arts.hmm.model._compute_log_likelihood(
-                htf_arts.hmm.prepare_observations(feature_row)
-            )
+            feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
+            log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
             log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
@@ -938,9 +933,7 @@ def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
         If features has fewer than 4 elements.
     """
     if len(features) < 4:
-        raise ValueError(
-            f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}"
-        )
+        raise ValueError(f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}")
     if len(features) == 4:
         return _HMM_SCORE_COLUMNS
     # Extend beyond standard 4 columns if needed
