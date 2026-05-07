@@ -7,7 +7,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from rlm.roee.system_gate import SystemGate
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
 from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
 from rlm.roee.policy import select_trade, select_trade_from_strategy_name
@@ -18,6 +17,7 @@ from rlm.roee.regime_persistence import (
 )
 from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
+from rlm.roee.system_gate import SystemGate
 from rlm.types.options import TradeDecision
 
 _SELECT_TRADE_ROW_COLUMNS = (
@@ -129,6 +129,8 @@ def compute_regime_modulators(
         pre_conf = extract_pre_confidence(row)
         if pre_conf is not None:
             composite = pre_conf
+            if bool(row.get("kronos_transition_flag", False)):
+                composite *= 1.0 - kronos_transition_penalty
             aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
             epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
             trans_risk = float(np.clip(1.0 - composite, 0.0, 1.0))
