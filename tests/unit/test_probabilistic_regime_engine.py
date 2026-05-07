@@ -25,6 +25,7 @@ from rlm.forecasting.probabilistic_regime_engine import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_ltf_df(n: int = 300, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     means = np.array([[1.2, -0.9, 0.7, 0.6], [-1.0, 1.1, -0.5, -0.8], [0.2, 0.3, -1.1, 0.9]])
@@ -45,6 +46,7 @@ def _make_htf_df(ltf_df: pd.DataFrame) -> pd.DataFrame:
 
 def _small_config() -> PREConfig:
     from rlm.forecasting.hmm import HMMConfig
+
     return PREConfig(
         k_l=3,
         k_h=2,
@@ -62,10 +64,11 @@ def _small_config() -> PREConfig:
 # Pure mathematical helpers
 # ---------------------------------------------------------------------------
 
+
 class TestComputeAttractiveness:
     def test_normal_case(self):
         returns_by_state = {
-            0: np.array([0.01, 0.02, 0.015, 0.012, 0.018]),   # positive mean
+            0: np.array([0.01, 0.02, 0.015, 0.012, 0.018]),  # positive mean
             1: np.array([-0.01, -0.02, -0.015, -0.012, -0.018]),  # negative mean
             2: np.array([]),  # no data → fallback 0.5
         }
@@ -154,6 +157,7 @@ class TestBayesianKronosUpdate:
 # ProbabilisticRegimeEngine — single timeframe
 # ---------------------------------------------------------------------------
 
+
 class TestProbabilisticRegimeEngine:
     def test_fit_and_score_smoke(self, ltf_df):
         cfg = _small_config()
@@ -188,6 +192,14 @@ class TestProbabilisticRegimeEngine:
         sig = engine.score(probs[-1], kronos_forecast=None)
         assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
 
+    @pytest.mark.parametrize("missing_kronos", [pd.NA, np.nan, None])
+    def test_score_with_missing_optional_kronos_skips_update(self, ltf_df, missing_kronos):
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(ltf_df)
+        probs = engine._artefacts.hmm.predict_proba_filtered(ltf_df)
+        sig = engine.score(probs[-1], kronos_forecast=missing_kronos)
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
+
     def test_score_without_fit_raises(self):
         engine = ProbabilisticRegimeEngine()
         with pytest.raises(RuntimeError):
@@ -206,13 +218,30 @@ class TestProbabilisticRegimeEngine:
         engine.fit(ltf_df)
         out = engine.run_batch(ltf_df)
         expected_cols = [
-            "pre_confidence", "pre_spot_attractiveness", "pre_ltf_state",
-            "pre_ltf_probs", "pre_ltf_probs_post_kronos", "pre_attractiveness_path",
+            "pre_confidence",
+            "pre_spot_attractiveness",
+            "pre_ltf_state",
+            "pre_ltf_probs",
+            "pre_ltf_probs_post_kronos",
+            "pre_attractiveness_path",
         ]
         for col in expected_cols:
             assert col in out.columns, f"Missing column: {col}"
         assert (out["pre_confidence"] >= 0.0).all()
         assert (out["pre_confidence"] <= 1.0).all()
+
+    def test_run_batch_with_nullable_missing_kronos_does_not_crash(self, ltf_df):
+        nullable_df = ltf_df.copy()
+        nullable_kronos = pd.Series(ltf_df["kronos_forecast"].to_numpy(), index=ltf_df.index, dtype="Float64")
+        nullable_kronos.iloc[-1] = pd.NA
+        nullable_df["kronos_forecast"] = nullable_kronos
+
+        engine = ProbabilisticRegimeEngine(_small_config())
+        engine.fit(nullable_df)
+        out = engine.run_batch(nullable_df)
+
+        assert len(out) == len(nullable_df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
 
     def test_run_batch_without_fit_raises(self, ltf_df):
         with pytest.raises(RuntimeError):
@@ -232,6 +261,7 @@ class TestProbabilisticRegimeEngine:
 # ---------------------------------------------------------------------------
 # ProbabilisticRegimeEngineMTF
 # ---------------------------------------------------------------------------
+
 
 class TestProbabilisticRegimeEngineMTF:
     def test_fit_smoke(self, ltf_df, htf_df):
@@ -264,8 +294,8 @@ class TestProbabilisticRegimeEngineMTF:
 
         def tracking_resample(self, rule, *args, **kwargs):
             resample_rules.append(rule)
-            if rule in {"M", "ME"}:
-                raise AssertionError("monthly fallback must not use pandas-version-specific string aliases")
+            if isinstance(rule, str) and rule != engine.config.htf_resample_rule:
+                raise AssertionError("monthly fallback must use DateOffset, not string aliases")
             return original_resample(self, rule, *args, **kwargs)
 
         monkeypatch.setattr(pd.DataFrame, "resample", tracking_resample)
@@ -295,6 +325,16 @@ class TestProbabilisticRegimeEngineMTF:
         assert sig.joint_belief.shape == (2 * 3,)
         assert sig.current_most_likely_htf_state in range(2)
 
+    @pytest.mark.parametrize("missing_kronos", [pd.NA, np.nan, None])
+    def test_update_with_missing_optional_kronos_skips_update(self, ltf_df, htf_df, missing_kronos):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(ltf_df, htf_df)
+
+        ltf_row = ltf_df[["S_D", "S_V", "S_L", "S_G"]].iloc[-1].values
+        sig = engine.update(ltf_row, kronos_forecast=missing_kronos, is_week_boundary=False)
+
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
+
     def test_update_week_boundary(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
         engine.fit(ltf_df, htf_df)
@@ -320,10 +360,14 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df)
         out = engine.run_batch(ltf_df, htf_df)
         expected_cols = [
-            "pre_confidence", "pre_spot_attractiveness",
-            "pre_ltf_state", "pre_htf_state",
-            "pre_ltf_probs", "pre_ltf_probs_post_kronos",
-            "pre_htf_probs", "pre_attractiveness_path",
+            "pre_confidence",
+            "pre_spot_attractiveness",
+            "pre_ltf_state",
+            "pre_htf_state",
+            "pre_ltf_probs",
+            "pre_ltf_probs_post_kronos",
+            "pre_htf_probs",
+            "pre_attractiveness_path",
         ]
         for col in expected_cols:
             assert col in out.columns, f"Missing column: {col}"
@@ -380,6 +424,51 @@ class TestProbabilisticRegimeEngineMTF:
         assert np.vstack(out["pre_ltf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_probs))
         assert np.vstack(out["pre_ltf_probs_post_kronos"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_post))
         assert np.vstack(out["pre_htf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_htf_probs))
+    def test_mtf_run_batch_with_nullable_missing_kronos_does_not_crash(self, ltf_df, htf_df):
+        nullable_df = ltf_df.copy()
+        nullable_kronos = pd.Series(ltf_df["kronos_forecast"].to_numpy(), index=ltf_df.index, dtype="Float64")
+        nullable_kronos.iloc[-1] = pd.NA
+        nullable_df["kronos_forecast"] = nullable_kronos
+
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(nullable_df, htf_df)
+        out = engine.run_batch(nullable_df, htf_df)
+
+        assert len(out) == len(nullable_df)
+        assert out["pre_confidence"].between(0.0, 1.0).all()
+
+    def test_run_batch_matches_streaming_update_path(self, ltf_df, htf_df):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        engine.fit(ltf_df, htf_df)
+        sample = ltf_df.iloc[:60]
+
+        batch = engine.run_batch(sample, htf_df)
+
+        engine._reset_beliefs()
+        flags = _compute_week_boundary_flags(sample, engine.config.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        ltf_observations = engine._artefacts.ltf.hmm.prepare_observations(sample)  # type: ignore[union-attr]
+        expected_confidences = []
+        expected_ltf_probs = []
+
+        for i in range(len(sample)):
+            is_wb = bool(flags[i])
+            htf_feats = (
+                _lookup_htf_features(sample.index[i], htf_lookup, htf_df)
+                if is_wb and isinstance(sample.index, pd.DatetimeIndex)
+                else None
+            )
+            sig = engine.update(
+                ltf_observations[i],
+                kronos_forecast=float(sample["kronos_forecast"].iloc[i]),
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
+            expected_confidences.append(sig.confidence)
+            expected_ltf_probs.append(sig.ltf_belief_raw.tolist())
+
+        assert batch["pre_confidence"].to_numpy() == pytest.approx(expected_confidences)
+        assert np.allclose(batch["pre_ltf_probs"].tolist(), expected_ltf_probs)
 
     def test_htf_lookup_uses_score_columns_in_hmm_order(self):
         htf = pd.DataFrame(
@@ -409,10 +498,46 @@ class TestProbabilisticRegimeEngineMTF:
         # There should be meaningful variation (std > 0)
         assert out["pre_confidence"].std() > 1e-6
 
+    def test_run_batch_matches_streaming_update(self, ltf_df, htf_df):
+        cfg = _small_config()
+        cfg.kronos_enabled = False
+        engine = ProbabilisticRegimeEngineMTF(cfg)
+        engine.fit(ltf_df, htf_df)
+
+        batch = engine.run_batch(ltf_df, htf_df)
+
+        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        engine._reset_beliefs()
+
+        streaming_confidences: list[float] = []
+        streaming_ltf_probs: list[np.ndarray] = []
+        for i, (idx, row) in enumerate(ltf_df.iterrows()):
+            htf_features = _lookup_htf_features(idx, htf_lookup, htf_df) if flags[i] else None
+            sig = engine.update(
+                row[["S_D", "S_V", "S_L", "S_G"]].values.astype(float),
+                is_week_boundary=bool(flags[i]),
+                new_htf_features=htf_features,
+            )
+            streaming_confidences.append(sig.confidence)
+            streaming_ltf_probs.append(sig.ltf_belief_raw)
+
+        assert np.allclose(
+            batch["pre_confidence"].to_numpy(),
+            np.array(streaming_confidences),
+            atol=1e-12,
+        )
+        assert np.allclose(
+            np.vstack(batch["pre_ltf_probs"].to_numpy()),
+            np.vstack(streaming_ltf_probs),
+            atol=1e-12,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Decision layer integration
 # ---------------------------------------------------------------------------
+
 
 class TestExtractPreConfidence:
     def test_returns_float_when_present(self):
@@ -439,6 +564,10 @@ class TestExtractPreConfidence:
         result = extract_pre_confidence(row)
         assert result is None
 
+    def test_clamps_to_probability_interval(self):
+        assert extract_pre_confidence(pd.Series({"pre_confidence": 2.5})) == pytest.approx(1.0)
+        assert extract_pre_confidence(pd.Series({"pre_confidence": -0.5})) == pytest.approx(0.0)
+
 
 class TestComputeRegimeModulatorsWithPRE:
     """Verify that ``pre_confidence`` column triggers the PRE fast-path."""
@@ -446,10 +575,12 @@ class TestComputeRegimeModulatorsWithPRE:
     def test_pre_confidence_used_as_composite(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.80,
-            "hmm_probs": [0.3, 0.4, 0.3],
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.80,
+                "hmm_probs": [0.3, 0.4, 0.3],
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -475,13 +606,44 @@ class TestComputeRegimeModulatorsWithPRE:
         assert result["trade"] is False
         assert result["model"] == "pre"
 
+    def test_pre_confidence_applies_kronos_transition_penalty_before_gating(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series({"pre_confidence": 0.60, "kronos_transition_flag": True})
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.2,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+        assert result["confidence"] == pytest.approx(0.42)
+        assert result["trade"] is False
+
+    def test_pre_confidence_clamp_prevents_oversized_multiplier(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series({"pre_confidence": 5.0})
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.2,
+            use_pre_confidence=True,
+        )
+        assert result["confidence"] == pytest.approx(1.0)
+        assert result["size_mult"] <= 1.0
+
     def test_pre_confidence_disabled_falls_back_to_hmm(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.80,
-            "hmm_probs": [0.8, 0.1, 0.1],
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.80,
+                "hmm_probs": [0.8, 0.1, 0.1],
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -495,9 +657,7 @@ class TestComputeRegimeModulatorsWithPRE:
         from rlm.roee.decision import compute_regime_modulators
 
         row = pd.Series({"pre_confidence": 0.65})
-        result = compute_regime_modulators(
-            row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.5
-        )
+        result = compute_regime_modulators(row, confidence_threshold=0.5, sizing_multiplier=1.0, transition_penalty=0.5)
         assert result["size_mult"] >= 0.0
 
     def test_pre_confidence_cannot_overscale_size(self):
@@ -517,10 +677,12 @@ class TestComputeRegimeModulatorsWithPRE:
     def test_epistemic_gate_overrides_pre(self):
         from rlm.roee.decision import compute_regime_modulators
 
-        row = pd.Series({
-            "pre_confidence": 0.90,
-            "kronos_epistemic_uncertainty": 0.85,
-        })
+        row = pd.Series(
+            {
+                "pre_confidence": 0.90,
+                "kronos_epistemic_uncertainty": 0.85,
+            }
+        )
         result = compute_regime_modulators(
             row,
             confidence_threshold=0.5,
@@ -579,6 +741,7 @@ class TestComputeRegimeModulatorsWithPRE:
 # ---------------------------------------------------------------------------
 # Pytest fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def ltf_df():
