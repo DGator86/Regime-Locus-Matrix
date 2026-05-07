@@ -245,6 +245,25 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
 
+    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+        idx = pd.date_range("2024-01-02", periods=3, freq="B")
+        ltf_df = pd.DataFrame(
+            {
+                "S_D": [0.1, 0.2, 0.3],
+                "S_V": [0.2, 0.3, 0.4],
+                "S_L": [0.3, 0.4, 0.5],
+                "S_G": [0.4, 0.5, 0.6],
+                "close": [100.0, 101.0, 102.0],
+            },
+            index=idx,
+        )
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+
+        htf_df = engine._build_htf_df(ltf_df)
+
+        assert len(htf_df) == 1
+        assert htf_df["close"].iloc[0] == pytest.approx(102.0)
+
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
         engine = ProbabilisticRegimeEngineMTF(cfg)
