@@ -192,10 +192,10 @@ class _PRESingleTFArtefacts:
     """All causal artefacts from a single-TF PRE fit(), keyed by training cut-off."""
 
     hmm: RLMHMM
-    transmat: np.ndarray          # (K, K) calibrated
-    attractiveness: np.ndarray    # (K,)   g(i)
-    kronos_means: np.ndarray      # (K,)   ν_i
-    kronos_stds: np.ndarray       # (K,)   τ_i
+    transmat: np.ndarray  # (K, K) calibrated
+    attractiveness: np.ndarray  # (K,)   g(i)
+    kronos_means: np.ndarray  # (K,)   ν_i
+    kronos_stds: np.ndarray  # (K,)   τ_i
     model_timestamp: str = ""
 
 
@@ -393,7 +393,11 @@ class ProbabilisticRegimeEngine:
         paths: list[list[float]] = []
 
         for i in range(len(df)):
-            kf = float(kronos_series.iloc[i]) if kronos_series is not None and np.isfinite(kronos_series.iloc[i]) else None
+            kf = (
+                float(kronos_series.iloc[i])
+                if kronos_series is not None and np.isfinite(kronos_series.iloc[i])
+                else None
+            )
             sig = self.score(filtered_probs[i], kronos_forecast=kf)
             confidences.append(sig.confidence)
             spot_attrs.append(sig.instantaneous_attractiveness)
@@ -634,9 +638,7 @@ class ProbabilisticRegimeEngineMTF:
 
         # --- 3. Kronos Bayesian update ------------------------------------
         if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(
-                alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds
-            )
+            posterior = _bayesian_kronos_update(alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -829,7 +831,7 @@ class ProbabilisticRegimeEngineMTF:
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
-        ltf_features = arts.ltf.hmm.prepare_observations(ltf_df)
+        ltf_observations = arts.ltf.hmm.prepare_observations(ltf_df)
 
         confidences: list[float] = []
         spot_attrs: list[float] = []
@@ -852,37 +854,21 @@ class ProbabilisticRegimeEngineMTF:
                 else None
             )
 
-            if is_wb:
-                beta_new = self._update_htf_belief(htf_feats, arts.htf)
-                self._htf_belief = beta_new
-
-            beta = self._htf_belief.copy()  # type: ignore[union-attr]
-            mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            alpha = self._step_ltf_belief(
-                ltf_features=ltf_features[i],
-                prev_belief=self._ltf_belief,  # type: ignore[arg-type]
-                transmat=mixture_T,
-                hmm=arts.ltf.hmm,
+            sig = self.update(
+                ltf_observations[i],
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
             )
-            self._ltf_belief = alpha.copy()
 
-            # Kronos update
-            if cfg.kronos_enabled and kf is not None:
-                posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
-            else:
-                posterior = alpha.copy()
-
-            g_eff = self._effective_attractiveness(beta, arts.htf.attractiveness, arts.ltf.attractiveness)
-            confidence, path = _horizon_averaged_score(posterior, mixture_T, g_eff, cfg.horizon)
-
-            confidences.append(float(np.clip(confidence, 0.0, 1.0)))
-            spot_attrs.append(float(np.clip(posterior @ g_eff, 0.0, 1.0)))
-            ltf_states.append(int(np.argmax(posterior)))
-            htf_states.append(int(np.argmax(beta)))
-            ltf_probs_raw.append(alpha.tolist())
-            ltf_probs_post.append(posterior.tolist())
-            htf_probs_list.append(beta.tolist())
-            paths.append(path.tolist())
+            confidences.append(sig.confidence)
+            spot_attrs.append(sig.instantaneous_attractiveness)
+            ltf_states.append(sig.current_most_likely_ltf_state)
+            htf_states.append(int(sig.current_most_likely_htf_state or 0))
+            ltf_probs_raw.append(sig.ltf_belief_raw.tolist())
+            ltf_probs_post.append(sig.ltf_belief_post_kronos.tolist())
+            htf_probs_list.append(sig.htf_belief.tolist() if sig.htf_belief is not None else [])
+            paths.append(sig.expected_attractiveness_path.tolist())
 
         out = ltf_df.copy()
         out["pre_confidence"] = confidences
