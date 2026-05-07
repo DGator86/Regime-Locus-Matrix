@@ -572,6 +572,44 @@ class TestProbabilisticRegimeEngineMTF:
             atol=1e-12,
         )
 
+    def test_run_batch_matches_streaming_update_with_missing_ltf_feature(self, ltf_df, htf_df):
+        cfg = _small_config()
+        cfg.kronos_enabled = False
+        engine = ProbabilisticRegimeEngineMTF(cfg)
+        engine.fit(ltf_df, htf_df)
+
+        ltf_with_gap = ltf_df.copy()
+        ltf_with_gap.iloc[51, ltf_with_gap.columns.get_loc("S_D")] = np.nan
+
+        batch = engine.run_batch(ltf_with_gap, htf_df)
+
+        flags = _compute_week_boundary_flags(ltf_with_gap, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        engine._reset_beliefs()
+
+        streaming_confidences: list[float] = []
+        streaming_ltf_probs: list[np.ndarray] = []
+        for i, (idx, row) in enumerate(ltf_with_gap.iterrows()):
+            htf_features = _lookup_htf_features(idx, htf_lookup, htf_df) if flags[i] else None
+            sig = engine.update(
+                row[["S_D", "S_V", "S_L", "S_G"]].values.astype(float),
+                is_week_boundary=bool(flags[i]),
+                new_htf_features=htf_features,
+            )
+            streaming_confidences.append(sig.confidence)
+            streaming_ltf_probs.append(sig.ltf_belief_raw)
+
+        assert np.allclose(
+            batch["pre_confidence"].to_numpy(),
+            np.array(streaming_confidences),
+            atol=1e-12,
+        )
+        assert np.allclose(
+            np.vstack(batch["pre_ltf_probs"].to_numpy()),
+            np.vstack(streaming_ltf_probs),
+            atol=1e-12,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Decision layer integration
