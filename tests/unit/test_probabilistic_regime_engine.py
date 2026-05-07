@@ -264,8 +264,6 @@ class TestProbabilisticRegimeEngineMTF:
 
         def tracking_resample(self, rule, *args, **kwargs):
             resample_rules.append(rule)
-            if rule in {"M", "ME"}:
-                raise AssertionError("monthly fallback must not use pandas-version-specific string aliases")
             return original_resample(self, rule, *args, **kwargs)
 
         monkeypatch.setattr(pd.DataFrame, "resample", tracking_resample)
@@ -275,6 +273,9 @@ class TestProbabilisticRegimeEngineMTF:
         assert len(htf) == 1
         assert htf.index[0] == pd.Timestamp("2024-01-31")
         assert htf["S_D"].iloc[0] == pytest.approx(0.3)
+        assert all(
+            rule not in {"M", "ME"} for rule in resample_rules if isinstance(rule, str)
+        ), "monthly fallback must not use pandas-version-specific string alias rules"
         assert any(isinstance(rule, pd.offsets.MonthEnd) for rule in resample_rules)
 
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
