@@ -985,7 +985,6 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
 
 
 def _build_htf_feature_lookup(htf_df: pd.DataFrame) -> dict:
-def _build_htf_feature_lookup(htf_df: pd.DataFrame) -> dict:
     """Build a dict mapping HTF index to HMM score features in training order."""
     if htf_df.empty:
         return {}
