@@ -190,10 +190,10 @@ class _PRESingleTFArtefacts:
     """All causal artefacts from a single-TF PRE fit(), keyed by training cut-off."""
 
     hmm: RLMHMM
-    transmat: np.ndarray          # (K, K) calibrated
-    attractiveness: np.ndarray    # (K,)   g(i)
-    kronos_means: np.ndarray      # (K,)   ν_i
-    kronos_stds: np.ndarray       # (K,)   τ_i
+    transmat: np.ndarray  # (K, K) calibrated
+    attractiveness: np.ndarray  # (K,)   g(i)
+    kronos_means: np.ndarray  # (K,)   ν_i
+    kronos_stds: np.ndarray  # (K,)   τ_i
     model_timestamp: str = ""
 
 
@@ -391,7 +391,11 @@ class ProbabilisticRegimeEngine:
         paths: list[list[float]] = []
 
         for i in range(len(df)):
-            kf = float(kronos_series.iloc[i]) if kronos_series is not None and np.isfinite(kronos_series.iloc[i]) else None
+            kf = (
+                float(kronos_series.iloc[i])
+                if kronos_series is not None and np.isfinite(kronos_series.iloc[i])
+                else None
+            )
             sig = self.score(filtered_probs[i], kronos_forecast=kf)
             confidences.append(sig.confidence)
             spot_attrs.append(sig.instantaneous_attractiveness)
@@ -632,9 +636,7 @@ class ProbabilisticRegimeEngineMTF:
 
         # --- 3. Kronos Bayesian update ------------------------------------
         if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(
-                alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds
-            )
+            posterior = _bayesian_kronos_update(alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -675,13 +677,8 @@ class ProbabilisticRegimeEngineMTF:
         try:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is not fitted")
-            feature_row = pd.DataFrame(
-                [new_htf_features],
-                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
-            )
-            log_ll = htf_arts.hmm.model._compute_log_likelihood(
-                htf_arts.hmm.prepare_observations(feature_row)
-            )
+            feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
+            log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
             log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
