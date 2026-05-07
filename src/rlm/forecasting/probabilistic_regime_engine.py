@@ -182,6 +182,53 @@ def _bayesian_kronos_update(
     return posterior / total
 
 
+def _optional_finite_float(value: object) -> float | None:
+    """Return a finite scalar float, or None for missing/non-finite optional inputs."""
+    if value is None:
+        return None
+    try:
+        is_missing = pd.isna(value)
+        if isinstance(is_missing, (bool, np.bool_)) and is_missing:
+            return None
+    """Return a finite scalar float, or ``None`` for missing/invalid optional sensors."""
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result):
+        return None
+    return result
+    """Return a finite float for optional scalar inputs, treating pandas nulls as missing."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
+    """Return a finite scalar float, or None for missing/invalid optional inputs."""
+    if value is None:
+        return None
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        missing = False
+    if isinstance(missing, (bool, np.bool_)) and missing:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if np.isfinite(parsed) else None
+
+
 # ---------------------------------------------------------------------------
 # Fitted artefact containers (lightweight, serialisable)
 # ---------------------------------------------------------------------------
@@ -192,10 +239,10 @@ class _PRESingleTFArtefacts:
     """All causal artefacts from a single-TF PRE fit(), keyed by training cut-off."""
 
     hmm: RLMHMM
-    transmat: np.ndarray          # (K, K) calibrated
-    attractiveness: np.ndarray    # (K,)   g(i)
-    kronos_means: np.ndarray      # (K,)   ν_i
-    kronos_stds: np.ndarray       # (K,)   τ_i
+    transmat: np.ndarray  # (K, K) calibrated
+    attractiveness: np.ndarray  # (K,)   g(i)
+    kronos_means: np.ndarray  # (K,)   ν_i
+    kronos_stds: np.ndarray  # (K,)   τ_i
     model_timestamp: str = ""
 
 
@@ -341,8 +388,11 @@ class ProbabilisticRegimeEngine:
         alpha /= alpha.sum()
 
         # Bayesian Kronos update
-        if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(alpha, kronos_forecast, arts.kronos_means, arts.kronos_stds)
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
+        kf = _optional_finite_float(kronos_forecast)
+        if self.config.kronos_enabled and kf is not None:
+            posterior = _bayesian_kronos_update(alpha, kf, arts.kronos_means, arts.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -393,7 +443,7 @@ class ProbabilisticRegimeEngine:
         paths: list[list[float]] = []
 
         for i in range(len(df)):
-            kf = float(kronos_series.iloc[i]) if kronos_series is not None and np.isfinite(kronos_series.iloc[i]) else None
+            kf = _optional_finite_float(kronos_series.iloc[i]) if kronos_series is not None else None
             sig = self.score(filtered_probs[i], kronos_forecast=kf)
             confidences.append(sig.confidence)
             spot_attrs.append(sig.instantaneous_attractiveness)
@@ -633,10 +683,11 @@ class ProbabilisticRegimeEngineMTF:
         alpha = new_ltf.copy()
 
         # --- 3. Kronos Bayesian update ------------------------------------
-        if self.config.kronos_enabled and kronos_forecast is not None and np.isfinite(kronos_forecast):
-            posterior = _bayesian_kronos_update(
-                alpha, kronos_forecast, arts.ltf.kronos_means, arts.ltf.kronos_stds
-            )
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
+        kf = _optional_finite_float(kronos_forecast)
+        if self.config.kronos_enabled and kf is not None:
+            posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
         else:
             posterior = alpha.copy()
 
@@ -677,13 +728,12 @@ class ProbabilisticRegimeEngineMTF:
         try:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is None (not initialized or fitted)")
+            feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
             feature_row = pd.DataFrame(
                 [new_htf_features],
-                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
+                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm),
             )
-            log_ll = htf_arts.hmm.model._compute_log_likelihood(
-                htf_arts.hmm.prepare_observations(feature_row)
-            )
+            log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
             log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
@@ -831,10 +881,16 @@ class ProbabilisticRegimeEngineMTF:
         if missing_ltf:
             raise ValueError(f"Missing required columns for PRE MTF LTF observations: {missing_ltf}")
         ltf_features_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
+        ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
 
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
+        missing_ltf_cols = [col for col in _HMM_SCORE_COLUMNS if col not in ltf_df.columns]
+        if missing_ltf_cols:
+            raise ValueError(f"Missing required columns for HMM observations: {missing_ltf_cols}")
+        ltf_feature_rows = ltf_df[_HMM_SCORE_COLUMNS]
+        ltf_observations = arts.ltf.hmm.prepare_observations(ltf_df)
 
         confidences: list[float] = []
         spot_attrs: list[float] = []
@@ -855,15 +911,32 @@ class ProbabilisticRegimeEngineMTF:
                     htf_feats = htf_feature_rows[htf_boundary_pos]
                 htf_boundary_pos += 1
 
-            kf = (
-                float(kronos_series.iloc[i])
-                if kronos_series is not None and np.isfinite(kronos_series.iloc[i])
-                else None
+            kf = _optional_finite_float(kronos_series.iloc[i]) if kronos_series is not None else None
+
+            sig = self.update(
+                ltf_observations[i],
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
             )
 
             sig = self.update(
                 ltf_features_df.iloc[i].values.astype(np.float64),
                 kf,
+            if is_wb:
+                beta_new = self._update_htf_belief(htf_feats, arts.htf)
+                self._htf_belief = beta_new
+
+            beta = self._htf_belief.copy()  # type: ignore[union-attr]
+            mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
+            alpha = self._step_ltf_belief(
+                ltf_features=ltf_feature_rows.iloc[i].to_numpy(),
+                prev_belief=self._ltf_belief,  # type: ignore[arg-type]
+                transmat=mixture_T,
+                hmm=arts.ltf.hmm,
+            sig = self.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
+                kronos_forecast=kf,
                 is_week_boundary=is_wb,
                 new_htf_features=htf_feats,
             )
@@ -938,9 +1011,7 @@ def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
         If features has fewer than 4 elements.
     """
     if len(features) < 4:
-        raise ValueError(
-            f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}"
-        )
+        raise ValueError(f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}")
     if len(features) == 4:
         return _HMM_SCORE_COLUMNS
     # Extend beyond standard 4 columns if needed
@@ -1023,8 +1094,6 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
         import math
 
         f = float(val)
-        if not math.isfinite(f):
-            return None
-        return float(np.clip(f, 0.0, 1.0))
+        return float(np.clip(f, 0.0, 1.0)) if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None
