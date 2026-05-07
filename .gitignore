@@ -89,6 +89,9 @@ _rebase_abort_backup/
 node_modules/
 dist/
 
+# Python build artifacts (editable installs, setuptools)
+build/
+
 # IDE
 .cursor/
 *.code-workspace
