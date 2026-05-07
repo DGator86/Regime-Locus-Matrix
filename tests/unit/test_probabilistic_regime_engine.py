@@ -91,7 +91,7 @@ class TestHorizonAveragedScore:
         g = np.array([0.8, 0.2, 0.5])
         T = np.ones((K, K)) / K
         p = np.ones(K) / K
-        score, path = _horizon_averaged_score(p, T, g, horizon=5)
+        score, _ = _horizon_averaged_score(p, T, g, horizon=5)
         expected = float(np.mean(g))
         assert score == pytest.approx(expected, abs=1e-6)
 
@@ -110,7 +110,7 @@ class TestHorizonAveragedScore:
         g = np.array([0.9, 0.1, 0.5])
         T = np.eye(K)
         p = np.array([0.7, 0.2, 0.1])
-        score, path = _horizon_averaged_score(p, T, g, horizon=1)
+        score, _ = _horizon_averaged_score(p, T, g, horizon=1)
         assert score == pytest.approx(float(p @ g), abs=1e-9)
 
     def test_shape_mismatch_raises(self):
