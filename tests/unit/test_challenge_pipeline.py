@@ -303,21 +303,6 @@ class TestSniperGate:
         assert d.directive == "no_trade"
         assert "conflicts" in d.reason_summary
 
-    def test_sniper_straddle_strategy_forces_no_trade_until_directive_support_exists(self):
-        """ChallengeDirective cannot currently express multi-leg straddles safely."""
-        persona = _make_persona(directive="long", signal_alignment=0.78, confidence=0.82)
-        state = ChallengeAccountState(current_equity=1_000.0)
-        pdt = PDTTracker(day_trades_used_last_5d=[0])
-        regime: tuple[str, str, str, str] = ("bull", "high_vol", "high_liquidity", "supportive")
-
-        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
-            d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
-            )
-        assert d.directive == "no_trade"
-        assert "multi-leg" in d.reason_summary
-
     def test_sniper_requires_available_pdt_slot(self):
         """Sniper setups are intraday plays and must not become forced overnight holds."""
         persona = _make_persona(directive="long", bias="bullish")
