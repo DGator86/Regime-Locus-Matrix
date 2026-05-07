@@ -91,7 +91,7 @@ class TestHorizonAveragedScore:
         g = np.array([0.8, 0.2, 0.5])
         T = np.ones((K, K)) / K
         p = np.ones(K) / K
-        score, path = _horizon_averaged_score(p, T, g, horizon=5)
+        score, _ = _horizon_averaged_score(p, T, g, horizon=5)
         expected = float(np.mean(g))
         assert score == pytest.approx(expected, abs=1e-6)
 
@@ -110,7 +110,7 @@ class TestHorizonAveragedScore:
         g = np.array([0.9, 0.1, 0.5])
         T = np.eye(K)
         p = np.array([0.7, 0.2, 0.1])
-        score, path = _horizon_averaged_score(p, T, g, horizon=1)
+        score, _ = _horizon_averaged_score(p, T, g, horizon=1)
         assert score == pytest.approx(float(p @ g), abs=1e-9)
 
     def test_shape_mismatch_raises(self):
@@ -244,6 +244,13 @@ class TestProbabilisticRegimeEngineMTF:
         engine = ProbabilisticRegimeEngineMTF(_small_config())
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
+
+    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        ltf_df = _make_ltf_df(n=5)
+        htf_df = engine._build_htf_df(ltf_df)
+        assert len(htf_df) == 1
+        assert htf_df.index[0] == pd.Timestamp("2023-01-31")
 
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
