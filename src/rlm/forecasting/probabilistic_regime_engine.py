@@ -196,6 +196,20 @@ def _optional_finite_float(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if np.isfinite(f) else None
+    """Return a finite scalar float, or None for missing/invalid optional inputs."""
+    if value is None:
+        return None
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        missing = False
+    if isinstance(missing, (bool, np.bool_)) and missing:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if np.isfinite(parsed) else None
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +708,10 @@ class ProbabilisticRegimeEngineMTF:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is None (not initialized or fitted)")
             feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
+            feature_row = pd.DataFrame(
+                [new_htf_features],
+                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm),
+            )
             log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
@@ -825,7 +843,6 @@ class ProbabilisticRegimeEngineMTF:
             raise RuntimeError("ProbabilisticRegimeEngineMTF must be fitted before run_batch().")
         self._reset_beliefs()
         cfg = self.config
-        arts = self._artefacts
 
         # Pre-compute HTF features aligned to LTF index
         if htf_df is None or htf_df.empty:
@@ -836,6 +853,8 @@ class ProbabilisticRegimeEngineMTF:
         is_week_end_flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
         # Map each HTF period to its features (for updating HTF belief)
         htf_features_by_period = _build_htf_feature_lookup(htf_df)
+
+        ltf_score_df = ltf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
 
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
@@ -861,6 +880,13 @@ class ProbabilisticRegimeEngineMTF:
 
             sig = self.update(
                 ltf_observations[i],
+                kronos_forecast=kf,
+                is_week_boundary=is_wb,
+                new_htf_features=htf_feats,
+            )
+
+            sig = self.update(
+                ltf_score_df.iloc[i].values.astype(np.float64),
                 kronos_forecast=kf,
                 is_week_boundary=is_wb,
                 new_htf_features=htf_feats,
@@ -1019,8 +1045,6 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
         import math
 
         f = float(val)
-        if not math.isfinite(f):
-            return None
-        return float(np.clip(f, 0.0, 1.0))
+        return float(np.clip(f, 0.0, 1.0)) if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None
