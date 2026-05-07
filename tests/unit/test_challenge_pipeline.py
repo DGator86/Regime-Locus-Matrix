@@ -297,8 +297,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "conflicts" in d.reason_summary
@@ -312,8 +317,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "multi-leg" in d.reason_summary
@@ -327,8 +337,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert d.trade_mode == "no_trade"
