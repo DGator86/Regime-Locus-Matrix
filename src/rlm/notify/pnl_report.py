@@ -6,8 +6,8 @@ per-poll append, ``unrealized_pnl`` = mark minus entry debit. The headline
 “win%” is mark quality, not closed-round-trip quality; we split open vs
 exit rows.
 
-**Equities (regime stock leg)** — ``data/processed/equity_trade_log.csv``: same
-shape idea (``action``/``quantity`` present); one section when the file exists.
+**Equities (regime stock leg)** — ``data/processed/equity_trade_log.csv`` (override with
+``RLM_EQUITY_TRADE_LOG_PATH``): same shape idea (``action``/``quantity`` present); one section when the file exists.
 
 **$1K → $25K PDT options challenge (dry-run)** — ``data/challenge/state.json`` (and
 optional ``data/challenge/trade_log.csv`` for history): session closed P&L
@@ -39,6 +39,14 @@ def _options_trade_log_path(root: Path) -> Path:
         p = Path(raw)
         return p if p.is_absolute() else root / p
     return root / "data" / "processed" / "trade_log.csv"
+
+
+def _equity_trade_log_path(root: Path) -> Path:
+    raw = (os.environ.get("RLM_EQUITY_TRADE_LOG_PATH") or "").strip()
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else root / p
+    return root / "data" / "processed" / "equity_trade_log.csv"
 
 
 def _now_utc() -> datetime:
@@ -260,7 +268,9 @@ def calculate_daily_pnl(root: Path) -> str:
         blocks: list[str] = [
             f"<b>[EOD Report] {session_date} (ET)</b>\n"
             f"<i>Options = swing/large acct log · Equities = stock leg · "
-            f"Challenge = PDT $1K→$25K dry-run</i>\n",
+            f"Challenge = PDT $1K→$25K dry-run</i>\n"
+            f"<i>Options open P&amp;L = latest mark vs plan entry (paper monitor); not realized until exits. "
+            f"Big red days are often mark noise, not a closed-book loss.</i>\n",
         ]
 
         opt_path = _options_trade_log_path(root)
@@ -276,7 +286,7 @@ def calculate_daily_pnl(root: Path) -> str:
             msg = f"<b>{_OPT_TITLE}</b>\n  (no options trade_log — run universe monitor)\n"
             blocks.append(msg)
 
-        eq_path = root / "data" / "processed" / "equity_trade_log.csv"
+        eq_path = _equity_trade_log_path(root)
         if eq_path.is_file():
             eq_raw = _load_all_rows(eq_path)
             if not eq_raw:
@@ -285,7 +295,17 @@ def calculate_daily_pnl(root: Path) -> str:
                 today_eq = _rows_for_session_day(eq_raw, session_date, equity_only=True)
                 blocks.append(_format_log_section(title=_EQUITY_TITLE, today_rows=today_eq))
         else:
-            blocks.append(f"<b>{_EQUITY_TITLE}</b>\n  (no file — run ibkr_equity_paper_trade to log this)\n")
+            try:
+                eq_show = eq_path.relative_to(root)
+            except ValueError:
+                eq_show = eq_path
+            blocks.append(
+                f"<b>{_EQUITY_TITLE}</b>\n"
+                f"  <i>no file:</i> <code>{eq_show}</code>\n"
+                "  Run the stock leg with <code>ibkr_equity_paper_trade.py</code> "
+                "(<code>run_everything.py --with-equity</code> in the master stack). "
+                "Check <code>journalctl -u rlm-master-trader -n 80</code> if you expect it already.\n"
+            )
 
         ch = _format_challenge_eod(root, session_date)
         if ch is not None:

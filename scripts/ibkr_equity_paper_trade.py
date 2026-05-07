@@ -144,6 +144,16 @@ def _append_log(path: Path, row: dict[str, Any]) -> None:
         w.writerow(row)
 
 
+def _ensure_equity_log_file(path: Path) -> None:
+    """Create CSV with header so EOD / dashboards see the book even before first row."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        return
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=_LOG_COLUMNS, extrasaction="ignore")
+        w.writeheader()
+
+
 # ---------------------------------------------------------------------------
 # IBKR connectivity (stock orders)
 # ---------------------------------------------------------------------------
@@ -710,6 +720,7 @@ def main() -> None:
     plans_path = Path(args.plans)
     state_path = Path(args.state)
     log_path = Path(args.log)
+    _ensure_equity_log_file(log_path)
 
     print(f"\n{'='*60}", flush=True)
     print(f"  IBKR Equity Paper Trade  |  {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
