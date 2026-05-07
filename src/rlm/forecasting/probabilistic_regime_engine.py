@@ -183,6 +183,16 @@ def _bayesian_kronos_update(
 
 
 def _optional_finite_float(value: object) -> float | None:
+    """Return a finite scalar float, or ``None`` for missing/invalid optional sensors."""
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result):
+        return None
+    return result
     """Return a finite float for optional scalar inputs, treating pandas nulls as missing."""
     if value is None:
         return None
@@ -371,6 +381,8 @@ class ProbabilisticRegimeEngine:
         alpha /= alpha.sum()
 
         # Bayesian Kronos update
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
         kf = _optional_finite_float(kronos_forecast)
         if self.config.kronos_enabled and kf is not None:
             posterior = _bayesian_kronos_update(alpha, kf, arts.kronos_means, arts.kronos_stds)
@@ -664,6 +676,8 @@ class ProbabilisticRegimeEngineMTF:
         alpha = new_ltf.copy()
 
         # --- 3. Kronos Bayesian update ------------------------------------
+        kf = _optional_finite_float(kronos_forecast) if self.config.kronos_enabled else None
+        if kf is not None:
         kf = _optional_finite_float(kronos_forecast)
         if self.config.kronos_enabled and kf is not None:
             posterior = _bayesian_kronos_update(alpha, kf, arts.ltf.kronos_means, arts.ltf.kronos_stds)
