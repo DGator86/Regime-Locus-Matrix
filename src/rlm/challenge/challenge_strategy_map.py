@@ -5,21 +5,27 @@
 to the name of an aggressive day-trader candidate built by
 ``build_candidate_from_strategy_name`` in ``rlm.roee.policy``.
 
+Regime label vocabulary matches the canonical RLM classifiers:
+  direction  : "bull" | "bear" | "range" | "transition"
+  vol        : "high_vol" | "low_vol" | "transition"
+  liquidity  : "high_liquidity" | "low_liquidity"
+  dealer_flow: "supportive" | "destabilizing"
+
 Any regime not present in the map returns ``"no_trade"``.
 """
 
 from __future__ import annotations
 
 STRATEGY_MAP_CHALLENGE: dict[tuple[str, str, str, str], str] = {
-    # Bullish momentum + cheap premium → long call
-    ("bullish", "low_vol",    "liquid", "buying_flow"): "aggressive_daytrader_call",
-    ("bullish", "medium_vol", "liquid", "buying_flow"): "aggressive_daytrader_call",
+    # Bullish momentum + cheap premium (low vol) → long call
+    ("bull", "low_vol",  "high_liquidity", "supportive"):    "aggressive_daytrader_call",
     # Bullish + high vol → prefer ATM straddle to capture outsized move either way
-    ("bullish", "high_vol",   "liquid", "buying_flow"): "aggressive_daytrader_0DTE_straddle",
-    # Bearish momentum → long put across all vol levels
-    ("bearish", "high_vol",   "liquid", "selling_flow"): "aggressive_daytrader_put",
-    ("bearish", "medium_vol", "liquid", "selling_flow"): "aggressive_daytrader_put",
-    ("bearish", "low_vol",    "liquid", "selling_flow"): "aggressive_daytrader_put",
+    ("bull", "high_vol", "high_liquidity", "supportive"):    "aggressive_daytrader_0DTE_straddle",
+    # Bearish momentum — supportive or destabilizing dealer flow both produce put setups
+    ("bear", "low_vol",  "high_liquidity", "supportive"):    "aggressive_daytrader_put",
+    ("bear", "high_vol", "high_liquidity", "supportive"):    "aggressive_daytrader_put",
+    ("bear", "low_vol",  "high_liquidity", "destabilizing"): "aggressive_daytrader_put",
+    ("bear", "high_vol", "high_liquidity", "destabilizing"): "aggressive_daytrader_put",
 }
 
 

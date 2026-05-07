@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from rlm.challenge.models import ChallengeAccountState, PDTTracker
@@ -218,3 +220,69 @@ class TestStageSizing:
         )
         if d.directive != "no_trade":
             assert d.risk_plan.premium_outlay_pct == pytest.approx(0.18)
+
+
+class TestSniperGate:
+    """Backward-compatibility and sniper gate behaviour tests."""
+
+    def test_no_intraday_kwargs_bypasses_gate(self):
+        """Existing callers without intraday kwargs are unaffected."""
+        d = _run(symbol="SPY")
+        assert d.directive in ("long", "short", "no_trade")
+
+    def test_sniper_filter_fail_forces_no_trade(self):
+        """When is_great_daytrade_setup returns False the directive is no_trade."""
+        persona = _make_persona()
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=False):
+            d = ChallengeDecisionPipeline().run(
+                "SPY", persona, state, pdt,
+                current_bar=object(), intraday_df=object(), regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "sniper" in d.reason_summary.lower()
+
+    def test_unmapped_regime_forces_no_trade(self):
+        """A regime absent from STRATEGY_MAP_CHALLENGE returns no_trade even if filter passes."""
+        persona = _make_persona()
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        unmapped: tuple[str, str, str, str] = ("range", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY", persona, state, pdt,
+                current_bar=object(), intraday_df=object(), regime=unmapped,
+            )
+        assert d.directive == "no_trade"
+
+    def test_sniper_strategy_tagged_in_reason(self):
+        """When gate passes and regime maps to a strategy, its name appears in reason_summary."""
+        persona = _make_persona(directive="long", signal_alignment=0.78, confidence=0.82)
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY", persona, state, pdt,
+                current_bar=object(), intraday_df=object(), regime=regime,
+            )
+        assert "aggressive_daytrader_call" in d.reason_summary
+
+    def test_bearish_destabilizing_regime_passes_sniper(self):
+        """Bear + destabilizing dealer flow is mapped and resolves to a put strategy."""
+        persona = _make_persona(directive="short", bias="bearish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bear", "high_vol", "high_liquidity", "destabilizing")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY", persona, state, pdt,
+                current_bar=object(), intraday_df=object(), regime=regime,
+            )
+        assert "aggressive_daytrader_put" in d.reason_summary
