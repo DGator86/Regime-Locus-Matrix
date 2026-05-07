@@ -436,6 +436,27 @@ class TestComputeRegimeModulatorsWithPRE:
         )
         assert result["trade"] is False
 
+    def test_kronos_transition_penalty_applies_to_pre_confidence(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": True,
+            }
+        )
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+
+        assert result["confidence"] == pytest.approx(0.42)
+        assert result["trade"] is False
+
 
 # ---------------------------------------------------------------------------
 # Pytest fixtures
