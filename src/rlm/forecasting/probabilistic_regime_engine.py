@@ -948,7 +948,9 @@ def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
     """
     required = ["S_D", "S_V", "S_L", "S_G"]
     if len(features) < 4:
-        raise ValueError(f"HTF features must have at least 4 elements, got {len(features)}")
+        raise ValueError(
+            f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}"
+        )
     if len(features) == 4:
         return required
     # Extend beyond standard 4 columns if needed
