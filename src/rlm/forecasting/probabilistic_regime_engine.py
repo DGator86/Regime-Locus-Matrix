@@ -31,6 +31,8 @@ from rlm.forecasting.hmm import RLMHMM, HMMConfig
 
 log = logging.getLogger(__name__)
 
+_HMM_SCORE_COLUMNS = ["S_D", "S_V", "S_L", "S_G"]
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -572,7 +574,7 @@ class ProbabilisticRegimeEngineMTF:
         htf = ltf_df.resample(rule).last().dropna(how="all")
         if htf.empty or len(htf) < 4:
             # Fall back to monthly if weekly produces too few rows
-            htf = ltf_df.resample("M").last().dropna(how="all")
+            htf = ltf_df.resample(pd.offsets.MonthEnd()).last().dropna(how="all")
         return htf
 
     def _reset_beliefs(self) -> None:
@@ -684,7 +686,7 @@ class ProbabilisticRegimeEngineMTF:
             log_ll = htf_arts.hmm.model._compute_log_likelihood(htf_arts.hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
-            log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
+            log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation to likelihoods
@@ -926,13 +928,12 @@ def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
     ValueError
         If features has fewer than 4 elements.
     """
-    required = ["S_D", "S_V", "S_L", "S_G"]
     if len(features) < 4:
         raise ValueError(f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}")
     if len(features) == 4:
-        return required
+        return _HMM_SCORE_COLUMNS
     # Extend beyond standard 4 columns if needed
-    return required + [f"_f{i}" for i in range(len(features) - 4)]
+    return _HMM_SCORE_COLUMNS + [f"_f{i}" for i in range(len(features) - 4)]
 
 
 def _infer_ltf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
@@ -962,23 +963,15 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
 
 
 def _build_htf_feature_lookup(htf_df: pd.DataFrame) -> dict:
-    """Build a simple dict mapping HTF index → numeric feature array for lookup.
-
-    Returns features in the required order: S_D, S_V, S_L, S_G (+ any extras).
-    """
+    """Build a dict mapping HTF index to HMM score features in training order."""
     if htf_df.empty:
         return {}
-    # Extract required columns in fixed order
-    required = ["S_D", "S_V", "S_L", "S_G"]
-    available = [c for c in required if c in htf_df.columns]
-    if len(available) < 4:
-        # Fall back to all numeric columns if required columns are missing
-        numeric_df = htf_df.select_dtypes(include=[np.number])
-        return {idx: row.values.astype(np.float64) for idx, row in numeric_df.iterrows()}
-    # Use required columns in order, plus any extras
-    extra_cols = [c for c in htf_df.columns if c not in required and pd.api.types.is_numeric_dtype(htf_df[c])]
-    ordered_cols = available + extra_cols
-    return {idx: htf_df.loc[idx, ordered_cols].values.astype(np.float64) for idx in htf_df.index}
+    missing = [col for col in _HMM_SCORE_COLUMNS if col not in htf_df.columns]
+    if missing:
+        log.warning("PRE MTF: HTF feature lookup missing HMM score columns %s; skipping observation updates.", missing)
+        return {}
+    score_df = htf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
+    return {idx: row.values.astype(np.float64) for idx, row in score_df.iterrows()}
 
 
 def _lookup_htf_features(
@@ -1008,7 +1001,9 @@ def extract_pre_confidence(row: "pd.Series") -> float | None:  # noqa: F821
 
     This is the integration point for ``compute_regime_modulators`` in
     ``rlm.roee.decision``.  When a non-null ``pre_confidence`` is present, the
-    decision layer uses it directly instead of computing the binary gate.
+    decision layer uses it directly instead of computing the binary gate.  The
+    PRE score is a probability-like confidence, so consumers defensively enforce
+    the [0, 1] invariant before it reaches position sizing.
     """
     val = row.get("pre_confidence", None)
     if val is None:
