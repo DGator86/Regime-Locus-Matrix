@@ -86,6 +86,20 @@ class ChallengeDecisionPipeline:
             sniper_strategy = get_challenge_strategy(regime)
             if sniper_strategy == "no_trade":
                 return self._no_trade(symbol, pdt, "no aggressive strategy mapped for this regime")
+            sniper_directive = _directive_for_sniper_strategy(sniper_strategy)
+            if sniper_directive is None:
+                return self._no_trade(
+                    symbol,
+                    pdt,
+                    f"aggressive sniper strategy {sniper_strategy} is not supported by ChallengeDirective",
+                )
+            if persona.sisko.directive != sniper_directive:
+                return self._no_trade(
+                    symbol,
+                    pdt,
+                    f"aggressive sniper strategy {sniper_strategy} conflicts with persona directive "
+                    f"{persona.sisko.directive}",
+                )
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
@@ -276,3 +290,12 @@ class ChallengeDecisionPipeline:
             risk_plan=empty_risk,
             reason_summary=reason,
         )
+
+
+def _directive_for_sniper_strategy(strategy_name: str) -> str | None:
+    """Return the executable directive implied by a single-leg sniper strategy."""
+    if strategy_name == "aggressive_daytrader_call":
+        return "long"
+    if strategy_name == "aggressive_daytrader_put":
+        return "short"
+    return None
