@@ -183,6 +183,19 @@ def _bayesian_kronos_update(
 
 
 def _optional_finite_float(value: object) -> float | None:
+    """Return a finite float for optional scalar inputs, treating pandas nulls as missing."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
     """Return a finite scalar float, or None for missing/invalid optional inputs."""
     if value is None:
         return None
@@ -694,6 +707,7 @@ class ProbabilisticRegimeEngineMTF:
         try:
             if htf_arts.hmm.model is None:
                 raise ValueError("HTF HMM model is None (not initialized or fitted)")
+            feature_row = pd.DataFrame([new_htf_features], columns=_infer_htf_columns(new_htf_features, htf_arts.hmm))
             feature_row = pd.DataFrame(
                 [new_htf_features],
                 columns=_infer_htf_columns(new_htf_features, htf_arts.hmm),
