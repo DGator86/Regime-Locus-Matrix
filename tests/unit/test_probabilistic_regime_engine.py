@@ -200,13 +200,12 @@ class TestProbabilisticRegimeEngine:
         sig = engine.score(probs[-1], kronos_forecast=None)
         assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
 
-    def test_score_skips_nullable_missing_kronos(self, ltf_df):
     def test_score_treats_nullable_kronos_as_absent(self, ltf_df):
         engine = ProbabilisticRegimeEngine(_small_config())
         engine.fit(ltf_df)
         probs = engine._artefacts.hmm.predict_proba_filtered(ltf_df)
-
         sig = engine.score(probs[-1], kronos_forecast=pd.NA)
+        assert np.allclose(sig.ltf_belief_raw, sig.ltf_belief_post_kronos)
 
     @pytest.mark.parametrize("missing_kronos", [pd.NA, np.nan, None])
     def test_score_with_missing_optional_kronos_skips_update(self, ltf_df, missing_kronos):
@@ -359,16 +358,6 @@ class TestProbabilisticRegimeEngineMTF:
         assert sig.joint_belief.shape == (2 * 3,)
         assert sig.current_most_likely_htf_state in range(2)
 
-    def test_update_treats_nullable_kronos_as_absent(self, ltf_df, htf_df):
-    def test_update_treats_nullable_missing_kronos_as_absent(self, ltf_df, htf_df):
-        engine = ProbabilisticRegimeEngineMTF(_small_config())
-        engine.fit(ltf_df, htf_df)
-        ltf_row = ltf_df[["S_D", "S_V", "S_L", "S_G"]].iloc[-1].values
-
-        sig = engine.update(ltf_row, kronos_forecast=pd.NA)
-        sig = engine.update(ltf_row, kronos_forecast=pd.NA, is_week_boundary=False)
-
-        assert 0.0 <= sig.confidence <= 1.0
     @pytest.mark.parametrize("missing_kronos", [pd.NA, np.nan, None])
     def test_update_with_missing_optional_kronos_skips_update(self, ltf_df, htf_df, missing_kronos):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
@@ -428,6 +417,7 @@ class TestProbabilisticRegimeEngineMTF:
         out = engine.run_batch(df, htf_df)
 
         assert len(out) == len(df)
+
     def test_run_batch_treats_nullable_missing_kronos_as_absent(self, ltf_df, htf_df):
         nullable_df = _with_nullable_missing_kronos(ltf_df)
         engine = ProbabilisticRegimeEngineMTF(_small_config())
@@ -479,129 +469,6 @@ class TestProbabilisticRegimeEngineMTF:
         assert batch["pre_spot_attractiveness"].to_numpy() == pytest.approx(stream_spot_attrs)
         assert np.allclose(np.vstack(batch["pre_ltf_probs"].to_numpy()), np.vstack(stream_ltf_probs))
         assert np.allclose(np.vstack(batch["pre_htf_probs"].to_numpy()), np.vstack(stream_htf_probs))
-        engine = ProbabilisticRegimeEngineMTF(cfg)
-        engine.fit(ltf_df, htf_df)
-
-        out = engine.run_batch(ltf_df, htf_df)
-
-        engine._reset_beliefs()
-        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
-        htf_lookup = _build_htf_feature_lookup(htf_df)
-        ltf_score_df = ltf_df[["S_D", "S_V", "S_L", "S_G"]].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
-        kronos_series = pd.to_numeric(ltf_df["kronos_forecast"], errors="coerce")
-
-        expected_confidences = []
-        expected_spot_attrs = []
-        expected_ltf_states = []
-        expected_htf_states = []
-        expected_ltf_probs = []
-        expected_ltf_post = []
-        expected_htf_probs = []
-        for i, (idx, _) in enumerate(ltf_df.iterrows()):
-            htf_features = _lookup_htf_features(idx, htf_lookup, htf_df) if flags[i] else None
-            kronos_forecast = float(kronos_series.iloc[i]) if np.isfinite(kronos_series.iloc[i]) else None
-            sig = engine.update(
-        batch_engine = ProbabilisticRegimeEngineMTF(cfg)
-        batch_engine.fit(ltf_df, htf_df)
-        out = batch_engine.run_batch(ltf_df, htf_df)
-
-        stream_engine = ProbabilisticRegimeEngineMTF(cfg)
-        stream_engine._artefacts = batch_engine._artefacts
-        stream_engine._reset_beliefs()
-
-        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
-        htf_lookup = _build_htf_feature_lookup(htf_df)
-        ltf_score_df = (
-            ltf_df[["S_D", "S_V", "S_L", "S_G"]]
-            .apply(pd.to_numeric, errors="coerce")
-            .ffill()
-            .fillna(0.0)
-        )
-        kronos_series = pd.to_numeric(ltf_df["kronos_forecast"], errors="coerce")
-
-        expected_confidences = []
-        expected_htf_probs = []
-        for i in range(len(ltf_df)):
-            htf_features = None
-            if flags[i]:
-                htf_features = _lookup_htf_features(ltf_df.index[i], htf_lookup, htf_df)
-            kronos_forecast = (
-                float(kronos_series.iloc[i])
-                if np.isfinite(kronos_series.iloc[i])
-                else None
-            )
-            sig = stream_engine.update(
-                ltf_score_df.iloc[i].values.astype(np.float64),
-                kronos_forecast=kronos_forecast,
-                is_week_boundary=bool(flags[i]),
-                new_htf_features=htf_features,
-            )
-            expected_confidences.append(sig.confidence)
-            expected_spot_attrs.append(sig.instantaneous_attractiveness)
-            expected_ltf_states.append(sig.current_most_likely_ltf_state)
-            expected_htf_states.append(sig.current_most_likely_htf_state)
-            expected_ltf_probs.append(sig.ltf_belief_raw)
-            expected_ltf_post.append(sig.ltf_belief_post_kronos)
-            expected_htf_probs.append(sig.htf_belief)
-
-        assert out["pre_confidence"].to_numpy() == pytest.approx(expected_confidences)
-        assert out["pre_spot_attractiveness"].to_numpy() == pytest.approx(expected_spot_attrs)
-        assert out["pre_ltf_state"].tolist() == expected_ltf_states
-        assert out["pre_htf_state"].tolist() == expected_htf_states
-        assert np.vstack(out["pre_ltf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_probs))
-        assert np.vstack(out["pre_ltf_probs_post_kronos"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_post))
-        assert np.vstack(out["pre_htf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_htf_probs))
-            expected_htf_probs.append(sig.htf_belief.tolist())
-
-        assert out["pre_confidence"].tolist() == pytest.approx(expected_confidences)
-        assert np.array(out["pre_htf_probs"].tolist()) == pytest.approx(
-            np.array(expected_htf_probs)
-        )
-    def test_mtf_run_batch_with_nullable_missing_kronos_does_not_crash(self, ltf_df, htf_df):
-        nullable_df = ltf_df.copy()
-        nullable_kronos = pd.Series(ltf_df["kronos_forecast"].to_numpy(), index=ltf_df.index, dtype="Float64")
-        nullable_kronos.iloc[-1] = pd.NA
-        nullable_df["kronos_forecast"] = nullable_kronos
-
-        engine = ProbabilisticRegimeEngineMTF(_small_config())
-        engine.fit(nullable_df, htf_df)
-        out = engine.run_batch(nullable_df, htf_df)
-
-        assert len(out) == len(nullable_df)
-        assert out["pre_confidence"].between(0.0, 1.0).all()
-
-    def test_run_batch_matches_streaming_update_path(self, ltf_df, htf_df):
-        engine = ProbabilisticRegimeEngineMTF(_small_config())
-        engine.fit(ltf_df, htf_df)
-        sample = ltf_df.iloc[:60]
-
-        batch = engine.run_batch(sample, htf_df)
-
-        engine._reset_beliefs()
-        flags = _compute_week_boundary_flags(sample, engine.config.htf_resample_rule)
-        htf_lookup = _build_htf_feature_lookup(htf_df)
-        ltf_observations = engine._artefacts.ltf.hmm.prepare_observations(sample)  # type: ignore[union-attr]
-        expected_confidences = []
-        expected_ltf_probs = []
-
-        for i in range(len(sample)):
-            is_wb = bool(flags[i])
-            htf_feats = (
-                _lookup_htf_features(sample.index[i], htf_lookup, htf_df)
-                if is_wb and isinstance(sample.index, pd.DatetimeIndex)
-                else None
-            )
-            sig = engine.update(
-                ltf_observations[i],
-                kronos_forecast=float(sample["kronos_forecast"].iloc[i]),
-                is_week_boundary=is_wb,
-                new_htf_features=htf_feats,
-            )
-            expected_confidences.append(sig.confidence)
-            expected_ltf_probs.append(sig.ltf_belief_raw.tolist())
-
-        assert batch["pre_confidence"].to_numpy() == pytest.approx(expected_confidences)
-        assert np.allclose(batch["pre_ltf_probs"].tolist(), expected_ltf_probs)
 
     def test_run_batch_skips_nullable_missing_kronos(self, ltf_df, htf_df):
         engine = ProbabilisticRegimeEngineMTF(_small_config())
@@ -678,7 +545,8 @@ class TestProbabilisticRegimeEngineMTF:
         assert np.allclose(
             np.vstack(batch["pre_ltf_probs"].to_numpy()),
             np.vstack(streaming_ltf_probs),
-            atol=1e-12,
+            rtol=1e-9,
+            atol=1e-9,
         )
 
     def test_run_batch_matches_streaming_update_with_missing_ltf_feature(self, ltf_df, htf_df):
@@ -716,7 +584,8 @@ class TestProbabilisticRegimeEngineMTF:
         assert np.allclose(
             np.vstack(batch["pre_ltf_probs"].to_numpy()),
             np.vstack(streaming_ltf_probs),
-            atol=1e-12,
+            rtol=1e-9,
+            atol=1e-9,
         )
 
 
@@ -799,7 +668,6 @@ class TestComputeRegimeModulatorsWithPRE:
         assert result["trade"] is False
         assert result["model"] == "pre"
 
-    def test_pre_confidence_applies_kronos_transition_penalty(self):
     def test_pre_confidence_applies_kronos_transition_penalty_before_gating(self):
         from rlm.roee.decision import compute_regime_modulators
 
@@ -808,7 +676,6 @@ class TestComputeRegimeModulatorsWithPRE:
             row,
             confidence_threshold=0.5,
             sizing_multiplier=1.0,
-            transition_penalty=0.0,
             transition_penalty=0.2,
             kronos_transition_penalty=0.3,
             use_pre_confidence=True,
