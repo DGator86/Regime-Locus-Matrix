@@ -865,10 +865,15 @@ class ProbabilisticRegimeEngineMTF:
             alpha_raw /= alpha_raw.sum()
             # Update streaming LTF belief via mixture transmat
             mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            # Use pre-computed filtered probabilities directly (already includes
-            # emission likelihood update from the HMM forward-filter pass)
-            self._ltf_belief = alpha_raw
+            # Use pre-computed filtered probabilities for the current-step
+            # posterior (they already include the emission likelihood update
+            # from the HMM forward-filter pass), but carry forward the
+            # streaming LTF belief using the same HTF-conditioned predictive
+            # transition semantics as `update()`.
             alpha = alpha_raw.copy()
+            alpha_pred = np.clip(alpha @ mixture_T, 1e-12, None)
+            alpha_pred /= alpha_pred.sum()
+            self._ltf_belief = alpha_pred
 
             # Kronos update
             if cfg.kronos_enabled and kf is not None:
