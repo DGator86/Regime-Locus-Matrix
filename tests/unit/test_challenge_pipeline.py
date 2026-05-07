@@ -269,6 +269,26 @@ class TestSniperGate:
             )
         assert d.directive == "no_trade"
 
+    def test_sniper_requires_available_pdt_slot(self):
+        """Sniper setups are intraday plays and must not become forced overnight holds."""
+        persona = _make_persona(directive="long", bias="bullish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[3])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "pdt slot" in d.reason_summary.lower()
+
     def test_sniper_strategy_tagged_in_reason(self):
         """When gate passes and regime maps to a strategy, its name appears in reason_summary."""
         persona = _make_persona(directive="long", signal_alignment=0.78, confidence=0.82)
