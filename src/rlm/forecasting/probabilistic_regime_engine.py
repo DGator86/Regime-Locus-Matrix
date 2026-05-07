@@ -829,7 +829,10 @@ class ProbabilisticRegimeEngineMTF:
         kronos_series: pd.Series | None = None
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
-        ltf_features = arts.ltf.hmm.prepare_observations(ltf_df)
+        missing_ltf_cols = [col for col in _HMM_SCORE_COLUMNS if col not in ltf_df.columns]
+        if missing_ltf_cols:
+            raise ValueError(f"Missing required columns for HMM observations: {missing_ltf_cols}")
+        ltf_feature_rows = ltf_df[_HMM_SCORE_COLUMNS]
 
         confidences: list[float] = []
         spot_attrs: list[float] = []
@@ -859,7 +862,7 @@ class ProbabilisticRegimeEngineMTF:
             beta = self._htf_belief.copy()  # type: ignore[union-attr]
             mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
             alpha = self._step_ltf_belief(
-                ltf_features=ltf_features[i],
+                ltf_features=ltf_feature_rows.iloc[i].to_numpy(),
                 prev_belief=self._ltf_belief,  # type: ignore[arg-type]
                 transmat=mixture_T,
                 hmm=arts.ltf.hmm,
