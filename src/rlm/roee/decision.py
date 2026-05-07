@@ -68,6 +68,7 @@ def _finite_float(x: object, default: float = 0.0) -> float:
 
 
 def _truthy_flag(value: object) -> bool:
+    """Interpret mixed flag values while treating missing/NaN inputs as false."""
     if value is None:
         return False
     try:
