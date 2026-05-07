@@ -239,8 +239,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=False):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "sniper" in d.reason_summary.lower()
@@ -254,8 +259,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=unmapped,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=unmapped,
             )
         assert d.directive == "no_trade"
 
@@ -268,10 +278,45 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert "aggressive_daytrader_call" in d.reason_summary
+
+    def test_sniper_conflicting_persona_directive_forces_no_trade(self):
+        """A regime-mapped call must not execute through a short persona directive."""
+        persona = _make_persona(directive="short", bias="bearish", signal_alignment=0.78, confidence=0.82)
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
                 "SPY", persona, state, pdt,
                 current_bar=object(), intraday_df=object(), regime=regime,
             )
-        assert "aggressive_daytrader_call" in d.reason_summary
+        assert d.directive == "no_trade"
+        assert "conflicts" in d.reason_summary
+
+    def test_sniper_straddle_strategy_forces_no_trade_until_directive_support_exists(self):
+        """ChallengeDirective cannot currently express multi-leg straddles safely."""
+        persona = _make_persona(directive="long", signal_alignment=0.78, confidence=0.82)
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "high_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY", persona, state, pdt,
+                current_bar=object(), intraday_df=object(), regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "multi-leg" in d.reason_summary
 
     def test_bearish_destabilizing_regime_passes_sniper(self):
         """Bear + destabilizing dealer flow is mapped and resolves to a put strategy."""
@@ -282,7 +327,52 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert "aggressive_daytrader_put" in d.reason_summary
+
+    def test_sniper_strategy_conflicting_persona_direction_forces_no_trade(self):
+        """A mapped put sniper must not execute when persona direction conflicts."""
+        persona = _make_persona(directive="long", bias="bullish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bear", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "conflicts" in d.reason_summary
+
+    def test_multi_leg_sniper_strategy_is_not_emitted_as_directional_trade(self):
+        """Directive-only consumers cannot safely execute the mapped 0DTE straddle."""
+        persona = _make_persona(directive="long", bias="bullish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "high_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "multi-leg" in d.reason_summary

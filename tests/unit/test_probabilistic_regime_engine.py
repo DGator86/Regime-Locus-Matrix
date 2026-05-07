@@ -13,11 +13,11 @@ from rlm.forecasting.probabilistic_regime_engine import (
     ProbabilisticRegimeEngineMTF,
     RegimeSignal,
     _bayesian_kronos_update,
+    _build_htf_feature_lookup,
     _compute_attractiveness,
     _horizon_averaged_score,
     extract_pre_confidence,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -303,6 +303,22 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df)
         out = engine.run_batch(ltf_df, htf_df)
         assert len(out) == len(ltf_df)
+
+    def test_htf_lookup_uses_score_columns_in_hmm_order(self):
+        htf = pd.DataFrame(
+            {
+                "close": [5000.0],
+                "sigma": [0.02],
+                "S_D": [0.1],
+                "S_V": [0.2],
+                "S_L": [0.3],
+                "S_G": [0.4],
+            },
+            index=pd.to_datetime(["2024-01-05"]),
+        )
+        lookup = _build_htf_feature_lookup(htf)
+        values = next(iter(lookup.values()))
+        assert values.tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
 
     def test_run_batch_without_fit_raises(self, ltf_df):
         with pytest.raises(RuntimeError):
