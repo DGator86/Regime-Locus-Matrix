@@ -239,8 +239,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=False):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "sniper" in d.reason_summary.lower()
@@ -254,8 +259,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=unmapped,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=unmapped,
             )
         assert d.directive == "no_trade"
 
@@ -268,8 +278,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert "aggressive_daytrader_call" in d.reason_summary
 
@@ -282,7 +297,52 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert "aggressive_daytrader_put" in d.reason_summary
+
+    def test_sniper_strategy_overrides_stale_persona_direction(self):
+        """A mapped put sniper must not emit a stale long persona directive."""
+        persona = _make_persona(directive="long", bias="bullish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bear", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "short"
+        assert "aggressive_daytrader_put" in d.reason_summary
+
+    def test_multi_leg_sniper_strategy_is_not_emitted_as_directional_trade(self):
+        """Directive-only consumers cannot safely execute the mapped 0DTE straddle."""
+        persona = _make_persona(directive="long", bias="bullish")
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[0])
+        regime: tuple[str, str, str, str] = ("bull", "high_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert "multi-leg" in d.reason_summary

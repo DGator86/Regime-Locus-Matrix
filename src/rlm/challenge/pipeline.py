@@ -20,6 +20,11 @@ from rlm.challenge.models import (
 )
 from rlm.persona.models import PersonaPipelineResult
 
+_SNIPER_DIRECTIONAL_DIRECTIVES: dict[str, str] = {
+    "aggressive_daytrader_call": "long",
+    "aggressive_daytrader_put": "short",
+}
+
 
 class ChallengeDecisionPipeline:
     """Full challenge decision stack.
@@ -86,6 +91,12 @@ class ChallengeDecisionPipeline:
             sniper_strategy = get_challenge_strategy(regime)
             if sniper_strategy == "no_trade":
                 return self._no_trade(symbol, pdt, "no aggressive strategy mapped for this regime")
+            if sniper_strategy not in _SNIPER_DIRECTIONAL_DIRECTIVES:
+                return self._no_trade(
+                    symbol,
+                    pdt,
+                    f"aggressive strategy {sniper_strategy} requires multi-leg execution",
+                )
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
@@ -112,7 +123,9 @@ class ChallengeDecisionPipeline:
             force_close_dte_threshold=1,
         )
 
-        directive_val = persona.sisko.directive  # "long" or "short"
+        directive_val = (
+            _SNIPER_DIRECTIONAL_DIRECTIVES[sniper_strategy] if sniper_strategy is not None else persona.sisko.directive
+        )
         sniper_tag = f" sniper={sniper_strategy}" if sniper_strategy else ""
         reason = (
             f"score={score_result.setup_score:.2f} conviction={score_result.conviction} "
