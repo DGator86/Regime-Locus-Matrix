@@ -5,6 +5,8 @@ trade-mode selection, contract profiling, and risk plan generation.
 
 from __future__ import annotations
 
+from rlm.challenge.challenge_strategy_map import get_challenge_strategy
+from rlm.challenge.daytrade_filters import is_great_daytrade_setup
 from rlm.challenge.models import (
     ChallengeAccountState,
     ChallengeDirective,
@@ -46,8 +48,26 @@ class ChallengeDecisionPipeline:
         persona: PersonaPipelineResult,
         state: ChallengeAccountState,
         pdt: PDTTracker,
+        *,
+        current_bar: object | None = None,
+        intraday_df: object | None = None,
+        regime: tuple[str, str, str, str] | None = None,
     ) -> ChallengeDirective:
-        """Evaluate a single symbol and return a ChallengeDirective."""
+        """Evaluate a single symbol and return a ChallengeDirective.
+
+        Parameters
+        ----------
+        current_bar:
+            Optional latest 1-min OHLCV bar (pandas Series).  When provided
+            alongside ``intraday_df`` and ``regime``, the aggressive sniper
+            gate is applied before standard scoring.
+        intraday_df:
+            Optional full intraday 1-min OHLCV history (pandas DataFrame).
+        regime:
+            Optional four-tuple (direction, vol, liquidity, dealer_flow).
+            Required to activate the sniper gate and select an aggressive
+            strategy from ``STRATEGY_MAP_CHALLENGE``.
+        """
         cfg = self._cfg
 
         # 0. Universe gate
@@ -57,6 +77,15 @@ class ChallengeDecisionPipeline:
         # 1. Persona veto passthrough
         if persona.sisko.directive == "no_trade":
             return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.entry_policy}")
+
+        # 1a. Aggressive sniper gate (optional; only active when intraday data is supplied)
+        sniper_strategy: str | None = None
+        if current_bar is not None and intraday_df is not None and regime is not None:
+            if not is_great_daytrade_setup(symbol, regime, current_bar, intraday_df):
+                return self._no_trade(symbol, pdt, "failed aggressive sniper filter")
+            sniper_strategy = get_challenge_strategy(regime)
+            if sniper_strategy == "no_trade":
+                return self._no_trade(symbol, pdt, "no aggressive strategy mapped for this regime")
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
@@ -84,9 +113,10 @@ class ChallengeDecisionPipeline:
         )
 
         directive_val = persona.sisko.directive  # "long" or "short"
+        sniper_tag = f" sniper={sniper_strategy}" if sniper_strategy else ""
         reason = (
             f"score={score_result.setup_score:.2f} conviction={score_result.conviction} "
-            f"mode={mode_decision.trade_mode} pdt_remain={pdt.day_trades_remaining}"
+            f"mode={mode_decision.trade_mode} pdt_remain={pdt.day_trades_remaining}{sniper_tag}"
         )
 
         return ChallengeDirective(
