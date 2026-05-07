@@ -93,8 +93,9 @@ class ChallengeDecisionPipeline:
                 return self._no_trade(symbol, pdt, "no aggressive strategy mapped for this regime")
             if sniper_strategy not in _SNIPER_DIRECTIONAL_DIRECTIVES:
                 return self._no_trade(
-                    symbol, pdt, f"aggressive strategy {sniper_strategy} requires multi-leg execution"
-                    symbol, pdt, f"aggressive sniper strategy {sniper_strategy} requires multi-leg execution"
+                    symbol,
+                    pdt,
+                    f"aggressive sniper strategy {sniper_strategy} requires multi-leg execution",
                 )
             sniper_directive = _SNIPER_DIRECTIONAL_DIRECTIVES[sniper_strategy]
             if persona.sisko.directive != sniper_directive:
