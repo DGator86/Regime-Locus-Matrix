@@ -554,7 +554,7 @@ class ProbabilisticRegimeEngineMTF:
             ltf=ltf_arts,
             model_timestamp=train_timestamp,
         )
-        # Initialise streaming beliefs to stationary distributions
+        # Initialise streaming beliefs to uniform distributions
         self._reset_beliefs()
         return self
 
@@ -568,7 +568,7 @@ class ProbabilisticRegimeEngineMTF:
         htf = ltf_df.resample(rule).last().dropna(how="all")
         if htf.empty or len(htf) < 4:
             # Fall back to monthly if weekly produces too few rows
-            htf = ltf_df.resample("ME").last().dropna(how="all")
+            htf = ltf_df.resample("M").last().dropna(how="all")
         return htf
 
     def _reset_beliefs(self) -> None:
@@ -673,13 +673,18 @@ class ProbabilisticRegimeEngineMTF:
 
         # Observation update: compute emission likelihoods from HTF HMM
         try:
-            feature_row = pd.DataFrame([new_htf_features], columns=htf_arts.hmm.model.means_.shape and
-                                       _infer_htf_columns(new_htf_features, htf_arts.hmm))
+            if htf_arts.hmm.model is None:
+                raise ValueError("HTF HMM model is not fitted")
+            feature_row = pd.DataFrame(
+                [new_htf_features],
+                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
+            )
             log_ll = htf_arts.hmm.model._compute_log_likelihood(
                 htf_arts.hmm.prepare_observations(feature_row)
             )
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
-        except Exception:
+        except Exception as e:
+            log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation to likelihoods
@@ -706,13 +711,16 @@ class ProbabilisticRegimeEngineMTF:
         predicted = prev_belief @ transmat
         # Compute emission likelihood from the LTF HMM
         try:
+            if hmm.model is None:
+                raise ValueError("LTF HMM model is not fitted")
             feature_row = pd.DataFrame(
                 [ltf_features],
                 columns=_infer_ltf_columns(ltf_features, hmm),
             )
             log_ll = hmm.model._compute_log_likelihood(hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
-        except Exception:
+        except Exception as e:
+            log.debug(f"LTF observation update failed, using uniform likelihoods: {e}")
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation
@@ -853,16 +861,12 @@ class ProbabilisticRegimeEngineMTF:
             beta = self._htf_belief.copy()  # type: ignore[union-attr]
             alpha_raw = np.clip(ltf_filtered[i], 1e-12, None)
             alpha_raw /= alpha_raw.sum()
-            # Update streaming LTF belief via mixture transmat then observation
+            # Update streaming LTF belief via mixture transmat
             mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            # Update stored ltf_belief (use pre-computed filtered as observation)
-            predicted = self._ltf_belief @ mixture_T  # type: ignore[operator]
-            # Blend prediction with the forward-filter observation
-            new_ltf = 0.5 * predicted + 0.5 * alpha_raw
-            new_ltf = np.clip(new_ltf, 1e-12, None)
-            new_ltf /= new_ltf.sum()
-            self._ltf_belief = new_ltf
-            alpha = new_ltf.copy()
+            # Use pre-computed filtered probabilities directly (already includes
+            # emission likelihood update from the HMM forward-filter pass)
+            self._ltf_belief = alpha_raw
+            alpha = alpha_raw.copy()
 
             # Kronos update
             if cfg.kronos_enabled and kf is not None:
@@ -923,12 +927,17 @@ class ProbabilisticRegimeEngineMTF:
 
 
 def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
-    """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G."""
+    """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G.
+
+    Raises ValueError if features has fewer than 4 elements.
+    """
     required = ["S_D", "S_V", "S_L", "S_G"]
+    if len(features) < 4:
+        raise ValueError(f"HTF features must have at least 4 elements, got {len(features)}")
     if len(features) == 4:
         return required
-    # Pad/truncate to standard 4 columns for HMM compatibility
-    return required[: len(features)] + [f"_f{i}" for i in range(max(0, len(features) - 4))]
+    # Extend beyond standard 4 columns if needed
+    return required + [f"_f{i}" for i in range(len(features) - 4)]
 
 
 def _infer_ltf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
@@ -945,7 +954,8 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
             flags[i] = True
         return flags
     try:
-        periods = df.index.to_period(rule.split("-")[0])
+        # Preserve the full rule including anchor (e.g., "W-FRI")
+        periods = df.index.to_period(rule)
         prev = None
         for i, p in enumerate(periods):
             if p != prev:
@@ -957,11 +967,23 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
 
 
 def _build_htf_feature_lookup(htf_df: pd.DataFrame) -> dict:
-    """Build a simple dict mapping HTF index → numeric feature array for lookup."""
+    """Build a simple dict mapping HTF index → numeric feature array for lookup.
+
+    Returns features in the required order: S_D, S_V, S_L, S_G (+ any extras).
+    """
     if htf_df.empty:
         return {}
-    numeric_df = htf_df.select_dtypes(include=[np.number])
-    return {idx: row.values.astype(np.float64) for idx, row in numeric_df.iterrows()}
+    # Extract required columns in fixed order
+    required = ["S_D", "S_V", "S_L", "S_G"]
+    available = [c for c in required if c in htf_df.columns]
+    if len(available) < 4:
+        # Fall back to all numeric columns if required columns are missing
+        numeric_df = htf_df.select_dtypes(include=[np.number])
+        return {idx: row.values.astype(np.float64) for idx, row in numeric_df.iterrows()}
+    # Use required columns in order, plus any extras
+    extra_cols = [c for c in htf_df.columns if c not in required and pd.api.types.is_numeric_dtype(htf_df[c])]
+    ordered_cols = available + extra_cols
+    return {idx: htf_df.loc[idx, ordered_cols].values.astype(np.float64) for idx in htf_df.index}
 
 
 def _lookup_htf_features(
