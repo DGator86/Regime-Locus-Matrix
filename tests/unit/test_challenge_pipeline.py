@@ -297,11 +297,37 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "conflicts" in d.reason_summary
+
+    def test_sniper_requires_available_pdt_slot(self):
+        """Aggressive sniper setups are day trades, not forced overnight swings."""
+        persona = _make_persona(directive="long", signal_alignment=0.90, confidence=0.90)
+        state = ChallengeAccountState(current_equity=1_000.0)
+        pdt = PDTTracker(day_trades_used_last_5d=[3])
+        regime: tuple[str, str, str, str] = ("bull", "low_vol", "high_liquidity", "supportive")
+
+        with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
+            d = ChallengeDecisionPipeline().run(
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
+            )
+        assert d.directive == "no_trade"
+        assert d.trade_mode == "no_trade"
+        assert "pdt" in d.reason_summary.lower()
 
     def test_sniper_straddle_strategy_forces_no_trade_until_directive_support_exists(self):
         """ChallengeDirective cannot currently express multi-leg straddles safely."""
@@ -312,8 +338,13 @@ class TestSniperGate:
 
         with patch("rlm.challenge.pipeline.is_great_daytrade_setup", return_value=True):
             d = ChallengeDecisionPipeline().run(
-                "SPY", persona, state, pdt,
-                current_bar=object(), intraday_df=object(), regime=regime,
+                "SPY",
+                persona,
+                state,
+                pdt,
+                current_bar=object(),
+                intraday_df=object(),
+                regime=regime,
             )
         assert d.directive == "no_trade"
         assert "multi-leg" in d.reason_summary
