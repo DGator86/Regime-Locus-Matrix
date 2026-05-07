@@ -1,7 +1,9 @@
 """Regime-directed equity paper trading via IBKR.
 
 Reads ``universe_trade_plans.json`` (output of ``run_universe_options_pipeline.py``),
-extracts the regime direction for every active plan, and places simple stock
+extracts the regime direction for every active plan (``regime_direction``, else the first
+segment of ``regime_key``, else inference from options ``strategy_name`` such as
+``debit_spread_call`` / ``debit_spread_put``), and places simple stock
 BUY / SELL orders on the IBKR paper account.
 
 This runs alongside the options book for independent execution verification:
@@ -385,6 +387,42 @@ def ibkr_equity_connection() -> Generator[_EquityApp, None, None]:
 # Plan reading helpers
 # ---------------------------------------------------------------------------
 
+def _strategy_label(plan: dict) -> str:
+    s = str(plan.get("strategy_name") or plan.get("strategy") or "").strip()
+    if s:
+        return s
+    dec = plan.get("decision")
+    if isinstance(dec, dict):
+        return str(dec.get("strategy_name") or dec.get("strategy") or "").strip()
+    return ""
+
+
+def _infer_regime_direction(plan: dict) -> str:
+    """Derive bull/bear for the stock leg from universe_trade_plans rows.
+
+    Pipeline rows usually expose ``regime_key`` (``bull|…``) but not ``regime_direction``;
+    options strategy names (e.g. ``debit_spread_call``) also encode direction.
+    """
+    d = str(plan.get("regime_direction", "")).strip().lower()
+    if d in ("bull", "bear"):
+        return d
+
+    rk = str(plan.get("regime_key", "")).strip().lower()
+    if rk:
+        head = rk.split("|", 1)[0].strip()
+        if head in ("bull", "bear"):
+            return head
+
+    n = _strategy_label(plan).lower()
+    if not n:
+        return ""
+    if "debit_spread_put" in n or "bear_put" in n or "short_bear" in n:
+        return "bear"
+    if "debit_spread_call" in n or "bull_call" in n or "small_bull" in n:
+        return "bull"
+    return ""
+
+
 def _load_plans(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -486,9 +524,14 @@ def open_equity_positions(
             print(f"  [equity] {sym}: already have open position — skip", flush=True)
             continue
 
-        direction = str(plan.get("regime_direction", "")).lower()
+        direction = _infer_regime_direction(plan)
         if direction not in ("bull", "bear"):
-            print(f"  [equity] {sym}: direction={direction!r} → skip (not bull/bear)", flush=True)
+            strat = _strategy_label(plan)
+            print(
+                f"  [equity] {sym}: direction={direction!r} (regime_key={plan.get('regime_key')!r} "
+                f"strategy={strat!r}) → skip (not bull/bear)",
+                flush=True,
+            )
             continue
 
         action = "BUY" if direction == "bull" else "SELL"
