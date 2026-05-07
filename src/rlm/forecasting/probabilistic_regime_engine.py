@@ -556,7 +556,7 @@ class ProbabilisticRegimeEngineMTF:
             ltf=ltf_arts,
             model_timestamp=train_timestamp,
         )
-        # Initialise streaming beliefs to stationary distributions
+        # Initialise streaming beliefs to uniform distributions
         self._reset_beliefs()
         return self
 
@@ -675,13 +675,18 @@ class ProbabilisticRegimeEngineMTF:
 
         # Observation update: compute emission likelihoods from HTF HMM
         try:
-            feature_row = pd.DataFrame([new_htf_features], columns=htf_arts.hmm.model.means_.shape and
-                                       _infer_htf_columns(new_htf_features, htf_arts.hmm))
+            if htf_arts.hmm.model is None:
+                raise ValueError("HTF HMM model is None (not initialized or fitted)")
+            feature_row = pd.DataFrame(
+                [new_htf_features],
+                columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
+            )
             log_ll = htf_arts.hmm.model._compute_log_likelihood(
                 htf_arts.hmm.prepare_observations(feature_row)
             )
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
-        except Exception:
+        except Exception as e:
+            log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation to likelihoods
@@ -708,13 +713,16 @@ class ProbabilisticRegimeEngineMTF:
         predicted = prev_belief @ transmat
         # Compute emission likelihood from the LTF HMM
         try:
+            if hmm.model is None:
+                raise ValueError("LTF HMM model is None (not initialized or fitted)")
             feature_row = pd.DataFrame(
                 [ltf_features],
                 columns=_infer_ltf_columns(ltf_features, hmm),
             )
             log_ll = hmm.model._compute_log_likelihood(hmm.prepare_observations(feature_row))
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
-        except Exception:
+        except Exception as e:
+            log.debug(f"LTF observation update failed, using uniform likelihoods: {e}")
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation
@@ -855,16 +863,17 @@ class ProbabilisticRegimeEngineMTF:
             beta = self._htf_belief.copy()  # type: ignore[union-attr]
             alpha_raw = np.clip(ltf_filtered[i], 1e-12, None)
             alpha_raw /= alpha_raw.sum()
-            # Update streaming LTF belief via mixture transmat then observation
+            # Update streaming LTF belief via mixture transmat
             mixture_T = self._mixture_transmat(beta, arts.htf.attractiveness, arts.ltf.transmat)
-            # Update stored ltf_belief (use pre-computed filtered as observation)
-            predicted = self._ltf_belief @ mixture_T  # type: ignore[operator]
-            # Blend prediction with the forward-filter observation
-            new_ltf = 0.5 * predicted + 0.5 * alpha_raw
-            new_ltf = np.clip(new_ltf, 1e-12, None)
-            new_ltf /= new_ltf.sum()
-            self._ltf_belief = new_ltf
-            alpha = new_ltf.copy()
+            # Use pre-computed filtered probabilities for the current-step
+            # posterior (they already include the emission likelihood update
+            # from the HMM forward-filter pass), but carry forward the
+            # streaming LTF belief using the same HTF-conditioned predictive
+            # transition semantics as `update()`.
+            alpha = alpha_raw.copy()
+            alpha_pred = np.clip(alpha @ mixture_T, 1e-12, None)
+            alpha_pred /= alpha_pred.sum()
+            self._ltf_belief = alpha_pred
 
             # Kronos update
             if cfg.kronos_enabled and kf is not None:
@@ -925,11 +934,33 @@ class ProbabilisticRegimeEngineMTF:
 
 
 def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
-    """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G."""
+    """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G.
+
+    Parameters
+    ----------
+    features : np.ndarray
+        Feature vector. Must have at least 4 elements.
+    hmm : RLMHMM
+        HMM instance (unused, kept for signature compatibility).
+
+    Returns
+    -------
+    list[str]
+        Column names for the feature vector.
+
+    Raises
+    ------
+    ValueError
+        If features has fewer than 4 elements.
+    """
+    if len(features) < 4:
+        raise ValueError(
+            f"HTF features must have at least 4 elements (S_D, S_V, S_L, S_G), got {len(features)}"
+        )
     if len(features) == 4:
         return _HMM_SCORE_COLUMNS
-    # Pad/truncate to standard 4 columns for HMM compatibility
-    return _HMM_SCORE_COLUMNS[: len(features)] + [f"_f{i}" for i in range(max(0, len(features) - 4))]
+    # Extend beyond standard 4 columns if needed
+    return _HMM_SCORE_COLUMNS + [f"_f{i}" for i in range(len(features) - 4)]
 
 
 def _infer_ltf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
@@ -946,7 +977,8 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
             flags[i] = True
         return flags
     try:
-        periods = df.index.to_period(rule.split("-")[0])
+        # Preserve the full rule including anchor (e.g., "W-FRI")
+        periods = df.index.to_period(rule)
         prev = None
         for i, p in enumerate(periods):
             if p != prev:
