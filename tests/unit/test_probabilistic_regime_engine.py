@@ -245,24 +245,35 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
 
-    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+    def test_build_htf_df_monthly_fallback_uses_version_neutral_offset(self, monkeypatch):
         idx = pd.date_range("2024-01-02", periods=3, freq="B")
-        ltf = pd.DataFrame(
+        ltf_df = pd.DataFrame(
             {
                 "S_D": [0.1, 0.2, 0.3],
-                "S_V": [0.2, 0.3, 0.4],
-                "S_L": [0.3, 0.4, 0.5],
-                "S_G": [0.4, 0.5, 0.6],
-                "close": [100.0, 101.0, 102.0],
+                "S_V": [0.4, 0.5, 0.6],
+                "S_L": [0.7, 0.8, 0.9],
+                "S_G": [1.0, 1.1, 1.2],
             },
             index=idx,
         )
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        resample_rules = []
+        original_resample = pd.DataFrame.resample
 
-        htf = ProbabilisticRegimeEngineMTF(_small_config())._build_htf_df(ltf)
+        def tracking_resample(self, rule, *args, **kwargs):
+            resample_rules.append(rule)
+            if rule in {"M", "ME"}:
+                raise AssertionError("monthly fallback must not use pandas-version-specific string aliases")
+            return original_resample(self, rule, *args, **kwargs)
+
+        monkeypatch.setattr(pd.DataFrame, "resample", tracking_resample)
+
+        htf = engine._build_htf_df(ltf_df)
 
         assert len(htf) == 1
         assert htf.index[0] == pd.Timestamp("2024-01-31")
-        assert htf["close"].iloc[0] == pytest.approx(102.0)
+        assert htf["S_D"].iloc[0] == pytest.approx(0.3)
+        assert any(isinstance(rule, pd.offsets.MonthEnd) for rule in resample_rules)
 
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
@@ -362,6 +373,10 @@ class TestExtractPreConfidence:
         result = extract_pre_confidence(row)
         assert result == pytest.approx(0.72)
 
+    def test_clamps_to_probability_range(self):
+        assert extract_pre_confidence(pd.Series({"pre_confidence": 20.0})) == pytest.approx(1.0)
+        assert extract_pre_confidence(pd.Series({"pre_confidence": -2.0})) == pytest.approx(0.0)
+
     def test_returns_none_when_absent(self):
         row = pd.Series({"hmm_probs": [0.5, 0.3, 0.2]})
         result = extract_pre_confidence(row)
@@ -438,6 +453,20 @@ class TestComputeRegimeModulatorsWithPRE:
         )
         assert result["size_mult"] >= 0.0
 
+    def test_pre_confidence_cannot_overscale_size(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series({"pre_confidence": 20.0})
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.5,
+            use_pre_confidence=True,
+        )
+        assert result["confidence"] == pytest.approx(1.0)
+        assert result["size_mult"] <= 1.0
+
     def test_epistemic_gate_overrides_pre(self):
         from rlm.roee.decision import compute_regime_modulators
 
@@ -454,6 +483,50 @@ class TestComputeRegimeModulatorsWithPRE:
             use_pre_confidence=True,
         )
         assert result["trade"] is False
+
+    def test_kronos_transition_penalty_applies_to_pre_confidence(self):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": True,
+            }
+        )
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+
+        assert result["confidence"] == pytest.approx(0.42)
+        assert result["trade"] is False
+
+    @pytest.mark.parametrize("missing_flag", [np.nan, pd.NA, None])
+    def test_missing_kronos_transition_flag_does_not_penalize_pre_confidence(self, missing_flag):
+        from rlm.roee.decision import compute_regime_modulators
+
+        row = pd.Series(
+            {
+                "pre_confidence": 0.60,
+                "kronos_transition_flag": missing_flag,
+            },
+            dtype=object,
+        )
+        result = compute_regime_modulators(
+            row,
+            confidence_threshold=0.5,
+            sizing_multiplier=1.0,
+            transition_penalty=0.0,
+            kronos_transition_penalty=0.3,
+            use_pre_confidence=True,
+        )
+
+        assert result["confidence"] == pytest.approx(0.60)
+        assert result["trade"] is True
 
 
 # ---------------------------------------------------------------------------
