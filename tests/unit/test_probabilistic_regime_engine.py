@@ -19,7 +19,6 @@ from rlm.forecasting.probabilistic_regime_engine import (
     extract_pre_confidence,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
