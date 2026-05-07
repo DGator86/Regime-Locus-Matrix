@@ -262,8 +262,8 @@ class TestProbabilisticRegimeEngineMTF:
 
         def tracking_resample(self, rule, *args, **kwargs):
             resample_rules.append(rule)
-            if rule in {"M", "ME"}:
-                raise AssertionError("monthly fallback must not use pandas-version-specific string aliases")
+            if isinstance(rule, str) and rule != engine.config.htf_resample_rule:
+                raise AssertionError("monthly fallback must use DateOffset, not string aliases")
             return original_resample(self, rule, *args, **kwargs)
 
         monkeypatch.setattr(pd.DataFrame, "resample", tracking_resample)
