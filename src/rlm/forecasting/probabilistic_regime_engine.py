@@ -570,7 +570,7 @@ class ProbabilisticRegimeEngineMTF:
         htf = ltf_df.resample(rule).last().dropna(how="all")
         if htf.empty or len(htf) < 4:
             # Fall back to monthly if weekly produces too few rows
-            htf = ltf_df.resample("M").last().dropna(how="all")
+            htf = ltf_df.resample("ME").last().dropna(how="all")
         return htf
 
     def _reset_beliefs(self) -> None:
