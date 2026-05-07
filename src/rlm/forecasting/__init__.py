@@ -12,6 +12,12 @@ from rlm.forecasting.kronos_forecast import (
     KronosForecastPipeline,
     apply_kronos_blend,
 )
+from rlm.forecasting.probabilistic_regime_engine import (
+    PREConfig,
+    ProbabilisticRegimeEngine,
+    ProbabilisticRegimeEngineMTF,
+    RegimeSignal,
+)
 
 __all__ = [
     "ForecastPipeline",
@@ -23,6 +29,10 @@ __all__ = [
     "apply_kronos_blend",
     "RLMHMM",
     "HMMConfig",
+    "PREConfig",
+    "ProbabilisticRegimeEngine",
+    "ProbabilisticRegimeEngineMTF",
+    "RegimeSignal",
     "LiveRegimeModelConfig",
     "load_live_regime_model",
     "save_live_regime_model",
