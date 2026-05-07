@@ -117,7 +117,7 @@ def compute_regime_modulators(
             - "size_mult": computed size multiplier (float, >= 0.0).
             - "trade": `true` if composite confidence >= confidence_threshold, `false` otherwise.
             - "model": source label for the confidence ("hmm", "markov",
-              "kronos", or appended with "+kronos").
+              "kronos", "pre", or appended with "+kronos" or "+epi_gate").
     """
     # --- PRE continuous-confidence fast-path ----------------------------
     # When the Probabilistic Regime Engine has pre-computed ``pre_confidence``
@@ -136,17 +136,19 @@ def compute_regime_modulators(
             if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
                 size_mult *= max(0.0, 1.0 - kronos_aleatoric_size_penalty * float(np.clip(aleatoric, 0.0, 1.0)))
             trade = composite >= confidence_threshold
+            model_label = "pre"
             if (
                 kronos_epistemic_disable_threshold is not None
                 and math.isfinite(epistemic)
                 and epistemic >= float(kronos_epistemic_disable_threshold)
             ):
                 trade = False
+                model_label = "pre+epi_gate"
             return {
                 "confidence": float(composite),
                 "size_mult": max(float(size_mult), 0.0),
                 "trade": trade,
-                "model": "pre",
+                "model": model_label,
             }
 
     probs, model_name = _extract_regime_probabilities(row)
