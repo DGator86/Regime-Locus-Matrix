@@ -674,7 +674,7 @@ class ProbabilisticRegimeEngineMTF:
         # Observation update: compute emission likelihoods from HTF HMM
         try:
             if htf_arts.hmm.model is None:
-                raise ValueError("HTF HMM model is not fitted")
+                raise ValueError("HTF HMM model is None (not initialized or fitted)")
             feature_row = pd.DataFrame(
                 [new_htf_features],
                 columns=_infer_htf_columns(new_htf_features, htf_arts.hmm)
@@ -712,7 +712,7 @@ class ProbabilisticRegimeEngineMTF:
         # Compute emission likelihood from the LTF HMM
         try:
             if hmm.model is None:
-                raise ValueError("LTF HMM model is not fitted")
+                raise ValueError("LTF HMM model is None (not initialized or fitted)")
             feature_row = pd.DataFrame(
                 [ltf_features],
                 columns=_infer_ltf_columns(ltf_features, hmm),
@@ -929,7 +929,22 @@ class ProbabilisticRegimeEngineMTF:
 def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
     """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G.
 
-    Raises ValueError if features has fewer than 4 elements.
+    Parameters
+    ----------
+    features : np.ndarray
+        Feature vector. Must have at least 4 elements.
+    hmm : RLMHMM
+        HMM instance (unused, kept for signature compatibility).
+
+    Returns
+    -------
+    list[str]
+        Column names for the feature vector.
+
+    Raises
+    ------
+    ValueError
+        If features has fewer than 4 elements.
     """
     required = ["S_D", "S_V", "S_L", "S_G"]
     if len(features) < 4:
