@@ -183,6 +183,13 @@ def _bayesian_kronos_update(
 
 
 def _optional_finite_float(value: object) -> float | None:
+    """Return a finite scalar float, or None for missing/non-finite optional inputs."""
+    if value is None:
+        return None
+    try:
+        is_missing = pd.isna(value)
+        if isinstance(is_missing, (bool, np.bool_)) and is_missing:
+            return None
     """Return a finite scalar float, or ``None`` for missing/invalid optional sensors."""
     if value is None:
         return None
