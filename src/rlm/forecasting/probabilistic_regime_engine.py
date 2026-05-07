@@ -17,7 +17,7 @@ All model parameters are computed strictly on lagged data (causal walkforward).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import joblib
@@ -30,6 +30,8 @@ from scipy.stats import norm
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
 
 log = logging.getLogger(__name__)
+
+_HMM_SCORE_COLUMNS = ["S_D", "S_V", "S_L", "S_G"]
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -924,11 +926,10 @@ class ProbabilisticRegimeEngineMTF:
 
 def _infer_htf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
     """Infer column names for a raw feature vector, defaulting to S_D/S_V/S_L/S_G."""
-    required = ["S_D", "S_V", "S_L", "S_G"]
     if len(features) == 4:
-        return required
+        return _HMM_SCORE_COLUMNS
     # Pad/truncate to standard 4 columns for HMM compatibility
-    return required[: len(features)] + [f"_f{i}" for i in range(max(0, len(features) - 4))]
+    return _HMM_SCORE_COLUMNS[: len(features)] + [f"_f{i}" for i in range(max(0, len(features) - 4))]
 
 
 def _infer_ltf_columns(features: np.ndarray, hmm: RLMHMM) -> list[str]:
@@ -957,11 +958,15 @@ def _compute_week_boundary_flags(df: pd.DataFrame, rule: str) -> np.ndarray:
 
 
 def _build_htf_feature_lookup(htf_df: pd.DataFrame) -> dict:
-    """Build a simple dict mapping HTF index → numeric feature array for lookup."""
+    """Build a dict mapping HTF index to HMM score features in training order."""
     if htf_df.empty:
         return {}
-    numeric_df = htf_df.select_dtypes(include=[np.number])
-    return {idx: row.values.astype(np.float64) for idx, row in numeric_df.iterrows()}
+    missing = [col for col in _HMM_SCORE_COLUMNS if col not in htf_df.columns]
+    if missing:
+        log.warning("PRE MTF: HTF feature lookup missing HMM score columns %s; skipping observation updates.", missing)
+        return {}
+    score_df = htf_df[_HMM_SCORE_COLUMNS].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
+    return {idx: row.values.astype(np.float64) for idx, row in score_df.iterrows()}
 
 
 def _lookup_htf_features(
