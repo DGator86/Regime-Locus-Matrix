@@ -385,6 +385,28 @@ class TestProbabilisticRegimeEngineMTF:
 
     def test_run_batch_matches_streaming_update_path(self, ltf_df, htf_df):
         cfg = _small_config()
+        engine = ProbabilisticRegimeEngineMTF(cfg)
+        engine.fit(ltf_df, htf_df)
+
+        out = engine.run_batch(ltf_df, htf_df)
+
+        engine._reset_beliefs()
+        flags = _compute_week_boundary_flags(ltf_df, cfg.htf_resample_rule)
+        htf_lookup = _build_htf_feature_lookup(htf_df)
+        ltf_score_df = ltf_df[["S_D", "S_V", "S_L", "S_G"]].apply(pd.to_numeric, errors="coerce").ffill().fillna(0.0)
+        kronos_series = pd.to_numeric(ltf_df["kronos_forecast"], errors="coerce")
+
+        expected_confidences = []
+        expected_spot_attrs = []
+        expected_ltf_states = []
+        expected_htf_states = []
+        expected_ltf_probs = []
+        expected_ltf_post = []
+        expected_htf_probs = []
+        for i, (idx, _) in enumerate(ltf_df.iterrows()):
+            htf_features = _lookup_htf_features(idx, htf_lookup, htf_df) if flags[i] else None
+            kronos_forecast = float(kronos_series.iloc[i]) if np.isfinite(kronos_series.iloc[i]) else None
+            sig = engine.update(
         batch_engine = ProbabilisticRegimeEngineMTF(cfg)
         batch_engine.fit(ltf_df, htf_df)
         out = batch_engine.run_batch(ltf_df, htf_df)
@@ -421,6 +443,20 @@ class TestProbabilisticRegimeEngineMTF:
                 new_htf_features=htf_features,
             )
             expected_confidences.append(sig.confidence)
+            expected_spot_attrs.append(sig.instantaneous_attractiveness)
+            expected_ltf_states.append(sig.current_most_likely_ltf_state)
+            expected_htf_states.append(sig.current_most_likely_htf_state)
+            expected_ltf_probs.append(sig.ltf_belief_raw)
+            expected_ltf_post.append(sig.ltf_belief_post_kronos)
+            expected_htf_probs.append(sig.htf_belief)
+
+        assert out["pre_confidence"].to_numpy() == pytest.approx(expected_confidences)
+        assert out["pre_spot_attractiveness"].to_numpy() == pytest.approx(expected_spot_attrs)
+        assert out["pre_ltf_state"].tolist() == expected_ltf_states
+        assert out["pre_htf_state"].tolist() == expected_htf_states
+        assert np.vstack(out["pre_ltf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_probs))
+        assert np.vstack(out["pre_ltf_probs_post_kronos"].to_numpy()) == pytest.approx(np.vstack(expected_ltf_post))
+        assert np.vstack(out["pre_htf_probs"].to_numpy()) == pytest.approx(np.vstack(expected_htf_probs))
             expected_htf_probs.append(sig.htf_belief.tolist())
 
         assert out["pre_confidence"].tolist() == pytest.approx(expected_confidences)
