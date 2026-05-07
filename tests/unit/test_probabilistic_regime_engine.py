@@ -245,6 +245,12 @@ class TestProbabilisticRegimeEngineMTF:
         engine.fit(ltf_df, htf_df=None)
         assert engine.is_fitted
 
+    def test_build_htf_df_monthly_fallback_uses_supported_alias(self):
+        engine = ProbabilisticRegimeEngineMTF(_small_config())
+        short_ltf = _make_ltf_df(n=10)
+        htf = engine._build_htf_df(short_ltf)
+        assert not htf.empty
+
     def test_update_returns_valid_signal(self, ltf_df, htf_df):
         cfg = _small_config()
         engine = ProbabilisticRegimeEngineMTF(cfg)
