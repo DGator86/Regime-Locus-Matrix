@@ -194,6 +194,20 @@ def _optional_finite_float(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if np.isfinite(f) else None
+    """Return a finite scalar float, or None for missing/invalid optional inputs."""
+    if value is None:
+        return None
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        missing = False
+    if isinstance(missing, (bool, np.bool_)) and missing:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if np.isfinite(parsed) else None
 
 
 # ---------------------------------------------------------------------------
