@@ -686,7 +686,7 @@ class ProbabilisticRegimeEngineMTF:
             )
             likelihoods = np.exp(log_ll[0] - log_ll[0].max())
         except Exception as e:
-            log.debug(f"HTF observation update failed, using uniform likelihoods: {e}")
+            log.debug("HTF observation update failed, using uniform likelihoods: %s", e)
             likelihoods = np.ones(len(predicted), dtype=np.float64)
 
         # Apply state permutation to likelihoods
