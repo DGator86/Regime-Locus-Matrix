@@ -95,3 +95,9 @@ build/
 # IDE
 .cursor/
 *.code-workspace
+
+# Committed health snapshot (startup decision-tree); overrides data/** and *.csv/*.json above
+!data/health_snapshot/
+!data/health_snapshot/manifest.json
+!data/health_snapshot/bars_SPY_slice.csv
+!data/health_snapshot/spy_large_plan.json

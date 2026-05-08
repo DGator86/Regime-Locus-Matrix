@@ -77,6 +77,9 @@ _install_unit "${SCRIPT_DIR}/rlm-challenge-loop.service" \
 _install_unit "${SCRIPT_DIR}/rlm-host-watchdog.service" \
               "/etc/systemd/system/rlm-host-watchdog.service"
 
+_install_unit "${SCRIPT_DIR}/rlm-startup-decision-health.service" \
+              "/etc/systemd/system/rlm-startup-decision-health.service"
+
 _install_unit "${SCRIPT_DIR}/rlm-nightly-opt.service" \
               "/etc/systemd/system/rlm-nightly-opt.service"
 _install_unit "${SCRIPT_DIR}/rlm-nightly-opt.timer" \
@@ -95,6 +98,7 @@ systemctl enable rlm-market-open.timer
 systemctl enable rlm-market-close.timer
 # Challenge loop: started at NY open / stopped at NY close via rlm-market-hours-*.sh (avoid 24/7 unless you enable it).
 systemctl enable rlm-host-watchdog.service
+systemctl enable rlm-startup-decision-health.service
 systemctl enable rlm-nightly-opt.timer
 systemctl enable rlm-weekly-calibrate.timer
 
@@ -109,3 +113,4 @@ echo "  Market close log:journalctl -u rlm-market-close.service -f"
 echo "  Nightly opt log: tail -f /var/log/rlm-nightly-opt.log"
 echo "  Calibrate log:   tail -f /var/log/rlm-weekly-calibrate.log"
 echo "  Host watchdog:   journalctl -u rlm-host-watchdog -f"
+echo "  Startup health:  journalctl -u rlm-startup-decision-health.service -n 50"
