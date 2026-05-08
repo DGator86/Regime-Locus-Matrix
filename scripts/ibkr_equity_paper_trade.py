@@ -43,9 +43,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = Path(os.environ.get("RLM_ROOT", str(REPO_ROOT))).expanduser().resolve()
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 # Optional ibapi dependency — required for live IBKR connectivity, not needed for --dry-run.
 try:
@@ -63,9 +64,9 @@ apply_compute_thread_env()
 
 from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
 
-PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
-EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
-EQUITY_LOG_PATH = ROOT / "data" / "processed" / "equity_trade_log.csv"
+PLANS_PATH = DATA_ROOT / "data" / "processed" / "universe_trade_plans.json"
+EQUITY_STATE_PATH = DATA_ROOT / "data" / "processed" / "equity_positions_state.json"
+EQUITY_LOG_PATH = DATA_ROOT / "data" / "processed" / "equity_trade_log.csv"
 
 IBKR_LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
 IBKR_PAPER_PORTS: frozenset[int] = frozenset({7497, 4002, 4004})
@@ -760,9 +761,13 @@ def main() -> None:
                         help="Skip opening new positions; only evaluate existing ones")
     args = parser.parse_args()
 
-    plans_path = Path(args.plans)
-    state_path = Path(args.state)
-    log_path = Path(args.log)
+    def _resolve_data_path(raw: str | Path) -> Path:
+        p = Path(raw).expanduser()
+        return p if p.is_absolute() else (DATA_ROOT / p)
+
+    plans_path = _resolve_data_path(args.plans)
+    state_path = _resolve_data_path(args.state)
+    log_path = _resolve_data_path(args.log)
     _ensure_equity_log_file(log_path)
 
     print(f"\n{'='*60}", flush=True)

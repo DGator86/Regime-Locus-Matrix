@@ -39,9 +39,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# Optional sandbox: set RLM_ROOT to a directory that mirrors repo layout under ./data/
+# (code still loads from REPO_ROOT via sys.path below).
+DATA_ROOT = Path(os.environ.get("RLM_ROOT", str(REPO_ROOT))).expanduser().resolve()
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
 
@@ -944,13 +947,13 @@ def main() -> int:
         return 1
 
     syms = _parse_symbols(args.symbols)
-    processed_dir = (ROOT / "data" / "processed").resolve()
+    processed_dir = (DATA_ROOT / "data" / "processed").resolve()
     live_model: LiveRegimeModelConfig | None = None
     live_model_bootstrapped = False
     live_model_path: Path | None = None
     if not args.ignore_live_model:
         live_model_path = (
-            ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
+            DATA_ROOT / args.live_model_config if not args.live_model_config.is_absolute() else args.live_model_config
         )
         if live_model_path.is_file():
             live_model = load_live_regime_model(live_model_path)
@@ -980,7 +983,7 @@ def main() -> int:
         live_model = live_model.model_copy(update={"use_kronos": False})
         print("[kronos] Disabled for this run: vendored Kronos runtime is stub-only on this host.", flush=True)
     if live_model is not None:
-        live_model = apply_nightly_hyperparam_overlay(live_model, ROOT)
+        live_model = apply_nightly_hyperparam_overlay(live_model, DATA_ROOT)
     min_regime_train_samples = int(args.min_regime_train_samples)
     if live_model is not None and live_model.min_regime_train_samples is not None:
         min_regime_train_samples = int(live_model.min_regime_train_samples)
@@ -1017,10 +1020,10 @@ def main() -> int:
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     # When Hermes (or manual edits) sets STAND-DOWN, ROEE returns system_gate_block for every symbol.
     # Paper hosts often want the quant pipeline independent of LLM posture; set RLM_SKIP_SYSTEM_GATE=1.
-    gate: SystemGate | None = None if _env_truthy("RLM_SKIP_SYSTEM_GATE") else SystemGate(ROOT)
+    gate: SystemGate | None = None if _env_truthy("RLM_SKIP_SYSTEM_GATE") else SystemGate(DATA_ROOT)
     if gate is None:
         print("[gate] RLM_SKIP_SYSTEM_GATE=1 — ROEE ignores data/processed/gate_state.json", flush=True)
-    trade_log_path = ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
+    trade_log_path = DATA_ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
     _ensure_trade_log_with_header(trade_log_path)
 
     chain_for_factors = bool(args.chain_for_factors) and not _env_truthy("RLM_NO_CHAIN_FOR_FACTORS")
@@ -1268,7 +1271,7 @@ def main() -> int:
     final_active = [r for r in final_results if r.get("status") == "active"]
     final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
 
-    out_path = ROOT / args.out if not args.out.is_absolute() else args.out
+    out_path = DATA_ROOT / args.out if not args.out.is_absolute() else args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
