@@ -142,6 +142,42 @@ def build_candidate_from_strategy_name(
             max_risk_pct=0.005,
             defined_risk=True,
         )
+    if strategy_name == "aggressive_daytrader_call":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_call",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0-3DTE long call, time-or-percent stop.",
+            target_dte_min=0,
+            target_dte_max=3,
+            target_profit_pct=2.0,
+            max_risk_pct=0.08,
+            long_sigma=0.2,
+            defined_risk=False,
+        )
+    if strategy_name == "aggressive_daytrader_put":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_put",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0-3DTE long put, time-or-percent stop.",
+            target_dte_min=0,
+            target_dte_max=3,
+            target_profit_pct=2.0,
+            max_risk_pct=0.08,
+            long_sigma=-0.2,
+            defined_risk=False,
+        )
+    if strategy_name == "aggressive_daytrader_0DTE_straddle":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_0DTE_straddle",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0DTE ATM straddle on high-vol event.",
+            target_dte_min=0,
+            target_dte_max=0,
+            target_profit_pct=1.5,
+            max_risk_pct=0.05,
+            long_sigma=0.0,
+            defined_risk=False,
+        )
 
     legacy_candidate = get_strategy_for_regime(
         direction=direction_regime,

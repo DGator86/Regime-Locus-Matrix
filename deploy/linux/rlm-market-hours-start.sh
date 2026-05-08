@@ -9,6 +9,8 @@ echo "[market-start] Current Eastern time: ${ET_TIME}"
 echo "[market-start] Running startup sync (bar refresh/enrichment + preopen brief)"
 
 if [[ -x "${PY}" && -d "${ROOT}" ]]; then
+  echo "[market-start] decision-tree health (offline snapshot)"
+  "${PY}" "${ROOT}/scripts/run_startup_decision_tree_health.py" || echo "[market-start] WARN: startup decision-tree health failed (non-fatal)"
   "${PY}" "${ROOT}/scripts/append_ibkr_stock_history.py" --symbols "${SYNC_SYMBOLS}" --duration "30 D" --bar-size "1 day" || true
   "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" --out "data/processed/universe_trade_plans.json" --no-vix || true
   "${PY}" "${ROOT}/scripts/run_session_brief.py" --phase preopen --top 8 --out "data/processed/session_brief.json" || true

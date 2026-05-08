@@ -13,6 +13,7 @@ from tabulate import tabulate
 
 from rlm.challenge.tracker import ChallengeTracker
 from rlm.cli.common import add_data_root_arg
+from rlm.notify.options_paths import options_trade_log_read_paths
 
 
 def _parse_args() -> argparse.Namespace:
@@ -35,13 +36,18 @@ def load_equities_state(data_root: Path) -> dict[str, Any]:
 
 
 def load_swing_trades(data_root: Path) -> pd.DataFrame:
-    path = data_root / "processed" / "trade_log.csv"
-    if not path.exists():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    dr = data_root.resolve()
+    root = dr.parent if dr.name == "data" else dr
+    for cand in options_trade_log_read_paths(root):
+        if not cand.exists():
+            continue
+        try:
+            df = pd.read_csv(cand)
+        except Exception:
+            continue
+        if not df.empty:
+            return df
+    return pd.DataFrame()
 
 
 def main() -> None:

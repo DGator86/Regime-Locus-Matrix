@@ -18,8 +18,7 @@ Description=Regime-Locus-Matrix master loop (universe pipeline + paper equity + 
 Conflicts=rlm-master-telegram.service rlm-master-trader.service
 After=network-online.target docker.service ib-gateway.service
 Wants=network-online.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -32,10 +31,11 @@ EnvironmentFile=-@INSTALL_ROOT@/.env
 ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_master.py
 # "always" = come back after reboot (via enable) and after any process exit; use "on-failure" for crash-only
 Restart=always
-RestartSec=20
+RestartSec=15
 # Allow child processes (subprocess chains) time to exit
 KillMode=mixed
 TimeoutStopSec=120
+OOMScoreAdjust=-50
 
 StandardOutput=journal
 StandardError=journal

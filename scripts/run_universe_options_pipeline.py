@@ -592,6 +592,10 @@ def _finalize_symbol(
     sf = float(decision.size_fraction or 0.0)
     score = conf * sf
 
+    rk = str(decision.regime_key or "")
+    head = rk.split("|", 1)[0].strip().lower() if rk else ""
+    regime_direction = head if head in ("bull", "bear") else ""
+
     base.update(
         {
             "status": "active",
@@ -613,7 +617,7 @@ def _finalize_symbol(
                 "max_risk_pct": candidate.max_risk_pct,
             },
             "regime_key": str(decision.regime_key or ""),
-            "regime_direction": regime_direction_equity(str(decision.regime_key or "")),
+            "regime_direction": regime_direction,
             "ibkr_combo_spec": ibkr_spec,
             "rank_score": score,
         }

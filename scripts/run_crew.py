@@ -23,6 +23,7 @@ Environment:
     RLM_HERMES_TELEGRAM_BOT_TOKEN, RLM_HERMES_TELEGRAM_CHAT_ID
     (legacy fallback: TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID)
     CREW_HEALTH_INTERVAL, CREW_ANALYSIS_INTERVAL, CREW_BRIEFING_INTERVAL
+    CREW_FATAL_BACKOFF_SEC  seconds to sleep after a crash before retrying (continuous mode only)
     RLM_HEALTH_AUTO_RESTART, RLM_HEALTH_RESTART_ALLOW_CREW, RLM_HEALTH_RESTART_COOLDOWN_SEC
         (optional ``SCOTTY_*`` legacy aliases still honored by gather_health_report)
 """
@@ -33,6 +34,8 @@ import argparse
 import json
 import os
 import sys
+import time
+import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,21 +74,8 @@ def _parse() -> argparse.Namespace:
     return p.parse_args()
 
 
-def main() -> int:
-    args = _parse()
-    root = Path(args.root).resolve()
-    os.environ["RLM_ROOT"] = str(root)
-
-    from rlm.hermes_facts.health import gather_health_report
-    from rlm.hermes_facts.market_context import build_trade_and_regime_context
-
-    if args.health_only:
-        print(json.dumps(gather_health_report(root), indent=2, default=str))
-        return 0
-    if args.context_only:
-        print(build_trade_and_regime_context(root))
-        return 0
-
+def _run_crew_session(args: argparse.Namespace, root: Path) -> int:
+    """Run once-mode or the long-lived Hermes loop (may raise on fatal errors)."""
     from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
     from rlm.hermes_crew.loop import HermesCrewConfig, run_crew_forever, run_crew_once
 
@@ -108,6 +98,53 @@ def main() -> int:
         return 0
     run_crew_forever(root, cfg)
     return 0
+
+
+def main() -> int:
+    args = _parse()
+    root = Path(args.root).resolve()
+    os.environ["RLM_ROOT"] = str(root)
+
+    from rlm.hermes_facts.health import gather_health_report
+    from rlm.hermes_facts.market_context import build_trade_and_regime_context
+
+    if args.health_only:
+        print(json.dumps(gather_health_report(root), indent=2, default=str))
+        return 0
+    if args.context_only:
+        print(build_trade_and_regime_context(root))
+        return 0
+
+    if args.once:
+        try:
+            return _run_crew_session(args, root)
+        except BaseException:
+            traceback.print_exc()
+            return 1
+
+    backoff = max(15, int(os.environ.get("CREW_FATAL_BACKOFF_SEC", "60")))
+    print(
+        f"[Crew] Continuous mode — fatal errors will log and retry after {backoff}s "
+        "(set CREW_FATAL_BACKOFF_SEC to override).",
+        flush=True,
+    )
+    while True:
+        try:
+            return _run_crew_session(args, root)
+        except KeyboardInterrupt:
+            raise
+        except SystemExit as exc:
+            if exc.code in (0, None):
+                return int(exc.code or 0)
+            raise
+        except BaseException:
+            traceback.print_exc()
+            print(
+                f"[Crew] crashed — sleeping {backoff}s then retrying "
+                "(systemd also restarts the unit; this loop avoids rapid exit storms).",
+                flush=True,
+            )
+            time.sleep(backoff)
 
 
 if __name__ == "__main__":

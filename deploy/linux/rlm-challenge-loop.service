@@ -2,6 +2,7 @@
 Description=RLM PDT Challenge dry-run loop (market hours)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,7 +12,7 @@ WorkingDirectory=/opt/Regime-Locus-Matrix
 EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
 ExecStart=/usr/local/bin/rlm-challenge-loop.sh
 Restart=always
-RestartSec=20
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

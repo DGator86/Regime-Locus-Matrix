@@ -6,6 +6,7 @@
 Description=RLM host watchdog (systemd + resources + optional Telegram; Hermes crew is separate)
 After=network-online.target ollama.service
 Wants=network-online.target ollama.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

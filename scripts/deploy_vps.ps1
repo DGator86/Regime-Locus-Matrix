@@ -38,6 +38,8 @@ $remote += "git pull --ff-only origin main"
 if ($StashOnVpsBeforePull) {
     $remote += " && (git stash pop || true)"
 }
+# Match deploy_to_vps.sh: refresh editable install (PEP 668 safe via /opt/rlm-venv on Ubuntu VPS)
+$remote += " && PY=/opt/rlm-venv/bin/python; if [ -x `"`$PY`" ]; then `"`$PY`" -m pip install -e . -q; elif [ -x .venv/bin/python ]; then .venv/bin/python -m pip install -e . -q; fi"
 if (-not $SkipRestart) {
     $unitsRaw = $SystemdUnits
     if ([string]::IsNullOrWhiteSpace($unitsRaw)) { $unitsRaw = $env:VPS_SYSTEMD_UNITS }

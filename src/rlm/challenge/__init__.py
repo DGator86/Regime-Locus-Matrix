@@ -32,14 +32,18 @@ Python API::
     print(f"Balance: ${summary.balance_after:,.2f}")
 """
 
+from rlm.challenge.challenge_strategy_map import STRATEGY_MAP_CHALLENGE, get_challenge_strategy
 from rlm.challenge.config import MILESTONES, ChallengeConfig, ChallengeMilestone
+from rlm.challenge.daytrade_filters import get_iv_rank, is_great_daytrade_setup
 from rlm.challenge.engine import ChallengeEngine, SessionSummary
 from rlm.challenge.models import ChallengePipelineConfig
+from rlm.challenge.pipeline import ChallengeDecisionPipeline
 from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
 from rlm.challenge.tracker import ChallengeTracker
 
 __all__ = [
     "ChallengeConfig",
+    "ChallengeDecisionPipeline",
     "ChallengeMilestone",
     "ChallengePipelineConfig",
     "ChallengeEngine",
@@ -48,5 +52,9 @@ __all__ = [
     "ChallengeTradeRecord",
     "ChallengeTracker",
     "MILESTONES",
+    "STRATEGY_MAP_CHALLENGE",
     "SessionSummary",
+    "get_challenge_strategy",
+    "get_iv_rank",
+    "is_great_daytrade_setup",
 ]

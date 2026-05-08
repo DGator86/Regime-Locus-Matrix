@@ -211,6 +211,10 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    env_otl = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
+    if env_otl and "--options-trade-log" not in sys.argv:
+        args.options_trade_log = env_otl
+
     if args.master:
         args.paper_trade = True
         args.paper_close = True

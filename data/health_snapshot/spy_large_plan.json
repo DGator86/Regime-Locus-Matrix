@@ -1,0 +1,46 @@
+{
+  "plan_id": "HEALTH_SPY_LARGE_001",
+  "symbol": "SPY",
+  "status": "active",
+  "skip_reason": "",
+  "regime_key": "bull|mid|liq|flow",
+  "regime_direction": "bull",
+  "strategy_name": "debit_spread_call",
+  "entry_debit_dollars": 2.5,
+  "entry_mid_mark_dollars": 2.45,
+  "rank_score": 0.75,
+  "pipeline": {"close": 530.0},
+  "close": 530.0,
+  "thresholds": {
+    "v_take_profit": 3.5,
+    "v_hard_stop": 1.0,
+    "v_trail_activate": 2.9,
+    "trail_retrace_frac": 0.25
+  },
+  "matched_legs": [
+    {
+      "side": "long",
+      "option_type": "call",
+      "strike": 450.0,
+      "expiry": "2026-06-20",
+      "mid": 0.052
+    },
+    {
+      "side": "short",
+      "option_type": "call",
+      "strike": 455.0,
+      "expiry": "2026-06-20",
+      "mid": 0.0275
+    }
+  ],
+  "ibkr_combo_spec": {
+    "underlying": "SPY",
+    "quantity": 1,
+    "limit_price": 2.5,
+    "combo_order_action": "BUY",
+    "legs": [
+      {"side": "BUY", "option_type": "call", "strike": 450.0, "expiry": "2026-06-20"},
+      {"side": "SELL", "option_type": "call", "strike": 455.0, "expiry": "2026-06-20"}
+    ]
+  }
+}

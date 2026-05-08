@@ -358,8 +358,10 @@ def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None
                         cid,
                         silent=False,
                     )
-        except Exception as exc:
-            print(f"[Hermes crew ERROR] {exc}", flush=True)
+        except KeyboardInterrupt:
+            raise
+        except BaseException as exc:
+            print(f"[Hermes crew ERROR] {exc!r}", flush=True)
 
         now_utc = datetime.now(timezone.utc)
         if now_utc.hour == 20 and 15 <= now_utc.minute < 30:

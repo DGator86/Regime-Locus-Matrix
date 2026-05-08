@@ -7,7 +7,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from rlm.roee.system_gate import SystemGate
 from rlm.features.scoring.coordinate_regime import classify_regime_from_coordinates
 from rlm.roee.coordinate_strategy_router import select_strategy_from_coordinates
 from rlm.roee.policy import select_trade, select_trade_from_strategy_name
@@ -18,6 +17,7 @@ from rlm.roee.regime_persistence import (
 )
 from rlm.roee.regime_safety import build_regime_safety_rationale
 from rlm.roee.sizing import quantize_fraction
+from rlm.roee.system_gate import SystemGate
 from rlm.types.options import TradeDecision
 
 _SELECT_TRADE_ROW_COLUMNS = (
@@ -67,6 +67,20 @@ def _finite_float(x: object, default: float = 0.0) -> float:
         return default
 
 
+def _truthy_flag(value: object) -> bool:
+    """Interpret mixed flag values while treating missing/NaN inputs as false."""
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return bool(value)
+
+
 def _extract_regime_probabilities(row: pd.Series) -> tuple[np.ndarray | None, str]:
     if "regime_ensemble_probs" in row and row.get("regime_ensemble_probs") is not None:
         probs = np.array(row["regime_ensemble_probs"], dtype=float)
@@ -92,6 +106,7 @@ def compute_regime_modulators(
     kronos_transition_penalty: float = 0.3,
     kronos_epistemic_disable_threshold: float | None = 0.7,
     kronos_aleatoric_size_penalty: float = 0.5,
+    use_pre_confidence: bool = True,
 ) -> dict[str, float | bool | str]:
     """
     Compute a composite regime confidence and derive gating/sizing modulators for trading.
@@ -116,8 +131,42 @@ def compute_regime_modulators(
             - "size_mult": computed size multiplier (float, >= 0.0).
             - "trade": `true` if composite confidence >= confidence_threshold, `false` otherwise.
             - "model": source label for the confidence ("hmm", "markov",
-              "kronos", or appended with "+kronos").
+              "kronos", "pre", or appended with "+kronos" or "+epi_gate").
     """
+    # --- PRE continuous-confidence fast-path ----------------------------
+    # When the Probabilistic Regime Engine has pre-computed ``pre_confidence``
+    # for this bar, use it directly as the composite confidence.  This bypasses
+    # the binary max-prob gate while preserving all downstream sizing logic.
+    if use_pre_confidence:
+        from rlm.forecasting.probabilistic_regime_engine import extract_pre_confidence
+
+        pre_conf = extract_pre_confidence(row)
+        if pre_conf is not None:
+            composite = pre_conf
+            if _truthy_flag(row.get("kronos_transition_flag", False)):
+                composite *= 1.0 - kronos_transition_penalty
+            aleatoric = _finite_float(row.get("kronos_aleatoric_uncertainty"), default=np.nan)
+            epistemic = _finite_float(row.get("kronos_epistemic_uncertainty"), default=np.nan)
+            trans_risk = float(np.clip(1.0 - composite, 0.0, 1.0))
+            size_mult = sizing_multiplier * composite * (1.0 - transition_penalty * trans_risk)
+            if math.isfinite(aleatoric) and kronos_aleatoric_size_penalty > 0.0:
+                size_mult *= max(0.0, 1.0 - kronos_aleatoric_size_penalty * float(np.clip(aleatoric, 0.0, 1.0)))
+            trade = composite >= confidence_threshold
+            model_label = "pre"
+            if (
+                kronos_epistemic_disable_threshold is not None
+                and math.isfinite(epistemic)
+                and epistemic >= float(kronos_epistemic_disable_threshold)
+            ):
+                trade = False
+                model_label = "pre+epi_gate"
+            return {
+                "confidence": float(composite),
+                "size_mult": max(float(size_mult), 0.0),
+                "trade": trade,
+                "model": model_label,
+            }
+
     probs, model_name = _extract_regime_probabilities(row)
 
     # --- HMM / Markov baseline confidence ---
@@ -130,7 +179,7 @@ def compute_regime_modulators(
     # --- Kronos confidence (if present) ---
     kronos_agree = _finite_float(row.get("kronos_regime_agreement"), default=np.nan)
     kronos_agree = kronos_agree if math.isfinite(kronos_agree) else None
-    kronos_trans = bool(row.get("kronos_transition_flag", False))
+    kronos_trans = _truthy_flag(row.get("kronos_transition_flag", False))
 
     # --- Blend into composite confidence ---
     if hmm_confidence is not None and kronos_agree is not None:
@@ -182,12 +231,14 @@ def compute_hmm_modulators(
     hmm_confidence_threshold: float,
     sizing_multiplier: float,
     transition_penalty: float,
+    use_pre_confidence: bool = True,
 ) -> dict[str, float | bool | str]:
     return compute_regime_modulators(
         row,
         confidence_threshold=hmm_confidence_threshold,
         sizing_multiplier=sizing_multiplier,
         transition_penalty=transition_penalty,
+        use_pre_confidence=use_pre_confidence,
     )
 
 
@@ -279,6 +330,7 @@ def select_trade_for_row(
     gex_confluence_enabled: bool = True,
     gex_confluence_poc: float | None = None,
     gate: Optional[SystemGate] = None,
+    use_pre_confidence: bool = True,
 ) -> TradeDecision:
     """
     Single-bar ROEE decision for backtests and batch pipelines.
@@ -334,6 +386,7 @@ def select_trade_for_row(
         "kronos_transition_penalty": kronos_transition_penalty,
         "kronos_epistemic_disable_threshold": kronos_epistemic_disable_threshold,
         "kronos_aleatoric_size_penalty": kronos_aleatoric_size_penalty,
+        "use_pre_confidence": use_pre_confidence,
     }
     min_regime_samples = max(int(min_regime_train_samples), 0) if min_regime_train_samples is not None else 0
     train_sample_count = max(int(regime_train_sample_count), 0) if regime_train_sample_count is not None else 0
