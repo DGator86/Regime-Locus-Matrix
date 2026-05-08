@@ -617,6 +617,7 @@ def open_equity_positions(
 
         action = "BUY" if direction == "bull" else "SELL"
         side = "long" if direction == "bull" else "short"
+        rk_entry = plan_regime_key(plan)
 
         # Determine entry price — pipeline stores it under plan["pipeline"]["close"]
         pipeline_data = plan.get("pipeline") or {}
