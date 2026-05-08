@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from rlm.notify.options_paths import options_trade_log_mtime_paths
 from rlm.utils.market_hours import is_scanner_window_open, session_label
 
 _DEFAULT_SERVICES = [
@@ -223,11 +224,21 @@ def _check_staleness(root: Path) -> list[str]:
         except Exception:
             active_plans_count = 0
     for fname, max_hours in _STALE_HOURS.items():
+        if fname == "trade_log.csv":
+            log_paths = [p for p in options_trade_log_mtime_paths(root) if p.is_file()]
+            if not log_paths or active_plans_count <= 0:
+                continue
+            newest = max(p.stat().st_mtime for p in log_paths)
+            age_hours = (now - newest) / 3600
+            if age_hours > max_hours:
+                labels = ", ".join(p.name for p in log_paths)
+                stale.append(f"options monitor log ({labels}) ({age_hours:.1f}h old)")
+            continue
         fpath = processed / fname
         if not fpath.exists():
             continue
         age_hours = (now - fpath.stat().st_mtime) / 3600
-        if fname in {"trade_log.csv", "universe_trade_plans.json", "equity_positions_state.json"} and active_plans_count <= 0:
+        if fname in {"universe_trade_plans.json", "equity_positions_state.json"} and active_plans_count <= 0:
             continue
         if age_hours > max_hours:
             stale.append(f"{fname} ({age_hours:.1f}h old)")

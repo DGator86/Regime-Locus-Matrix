@@ -6,6 +6,10 @@ import {
   parseHmmStateIndex,
   sanitizeHmmStateLabel,
 } from "@/lib/hmmDisplay";
+import {
+  resolveOptionsTradeLogPath,
+  resolveRepoRootFromProcessed,
+} from "@/lib/tradingOverview";
 
 export const dynamic = "force-dynamic";
 
@@ -202,10 +206,12 @@ function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
     listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath)
   );
 
+  const repoRoot = resolveRepoRootFromProcessed(dataDir);
+  const optionsLogPath = resolveOptionsTradeLogPath(repoRoot, dataDir);
   const lakeLastUpdated = latestMtimeIso([
     ...listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath),
     path.join(dataDir, "universe_trade_plans.json"),
-    path.join(dataDir, "trade_log.csv"),
+    optionsLogPath,
     path.join(dataDir, "equity_trade_log.csv"),
   ]);
 
@@ -299,7 +305,9 @@ function buildActivePlans(dataDir: string) {
 }
 
 function buildTradeSummary(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "trade_log.csv"));
+  const repoRoot = resolveRepoRootFromProcessed(dataDir);
+  const logPath = resolveOptionsTradeLogPath(repoRoot, dataDir);
+  const rows = readCsvFile(logPath);
   if (rows.length === 0) {
     return {
       totalTrades: 0,

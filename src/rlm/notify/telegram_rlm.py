@@ -11,27 +11,31 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from rlm.execution.exit_signals import EXIT_SIGNALS
+from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
+
+
+def _resolved_trade_log_for_notify(root: Path) -> Path:
+    """Prefer the first monitor log that actually has body rows (primary may be header-only)."""
+    for cand in options_trade_log_read_paths(root):
+        if cand.is_file() and cand.stat().st_size > 120:
+            return cand
+    return options_trade_log_primary(root)
 
 
 def _resolve_trade_log_path(root: Path) -> Path:
-    raw = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
-    if raw:
-        p = Path(raw)
-        return p if p.is_absolute() else root / p
-    return root / "data" / "processed" / "trade_log.csv"
+    return options_trade_log_primary(root)
 
 
 def default_paths(root: Path) -> dict[str, Path]:
     return {
         "plans": root / "data" / "processed" / "universe_trade_plans.json",
-        "trade_log": _resolve_trade_log_path(root),
+        "trade_log": _resolved_trade_log_for_notify(root),
         "equity_trade_log": root / "data" / "processed" / "equity_trade_log.csv",
         "equity_state": root / "data" / "processed" / "equity_positions_state.json",
         "state": root / "data" / "processed" / "telegram_notify_state.json",

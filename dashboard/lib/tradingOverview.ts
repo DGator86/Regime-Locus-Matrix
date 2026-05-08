@@ -210,8 +210,27 @@ export function resolveChallengePaths(repoRoot: string): {
 
 export function resolveOptionsTradeLogPath(repoRoot: string, processedDir: string): string {
   const raw = process.env.RLM_OPTIONS_TRADE_LOG_PATH?.trim();
-  if (raw) return path.isAbsolute(raw) ? raw : path.resolve(repoRoot, raw);
-  return path.join(processedDir, "trade_log.csv");
+  const primary = raw
+    ? path.isAbsolute(raw)
+      ? raw
+      : path.resolve(repoRoot, raw)
+    : path.join(processedDir, "trade_log.csv");
+  const fallback = path.join(processedDir, "options_large_account_trade_log.csv");
+  try {
+    if (fs.existsSync(primary) && fs.statSync(primary).size > 120) {
+      return primary;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (fs.existsSync(fallback) && fs.statSync(fallback).size > 120) {
+      return fallback;
+    }
+  } catch {
+    /* ignore */
+  }
+  return primary;
 }
 
 export function challengeSymbolSet(): Set<string> {
