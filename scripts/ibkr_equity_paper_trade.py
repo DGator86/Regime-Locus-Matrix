@@ -168,6 +168,31 @@ def _plans_by_plan_id(plans: list[dict]) -> dict[str, dict]:
     return out
 
 
+def _merge_universe_rows_for_open_positions(
+    plan_by_id: dict[str, dict],
+    plans_path: Path,
+    positions: dict[str, EquityPosition],
+) -> None:
+    """Fill plan snapshots for open legs whose plan_id is not in the active set (e.g. trimmed row)."""
+    missing = {
+        pid
+        for pid, pos in positions.items()
+        if pos.status == "open" and pid not in plan_by_id
+    }
+    if not missing or not plans_path.is_file():
+        return
+    try:
+        raw = json.loads(plans_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    for row in (raw.get("active_ranked") or []) + (raw.get("results") or []):
+        if not isinstance(row, dict):
+            continue
+        pid = str(row.get("plan_id") or "")
+        if pid in missing:
+            plan_by_id[pid] = row
+
+
 def _min_most_likely_next_prob(cli_value: float | None) -> float | None:
     """Optional threshold on calibrated/top-1 next-step prob (unset = disable)."""
     if cli_value is not None:
@@ -849,6 +874,7 @@ def main() -> None:
     positions = _load_state(state_path)
     active_plan_ids = {p["plan_id"] for p in plans if p.get("plan_id")}
     plan_by_id = _plans_by_plan_id(plans)
+    _merge_universe_rows_for_open_positions(plan_by_id, plans_path, positions)
 
     account_nlv: float | None = None
     if args.use_account_scale:
