@@ -14,6 +14,17 @@ Quick start::
     # Check progress
     rlm challenge --status
 
+``rlm challenge --run`` may still open positions when persona vetoes directional
+trades — if ``RLM_CHALLENGE_REGIME_FALLBACK`` is enabled (default), the engine
+reads ``direction_regime`` / ``regime_key`` / latent HMM labels on the ROEE row
+(so the dry-run book reflects regime bias). Set ``RLM_CHALLENGE_REGIME_FALLBACK=0``
+to keep strict persona-only behaviour.
+
+Dashboard / local workstation::
+
+    # Refresh processed + challenge state from VPS (needs SSH/scp keys); from repo root:
+    #   powershell ./scripts/sync_dashboard_data_from_vps.ps1
+
 Python API::
 
     from rlm.challenge import ChallengeConfig, ChallengeEngine, ChallengeTracker

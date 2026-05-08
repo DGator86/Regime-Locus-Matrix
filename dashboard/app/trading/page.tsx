@@ -68,6 +68,10 @@ export default function TradingOverviewPage() {
       if (!res.ok) throw new Error(json?.error || res.statusText);
       setData(json);
       setErr(null);
+      const loaded = Boolean((json?.pdtChallengeOptions?.challengeAccount as { loaded?: boolean })?.loaded);
+      if (loaded) {
+        setTab((prev) => (prev === "opt-large" ? "opt-challenge" : prev));
+      }
     } catch (e) {
       setErr(String(e));
     }

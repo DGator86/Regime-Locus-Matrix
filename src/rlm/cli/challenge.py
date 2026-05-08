@@ -180,6 +180,21 @@ def _get_signals(
         alignment = persona.seven.signal_alignment
         conf = persona.seven.confidence
 
+        if directive == "no_trade" and not result.policy_df.empty:
+            from rlm.challenge.regime_signal import (
+                regime_fallback_directive_from_policy_row,
+                regime_fallback_floor_scores,
+            )
+
+            prow = result.policy_df.iloc[-1]
+            fb, fb_note = regime_fallback_directive_from_policy_row(prow)
+            if fb in ("long", "short"):
+                floor_a, floor_c = regime_fallback_floor_scores()
+                directive = fb
+                alignment = max(alignment, floor_a)
+                conf = max(conf, floor_c)
+                print(f"[challenge] {fb_note} — using {fb} for dry-run session", file=sys.stderr)
+
         # Underlying price: last close from bars
         price = underlying_price_override
         if price is None and not result.factors_df.empty:
