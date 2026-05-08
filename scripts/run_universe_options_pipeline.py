@@ -78,6 +78,10 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.system_gate import SystemGate
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.features.scoring.state_matrix import classify_state_matrix
+from rlm.regimes.forecast_regime_snapshot import (
+    build_regime_transition_snapshot,
+    regime_direction_equity,
+)
 from rlm.types.options import TradeDecision
 from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
@@ -415,6 +419,11 @@ def _prepare_symbol(
             str(detail) if detail is not None and pd.notna(detail) else None
         )
 
+    pipeline_row["regime_transition"] = build_regime_transition_snapshot(
+        last,
+        live_model=str(active_model),
+    )
+
     base["pipeline"] = pipeline_row
 
     decision = select_trade_for_row(
@@ -435,6 +444,9 @@ def _prepare_symbol(
         "regime_key": decision.regime_key,
         "metadata": {k: v for k, v in (decision.metadata or {}).items() if k != "matched_legs"},
     }
+    base["regime_direction"] = regime_direction_equity(
+        str(decision.regime_key or pipeline_row.get("regime_key") or ""),
+    )
     event = build_pipeline_event(
         symbol=sym,
         bar_id=str(ts),
@@ -601,6 +613,7 @@ def _finalize_symbol(
                 "max_risk_pct": candidate.max_risk_pct,
             },
             "regime_key": str(decision.regime_key or ""),
+            "regime_direction": regime_direction_equity(str(decision.regime_key or "")),
             "ibkr_combo_spec": ibkr_spec,
             "rank_score": score,
         }

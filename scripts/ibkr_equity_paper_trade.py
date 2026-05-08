@@ -11,10 +11,11 @@ This runs alongside the options book for independent execution verification:
 - Range / other → skip
 
 Positions are tracked in ``equity_positions_state.json``.  On each run the
-script evaluates open equity positions and closes those whose underlying plan is
-inactive for longer than ``RLM_EQUITY_PLAN_MISSING_GRACE_SEC`` (default 900s),
-whose stop/target is hit, etc. Price risk(stops/targets) always preempts universe
-drops.
+script evaluates open equity positions against the **fresh** universe row for
+each ``plan_id``: ROEE regime flip (:func:`~rlm.roee.exits.should_exit_for_regime_flip`),
+optional min top-1 **transition-matrix** next-step probability
+(``RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB``), percentage stop/target,
+and plan-universe absence (``RLM_EQUITY_PLAN_MISSING_GRACE_SEC``).
 
 Usage
 -----
@@ -34,7 +35,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Type
@@ -62,6 +63,12 @@ from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
 apply_compute_thread_env()
 
 from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
+from rlm.regimes.forecast_regime_snapshot import (
+    plan_regime_key,
+    regime_direction_equity,
+    regime_transition_best_prob,
+)
+from rlm.roee.exits import should_exit_for_regime_flip
 from rlm.universe.active_plans import iter_active_trade_plan_rows  # noqa: E402
 
 PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
@@ -110,6 +117,7 @@ class EquityPosition:
     exit_ts: str | None = None
     exit_reason: str | None = None
     plan_missing_since_utc: str | None = None
+    entry_regime_key: str = ""
 
 
 def _load_state(path: Path) -> dict[str, EquityPosition]:
@@ -149,6 +157,27 @@ def _plan_missing_grace_sec(cli_value: float | None) -> float:
     if raw:
         return max(0.0, float(raw))
     return 900.0
+
+
+def _plans_by_plan_id(plans: list[dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for p in plans:
+        pid = str(p.get("plan_id") or "")
+        if pid:
+            out[pid] = p
+    return out
+
+
+def _min_most_likely_next_prob(cli_value: float | None) -> float | None:
+    """Optional threshold on calibrated/top-1 next-step prob (unset = disable)."""
+    if cli_value is not None:
+        v = float(cli_value)
+        return v if v > 0.0 else None
+    raw = (os.environ.get("RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB") or "").strip()
+    if not raw:
+        return None
+    v = float(raw)
+    return v if v > 0.0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +517,8 @@ def open_equity_positions(
             print(f"  [equity] {sym}: already have open position — skip", flush=True)
             continue
 
-        direction = str(plan.get("regime_direction", "")).lower()
+        rk_entry = plan_regime_key(plan)
+        direction = str(plan.get("regime_direction") or regime_direction_equity(rk_entry) or "").lower()
         if direction not in ("bull", "bear"):
             print(f"  [equity] {sym}: direction={direction!r} → skip (not bull/bear)", flush=True)
             continue
@@ -564,6 +594,7 @@ def open_equity_positions(
             entry_ts=datetime.now(tz=timezone.utc).isoformat(),
             ibkr_order_id=order_id,
             status="open" if (dry_run or order_id is not None) else "pending",
+            entry_regime_key=rk_entry,
         )
         positions[plan_id] = pos
         open_symbols.add(sym)
@@ -593,9 +624,11 @@ def evaluate_equity_positions(
     *,
     positions: dict[str, EquityPosition],
     active_plan_ids: set[str],
+    plan_by_id: dict[str, dict],
     stop_pct: float,
     target_pct: float,
     grace_sec: float,
+    min_most_likely_next_prob: float | None,
     dry_run: bool,
     app: _EquityApp | None,
     log_path: Path,
@@ -624,13 +657,39 @@ def evaluate_equity_positions(
         if plan_id in active_plan_ids:
             pos.plan_missing_since_utc = None
 
-        # Price risk first; universe drop uses grace (institutional anti-whipsaw).
+        cur_plan_raw = plan_by_id.get(plan_id)
+        cur_plan: dict | None = cur_plan_raw if isinstance(cur_plan_raw, dict) else None
+        pipe: dict[str, Any] = {}
+        if isinstance(cur_plan, dict):
+            p_raw = cur_plan.get("pipeline")
+            if isinstance(p_raw, dict):
+                pipe = p_raw
+        rt = pipe.get("regime_transition")
+        trans_snap: dict[str, Any] | None = rt if isinstance(rt, dict) else None
+        p_next = regime_transition_best_prob(trans_snap)
+        cur_rk = plan_regime_key(cur_plan) if cur_plan else ""
+
+        # Price risk first; active-plan regime + transition; then universe absence grace.
         exit_reason: str | None = None
         if pnl_pct <= -stop_pct:
             exit_reason = f"stop_loss_{stop_pct}pct"
         elif pnl_pct >= target_pct:
             exit_reason = f"take_profit_{target_pct}pct"
-        elif plan_id not in active_plan_ids:
+
+        ek = str(pos.entry_regime_key or "").strip()
+        if exit_reason is None and cur_plan and ek and cur_rk and should_exit_for_regime_flip(ek, cur_rk):
+            exit_reason = "regime_flip"
+
+        if (
+            exit_reason is None
+            and cur_plan
+            and min_most_likely_next_prob is not None
+            and p_next is not None
+            and p_next < float(min_most_likely_next_prob)
+        ):
+            exit_reason = "weak_transition_top1_prob"
+
+        if exit_reason is None and plan_id not in active_plan_ids:
             if grace_sec <= 0.0:
                 exit_reason = "plan_no_longer_active"
             else:
@@ -650,10 +709,12 @@ def evaluate_equity_positions(
         ):
             absent_for = (now - _parse_iso_utc(pos.plan_missing_since_utc)).total_seconds()
             grace_note = f" (plan absent {absent_for:.0f}s / {grace_sec:.0f}s grace)"
+        trans_note = f" transition_top1_p={p_next:.4f}" if p_next is not None else ""
+        rk_note = f" cur_regime={cur_rk[:40]}" if cur_rk else ""
         print(
             f"  [equity-monitor] {pos.symbol}: side={pos.side} "
             f"entry={pos.entry_price:.2f} current={current_price:.2f} "
-            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}",
+            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}{trans_note}{rk_note}",
             flush=True,
         )
 
@@ -749,6 +810,16 @@ def main() -> None:
             "(default: env RLM_EQUITY_PLAN_MISSING_GRACE_SEC or 900). Use 0 for immediate close."
         ),
     )
+    parser.add_argument(
+        "--min-most-likely-next-prob",
+        type=float,
+        default=None,
+        help=(
+            "Exit stock leg if calibrated/top-1 next-step regime transition probability falls "
+            "below this threshold (unset = disabled; overrides env "
+            "RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB)."
+        ),
+    )
     args = parser.parse_args()
 
     plans_path = Path(args.plans)
@@ -764,14 +835,20 @@ def main() -> None:
     if args.use_account_scale:
         print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
     grace_sec = _plan_missing_grace_sec(args.plan_missing_grace_sec)
+    min_np = _min_most_likely_next_prob(args.min_most_likely_next_prob)
     print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
+    print(
+        f"  min transition top-1 p: {'%.4f (active)' % min_np if min_np else 'disabled'}",
+        flush=True,
+    )
     print(f"  dry_run     : {args.dry_run}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
     plans = _load_plans(plans_path)
     positions = _load_state(state_path)
     active_plan_ids = {p["plan_id"] for p in plans if p.get("plan_id")}
+    plan_by_id = _plans_by_plan_id(plans)
 
     account_nlv: float | None = None
     if args.use_account_scale:
@@ -803,10 +880,16 @@ def main() -> None:
                 dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
             )
         evaluate_equity_positions(
-            positions=positions, active_plan_ids=active_plan_ids,
-            stop_pct=args.stop_pct, target_pct=args.target_pct,
+            positions=positions,
+            active_plan_ids=active_plan_ids,
+            plan_by_id=plan_by_id,
+            stop_pct=args.stop_pct,
+            target_pct=args.target_pct,
             grace_sec=grace_sec,
-            dry_run=True, app=None, log_path=log_path,
+            min_most_likely_next_prob=min_np,
+            dry_run=True,
+            app=None,
+            log_path=log_path,
         )
         _save_state(positions, state_path)
         print("\n[equity] dry-run complete.", flush=True)
@@ -822,10 +905,16 @@ def main() -> None:
                 dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
             )
         evaluate_equity_positions(
-            positions=positions, active_plan_ids=active_plan_ids,
-            stop_pct=args.stop_pct, target_pct=args.target_pct,
+            positions=positions,
+            active_plan_ids=active_plan_ids,
+            plan_by_id=plan_by_id,
+            stop_pct=args.stop_pct,
+            target_pct=args.target_pct,
             grace_sec=grace_sec,
-            dry_run=False, app=app, log_path=log_path,
+            min_most_likely_next_prob=min_np,
+            dry_run=False,
+            app=app,
+            log_path=log_path,
         )
 
     _save_state(positions, state_path)
