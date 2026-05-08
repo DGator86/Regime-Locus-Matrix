@@ -50,6 +50,7 @@ def test_plan_absent_grace_waits_before_close(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=600.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -66,6 +67,7 @@ def test_plan_absent_grace_waits_before_close(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=600.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -81,6 +83,7 @@ def test_plan_absent_grace_waits_before_close(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=600.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -103,6 +106,7 @@ def test_plan_absent_zero_grace_closes_immediately(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=0.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -134,6 +138,7 @@ def test_stop_loss_before_universe_even_when_plan_missing(tmp_path: Path) -> Non
         target_pct=10.0,
         grace_sec=99999.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=fake,
         log_path=log_path,
@@ -157,6 +162,7 @@ def test_plan_returns_clears_grace_timer(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=600.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -172,6 +178,7 @@ def test_plan_returns_clears_grace_timer(tmp_path: Path) -> None:
         target_pct=10.0,
         grace_sec=600.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -202,6 +209,7 @@ def test_regime_flip_exits_while_plan_still_active(tmp_path: Path) -> None:
         target_pct=50.0,
         grace_sec=99999.0,
         min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -232,6 +240,7 @@ def test_weak_transition_top1_prob_exit(tmp_path: Path) -> None:
         target_pct=50.0,
         grace_sec=99999.0,
         min_most_likely_next_prob=0.1,
+        min_next_label_aligned_mass=None,
         dry_run=True,
         app=None,
         log_path=log_path,
@@ -239,3 +248,39 @@ def test_weak_transition_top1_prob_exit(tmp_path: Path) -> None:
     )
     assert pos.status == "closed"
     assert pos.exit_reason == "weak_transition_top1_prob"
+
+
+def test_weak_transition_label_mass_exit(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod)
+    pos.entry_regime_key = "bull|tu|rv|dl"
+    positions = {pos.plan_id: pos}
+    plan_row = {
+        "plan_id": pos.plan_id,
+        "regime_key": "bull|tu|rv|dl",
+        "pipeline": {
+            "regime_transition": {
+                "family": "hmm",
+                "most_likely_next_prob": 0.9,
+                "next_label_aligned_bull_mass": 0.12,
+                "next_label_aligned_bear_mass": 0.88,
+            },
+        },
+    }
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={pos.plan_id},
+        plan_by_id={pos.plan_id: plan_row},
+        stop_pct=50.0,
+        target_pct=50.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=0.2,
+        dry_run=True,
+        app=None,
+        log_path=log_path,
+        utc_now=t0,
+    )
+    assert pos.status == "closed"
+    assert pos.exit_reason == "weak_transition_label_mass"

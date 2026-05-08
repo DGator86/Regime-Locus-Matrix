@@ -14,8 +14,10 @@ Positions are tracked in ``equity_positions_state.json``.  On each run the
 script evaluates open equity positions against the **fresh** universe row for
 each ``plan_id``: ROEE regime flip (:func:`~rlm.roee.exits.should_exit_for_regime_flip`),
 optional min top-1 **transition-matrix** next-step probability
-(``RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB``), percentage stop/target,
-and plan-universe absence (``RLM_EQUITY_PLAN_MISSING_GRACE_SEC``).
+(``RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB``), optional second-layer
+**label-aligned** mass on that same one-step vector (``RLM_EQUITY_MIN_NEXT_LABEL_ALIGNED_MASS``;
+see ``pipeline.regime_transition.next_label_aligned_*_mass`` in the universe row),
+percentage stop/target, and plan-universe absence (``RLM_EQUITY_PLAN_MISSING_GRACE_SEC``).
 
 Usage
 -----
@@ -65,6 +67,7 @@ apply_compute_thread_env()
 from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
 from rlm.regimes.forecast_regime_snapshot import (
     plan_regime_key,
+    position_directional_transition_mass,
     regime_direction_equity,
     regime_transition_best_prob,
 )
@@ -199,6 +202,18 @@ def _min_most_likely_next_prob(cli_value: float | None) -> float | None:
         v = float(cli_value)
         return v if v > 0.0 else None
     raw = (os.environ.get("RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB") or "").strip()
+    if not raw:
+        return None
+    v = float(raw)
+    return v if v > 0.0 else None
+
+
+def _min_next_label_aligned_mass(cli_value: float | None) -> float | None:
+    """Optional min mass on Σ P(next_state)×label_alignment for traded direction."""
+    if cli_value is not None:
+        v = float(cli_value)
+        return v if v > 0.0 else None
+    raw = (os.environ.get("RLM_EQUITY_MIN_NEXT_LABEL_ALIGNED_MASS") or "").strip()
     if not raw:
         return None
     v = float(raw)
@@ -654,6 +669,7 @@ def evaluate_equity_positions(
     target_pct: float,
     grace_sec: float,
     min_most_likely_next_prob: float | None,
+    min_next_label_aligned_mass: float | None,
     dry_run: bool,
     app: _EquityApp | None,
     log_path: Path,
@@ -693,6 +709,7 @@ def evaluate_equity_positions(
         trans_snap: dict[str, Any] | None = rt if isinstance(rt, dict) else None
         p_next = regime_transition_best_prob(trans_snap)
         cur_rk = plan_regime_key(cur_plan) if cur_plan else ""
+        aligned_mass = position_directional_transition_mass(trans_snap, pos.direction)
 
         # Price risk first; active-plan regime + transition; then universe absence grace.
         exit_reason: str | None = None
@@ -713,6 +730,15 @@ def evaluate_equity_positions(
             and p_next < float(min_most_likely_next_prob)
         ):
             exit_reason = "weak_transition_top1_prob"
+
+        if (
+            exit_reason is None
+            and cur_plan
+            and min_next_label_aligned_mass is not None
+            and aligned_mass is not None
+            and aligned_mass < float(min_next_label_aligned_mass)
+        ):
+            exit_reason = "weak_transition_label_mass"
 
         if exit_reason is None and plan_id not in active_plan_ids:
             if grace_sec <= 0.0:
@@ -736,10 +762,13 @@ def evaluate_equity_positions(
             grace_note = f" (plan absent {absent_for:.0f}s / {grace_sec:.0f}s grace)"
         trans_note = f" transition_top1_p={p_next:.4f}" if p_next is not None else ""
         rk_note = f" cur_regime={cur_rk[:40]}" if cur_rk else ""
+        mass_note = ""
+        if aligned_mass is not None:
+            mass_note = f" label_aligned_mass({pos.direction})={aligned_mass:.3f}"
         print(
             f"  [equity-monitor] {pos.symbol}: side={pos.side} "
             f"entry={pos.entry_price:.2f} current={current_price:.2f} "
-            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}{trans_note}{rk_note}",
+            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}{trans_note}{mass_note}{rk_note}",
             flush=True,
         )
 
@@ -845,6 +874,16 @@ def main() -> None:
             "RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB)."
         ),
     )
+    parser.add_argument(
+        "--min-next-label-aligned-mass",
+        type=float,
+        default=None,
+        help=(
+            "Exit when Σ P(next state)×label-weight for the traded direction falls below this "
+            "(0–1; unset = disabled; overrides RLM_EQUITY_MIN_NEXT_LABEL_ALIGNED_MASS). "
+            "Uses full transition row + HMM/Markov state labels from the universe pipeline."
+        ),
+    )
     args = parser.parse_args()
 
     plans_path = Path(args.plans)
@@ -861,10 +900,15 @@ def main() -> None:
         print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
     grace_sec = _plan_missing_grace_sec(args.plan_missing_grace_sec)
     min_np = _min_most_likely_next_prob(args.min_most_likely_next_prob)
+    min_lm = _min_next_label_aligned_mass(args.min_next_label_aligned_mass)
     print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}%", flush=True)
     print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
     print(
         f"  min transition top-1 p: {'%.4f (active)' % min_np if min_np else 'disabled'}",
+        flush=True,
+    )
+    print(
+        f"  min label-aligned mass: {'%.4f (active)' % min_lm if min_lm else 'disabled'}",
         flush=True,
     )
     print(f"  dry_run     : {args.dry_run}", flush=True)
@@ -913,6 +957,7 @@ def main() -> None:
             target_pct=args.target_pct,
             grace_sec=grace_sec,
             min_most_likely_next_prob=min_np,
+            min_next_label_aligned_mass=min_lm,
             dry_run=True,
             app=None,
             log_path=log_path,
@@ -938,6 +983,7 @@ def main() -> None:
             target_pct=args.target_pct,
             grace_sec=grace_sec,
             min_most_likely_next_prob=min_np,
+            min_next_label_aligned_mass=min_lm,
             dry_run=False,
             app=app,
             log_path=log_path,
