@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PageHero } from "@/components/PageHero";
 import { cn } from "@/lib/utils";
 
@@ -339,7 +339,11 @@ function RegimeTable({ snapshots }: { snapshots: Snapshot[] }) {
                   <td
                     className={cn(
                       "px-3 py-2 font-[family-name:var(--font-mono)]",
-                      md >= 0 ? "text-cyan-400" : "text-violet-400",
+                      !Number.isFinite(md)
+                        ? "text-slate-500"
+                        : md >= 0
+                          ? "text-cyan-400"
+                          : "text-violet-400",
                     )}
                   >
                     {fmtNum(md, 2)}
@@ -380,8 +384,12 @@ function ChallengeOpenTable({ rows }: { rows: Record<string, unknown>[] }) {
         <tbody>
           {rows.map((r, i) => {
             const pnl = Number((r as { unrealised_pnl?: number }).unrealised_pnl ?? 0);
+            const rowKey = String(
+              (r as { position_id?: unknown }).position_id ??
+                `${r.symbol}-${r.strike}-${r.option_type ?? i}`,
+            );
             return (
-              <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+              <tr key={rowKey} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                 <td className="px-3 py-2 font-semibold text-slate-200">{String(r.symbol)}</td>
                 <td className="px-3 py-2 text-slate-400">{String(r.option_type)}</td>
                 <td className="px-3 py-2 font-[family-name:var(--font-mono)]">{String(r.strike)}</td>
@@ -420,8 +428,9 @@ function ChallengeClosedTable({ rows }: { rows: Record<string, unknown>[] }) {
         <tbody>
           {rows.map((r, i) => {
             const pnl = Number((r as { pnl?: number }).pnl ?? 0);
+            const rowKey = String((r as { trade_id?: unknown }).trade_id ?? i);
             return (
-              <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+              <tr key={rowKey} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                 <td className="px-3 py-2 font-semibold text-slate-200">{String(r.symbol)}</td>
                 <td className="px-3 py-2 text-slate-400 font-[family-name:var(--font-mono)]">
                   {String(r.exit_date)}
@@ -667,7 +676,11 @@ function ChallengeTabContent({ data }: { data: OverviewPayload }) {
 
   const daily = Number(account.dailyRealized ?? 0);
   const weekly = Number(account.weeklyRealizedRolling7d ?? 0);
-  const realized = Number(account.totalReturnDollarsNet ?? 0);
+  // Sum pnl from each closed trade so "realized" excludes cost basis of open positions
+  const realized = closedTrades.reduce(
+    (s, r) => s + Number((r as { pnl?: number }).pnl ?? 0),
+    0,
+  );
   const openMtm = openPositions.reduce(
     (s, p) => s + Number((p as { unrealised_pnl?: number }).unrealised_pnl ?? 0),
     0,
@@ -805,8 +818,11 @@ export default function TradingOverviewPage() {
   const [data, setData] = useState<OverviewPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const inFlightRef = useRef(false);
 
   const load = useCallback(async (showSpinner = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     if (showSpinner) setRefreshing(true);
     try {
       const res = await fetch("/api/trading-overview");
@@ -823,7 +839,8 @@ export default function TradingOverviewPage() {
     } catch (e) {
       setErr(String(e));
     } finally {
-      setRefreshing(false);
+      inFlightRef.current = false;
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
