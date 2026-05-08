@@ -11,8 +11,10 @@ This runs alongside the options book for independent execution verification:
 - Range / other → skip
 
 Positions are tracked in ``equity_positions_state.json``.  On each run the
-script also evaluates open equity positions and closes those whose underlying
-plan is no longer active, whose regime has flipped, or whose stop/target is hit.
+script evaluates open equity positions and closes those whose underlying plan is
+inactive for longer than ``RLM_EQUITY_PLAN_MISSING_GRACE_SEC`` (default 900s),
+whose stop/target is hit, etc. Price risk(stops/targets) always preempts universe
+drops.
 
 Usage
 -----
@@ -60,6 +62,7 @@ from rlm.utils.compute_threads import apply_compute_thread_env  # noqa: E402
 apply_compute_thread_env()
 
 from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
+from rlm.universe.active_plans import iter_active_trade_plan_rows  # noqa: E402
 
 PLANS_PATH = ROOT / "data" / "processed" / "universe_trade_plans.json"
 EQUITY_STATE_PATH = ROOT / "data" / "processed" / "equity_positions_state.json"
@@ -106,6 +109,7 @@ class EquityPosition:
     exit_price: float | None = None
     exit_ts: str | None = None
     exit_reason: str | None = None
+    plan_missing_since_utc: str | None = None
 
 
 def _load_state(path: Path) -> dict[str, EquityPosition]:
@@ -128,6 +132,23 @@ def _save_state(positions: dict[str, EquityPosition], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {pid: asdict(pos) for pid, pos in positions.items()}
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _parse_iso_utc(ts: str) -> datetime:
+    s = ts.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _plan_missing_grace_sec(cli_value: float | None) -> float:
+    if cli_value is not None:
+        return max(0.0, float(cli_value))
+    raw = (os.environ.get("RLM_EQUITY_PLAN_MISSING_GRACE_SEC") or "").strip()
+    if raw:
+        return max(0.0, float(raw))
+    return 900.0
 
 
 # ---------------------------------------------------------------------------
@@ -382,18 +403,9 @@ def _load_plans(path: Path) -> list[dict]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return []
-    plans: list[dict] = []
-    seen_ids: set[str] = set()
-    for row in (raw.get("active_ranked") or []) + (raw.get("results") or []):
-        if not (isinstance(row, dict) and row.get("status") == "active"):
-            continue
-        pid = str(row.get("plan_id") or "")
-        if pid and pid in seen_ids:
-            continue
-        if pid:
-            seen_ids.add(pid)
-        plans.append(row)
-    return plans
+    if not isinstance(raw, dict):
+        return []
+    return iter_active_trade_plan_rows(raw)
 
 
 def _mark_equity_opened(plan_id: str, plans_path: Path) -> None:
@@ -583,10 +595,13 @@ def evaluate_equity_positions(
     active_plan_ids: set[str],
     stop_pct: float,
     target_pct: float,
+    grace_sec: float,
     dry_run: bool,
     app: _EquityApp | None,
     log_path: Path,
+    utc_now: datetime | None = None,
 ) -> None:
+    now = utc_now if utc_now is not None else datetime.now(tz=timezone.utc)
     for plan_id, pos in list(positions.items()):
         if pos.status != "open":
             continue
@@ -606,25 +621,44 @@ def evaluate_equity_positions(
             pnl = (pos.entry_price - current_price) * pos.quantity
             pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
 
-        # Determine exit signal
+        if plan_id in active_plan_ids:
+            pos.plan_missing_since_utc = None
+
+        # Price risk first; universe drop uses grace (institutional anti-whipsaw).
         exit_reason: str | None = None
-        if plan_id not in active_plan_ids:
-            exit_reason = "plan_no_longer_active"
-        elif pnl_pct <= -stop_pct:
+        if pnl_pct <= -stop_pct:
             exit_reason = f"stop_loss_{stop_pct}pct"
         elif pnl_pct >= target_pct:
             exit_reason = f"take_profit_{target_pct}pct"
+        elif plan_id not in active_plan_ids:
+            if grace_sec <= 0.0:
+                exit_reason = "plan_no_longer_active"
+            else:
+                if pos.plan_missing_since_utc is None:
+                    pos.plan_missing_since_utc = now.isoformat()
+                absent_for = (now - _parse_iso_utc(pos.plan_missing_since_utc)).total_seconds()
+                if absent_for >= grace_sec:
+                    exit_reason = "plan_no_longer_active"
 
         signal = exit_reason or "hold"
+        grace_note = ""
+        if (
+            exit_reason is None
+            and plan_id not in active_plan_ids
+            and grace_sec > 0.0
+            and pos.plan_missing_since_utc is not None
+        ):
+            absent_for = (now - _parse_iso_utc(pos.plan_missing_since_utc)).total_seconds()
+            grace_note = f" (plan absent {absent_for:.0f}s / {grace_sec:.0f}s grace)"
         print(
             f"  [equity-monitor] {pos.symbol}: side={pos.side} "
             f"entry={pos.entry_price:.2f} current={current_price:.2f} "
-            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}",
+            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}",
             flush=True,
         )
 
         _append_log(log_path, {
-            "timestamp_utc": datetime.now(tz=timezone.utc).isoformat(),
+            "timestamp_utc": now.isoformat(),
             "plan_id": plan_id,
             "symbol": pos.symbol,
             "strategy": pos.direction,
@@ -658,9 +692,10 @@ def evaluate_equity_positions(
 
         pos.status = "closed"
         pos.exit_price = current_price
-        pos.exit_ts = datetime.now(tz=timezone.utc).isoformat()
+        pos.exit_ts = now.isoformat()
         pos.exit_reason = exit_reason
         pos.close_order_id = close_order_id
+        pos.plan_missing_since_utc = None
 
         _append_log(log_path, {
             "timestamp_utc": pos.exit_ts,
@@ -705,6 +740,15 @@ def main() -> None:
                         help="Paper-mode without IBKR orders (log only)")
     parser.add_argument("--monitor-only", action="store_true",
                         help="Skip opening new positions; only evaluate existing ones")
+    parser.add_argument(
+        "--plan-missing-grace-sec",
+        type=float,
+        default=None,
+        help=(
+            "Seconds a plan may be absent from the active universe before equity auto-close "
+            "(default: env RLM_EQUITY_PLAN_MISSING_GRACE_SEC or 900). Use 0 for immediate close."
+        ),
+    )
     args = parser.parse_args()
 
     plans_path = Path(args.plans)
@@ -719,7 +763,9 @@ def main() -> None:
         print(f"  risk_usd    : ${args.risk_usd:,.0f}", flush=True)
     if args.use_account_scale:
         print(f"  account_scale: max {args.max_account_pct}% of NLV scaled by confidence", flush=True)
-    print(f"  stop / target: -{args.stop_pct}% / +{args.target_pct}%", flush=True)
+    grace_sec = _plan_missing_grace_sec(args.plan_missing_grace_sec)
+    print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}%", flush=True)
+    print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
     print(f"  dry_run     : {args.dry_run}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
@@ -759,6 +805,7 @@ def main() -> None:
         evaluate_equity_positions(
             positions=positions, active_plan_ids=active_plan_ids,
             stop_pct=args.stop_pct, target_pct=args.target_pct,
+            grace_sec=grace_sec,
             dry_run=True, app=None, log_path=log_path,
         )
         _save_state(positions, state_path)
@@ -777,6 +824,7 @@ def main() -> None:
         evaluate_equity_positions(
             positions=positions, active_plan_ids=active_plan_ids,
             stop_pct=args.stop_pct, target_pct=args.target_pct,
+            grace_sec=grace_sec,
             dry_run=False, app=app, log_path=log_path,
         )
 

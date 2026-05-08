@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from rlm.execution.exit_signals import EXIT_SIGNALS
+from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
+from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
 
 
 def _resolve_trade_log_path(root: Path) -> Path:
@@ -173,31 +175,9 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     return "\n".join(lines)
 
 
-def _iter_active_plan_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Rows treated as the active universe set (matches monitor payload selection)."""
-    ranked = data.get("active_ranked") or []
-    if ranked:
-        return [r for r in ranked if isinstance(r, dict)]
-    return [r for r in (data.get("results") or []) if isinstance(r, dict) and r.get("status") == "active"]
-
-
 def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
-    out: set[str] = set()
-    for r in _iter_active_plan_rows(data):
-        pid = str(r.get("plan_id") or r.get("symbol") or "")
-        if pid:
-            out.add(pid)
-    return out
-
-
-def _symbol_by_plan_id(data: dict[str, Any]) -> dict[str, str]:
-    m: dict[str, str] = {}
-    for r in _iter_active_plan_rows(data):
-        pid = str(r.get("plan_id") or r.get("symbol") or "")
-        if not pid:
-            continue
-        m[pid] = str(r.get("symbol") or "?")
-    return m
+    """Active ``plan_id`` set (aligned with equity monitor + ranked/results union)."""
+    return _active_plan_ids_from_plans_payload(data)
 
 
 def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
@@ -219,7 +199,7 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
     if not data:
         return "No data"
     gen = str(data.get("generated_at_utc", "?"))
-    actives: list[dict[str, Any]] = list(_iter_active_plan_rows(data))
+    actives: list[dict[str, Any]] = list(_iter_active_trade_plan_rows(data))
     actives.sort(key=lambda x: float(x.get("rank_score") or 0.0), reverse=True)
     lines = [
         f"Universe report (top {min(max_active, len(actives))} of {len(actives)} active)\n" f"generated_at: {gen}\n"
@@ -637,15 +617,21 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if not closed and pid not in st.announced_trade_open:
             st.announced_trade_open.add(pid)
             ed = row.get("entry_debit", row.get("entry_mid", ""))
-            out.append(f"Alert: New position — {sym}  plan={pid}  mark={mark}  entry~{ed}  signal={sig}")
+            out.append(
+                f"Alert: [OPT] New position — {sym}  plan={pid}  "
+                f"mark={mark}  entry~{ed} (opt debit/premium $)  signal={sig}"
+            )
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
-            out.append(f"Alert: Position now above profit target — {sym}  plan={pid}  mark={mark}")
+            out.append(f"Alert: [OPT] Position now above profit target — {sym}  plan={pid}  mark={mark}")
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
-            out.append(f"Alert: Exited position — {sym}  plan={pid}  reason={_exit_reason_human(sig)}  mark={mark}")
+            out.append(
+                f"Alert: [OPT] Exited position — {sym}  plan={pid}  "
+                f"reason={_exit_reason_human(sig)}  mark={mark}"
+            )
         st.last_opt_signal[pid] = sig
 
     for gone in set(st.announced_tp) - set(latest.keys()):
@@ -659,7 +645,6 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
     plans_data = _read_plans(p["plans"])
     cur_u = _active_plan_ids_from_plans(plans_data)
-    _symbol_by_plan_id(plans_data)
     # Disabling universe idea alerts to reduce chatter per user request
     # for pid in sorted(cur_u - st.last_universe_active_ids):
     #     out.append(
@@ -676,14 +661,14 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if st_eq == "open":
             if pkey not in prev_eq and pkey not in st.announced_equity_close:
                 out.append(
-                    f"Alert: New position — {pdat.get('symbol', '?')}  "
+                    f"Alert: [EQ] New position — {pdat.get('symbol', '?')}  "
                     f"side={pdat.get('side', '?')}  qty={pdat.get('quantity', '')}  "
-                    f"plan_id={pkey}  (equity)"
+                    f"plan_id={pkey}  (stock)"
                 )
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
             ex = pdat.get("exit_reason") or pdat.get("note") or "—"
-            out.append(f"Alert: Exited position — {pdat.get('symbol', '?')}  plan_id={pkey}  reason={ex}  (equity)")
+            out.append(f"Alert: [EQ] Exited position — {pdat.get('symbol', '?')} plan_id={pkey} reason={ex} (stock)")
 
     st.last_equity_open = now_open
     return out, {**state_blob, **st.to_json()}
