@@ -845,9 +845,14 @@ export default function TradingOverviewPage() {
   }, []);
 
   useEffect(() => {
-    load();
-    const t = setInterval(() => load(), 30000);
-    return () => clearInterval(t);
+    // Defer initial fetch so eslint react-hooks/set-state-in-effect does not treat
+    // async loaders as synchronous setState in the effect body (same pattern as setInterval).
+    const boot = window.setTimeout(() => void load(), 0);
+    const t = window.setInterval(() => void load(), 30000);
+    return () => {
+      window.clearTimeout(boot);
+      window.clearInterval(t);
+    };
   }, [load]);
 
   const challengeLoaded = Boolean(
