@@ -7,6 +7,7 @@ labels on the ROEE policy row — without relaxing real-money gates elsewhere.
 
 from __future__ import annotations
 
+import math
 import os
 
 import pandas as pd
@@ -80,12 +81,39 @@ def regime_fallback_directive_from_policy_row(
     rk = policy_row.get("regime_key")
     if rk is not None and not (isinstance(rk, float) and pd.isna(rk)):  # type: ignore[arg-type]
         head = str(rk).strip().lower().split("|", 1)[0].strip()
-        chop = {"range", "transition", "neutral"}
-        if head in chop:
+        chop_suppress_only = {"range", "neutral"}
+        if head in chop_suppress_only:
             return None, f"fallback suppressed regime_key={head}"
-        if head == "bull":
-            return "long", "fallback regime_key pipe bull"
-        if head == "bear":
-            return "short", "fallback regime_key pipe bear"
+        if head != "transition":
+            if head == "bull":
+                return "long", "fallback regime_key pipe bull"
+            if head == "bear":
+                return "short", "fallback regime_key pipe bear"
+
+    dr_transition = ""
+    if "direction_regime" in policy_row.index and pd.notna(policy_row.get("direction_regime")):
+        dr_transition = str(policy_row["direction_regime"]).strip().lower()
+
+    rk_head = ""
+    if rk is not None and not (isinstance(rk, float) and pd.isna(rk)):  # type: ignore[arg-type]
+        rk_head = str(rk).strip().lower().split("|", 1)[0].strip()
+
+    transitionish = dr_transition == "transition" or rk_head == "transition"
+    if transitionish:
+        sd_raw = policy_row.get("S_D")
+        try:
+            s = float(sd_raw) if sd_raw is not None and pd.notna(sd_raw) else 0.0  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            s = 0.0
+        try:
+            thresh = float((os.environ.get("RLM_CHALLENGE_TRANSITION_S_D_ABS") or "0.35").strip())
+        except ValueError:
+            thresh = 0.35
+        if not math.isfinite(thresh):
+            thresh = 0.35
+        if s >= thresh:
+            return "long", f"fallback transition+momentum S_D={s:.2f}"
+        if s <= -thresh:
+            return "short", f"fallback transition+momentum S_D={s:.2f}"
 
     return None, "no regime fallback"

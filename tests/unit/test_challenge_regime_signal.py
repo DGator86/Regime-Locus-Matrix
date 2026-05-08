@@ -39,6 +39,15 @@ def test_range_regime_suppressed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "suppressed" in note
 
 
+def test_transition_uses_sd_momentum(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RLM_CHALLENGE_REGIME_FALLBACK", raising=False)
+    monkeypatch.delenv("RLM_CHALLENGE_TRANSITION_S_D_ABS", raising=False)
+    row = pd.Series({"direction_regime": "transition", "regime_key": "transition|high_vol", "S_D": 0.41})
+    d, note = regime_fallback_directive_from_policy_row(row)
+    assert d == "long"
+    assert "S_D=" in note
+
+
 def test_disabled_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RLM_CHALLENGE_REGIME_FALLBACK", "0")
     row = pd.Series({"direction_regime": "bull"})
