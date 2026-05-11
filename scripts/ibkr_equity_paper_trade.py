@@ -14,12 +14,18 @@ This runs alongside the options book for independent execution verification:
 
 Positions are tracked in ``equity_positions_state.json``.  On each run the
 script evaluates open equity positions against the **fresh** universe row for
-each ``plan_id``: ROEE regime flip (:func:`~rlm.roee.exits.should_exit_for_regime_flip`),
-optional min top-1 **transition-matrix** next-step probability
-(``RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB``), optional second-layer
-**label-aligned** mass on that same one-step vector (``RLM_EQUITY_MIN_NEXT_LABEL_ALIGNED_MASS``;
-see ``pipeline.regime_transition.next_label_aligned_*_mass`` in the universe row),
-percentage stop/target, and plan-universe absence (``RLM_EQUITY_PLAN_MISSING_GRACE_SEC``).
+each ``plan_id`` (when still present): ROEE regime flip
+(:func:`~rlm.roee.exits.should_exit_for_regime_flip`), optional min top-1
+**transition-matrix** next-step probability (``RLM_EQUITY_MIN_MOST_LIKELY_NEXT_PROB``),
+optional **label-aligned** mass (``RLM_EQUITY_MIN_NEXT_LABEL_ALIGNED_MASS``),
+hard stop / take-profit, optional **trailing give-back** from best price since
+arm (discretionary style: let winners run, lock in after a favorable move),
+and optional plan-catalog absence exit (off by default — pros do not flatten
+stocks just because a JSON row rotated).
+
+Thesis-driven exits (regime flip, transition gates) honour **minimum hold**
+(``RLM_EQUITY_MIN_HOLD_THESIS_SEC``) so a single noisy refresh does not flip
+the book; hard stops always apply immediately.
 
 Usage
 -----
@@ -123,6 +129,9 @@ class EquityPosition:
     exit_reason: str | None = None
     plan_missing_since_utc: str | None = None
     entry_regime_key: str = ""
+    # Trailing give-back from best price while armed (see evaluate_equity_positions).
+    trail_armed: bool = False
+    trail_peak_price: float | None = None
 
 
 def _load_state(path: Path) -> dict[str, EquityPosition]:
@@ -162,6 +171,63 @@ def _plan_missing_grace_sec(cli_value: float | None) -> float:
     if raw:
         return max(0.0, float(raw))
     return 900.0
+
+
+def _exit_on_plan_absent(cli_flag: bool | None) -> bool:
+    """Exit when plan_id leaves the active universe (legacy). Default off — price manages the book."""
+    if cli_flag is True:
+        return True
+    if cli_flag is False:
+        return False
+    raw = (os.environ.get("RLM_EQUITY_EXIT_ON_PLAN_ABSENT") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return False
+
+
+def _min_hold_thesis_sec(cli_value: float | None) -> float:
+    """Seconds after entry before regime / transition-model exits may fire (stops/trails/TP always apply)."""
+    if cli_value is not None:
+        return max(0.0, float(cli_value))
+    raw = (os.environ.get("RLM_EQUITY_MIN_HOLD_THESIS_SEC") or "").strip()
+    if raw:
+        return max(0.0, float(raw))
+    return 1800.0
+
+
+def _trail_activate_pct(cli_value: float | None) -> float | None:
+    """Arm trailing give-back once unrealized PnL%% reaches this; None disables."""
+    if cli_value is not None:
+        v = float(cli_value)
+        return None if v <= 0.0 else v
+    raw = (os.environ.get("RLM_EQUITY_TRAIL_ACTIVATE_PCT") or "").strip()
+    if raw:
+        v = float(raw)
+        return None if v <= 0.0 else v
+    if (os.environ.get("RLM_EQUITY_TRAIL_DISABLE") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
+    return 4.0
+
+
+def _trail_retrace_frac(cli_value: float | None) -> float | None:
+    """Fraction of MFE (move from entry to peak favorable price) to give back before trail exit."""
+    if cli_value is not None:
+        v = float(cli_value)
+        return None if v <= 0.0 else min(1.0, v)
+    raw = (os.environ.get("RLM_EQUITY_TRAIL_RETRACE_FRAC") or "").strip()
+    if raw:
+        v = float(raw)
+        return None if v <= 0.0 else min(1.0, v)
+    return 0.35
+
+
+def _position_age_sec(entry_ts: str, now: datetime) -> float:
+    try:
+        return max(0.0, (now - _parse_iso_utc(entry_ts)).total_seconds())
+    except (TypeError, ValueError, OSError):
+        return float("inf")
 
 
 def _plans_by_plan_id(plans: list[dict]) -> dict[str, dict]:
@@ -727,6 +793,10 @@ def evaluate_equity_positions(
     app: _EquityApp | None,
     log_path: Path,
     utc_now: datetime | None = None,
+    exit_on_plan_absent: bool = False,
+    min_hold_sec: float = 0.0,
+    trail_activate_pct: float | None = None,
+    trail_retrace_frac: float | None = None,
 ) -> None:
     now = utc_now if utc_now is not None else datetime.now(tz=timezone.utc)
     for plan_id, pos in list(positions.items()):
@@ -750,6 +820,11 @@ def evaluate_equity_positions(
 
         if plan_id in active_plan_ids:
             pos.plan_missing_since_utc = None
+        elif exit_on_plan_absent:
+            if grace_sec > 0.0 and pos.plan_missing_since_utc is None:
+                pos.plan_missing_since_utc = now.isoformat()
+        else:
+            pos.plan_missing_since_utc = None
 
         cur_plan_raw = plan_by_id.get(plan_id)
         cur_plan: dict | None = cur_plan_raw if isinstance(cur_plan_raw, dict) else None
@@ -764,36 +839,71 @@ def evaluate_equity_positions(
         cur_rk = plan_regime_key(cur_plan) if cur_plan else ""
         aligned_mass = position_directional_transition_mass(trans_snap, pos.direction)
 
-        # Price risk first; active-plan regime + transition; then universe absence grace.
-        exit_reason: str | None = None
-        if pnl_pct <= -stop_pct:
-            exit_reason = f"stop_loss_{stop_pct}pct"
-        elif pnl_pct >= target_pct:
-            exit_reason = f"take_profit_{target_pct}pct"
+        age_sec = _position_age_sec(pos.entry_ts, now)
+        thesis_ok = age_sec >= float(min_hold_sec)
 
         ek = str(pos.entry_regime_key or "").strip()
-        if exit_reason is None and cur_plan and ek and cur_rk and should_exit_for_regime_flip(ek, cur_rk):
-            exit_reason = "regime_flip"
-
-        if (
-            exit_reason is None
-            and cur_plan
+        regime_would_exit = bool(
+            cur_plan and ek and cur_rk and should_exit_for_regime_flip(ek, cur_rk)
+        )
+        weak_prob_would_exit = bool(
+            cur_plan
             and min_most_likely_next_prob is not None
             and p_next is not None
             and p_next < float(min_most_likely_next_prob)
-        ):
-            exit_reason = "weak_transition_top1_prob"
-
-        if (
-            exit_reason is None
-            and cur_plan
+        )
+        weak_mass_would_exit = bool(
+            cur_plan
             and min_next_label_aligned_mass is not None
             and aligned_mass is not None
             and aligned_mass < float(min_next_label_aligned_mass)
+        )
+
+        exit_reason: str | None = None
+        if pnl_pct <= -stop_pct:
+            exit_reason = f"stop_loss_{stop_pct}pct"
+        elif (
+            trail_activate_pct is not None
+            and trail_retrace_frac is not None
+            and trail_activate_pct > 0
+            and trail_retrace_frac > 0
         ):
+            if not pos.trail_armed and pnl_pct >= trail_activate_pct:
+                pos.trail_armed = True
+                pos.trail_peak_price = float(current_price)
+            if pos.trail_armed and pos.trail_peak_price is not None:
+                ep = float(pos.entry_price)
+                tp = float(pos.trail_peak_price)
+                cr = float(current_price)
+                rf = float(trail_retrace_frac)
+                if pos.side == "long":
+                    tp = max(tp, cr)
+                    pos.trail_peak_price = tp
+                    if tp > ep:
+                        give = tp - rf * (tp - ep)
+                        if cr <= give:
+                            exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
+                else:
+                    tp = min(tp, cr)
+                    pos.trail_peak_price = tp
+                    if tp < ep:
+                        give = tp + rf * (ep - tp)
+                        if cr >= give:
+                            exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
+
+        if exit_reason is None and pnl_pct >= target_pct:
+            exit_reason = f"take_profit_{target_pct}pct"
+
+        if exit_reason is None and thesis_ok and regime_would_exit:
+            exit_reason = "regime_flip"
+
+        if exit_reason is None and thesis_ok and weak_prob_would_exit:
+            exit_reason = "weak_transition_top1_prob"
+
+        if exit_reason is None and thesis_ok and weak_mass_would_exit:
             exit_reason = "weak_transition_label_mass"
 
-        if exit_reason is None and plan_id not in active_plan_ids:
+        if exit_reason is None and exit_on_plan_absent and plan_id not in active_plan_ids:
             if grace_sec <= 0.0:
                 exit_reason = "plan_no_longer_active"
             else:
@@ -808,11 +918,19 @@ def evaluate_equity_positions(
         if (
             exit_reason is None
             and plan_id not in active_plan_ids
+            and exit_on_plan_absent
             and grace_sec > 0.0
             and pos.plan_missing_since_utc is not None
         ):
             absent_for = (now - _parse_iso_utc(pos.plan_missing_since_utc)).total_seconds()
             grace_note = f" (plan absent {absent_for:.0f}s / {grace_sec:.0f}s grace)"
+        elif exit_reason is None and plan_id not in active_plan_ids and not exit_on_plan_absent:
+            grace_note = " (plan off active list — hold; exit on price/thesis only)"
+        hold_note = ""
+        if exit_reason is None and not thesis_ok and (
+            regime_would_exit or weak_prob_would_exit or weak_mass_would_exit
+        ):
+            hold_note = f" thesis_exit_deferred {age_sec:.0f}s / {min_hold_sec:.0f}s min_hold"
         trans_note = f" transition_top1_p={p_next:.4f}" if p_next is not None else ""
         rk_note = f" cur_regime={cur_rk[:40]}" if cur_rk else ""
         mass_note = ""
@@ -821,7 +939,7 @@ def evaluate_equity_positions(
         print(
             f"  [equity-monitor] {pos.symbol}: side={pos.side} "
             f"entry={pos.entry_price:.2f} current={current_price:.2f} "
-            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}{trans_note}{mass_note}{rk_note}",
+            f"pnl=${pnl:+.2f} ({pnl_pct:+.2f}%) signal={signal}{grace_note}{hold_note}{trans_note}{mass_note}{rk_note}",
             flush=True,
         )
 
@@ -864,6 +982,8 @@ def evaluate_equity_positions(
         pos.exit_reason = exit_reason
         pos.close_order_id = close_order_id
         pos.plan_missing_since_utc = None
+        pos.trail_armed = False
+        pos.trail_peak_price = None
 
         _append_log(log_path, {
             "timestamp_utc": pos.exit_ts,
@@ -937,6 +1057,41 @@ def main() -> None:
             "Uses full transition row + HMM/Markov state labels from the universe pipeline."
         ),
     )
+    parser.add_argument(
+        "--exit-on-plan-absent",
+        action="store_true",
+        help=(
+            "Close stock when plan_id is not in the active universe (after grace). "
+            "Default off — positions are managed on price and thesis, not JSON churn."
+        ),
+    )
+    parser.add_argument(
+        "--min-hold-thesis-sec",
+        type=float,
+        default=None,
+        help=(
+            "Minimum seconds in trade before regime/transition-model exits may fire "
+            "(default: env RLM_EQUITY_MIN_HOLD_THESIS_SEC or 1800). Hard stop / trail / TP always apply."
+        ),
+    )
+    parser.add_argument(
+        "--trail-activate-pct",
+        type=float,
+        default=None,
+        help=(
+            "Arm MFE trailing give-back once unrealized PnL%% reaches this "
+            "(default: env RLM_EQUITY_TRAIL_ACTIVATE_PCT or 4; 0 or negative disables)."
+        ),
+    )
+    parser.add_argument(
+        "--trail-retrace-frac",
+        type=float,
+        default=None,
+        help=(
+            "Fraction of peak favorable excursion from entry to give back before trail exit "
+            "(default: env RLM_EQUITY_TRAIL_RETRACE_FRAC or 0.35)."
+        ),
+    )
     args = parser.parse_args()
 
     plans_path = Path(args.plans)
@@ -955,8 +1110,19 @@ def main() -> None:
     grace_sec = _plan_missing_grace_sec(args.plan_missing_grace_sec)
     min_np = _min_most_likely_next_prob(args.min_most_likely_next_prob)
     min_lm = _min_next_label_aligned_mass(args.min_next_label_aligned_mass)
+    exit_on_plan_absent = _exit_on_plan_absent(True if args.exit_on_plan_absent else None)
+    min_hold_main = _min_hold_thesis_sec(args.min_hold_thesis_sec)
+    trail_act = _trail_activate_pct(args.trail_activate_pct)
+    trail_rf = _trail_retrace_frac(args.trail_retrace_frac)
     print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}%", flush=True)
-    print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
+    print(f"  exit on plan absent: {exit_on_plan_absent}", flush=True)
+    if exit_on_plan_absent:
+        print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
+    print(f"  min hold (thesis exits): {min_hold_main:.0f}s", flush=True)
+    if trail_act is not None and trail_rf is not None:
+        print(f"  trailing give-back: arm ≥{trail_act:.2f}% MFE, retrace {trail_rf:.0%}", flush=True)
+    else:
+        print("  trailing give-back: disabled", flush=True)
     print(
         f"  min transition top-1 p: {'%.4f (active)' % min_np if min_np else 'disabled'}",
         flush=True,
@@ -1015,6 +1181,10 @@ def main() -> None:
             dry_run=True,
             app=None,
             log_path=log_path,
+            exit_on_plan_absent=exit_on_plan_absent,
+            min_hold_sec=min_hold_main,
+            trail_activate_pct=trail_act,
+            trail_retrace_frac=trail_rf,
         )
         _save_state(positions, state_path)
         print("\n[equity] dry-run complete.", flush=True)
@@ -1041,6 +1211,10 @@ def main() -> None:
             dry_run=False,
             app=app,
             log_path=log_path,
+            exit_on_plan_absent=exit_on_plan_absent,
+            min_hold_sec=min_hold_main,
+            trail_activate_pct=trail_act,
+            trail_retrace_frac=trail_rf,
         )
 
     _save_state(positions, state_path)
