@@ -2,7 +2,10 @@
 """
 Submit **opening** combo limit orders to IBKR for each **active** plan in ``universe_trade_plans.json``.
 
-**Paper only:** ``IBKR_PORT`` must be **7497** (TWS paper) or **4002** (Gateway paper).
+**Default policy:** runs **dry-run** only unless ``RLM_ALLOW_IBKR_OPTIONS=1``. IBKR paper in the main stack is
+**equities-only**; large-account options are tracked locally.
+
+**Paper only** (when explicitly allowed): ``IBKR_PORT`` must be **7497** (TWS paper) or **4002** (Gateway paper).
 
 Uses a **single** IBKR connection for all orders (avoids repeated connect/disconnect and
 ``client id already in use`` (326) errors from stale TWS slots).
@@ -75,6 +78,13 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true", help="Print only; no IBKR calls")
     p.add_argument("--delay", type=float, default=0.5, help="Seconds between orders")
     args = p.parse_args()
+
+    if not args.dry_run:
+        from rlm.execution.options_ibkr_policy import exit_if_ibkr_option_orders_disallowed
+
+        exit_if_ibkr_option_orders_disallowed(
+            "ibkr_paper_trade_from_plans without --dry-run would transmit option combo opens"
+        )
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
     if not plans_path.is_file():

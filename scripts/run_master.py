@@ -5,9 +5,9 @@ Single entrypoint for the full automated dual-book stack.
 Runs the **equity-primary** mode by default:
 
 1. ``run_universe_options_pipeline.py`` — IBKR bars, factor/forecast pipeline, ROEE, Massive chain match
-2. ``ibkr_paper_trade_from_plans.py``  — options in **dry-run** (signal-log only, no IBKR option orders)
+2. ``ibkr_paper_trade_from_plans.py``  — option opens **dry-run** only (``run_everything`` enforces; no IBKR combos)
 3. ``ibkr_equity_paper_trade.py``      — real IBKR **paper** stock BUY / SELL from regime direction
-4. ``monitor_active_trade_plans.py``   — continuous Massive mark polling, hypothetical options P&L
+4. ``monitor_active_trade_plans.py``   — Massive marks vs stops; **local** ``trade_log.csv`` (no IBKR option closes)
 
 IBKR paper accounts support equity trading only; options are tracked hypothetically so you can
 measure regime-signal quality against both actual equity execution and simulated options P&L.

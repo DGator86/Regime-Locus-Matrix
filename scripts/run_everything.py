@@ -2,10 +2,14 @@
 """
 Run the **full stack** from repo root in order:
 
-1. ``run_universe_options_pipeline.py`` — IBKR + factors + forecast + ROEE + Massive chain match + risk plan JSON
-2. Optional: ``ibkr_paper_trade_from_plans.py``  — **paper** opening combos (Level 2 debit structures)
-3. Optional: ``ibkr_equity_paper_trade.py``       — **paper** equity BUY/SELL from regime direction
-4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; optional ``--paper-close`` **MKT** exits
+1. ``run_universe_options_pipeline.py`` — IBKR **bars** + factors + forecast + ROEE + Massive chain match + plans JSON
+2. ``ibkr_paper_trade_from_plans.py`` — **dry-run only** from this orchestrator (lists combos; **no** option orders)
+3. ``ibkr_equity_paper_trade.py`` (with ``--with-equity``) — **IBKR paper** equity BUY/SELL
+4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; writes local ``trade_log.csv`` (**no** IBKR option closes here)
+
+**Policy:** IBKR paper is **equities-only**. Large-account options and the PDT challenge are tracked **locally**.
+This script never passes live option orders to IBKR. Use ``RLM_ALLOW_IBKR_OPTIONS=1`` only if you intentionally
+run ``ibkr_paper_trade_from_plans.py`` / ``monitor_active_trade_plans.py`` / ``ibkr_place_roee_combo.py`` **standalone**.
 
 Examples::
 
@@ -13,22 +17,17 @@ Examples::
     python scripts/run_master.py
     python scripts/run_everything.py
     python scripts/run_everything.py --full-paper --interval 60 --rescan-interval 300
-    python scripts/run_everything.py --paper-trade --paper-close --follow --interval 120
     python scripts/run_everything.py --pipeline-args "--top 2 --no-vix"
-    python scripts/run_everything.py --master --with-equity              # options + equities book
-    python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR orders
+    python scripts/run_everything.py --master --with-equity              # default master: equities IBKR + local options
+    python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR stock orders
     python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
 
-**Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
-rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
-**paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
-With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
-(local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
-``--interval`` / ``--rescan-interval`` if needed.
+**Master mode** (``--master``): **60s** monitor polls, **300s** (5 min) universe rescans
+(**Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``). Options are **local**; IBKR is for equities when
+``--with-equity`` is set. Override timing with ``--interval`` / ``--rescan-interval``.
 
-``--with-equity`` runs a parallel equity paper book alongside the options book using the same
-regime signals.  This requires no options permissions — plain stock BUY/SELL orders.  Positions
-are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
+``--with-equity`` runs the stock leg with real IBKR paper orders alongside **locally tracked-option** marks/P&L.
+Positions are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
 """
 
 from __future__ import annotations
@@ -101,16 +100,18 @@ def main() -> int:
     ap.add_argument(
         "--paper-trade",
         action="store_true",
-        help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
+        help="After pipeline, run option open **dry-run** log from plans (IBKR option orders disabled here)",
     )
-    ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
+    ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap rows in open dry-run step")
     ap.add_argument(
-        "--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)"
+        "--paper-dry-run",
+        action="store_true",
+        help="(Always on under run_everything) Log openings only — enforced for IBKR equities-only policy",
     )
     ap.add_argument(
         "--paper-close",
         action="store_true",
-        help="Monitor transmits MKT closes on exit signals (paper IBKR only)",
+        help="Ignored by run_everything — IBKR is not used for option combo closes in this stack",
     )
     ap.add_argument("--paper-close-dry-run", action="store_true", help="Log closes only")
     ap.add_argument(
@@ -131,14 +132,13 @@ def main() -> int:
     ap.add_argument(
         "--full-paper",
         action="store_true",
-        help="Shorthand: --paper-trade --paper-close --follow (continuous monitor + paper in/out)",
+        help="Shorthand: --paper-trade --follow (local options + monitor; no IBKR option orders)",
     )
     ap.add_argument(
         "--master",
         action="store_true",
         help=(
-            "Timed rescans + monitor every 60s; implies --paper-trade --paper-close --follow "
-            "unless combined with --with-equity (then options are dry-run only, no IBKR option closes)."
+            "Timed rescans + monitor every 60s; implies --paper-trade --follow (local options; IBKR = equities only with --with-equity)."
         ),
     )
     # -----------------------------------------------------------------------
@@ -217,22 +217,25 @@ def main() -> int:
 
     if args.master:
         args.paper_trade = True
-        args.paper_close = True
         args.follow = True
     if args.full_paper:
         args.paper_trade = True
-        args.paper_close = True
         args.follow = True
 
-    # Equity-primary mode: IBKR for stocks only. Options are hypothetical (no combo orders).
-    if args.with_equity:
-        if not args.paper_dry_run:
-            args.paper_dry_run = True
-        if args.paper_close:
-            args.paper_close = False
+    # IBKR equities-only: never transmit option combos from this orchestrator.
+    if args.paper_close:
         print(
-            "[info] --with-equity: options are simulation-only (dry-run opens, no IBKR closes); "
-            "equities use IBKR per ibkr_equity_paper_trade.py",
+            "[policy] Ignoring --paper-close under run_everything — "
+            "option closes are not sent to IBKR (local monitor only).",
+            flush=True,
+        )
+    args.paper_close = False
+    args.paper_dry_run = True
+
+    if args.with_equity:
+        print(
+            "[info] --with-equity: equities via ibkr_equity_paper_trade.py (IBKR); "
+            "large-account options tracked locally (trade_log / Massive).",
             flush=True,
         )
 

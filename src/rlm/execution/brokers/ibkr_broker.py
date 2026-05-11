@@ -21,6 +21,17 @@ class IBKRBrokerAdapter(BrokerAdapter):
                     "details": {"paper": paper},
                 }
 
+            from rlm.execution.options_ibkr_policy import ibkr_option_orders_allowed
+
+            if not ibkr_option_orders_allowed():
+                return {
+                    "success": False,
+                    "order_id": None,
+                    "broker": self.broker,
+                    "message": "RLM policy: IBKR is equities-only; option combo orders disabled (set RLM_ALLOW_IBKR_OPTIONS=1)",
+                    "details": {"paper": paper},
+                }
+
             from rlm.execution.ibkr_combo_orders import (
                 IBKROptionLegSpec,
                 place_options_combo_market_order,

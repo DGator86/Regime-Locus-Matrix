@@ -13,8 +13,9 @@ Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
 ``trail_on`` per ``plan_id``.
 
-With ``--paper-close`` (paper **7497** / **4002** / **4004** only), submits a **market** combo in the opposite
-direction of ``ibkr_combo_spec`` once per plan when an exit **ACTION** fires.
+**IBKR policy:** By default this **does not** talk to IBKR for options. Use ``--paper-close-dry-run``
+to log close intent without orders. Live ``--paper-close`` MKT exits require
+``RLM_ALLOW_IBKR_OPTIONS=1`` (maintainers / non-default only; product stack uses IBKR for **equities** only).
 
 Examples::
 
@@ -23,7 +24,7 @@ Examples::
     python scripts/monitor_active_trade_plans.py \
         --plans data/processed/universe_trade_plans.json --interval 120
     python scripts/monitor_active_trade_plans.py \
-        --plans data/processed/universe_trade_plans.json --paper-close --once
+        --plans data/processed/universe_trade_plans.json --paper-close-dry-run --once
 """
 
 from __future__ import annotations
@@ -372,7 +373,7 @@ def main() -> int:
     p.add_argument(
         "--paper-close",
         action="store_true",
-        help="On exit ACTION, transmit IBKR **MKT** closing combo (paper port only)",
+        help="Transmit IBKR MKT combo close (requires RLM_ALLOW_IBKR_OPTIONS=1; default off)",
     )
     p.add_argument(
         "--paper-close-dry-run",
@@ -423,6 +424,11 @@ def main() -> int:
         help="Outside NYSE RTH, skip Massive polling and sleep for --interval (saves API quota)",
     )
     args = p.parse_args()
+
+    if args.paper_close and not args.paper_close_dry_run:
+        from rlm.execution.options_ibkr_policy import exit_if_ibkr_option_orders_disallowed
+
+        exit_if_ibkr_option_orders_disallowed("monitor --paper-close would transmit closing combos to IBKR")
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
     state_path = ROOT / args.state if not args.state.is_absolute() else args.state
