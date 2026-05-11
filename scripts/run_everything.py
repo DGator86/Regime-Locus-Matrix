@@ -8,8 +8,7 @@ Run the **full stack** from repo root in order:
 4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; writes local ``trade_log.csv`` (**no** IBKR option closes here)
 
 **Policy:** IBKR paper is **equities-only**. Large-account options and the PDT challenge are tracked **locally**.
-This script never passes live option orders to IBKR. Use ``RLM_ALLOW_IBKR_OPTIONS=1`` only if you intentionally
-run ``ibkr_paper_trade_from_plans.py`` / ``monitor_active_trade_plans.py`` / ``ibkr_place_roee_combo.py`` **standalone**.
+This script never passes live option orders to IBKR (hard invariant — standalone scripts also refuse transmits).
 
 Examples::
 

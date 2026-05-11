@@ -13,9 +13,8 @@ Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
 ``trail_on`` per ``plan_id``.
 
-**IBKR policy:** By default this **does not** talk to IBKR for options. Use ``--paper-close-dry-run``
-to log close intent without orders. Live ``--paper-close`` MKT exits require
-``RLM_ALLOW_IBKR_OPTIONS=1`` (maintainers / non-default only; product stack uses IBKR for **equities** only).
+**IBKR policy:** Do not use ``--paper-close`` for live orders — it is **disabled** (exit). Use
+``--paper-close-dry-run`` to log close intent only. IBKR in this project is **equities** only.
 
 Examples::
 
@@ -373,7 +372,7 @@ def main() -> int:
     p.add_argument(
         "--paper-close",
         action="store_true",
-        help="Transmit IBKR MKT combo close (requires RLM_ALLOW_IBKR_OPTIONS=1; default off)",
+        help="Disabled: would transmit IBKR MKT closes (use --paper-close-dry-run only)",
     )
     p.add_argument(
         "--paper-close-dry-run",
@@ -426,9 +425,9 @@ def main() -> int:
     args = p.parse_args()
 
     if args.paper_close and not args.paper_close_dry_run:
-        from rlm.execution.options_ibkr_policy import exit_if_ibkr_option_orders_disallowed
+        from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
 
-        exit_if_ibkr_option_orders_disallowed("monitor --paper-close would transmit closing combos to IBKR")
+        exit_ibkr_option_combo_blocked("monitor --paper-close (IBKR is equities-only; use --paper-close-dry-run)")
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
     state_path = ROOT / args.state if not args.state.is_absolute() else args.state
