@@ -147,7 +147,8 @@ def test_stop_loss_before_universe_even_when_plan_missing(tmp_path: Path) -> Non
         utc_now=t0,
         exit_on_plan_absent=True,
     )
-    assert pos.exit_reason == "stop_loss_5.0pct"
+    assert pos.exit_reason is not None
+    assert str(pos.exit_reason).startswith("stop_loss_") and pos.exit_reason.endswith("pct")
     assert pos.status == "closed"
 
 

@@ -305,6 +305,8 @@ def _prepare_symbol(
         "symbol": sym,
         "run_at_utc": run_at,
         "status": "skipped",
+        "primary_bar_size": str(bar_size).strip(),
+        "primary_duration": str(duration).strip(),
     }
 
     if market_hours_only and not entry_window_open(
@@ -411,6 +413,8 @@ def _prepare_symbol(
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
         "S_G": float(last["S_G"]) if pd.notna(last["S_G"]) else None,
+        "bar_size": str(bar_size).strip(),
+        "duration": str(duration).strip(),
     }
     if "tf_confirmation_failed" in last.index:
         pipeline_row["tf_confirmation_failed"] = bool(last["tf_confirmation_failed"])

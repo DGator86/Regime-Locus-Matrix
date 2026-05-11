@@ -23,9 +23,15 @@ arm (discretionary style: let winners run, lock in after a favorable move),
 and optional plan-catalog absence exit (off by default — pros do not flatten
 stocks just because a JSON row rotated).
 
+**Dynamic horizon** (default on via ``RLM_EQUITY_DYNAMIC_HORIZON``): at entry,
+stop / target / min-hold / trail parameters are blended from pipeline context
+(primary bar size, multi-timeframe confirmation, transition stability, size
+fraction) so a 5‑minute-aligned entry can wear a short leash while a slower,
+better-confirmed thesis can behave like a multi-day swing without named “modes.”
+
 Thesis-driven exits (regime flip, transition gates) honour **minimum hold**
-(``RLM_EQUITY_MIN_HOLD_THESIS_SEC``) so a single noisy refresh does not flip
-the book; hard stops always apply immediately.
+(stored per position when dynamic horizon is active) so a single noisy refresh
+does not flip the book; hard stops always apply immediately.
 
 Usage
 -----
@@ -40,7 +46,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
+import re
 import sys
 import threading
 import time
@@ -49,6 +57,13 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Type
+
+_BAR_SIZE_MINUTES_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*"
+    r"(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|"
+    r"day|days|wk|week|weeks)s?\s*$",
+    re.IGNORECASE,
+)
 
 from dotenv import load_dotenv
 
@@ -132,6 +147,13 @@ class EquityPosition:
     # Trailing give-back from best price while armed (see evaluate_equity_positions).
     trail_armed: bool = False
     trail_peak_price: float | None = None
+    # Set at entry when dynamic horizon is on; None => use evaluate() globals (legacy state).
+    eff_stop_pct: float | None = None
+    eff_target_pct: float | None = None
+    eff_min_hold_sec: float | None = None
+    eff_trail_activate_pct: float | None = None
+    eff_trail_retrace_frac: float | None = None
+    eff_profile_note: str = ""
 
 
 def _load_state(path: Path) -> dict[str, EquityPosition]:
@@ -221,6 +243,134 @@ def _trail_retrace_frac(cli_value: float | None) -> float | None:
         v = float(raw)
         return None if v <= 0.0 else min(1.0, v)
     return 0.35
+
+
+def _dynamic_horizon_enabled(cli_flag: bool | None) -> bool:
+    """Blend stop/target/min-hold/trail from plan context (bar size, TF confirm, transition, size)."""
+    if cli_flag is True:
+        return True
+    if cli_flag is False:
+        return False
+    raw = (os.environ.get("RLM_EQUITY_DYNAMIC_HORIZON") or "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    return True
+
+
+def _env_float(name: str, default: str) -> float:
+    s = (os.environ.get(name) or "").strip()
+    return float(default) if not s else float(s)
+
+
+def _bar_size_to_minutes(bar_size: str) -> float | None:
+    s = str(bar_size or "").strip()
+    if not s:
+        return None
+    m = _BAR_SIZE_MINUTES_RE.match(s)
+    if not m:
+        return None
+    val = float(m.group(1))
+    u = str(m.group(2)).lower()
+    if u.startswith("sec"):
+        return val / 60.0
+    if u.startswith("min"):
+        return val
+    if u.startswith("hr") or u.startswith("hour"):
+        return val * 60.0
+    if u.startswith("day"):
+        return val * 1440.0
+    if u.startswith("wk") or u.startswith("week"):
+        return val * 10080.0
+    return None
+
+
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def _horizon_blend_from_plan(plan: dict[str, Any]) -> float:
+    """0 ≈ short-cycle (tight leash), 1 ≈ slower / swing-style book-keeping."""
+    pipe: dict[str, Any] = {}
+    p_raw = plan.get("pipeline")
+    if isinstance(p_raw, dict):
+        pipe = p_raw
+    bar_s = str(pipe.get("bar_size") or plan.get("primary_bar_size") or "").strip()
+    bmin = _bar_size_to_minutes(bar_s)
+    if bmin is None or bmin <= 0:
+        bar_part = 0.5
+    else:
+        lo = math.log(6.0)
+        hi = math.log(8000.0)
+        bar_part = _clamp01((math.log(bmin + 1.0) - lo) / max(1e-9, hi - lo))
+    tf_fail = pipe.get("tf_confirmation_failed")
+    if tf_fail is False:
+        tf_part = 1.0
+    elif tf_fail is True:
+        tf_part = 0.55
+    else:
+        tf_part = 0.72
+    trans = pipe.get("regime_transition")
+    p_next = regime_transition_best_prob(trans if isinstance(trans, dict) else None)
+    stab = float(p_next) if p_next is not None else 0.55
+    stab = _clamp01(stab)
+    dec = plan.get("decision")
+    conf = 0.75
+    if isinstance(dec, dict):
+        try:
+            conf = float(dec.get("size_fraction") or conf)
+        except (TypeError, ValueError):
+            conf = 0.75
+    conf = _clamp01(conf)
+    h = 0.38 * bar_part + 0.28 * tf_part + 0.22 * stab + 0.12 * conf
+    return _clamp01(h)
+
+
+def _resolve_equity_trade_params(
+    plan: dict[str, Any],
+    *,
+    dynamic_horizon: bool,
+    stop_pct: float,
+    target_pct: float,
+    min_hold_sec: float,
+    trail_activate_pct: float | None,
+    trail_retrace_frac: float | None,
+) -> tuple[float, float, float, float | None, float | None, str]:
+    """Return effective (stop_pct, target_pct, min_hold_sec, trail_activate, trail_retrace, note)."""
+    if not dynamic_horizon:
+        return (
+            float(stop_pct),
+            float(target_pct),
+            float(min_hold_sec),
+            trail_activate_pct,
+            trail_retrace_frac,
+            "static",
+        )
+    h = _horizon_blend_from_plan(plan)
+    hold_lo = max(60.0, _env_float("RLM_EQUITY_DYN_MIN_HOLD_FLOOR_SEC", "300"))
+    hold_hi = max(hold_lo, _env_float("RLM_EQUITY_DYN_MIN_HOLD_CAP_SEC", "172800"))
+    stop_lo = max(0.1, _env_float("RLM_EQUITY_DYN_STOP_PCT_MIN", "0.9"))
+    stop_hi = max(stop_lo, _env_float("RLM_EQUITY_DYN_STOP_PCT_MAX", "6.5"))
+    tgt_lo = max(0.1, _env_float("RLM_EQUITY_DYN_TARGET_PCT_MIN", "1.0"))
+    tgt_hi = max(tgt_lo, _env_float("RLM_EQUITY_DYN_TARGET_PCT_MAX", "18.0"))
+
+    def lerp(a: float, b: float, t: float) -> float:
+        return a + (b - a) * t
+
+    mh = lerp(hold_lo, hold_hi, h)
+    sp = lerp(stop_lo, stop_hi, h)
+    tgp = lerp(tgt_lo, tgt_hi, h)
+    if trail_activate_pct is None or trail_retrace_frac is None:
+        tact, trf = None, None
+    else:
+        ta_lo = max(0.05, _env_float("RLM_EQUITY_DYN_TRAIL_ACT_MIN_PCT", "0.45"))
+        ta_hi = max(ta_lo, _env_float("RLM_EQUITY_DYN_TRAIL_ACT_MAX_PCT", "5.0"))
+        tr_lo = max(0.05, _env_float("RLM_EQUITY_DYN_TRAIL_RETRACE_MIN", "0.22"))
+        tr_hi = max(tr_lo, _env_float("RLM_EQUITY_DYN_TRAIL_RETRACE_MAX", "0.48"))
+        tact = lerp(ta_lo, ta_hi, h)
+        trf = min(1.0, max(0.05, lerp(tr_lo, tr_hi, h)))
+    return sp, tgp, mh, tact, trf, f"dyn_h={h:.2f}"
 
 
 def _position_age_sec(entry_ts: str, now: datetime) -> float:
@@ -651,6 +801,11 @@ def open_equity_positions(
     position_usd: float,
     risk_usd: float | None = None,
     stop_pct: float | None = None,
+    target_pct: float | None = None,
+    min_hold_sec: float | None = None,
+    trail_activate_pct: float | None = None,
+    trail_retrace_frac: float | None = None,
+    dynamic_horizon: bool = False,
     account_nlv: float | None = None,
     max_account_pct: float | None = None,
     dry_run: bool,
@@ -712,11 +867,24 @@ def open_equity_positions(
             or 1.0
         )
 
+        base_stop = float(stop_pct) if stop_pct is not None and float(stop_pct) > 0 else 5.0
+        base_tgt = float(target_pct) if target_pct is not None and float(target_pct) > 0 else 10.0
+        base_hold = float(min_hold_sec) if min_hold_sec is not None else _min_hold_thesis_sec(None)
+        eff_s, eff_tgt, eff_mh, eff_ta, eff_trf, prof_note = _resolve_equity_trade_params(
+            plan,
+            dynamic_horizon=dynamic_horizon,
+            stop_pct=base_stop,
+            target_pct=base_tgt,
+            min_hold_sec=base_hold,
+            trail_activate_pct=trail_activate_pct,
+            trail_retrace_frac=trail_retrace_frac,
+        )
+
         qty = _quantity_for_symbol(
             entry_price,
             position_usd,
             risk_usd=risk_usd,
-            stop_pct=stop_pct,
+            stop_pct=eff_s,
             account_nlv=account_nlv,
             max_account_pct=max_account_pct,
             confidence=confidence,
@@ -727,7 +895,8 @@ def open_equity_positions(
 
         print(
             f"  [equity] {sym}: {action} {qty} shares @ ~${entry_price:.2f} "
-            f"(${qty * entry_price:,.0f} notional) [dry={dry_run}]",
+            f"(${qty * entry_price:,.0f} notional) [dry={dry_run}]"
+            + (f" | {prof_note} stop±{eff_s:.2f}% tgt+{eff_tgt:.2f}% hold≥{eff_mh:.0f}s" if dynamic_horizon else ""),
             flush=True,
         )
 
@@ -754,6 +923,12 @@ def open_equity_positions(
             ibkr_order_id=order_id,
             status="open" if (dry_run or order_id is not None) else "pending",
             entry_regime_key=rk_entry,
+            eff_stop_pct=eff_s if dynamic_horizon else None,
+            eff_target_pct=eff_tgt if dynamic_horizon else None,
+            eff_min_hold_sec=eff_mh if dynamic_horizon else None,
+            eff_trail_activate_pct=eff_ta if dynamic_horizon else None,
+            eff_trail_retrace_frac=eff_trf if dynamic_horizon else None,
+            eff_profile_note=prof_note if dynamic_horizon else "",
         )
         positions[plan_id] = pos
         open_symbols.add(sym)
@@ -818,6 +993,20 @@ def evaluate_equity_positions(
             pnl = (pos.entry_price - current_price) * pos.quantity
             pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
 
+        sp = float(pos.eff_stop_pct if pos.eff_stop_pct is not None else stop_pct)
+        tp = float(pos.eff_target_pct if pos.eff_target_pct is not None else target_pct)
+        mh = float(pos.eff_min_hold_sec if pos.eff_min_hold_sec is not None else min_hold_sec)
+        tact = pos.eff_trail_activate_pct if pos.eff_trail_activate_pct is not None else trail_activate_pct
+        trff = (
+            None
+            if tact is None
+            else (
+                pos.eff_trail_retrace_frac
+                if pos.eff_trail_retrace_frac is not None
+                else trail_retrace_frac
+            )
+        )
+
         if plan_id in active_plan_ids:
             pos.plan_missing_since_utc = None
         elif exit_on_plan_absent:
@@ -840,7 +1029,7 @@ def evaluate_equity_positions(
         aligned_mass = position_directional_transition_mass(trans_snap, pos.direction)
 
         age_sec = _position_age_sec(pos.entry_ts, now)
-        thesis_ok = age_sec >= float(min_hold_sec)
+        thesis_ok = age_sec >= float(mh)
 
         ek = str(pos.entry_regime_key or "").strip()
         regime_would_exit = bool(
@@ -860,39 +1049,39 @@ def evaluate_equity_positions(
         )
 
         exit_reason: str | None = None
-        if pnl_pct <= -stop_pct:
-            exit_reason = f"stop_loss_{stop_pct}pct"
+        if pnl_pct <= -sp:
+            exit_reason = f"stop_loss_{sp:.4g}pct"
         elif (
-            trail_activate_pct is not None
-            and trail_retrace_frac is not None
-            and trail_activate_pct > 0
-            and trail_retrace_frac > 0
+            tact is not None
+            and trff is not None
+            and tact > 0
+            and trff > 0
         ):
-            if not pos.trail_armed and pnl_pct >= trail_activate_pct:
+            if not pos.trail_armed and pnl_pct >= tact:
                 pos.trail_armed = True
                 pos.trail_peak_price = float(current_price)
             if pos.trail_armed and pos.trail_peak_price is not None:
                 ep = float(pos.entry_price)
-                tp = float(pos.trail_peak_price)
+                tp_peak = float(pos.trail_peak_price)
                 cr = float(current_price)
-                rf = float(trail_retrace_frac)
+                rf = float(trff)
                 if pos.side == "long":
-                    tp = max(tp, cr)
-                    pos.trail_peak_price = tp
-                    if tp > ep:
-                        give = tp - rf * (tp - ep)
+                    tp_peak = max(tp_peak, cr)
+                    pos.trail_peak_price = tp_peak
+                    if tp_peak > ep:
+                        give = tp_peak - rf * (tp_peak - ep)
                         if cr <= give:
                             exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
                 else:
-                    tp = min(tp, cr)
-                    pos.trail_peak_price = tp
-                    if tp < ep:
-                        give = tp + rf * (ep - tp)
+                    tp_peak = min(tp_peak, cr)
+                    pos.trail_peak_price = tp_peak
+                    if tp_peak < ep:
+                        give = tp_peak + rf * (ep - tp_peak)
                         if cr >= give:
                             exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
 
-        if exit_reason is None and pnl_pct >= target_pct:
-            exit_reason = f"take_profit_{target_pct}pct"
+        if exit_reason is None and pnl_pct >= tp:
+            exit_reason = f"take_profit_{tp:.4g}pct"
 
         if exit_reason is None and thesis_ok and regime_would_exit:
             exit_reason = "regime_flip"
@@ -930,7 +1119,7 @@ def evaluate_equity_positions(
         if exit_reason is None and not thesis_ok and (
             regime_would_exit or weak_prob_would_exit or weak_mass_would_exit
         ):
-            hold_note = f" thesis_exit_deferred {age_sec:.0f}s / {min_hold_sec:.0f}s min_hold"
+            hold_note = f" thesis_exit_deferred {age_sec:.0f}s / {mh:.0f}s min_hold"
         trans_note = f" transition_top1_p={p_next:.4f}" if p_next is not None else ""
         rk_note = f" cur_regime={cur_rk[:40]}" if cur_rk else ""
         mass_note = ""
@@ -1092,9 +1281,28 @@ def main() -> None:
             "(default: env RLM_EQUITY_TRAIL_RETRACE_FRAC or 0.35)."
         ),
     )
+    dhg = parser.add_mutually_exclusive_group()
+    dhg.add_argument(
+        "--dynamic-horizon",
+        action="store_true",
+        help=(
+            "Blend stop/target/min-hold/trail from each plan's context (bar_size, TF confirmation, "
+            "transition stability, size_fraction). Overrides env to ON for this run."
+        ),
+    )
+    dhg.add_argument(
+        "--no-dynamic-horizon",
+        action="store_true",
+        help="Use one global policy for all opens (overrides env).",
+    )
     args = parser.parse_args()
-
-    plans_path = Path(args.plans)
+    if args.dynamic_horizon:
+        dh_flag: bool | None = True
+    elif args.no_dynamic_horizon:
+        dh_flag = False
+    else:
+        dh_flag = None
+    dynamic_h = _dynamic_horizon_enabled(dh_flag)
     state_path = Path(args.state)
     log_path = Path(args.log)
     _ensure_equity_log_file(log_path)
@@ -1114,7 +1322,8 @@ def main() -> None:
     min_hold_main = _min_hold_thesis_sec(args.min_hold_thesis_sec)
     trail_act = _trail_activate_pct(args.trail_activate_pct)
     trail_rf = _trail_retrace_frac(args.trail_retrace_frac)
-    print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}%", flush=True)
+    print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}% (baseline when dynamic off)", flush=True)
+    print(f"  dynamic horizon: {dynamic_h}", flush=True)
     print(f"  exit on plan absent: {exit_on_plan_absent}", flush=True)
     if exit_on_plan_absent:
         print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
@@ -1166,6 +1375,11 @@ def main() -> None:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
                 risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                target_pct=args.target_pct,
+                min_hold_sec=min_hold_main,
+                trail_activate_pct=trail_act,
+                trail_retrace_frac=trail_rf,
+                dynamic_horizon=dynamic_h,
                 account_nlv=account_nlv, max_account_pct=args.max_account_pct,
                 dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
             )
@@ -1196,6 +1410,11 @@ def main() -> None:
             open_equity_positions(
                 plans=plans, positions=positions, position_usd=args.position_usd,
                 risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                target_pct=args.target_pct,
+                min_hold_sec=min_hold_main,
+                trail_activate_pct=trail_act,
+                trail_retrace_frac=trail_rf,
+                dynamic_horizon=dynamic_h,
                 account_nlv=account_nlv, max_account_pct=args.max_account_pct,
                 dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
             )
