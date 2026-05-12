@@ -131,7 +131,7 @@ def _format_matched_legs(matched_legs: list, combo_qty: int) -> str:
         strike = leg.get("strike")
         expiry = str(leg.get("expiry") or "?")
         leg_qty = leg.get("quantity") or combo_qty or 1
-        strike_fmt = f"{float(strike):.0f}" if strike is not None else "?"
+        strike_fmt = f"{float(strike):g}" if strike is not None else "?"
         type_char = opt_type[0] if opt_type else "?"
         parts.append(f"{side} {leg_qty}x {strike_fmt}{type_char} {expiry}")
     return "  |  ".join(parts)
