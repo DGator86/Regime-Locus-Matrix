@@ -28,6 +28,11 @@ Examples::
 
 ``--with-equity`` runs the stock leg with real IBKR paper orders alongside **locally tracked-option** marks/P&L.
 Positions are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
+
+**PDT challenge** (``--with-challenge``, **on by default with** ``--master`` unless ``--skip-challenge``):
+runs ``rlm challenge --run`` at startup, then on a background tick matching ``--interval`` (override with
+``--challenge-interval`` or ``RLM_CHALLENGE_INTERVAL_SEC``). Use ``--challenge-interval 0`` to run only at
+startup and each universe rescan. Ticks respect the same ET scanner window as rescans when enabled.
 """
 
 from __future__ import annotations
@@ -209,6 +214,30 @@ def main() -> int:
         action="store_true",
         help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
     )
+    ap.add_argument(
+        "--with-challenge",
+        action="store_true",
+        help=(
+            "Enable PDT $1K→$25K sleeve (`rlm challenge --run`). On by default with --master unless "
+            "--skip-challenge."
+        ),
+    )
+    ap.add_argument(
+        "--skip-challenge",
+        action="store_true",
+        help="Disable PDT challenge (overrides --master default and --with-challenge).",
+    )
+    ap.add_argument(
+        "--challenge-interval",
+        type=float,
+        default=None,
+        metavar="SEC",
+        help=(
+            "Seconds between challenge sessions when --follow (default: same as --interval). "
+            "0 = only at startup and each universe rescan (no periodic ticks). "
+            "Override env: RLM_CHALLENGE_INTERVAL_SEC."
+        ),
+    )
     args = ap.parse_args()
 
     env_otl = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
@@ -221,6 +250,8 @@ def main() -> int:
     if args.full_paper:
         args.paper_trade = True
         args.follow = True
+    if args.master and not args.skip_challenge:
+        args.with_challenge = True
 
     # IBKR equities-only: never transmit option combos from this orchestrator.
     if args.paper_close:
@@ -242,7 +273,8 @@ def main() -> int:
     run_challenge = bool(args.with_challenge) and not bool(args.skip_challenge)
     if run_challenge:
         print(
-            "[info] --with-challenge: PDT challenge sleeve via ``rlm challenge --run`` each cycle.",
+            "[info] PDT challenge sleeve: ``rlm challenge --run`` at startup; periodic ticks match monitor "
+            "unless --challenge-interval 0 (see --help).",
             flush=True,
         )
 
@@ -250,6 +282,25 @@ def main() -> int:
         args.interval = 60.0 if args.master else 120.0
     if not hasattr(args, "rescan_interval"):
         args.rescan_interval = 300.0 if args.master else 0.0
+
+    ch_env = (os.environ.get("RLM_CHALLENGE_INTERVAL_SEC") or "").strip()
+    challenge_tick_sec = 0.0
+    if run_challenge:
+        if args.challenge_interval is not None:
+            challenge_tick_sec = float(args.challenge_interval)
+        elif ch_env:
+            try:
+                challenge_tick_sec = float(ch_env)
+            except ValueError:
+                challenge_tick_sec = float(args.interval)
+                print(
+                    f"[warn] invalid RLM_CHALLENGE_INTERVAL_SEC={ch_env!r} — using --interval",
+                    flush=True,
+                )
+        else:
+            challenge_tick_sec = float(args.interval)
+        if challenge_tick_sec < 0:
+            challenge_tick_sec = 0.0
 
     if args.scanner_hours_et:
         args.follow = True
@@ -323,11 +374,14 @@ def main() -> int:
     except ValueError:
         challenge_join_sec = 600.0
 
+    def run_challenge_blocking(where: str) -> None:
+        rc = _run(challenge_cmd())
+        if rc != 0:
+            print(f"[warn] challenge ({where}) exited with code {rc}", flush=True)
+
     def run_challenge_step(where: str) -> None:
         def _inner() -> None:
-            rc = _run(challenge_cmd())
-            if rc != 0:
-                print(f"[warn] challenge step ({where}) exited with code {rc}", flush=True)
+            run_challenge_blocking(where)
 
         th = threading.Thread(target=_inner, name=f"challenge-{where}", daemon=True)
         th.start()
@@ -394,11 +448,29 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
-                    if run_challenge:
+                    if run_challenge and challenge_tick_sec <= 0:
                         print("[rescan] PDT challenge session", flush=True)
                         run_challenge_step("rescan")
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
+
+    if run_challenge and challenge_tick_sec > 0 and args.follow:
+
+        def _challenge_tick_loop() -> None:
+            tick = max(15.0, float(challenge_tick_sec))
+            print(f"[info] PDT challenge background tick every {tick:.0f}s (aligned with monitor cadence)", flush=True)
+            while True:
+                time.sleep(tick)
+                if scanner_hours_et and not is_scanner_window_open():
+                    print(
+                        f"[challenge] skip tick — outside ET scanner window ({scanner_window_label()})",
+                        flush=True,
+                    )
+                    continue
+                print("[challenge] periodic session (tick)", flush=True)
+                run_challenge_blocking("tick")
+
+        threading.Thread(target=_challenge_tick_loop, name="challenge-tick", daemon=True).start()
 
     if args.telegram_bot:
         tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
