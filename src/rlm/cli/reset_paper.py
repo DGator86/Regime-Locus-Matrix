@@ -161,6 +161,7 @@ def reset_paper_books(
     for name, payload in (
         ("equity_positions_state.json", {}),
         ("trade_monitor_state.json", {}),
+        ("trade_plan_snapshots.json", {}),
         ("telegram_notify_state.json", _TELEGRAM_NOTIFY_EMPTY),
     ):
         path = proc / name

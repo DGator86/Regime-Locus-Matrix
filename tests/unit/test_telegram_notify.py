@@ -200,8 +200,10 @@ def test_challenge_positions_show_occ_and_state_freshness(tmp_path: Path) -> Non
     }
     (ch / "state.json").write_text(json.dumps(state), encoding="utf-8")
     text = build_universe_and_positions(tmp_path, max_positions=10)
-    assert "SPY260515C00505000" in text
-    assert "2026-05-15" in text
+    assert "SPY $505 Call - Exp. 05.15.26" in text
+    assert "Cost - $250.00" in text
+    assert "Current val - $270.00" in text
+    assert "Current PnL - $20.00" in text
     assert "last_updated=2026-05-13T16:00:00Z" in text
     assert "state.json mtime" in text
     assert "challenge session runs" in text
@@ -259,3 +261,37 @@ def test_large_options_positions_human_format(tmp_path: Path) -> None:
     assert "Current val - $130.25" in text
     assert "Current PnL - $6.80" in text
     assert "plan_a" in text
+
+
+def test_large_options_uses_trade_plan_snapshots_when_missing_from_universe(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    (dproc / "universe_trade_plans.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+    snap = {
+        "orphan_pid": {
+            "plan_id": "orphan_pid",
+            "symbol": "AAPL",
+            "strategy": "debit_spread_call",
+            "matched_legs": [
+                {
+                    "side": "long",
+                    "option_type": "call",
+                    "strike": 190.0,
+                    "expiry": "2026-06-13",
+                }
+            ],
+        }
+    }
+    (dproc / "trade_plan_snapshots.json").write_text(json.dumps(snap), encoding="utf-8")
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+        "2026-04-28T00:00:00Z,orphan_pid,AAPL,x,100,100,105,105,5,5,hold,0,20\n",
+        encoding="utf-8",
+    )
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "AAPL $190 Call - Exp. 06.13.26" in text
+    assert "orphan_pid" in text
+    assert "Cost - $100.00" in text
+    assert "Current val - $105.00" in text
+    assert "Current PnL - $5.00" in text

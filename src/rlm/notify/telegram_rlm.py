@@ -2,7 +2,8 @@
 Telegram push logic driven by RLM on-disk state (no changes to the trading stack).
 
 * Universe: new **active** ``plan_id`` in ``universe_trade_plans.json`` (and optional ``session_brief.json`` for /brief).
-* Options monitor: ``trade_log.csv`` (open / take-profit / exit signals).
+* Options monitor: ``trade_log.csv`` (open / take-profit / exit signals); leg detail is also read from
+  ``data/processed/trade_plan_snapshots.json`` when a plan_id is no longer in ``universe_trade_plans.json``.
 * Equities: ``equity_positions_state.json``.
 * Balances: optional ``fetch_ibkr_account_snapshot`` (requires IB Gateway + ``ibapi``).
 """
@@ -16,7 +17,6 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from rlm.data.occ_symbol import format_occ_compact_symbol
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
@@ -43,6 +43,7 @@ def default_paths(root: Path) -> dict[str, Path]:
         "session_brief": root / "data" / "processed" / "session_brief.json",
         "challenge_state": root / "data" / "challenge" / "state.json",
         "challenge_trade_log": root / "data" / "challenge" / "trade_log.csv",
+        "trade_plan_snapshots": root / "data" / "processed" / "trade_plan_snapshots.json",
     }
 
 
@@ -140,22 +141,98 @@ def _format_matched_legs(matched_legs: list, combo_qty: int) -> str:
     return "  |  ".join(parts)
 
 
-def _plan_by_pid(plans_data: dict) -> dict:
-    """Build a dict mapping plan_id -> plan row from the universe_trade_plans payload."""
+def _plan_by_pid(plans_data: dict) -> dict[str, dict]:
+    """Map plan_id -> plan row (``results`` first, then ``active_ranked`` for gaps)."""
     result: dict[str, dict] = {}
     for row in plans_data.get("results") or []:
+        if not isinstance(row, dict):
+            continue
         pid = str(row.get("plan_id") or "")
         if pid:
             result[pid] = row
+    for row in plans_data.get("active_ranked") or []:
+        if not isinstance(row, dict):
+            continue
+        pid = str(row.get("plan_id") or "")
+        if pid and pid not in result:
+            result[pid] = row
     return result
+
+
+def _load_trade_plan_snapshots(path: Path) -> dict[str, dict]:
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def _resolved_options_plan(
+    plans_data: dict[str, Any],
+    pid: str,
+    snapshots: dict[str, dict],
+) -> dict[str, Any]:
+    """Universe plan merged with monitor snapshot (keeps legs after plan drops from JSON)."""
+    base = _plan_by_pid(plans_data).get(pid, {})
+    if not isinstance(base, dict):
+        base = {}
+    snap = snapshots.get(pid)
+    if not isinstance(snap, dict):
+        return dict(base)
+    if not base:
+        return dict(snap)
+    merged: dict[str, Any] = dict(base)
+    if not (merged.get("matched_legs") or []) and (snap.get("matched_legs") or []):
+        merged["matched_legs"] = snap["matched_legs"]
+    if plan_combo_spec(merged) is None and plan_combo_spec(snap) is not None:
+        merged["combo_spec"] = snap.get("combo_spec")
+    if not (merged.get("decision") or {}) and (snap.get("decision") or {}):
+        merged["decision"] = snap["decision"]
+    if not str(merged.get("strategy") or "").strip() and str(snap.get("strategy") or "").strip():
+        merged["strategy"] = snap.get("strategy")
+    if not str(merged.get("symbol") or "").strip() and str(snap.get("symbol") or "").strip():
+        merged["symbol"] = snap.get("symbol")
+    return merged
+
+
+def _legs_from_combo_spec_display(spec: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """``combo_spec.legs`` as ``matched_legs``-shaped rows for Telegram."""
+    if not spec or not isinstance(spec, dict):
+        return []
+    raw = spec.get("legs")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for leg in raw:
+        if not isinstance(leg, dict):
+            continue
+        exp = str(leg.get("expiry") or "").strip()
+        exp_iso = exp
+        if len(exp) == 8 and exp.isdigit():
+            exp_iso = f"{exp[:4]}-{exp[4:6]}-{exp[6:8]}"
+        out.append(
+            {
+                "side": str(leg.get("side") or "long"),
+                "option_type": str(leg.get("option_type") or "call"),
+                "strike": leg.get("strike"),
+                "expiry": exp_iso,
+            }
+        )
+    return out
 
 
 def _fmt_dollar(v: Any) -> str:
     try:
         fv = float(v)
-        return f"${fv:,.2f}"
     except (TypeError, ValueError):
         return str(v)
+    if fv < 0:
+        return f"-${abs(fv):,.2f}"
+    return f"${fv:,.2f}"
 
 
 def _fmt_pnl_row(row: dict) -> str:
@@ -213,7 +290,9 @@ def _plan_option_structure_lines(plan: dict, row: dict[str, str] | None) -> tupl
     row = row or {}
     strategy_name = str(decision.get("strategy_name") or plan.get("strategy") or row.get("strategy", ""))
     human = _strategy_entry_human(strategy_name) if strategy_name else "—"
-    matched_legs = plan.get("matched_legs") or []
+    matched_legs = list(plan.get("matched_legs") or [])
+    if not matched_legs:
+        matched_legs = _legs_from_combo_spec_display(plan_combo_spec(plan))
     spec = plan_combo_spec(plan)
     combo_qty = int((spec or {}).get("quantity") or 1)
     legs_str = _format_matched_legs(matched_legs, combo_qty)
@@ -629,7 +708,6 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
         pid = pos.get("position_id", "?")
         sym = str(pos.get("symbol") or "?")
         opt = pos.get("option_type", "?")
-        direc = str(pos.get("direction") or "?")
         strike = pos.get("strike", "")
         qty = pos.get("qty", "")
         entry = pos.get("entry_date", "?")
@@ -640,22 +718,25 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
         prem_e = pos.get("premium_per_share", "")
         prem_c = pos.get("current_premium", prem_e)
         exp_d = _challenge_expiry_from_entry(str(entry), dte_ent)
-        occ = "?"
-        exp_txt = "expiry ?"
-        if exp_d is not None:
-            exp_txt = exp_d.isoformat()
+        exp_disp = _expiry_mmddyy(str(exp_d.isoformat()) if exp_d is not None else "")
+        sk = _fmt_strike_money(strike)
+        ot = _option_type_call_put(str(opt))
+        lines.append(f"  • {sym} {sk} {ot} - Exp. {exp_disp}")
+        cur_val = pos.get("current_value", "")
+        try:
+            cur_val_f = float(cur_val)
+        except (TypeError, ValueError):
             try:
-                occ = format_occ_compact_symbol(sym, exp_d, option_type=str(opt), strike=float(strike))
+                cur_val_f = float(prem_c) * float(qty) * 100.0
             except (TypeError, ValueError):
-                occ = f"{sym} ?"
-        cp_lbl = "C" if str(opt).lower().startswith("c") else "P"
-        lines.append(
-            f"  • {occ}  ·  {exp_txt}  ·  {direc.upper()} {cp_lbl} ×{qty} @ K={_fmt_dollar(strike)}"
-        )
+                cur_val_f = None
+        lines.append(f"    Cost - {_fmt_dollar(cost)}")
+        if cur_val_f is not None:
+            lines.append(f"    Current val - {_fmt_dollar(cur_val_f)}")
+        lines.append(f"    Current PnL - {_fmt_dollar(upnl)}")
         lines.append(
             f"    challenge_id={pid}  opened {entry}  DTE_now={dte}  "
-            f"mark {_fmt_dollar(prem_c)}/sh (entry {_fmt_dollar(prem_e)}/sh)  "
-            f"cost {_fmt_dollar(cost)}  MTM {_fmt_dollar(upnl)}"
+            f"mark {_fmt_dollar(prem_c)}/sh (entry {_fmt_dollar(prem_e)}/sh)"
         )
     if len(opens) > max_positions:
         lines.append(f"    … {len(opens) - max_positions} more")
@@ -703,6 +784,8 @@ def _large_options_position_lines(
     """Large-options book: human option line(s) + cost / value / PnL (trade_log dollars)."""
     sym = str(row.get("symbol") or "?")
     legs = [x for x in (plan.get("matched_legs") or []) if isinstance(x, dict)]
+    if not legs:
+        legs = _legs_from_combo_spec_display(plan_combo_spec(plan))
     lines: list[str] = []
     strat_human, _, _ = _plan_option_structure_lines(plan, row)
 
@@ -755,7 +838,7 @@ def _large_options_position_lines(
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
     """Positions grouped by trading account (large options, large equities, PDT); then active universe."""
     p = default_paths(root)
-    plans_data = _read_plans(p["plans"])
+    plans_data = _read_plans(p["plans"]) or {}
     plan_lookup = _plan_by_pid(plans_data)
     univ_text = (
         build_universe_report_from_data(plans_data, max_active=max_active)
@@ -771,6 +854,7 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
         if (row.get("closed") or "0").strip() != "1":
             opts.append((pid, row))
     opts.sort(key=lambda t: (str(t[1].get("symbol") or ""), t[0]))
+    plan_snapshots = _load_trade_plan_snapshots(p["trade_plan_snapshots"])
 
     lines.extend(
         [
@@ -803,7 +887,7 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
                 warn.append("⚠ FORCE_CLOSE_ZONE")
             warn_suffix = f"  {' '.join(warn)}" if warn else ""
 
-            plan = plan_lookup.get(pid, {})
+            plan = _resolved_options_plan(plans_data, pid, plan_snapshots)
             lines.extend(_large_options_position_lines(plan, row, pid, warn_suffix=warn_suffix))
 
         if len(opts) > max_positions:

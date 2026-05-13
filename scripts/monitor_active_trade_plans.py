@@ -11,7 +11,9 @@ vs exit rules:
 Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
-``trail_on`` per ``plan_id``.
+``trail_on`` per ``plan_id``.  ``trade_plan_snapshots.json`` (same directory) stores the last known
+``matched_legs`` / combo for each evaluated plan so Telegram ``/positions`` still formats rows
+after a plan drops out of ``universe_trade_plans.json``.
 
 **IBKR policy:** Do not use ``--paper-close`` for live orders — it is **disabled** (exit). Use
 ``--paper-close-dry-run`` to log close intent only. IBKR in this project is **equities** only.
@@ -175,6 +177,24 @@ def _refresh_matched_mids(chain: pd.DataFrame, matched_legs: list[dict]) -> list
     return updated
 
 
+def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) -> None:
+    """Remember leg structure for open positions even after the plan leaves universe JSON."""
+    pid = str(plan.get("plan_id") or "").strip()
+    if not pid:
+        return
+    spec = plan_combo_spec(plan)
+    plan_snapshots[pid] = {
+        "plan_id": plan.get("plan_id"),
+        "symbol": plan.get("symbol"),
+        "strategy": plan.get("strategy"),
+        "decision": plan.get("decision"),
+        "matched_legs": list(plan.get("matched_legs") or []),
+        "combo_spec": spec,
+        "candidate": plan.get("candidate"),
+        "regime_key": plan.get("regime_key"),
+    }
+
+
 def _evaluate_plan(
     plan: dict,
     *,
@@ -187,11 +207,15 @@ def _evaluate_plan(
     min_profit_pct_for_soft_hold: float,
     max_loss_pct: float,
     trade_log_path: Path | None = None,
+    plan_snapshots: dict[str, dict] | None = None,
 ) -> None:
     pid = str(plan.get("plan_id") or plan.get("symbol") or "unknown")
     thr = plan.get("thresholds") or {}
     mlegs = plan.get("matched_legs") or []
     sym = str(plan.get("symbol", ""))
+
+    if plan_snapshots is not None:
+        _persist_trade_plan_snapshot(plan_snapshots, plan)
 
     updated = _refresh_matched_mids(chain, mlegs)
     if updated is None:
@@ -460,6 +484,15 @@ def main() -> int:
             uniq.append(r)
 
         state = _load_state(state_path)
+        snap_path = state_path.with_name("trade_plan_snapshots.json")
+        plan_snapshots: dict[str, dict] = {}
+        if snap_path.is_file():
+            try:
+                loaded = json.loads(snap_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    plan_snapshots = {str(k): v for k, v in loaded.items() if isinstance(v, dict)}
+            except (OSError, json.JSONDecodeError):
+                plan_snapshots = {}
 
         by_sym: dict[str, list[dict]] = {}
         for pl in uniq:
@@ -502,12 +535,17 @@ def main() -> int:
                     min_profit_pct_for_soft_hold=args.min_profit_pct_for_soft_hold,
                     max_loss_pct=args.max_loss_pct,
                     trade_log_path=trade_log_path,
+                    plan_snapshots=plan_snapshots,
                 )
                 d = dte_from_plan(pl)
                 if d == d and d >= 0:  # not NaN, not expired
                     min_dte_seen = min(min_dte_seen, d)
 
         _save_state(state_path, state)
+        try:
+            snap_path.write_text(json.dumps(plan_snapshots, indent=2, default=str), encoding="utf-8")
+        except OSError as e:
+            print(f"[monitor] could not write {snap_path}: {e}", file=sys.stderr)
 
         # Adaptive interval: short-DTE positions need faster polling
         base = max(5.0, args.interval)
