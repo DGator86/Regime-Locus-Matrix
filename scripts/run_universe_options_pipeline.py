@@ -578,7 +578,7 @@ def _finalize_symbol(
     combo_order_action = "SELL" if credit_style else "BUY"
     lim = float(round(debit_mag, 4))
 
-    ibkr_spec = {
+    combo_spec_payload = {
         "underlying": sym,
         "quantity": 1,
         "limit_price": lim,
@@ -625,7 +625,7 @@ def _finalize_symbol(
             },
             "regime_key": str(decision.regime_key or ""),
             "regime_direction": regime_direction,
-            "ibkr_combo_spec": ibkr_spec,
+            "combo_spec": combo_spec_payload,
             "rank_score": score,
         }
     )

@@ -49,12 +49,10 @@ from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.execution.dte_utils import dte_from_plan, needs_force_close
 from rlm.execution.exit_signals import EXIT_SIGNALS
-from rlm.execution.ibkr_combo_orders import (
-    assert_paper_trading_port,
-    legs_from_ibkr_combo_spec,
-    load_ibkr_order_socket_config,
-    place_options_combo_market_order,
-    reverse_legs_for_close,
+from rlm.execution.combo_spec import (
+    legs_from_combo_spec,
+    plan_combo_spec,
+    reverse_combo_legs,
 )
 from rlm.execution.risk_targets import trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs
@@ -298,16 +296,17 @@ def _evaluate_plan(
     # -------------------------------------------------------------------------
 
     if (
-        paper_close
+        paper_close_dry_run
         and signal in EXIT_SIGNALS
         and not st.get("paper_close_sent")
-        and isinstance(plan.get("ibkr_combo_spec"), dict)
+        and plan_combo_spec(plan) is not None
     ):
-        spec = plan["ibkr_combo_spec"]
+        spec = plan_combo_spec(plan)
+        assert spec is not None
         qty = int(spec.get("quantity", 1))
         try:
-            open_legs = legs_from_ibkr_combo_spec(spec)
-            close_legs = reverse_legs_for_close(open_legs)
+            open_legs = legs_from_combo_spec(spec)
+            close_legs = reverse_combo_legs(open_legs)
         except Exception as e:
             print(f"[{sym}] {pid} PAPER-CLOSE skip (bad spec): {e}", file=sys.stderr)
             return
@@ -315,23 +314,8 @@ def _evaluate_plan(
         oa = str(spec.get("combo_order_action", "BUY")).upper()
         close_parent = "BUY" if oa == "SELL" else "SELL"
 
-        if paper_close_dry_run:
-            print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
-            st["paper_close_sent"] = True
-            return
-
-        try:
-            oid, trail = place_options_combo_market_order(
-                close_legs,
-                quantity=qty,
-                transmit=True,
-                acknowledge_live=False,
-                combo_order_action=close_parent,  # type: ignore[arg-type]
-            )
-            print(f"[{sym}] {pid} PAPER-CLOSE orderId={oid} trail={trail}")
-            st["paper_close_sent"] = True
-        except Exception as e:
-            print(f"[{sym}] {pid} PAPER-CLOSE FAILED: {e}", file=sys.stderr)
+        print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
+        st["paper_close_sent"] = True
 
 
 def main() -> int:
@@ -374,12 +358,12 @@ def main() -> int:
     p.add_argument(
         "--paper-close",
         action="store_true",
-        help="Disabled: would transmit IBKR MKT closes (use --paper-close-dry-run only)",
+        help="Removed path — exits with error; use --paper-close-dry-run (options are never sent to IBKR)",
     )
     p.add_argument(
         "--paper-close-dry-run",
         action="store_true",
-        help="Print close intent only (no IBKR); does not require paper port",
+        help="Print option close intent only (log); RLM does not broker options through IBKR",
     )
     p.add_argument(
         "--trade-log",
@@ -459,10 +443,6 @@ def main() -> int:
                 flush=True,
             )
             return max(5.0, float(args.interval))
-
-        if args.paper_close and not args.paper_close_dry_run:
-            _, port, _ = load_ibkr_order_socket_config()
-            assert_paper_trading_port(port)
 
         payload = _load_json(plans_path)
         ranked = list(payload.get("active_ranked") or [])

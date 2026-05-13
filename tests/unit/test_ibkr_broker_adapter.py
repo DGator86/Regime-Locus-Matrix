@@ -8,6 +8,7 @@ def test_ibkr_adapter_missing_combo_spec_returns_failure():
     out = adapter.submit_trade_decision("SPY", {"roee_action": "enter"}, paper=True)
     assert out["success"] is False
     assert out["broker"] == "ibkr"
+    assert "combo_spec.legs" in out["message"].lower() or "missing" in out["message"].lower()
 
 
 def test_ibkr_adapter_option_orders_blocked_by_default():
@@ -15,7 +16,7 @@ def test_ibkr_adapter_option_orders_blocked_by_default():
     decision = {
         "roee_action": "enter",
         "quantity": 1,
-        "ibkr_combo_spec": {
+        "combo_spec": {
             "underlying": "SPY",
             "legs": [
                 {"side": "long", "option_type": "call", "strike": 400.0, "expiry": "2026-06-01"},

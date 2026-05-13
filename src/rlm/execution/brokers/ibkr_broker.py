@@ -21,16 +21,16 @@ class IBKRBrokerAdapter(BrokerAdapter):
                     "details": {"paper": paper},
                 }
 
-            spec = decision.get("ibkr_combo_spec") or {}
+            spec = decision.get("combo_spec") or decision.get("ibkr_combo_spec") or {}
             legs_payload = list(spec.get("legs") or [])
             if not legs_payload:
-                raise ValueError("decision missing ibkr_combo_spec.legs")
+                raise ValueError("decision missing combo_spec.legs (equities-only IBKR adapter)")
 
             return {
                 "success": False,
                 "order_id": None,
                 "broker": self.broker,
-                "message": "RLM policy: IBKR is equities-only; option combo orders are not submitted",
+                "message": "RLM policy: IBKR is equities-only; option combos are not submitted",
                 "details": {"paper": paper},
             }
         except Exception as exc:

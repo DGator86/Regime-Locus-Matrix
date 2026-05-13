@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
@@ -188,7 +189,8 @@ def _build_new_opt_message(
     v_tp = thresholds.get("v_take_profit")
     v_stop = thresholds.get("v_hard_stop")
     matched_legs = plan.get("matched_legs") or []
-    combo_qty = int((plan.get("ibkr_combo_spec") or {}).get("quantity") or 1)
+    spec = plan_combo_spec(plan)
+    combo_qty = int((spec or {}).get("quantity") or 1)
     candidate = plan.get("candidate") or {}
     target_pct = candidate.get("target_profit_pct")
     max_risk_pct = candidate.get("max_risk_pct")

@@ -2,13 +2,8 @@
 """
 **Dry-run:** print intended multi-leg option opens from ``universe_trade_plans.json``.
 
-IBKR in RLM is **equities-only**. Without ``--dry-run`` this script exits immediately.
-``IBKR_PORT`` is validated as **paper** for consistency with the rest of the stack (equity scripts).
-
-Examples::
-
-    python scripts/ibkr_paper_trade_from_plans.py --plans data/processed/universe_trade_plans.json --dry-run
-    python scripts/ibkr_paper_trade_from_plans.py --plans data/processed/universe_trade_plans.json --dry-run --max 3
+**RLM never places option orders via Interactive Brokers.** This script only lists
+combos from each plan's ``combo_spec`` (legacy: ``ibkr_combo_spec``) for auditing.
 """
 
 from __future__ import annotations
@@ -23,11 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.execution.ibkr_combo_orders import (
-    assert_paper_trading_port,
-    legs_from_ibkr_combo_spec,
-    load_ibkr_order_socket_config,
-)
+from rlm.execution.combo_spec import legs_from_combo_spec, plan_combo_spec
 from rlm.roee.system_gate import SystemGate
 
 
@@ -48,11 +39,11 @@ def main() -> int:
     args = p.parse_args()
 
     if not args.dry_run:
-        from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
-
-        exit_ibkr_option_combo_blocked(
-            "ibkr_paper_trade_from_plans without --dry-run (IBKR is equities-only)"
+        print(
+            "Refusing to run without --dry-run. RLM does not submit options through IBKR.",
+            file=sys.stderr,
         )
+        return 2
 
     plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
     if not plans_path.is_file():
@@ -72,13 +63,6 @@ def main() -> int:
         )
         return 0
 
-    _, port, _ = load_ibkr_order_socket_config()
-    try:
-        assert_paper_trading_port(port)
-    except ValueError as e:
-        print(e, file=sys.stderr)
-        return 2
-
     payload = _load_plans(plans_path)
     ranked = list(payload.get("active_ranked") or [])
     if ranked:
@@ -94,16 +78,16 @@ def main() -> int:
 
     n = 0
     for row in to_open:
-        spec = row.get("ibkr_combo_spec")
+        spec = plan_combo_spec(row)
         if not isinstance(spec, dict):
-            print(f"SKIP {row.get('symbol')}: no ibkr_combo_spec", file=sys.stderr)
+            print(f"SKIP {row.get('symbol')}: no combo_spec", file=sys.stderr)
             continue
         sym = row.get("symbol", "?")
         qty = int(spec.get("quantity", 1))
         lim = float(spec.get("limit_price", 0))
         combo = str(spec.get("combo_order_action", "BUY")).upper()
         try:
-            legs = legs_from_ibkr_combo_spec(spec)
+            legs = legs_from_combo_spec(spec)
         except Exception as e:
             print(f"SKIP {sym}: {e}", file=sys.stderr)
             continue

@@ -13,6 +13,8 @@ from typing import Union
 
 import pandas as pd
 
+from rlm.execution.combo_spec import plan_combo_spec
+
 try:
     from zoneinfo import ZoneInfo as _ZoneInfo
 except ImportError:
@@ -105,8 +107,7 @@ def dte_from_plan(plan: dict) -> float:
     """Extract the nearest-expiry DTE from a trade plan's ``matched_legs``."""
     mlegs = plan.get("matched_legs") or []
     if not mlegs:
-        # Try ibkr_combo_spec legs
-        spec = plan.get("ibkr_combo_spec") or {}
+        spec = plan_combo_spec(plan) or {}
         mlegs = spec.get("legs") or []
 
     min_dte = float("inf")

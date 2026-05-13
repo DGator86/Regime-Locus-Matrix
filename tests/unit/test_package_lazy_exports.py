@@ -41,12 +41,12 @@ def test_execution_package_exports_public_helpers_lazily() -> None:
     with _reload_without_submodules("rlm.execution", "rlm.execution.") as execution:
 
         assert execution.__name__ == "rlm.execution"
-        assert "rlm.execution.ibkr_combo_orders" not in sys.modules
+        assert "rlm.execution.combo_spec" not in sys.modules
         assert "rlm.execution.risk_targets" not in sys.modules
 
-        from rlm.execution import IBKROptionLegSpec, trailing_stop_from_peak
+        from rlm.execution import OptionComboLeg, trailing_stop_from_peak
 
-        assert IBKROptionLegSpec.__name__ == "IBKROptionLegSpec"
+        assert OptionComboLeg.__name__ == "OptionComboLeg"
         assert trailing_stop_from_peak(100.0, 0.2) == 80.0
 
 

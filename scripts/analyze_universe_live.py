@@ -3,7 +3,7 @@
 **Full-universe sweep** while the market is open: pull fresh **daily** history from IBKR per
 symbol, run **factors → state matrix → forecast bands → ROEE** on the latest bar, and print a table.
 
-For **Massive option chains + matched legs + entry/stop/trail plan + IBKR combo JSON**, use
+For **Massive option chains + matched legs + entry/stop/trail plan + ``combo_spec`` JSON**, use
 ``scripts/run_universe_options_pipeline.py`` instead.
 
 Uses :data:`rlm.data.liquidity_universe.LIQUID_UNIVERSE` by default (Magnificent 7 + SPY + QQQ).
