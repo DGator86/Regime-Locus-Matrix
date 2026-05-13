@@ -844,13 +844,12 @@ def _challenge_pnl_section(root: Path) -> str:
         f"Balance:   ${balance:,.2f}",
         f"Seed:      ${seed:,.2f}",
         f"Progress:  {progress:.1f}% ({milestone_label})",
-        f"Today:     {_fmt_pnl(daily)}",
-        f"This week: {_fmt_pnl(weekly)}",
-        f"All-time:  {_fmt_pnl(all_time)}",
+        f"Today (realized, exit date):     {_fmt_pnl(daily)}",
+        f"This week (realized, exit date): {_fmt_pnl(weekly)}",
+        f"Net vs seed (cash):              {_fmt_pnl(all_time)}",
+        f"Open MTM (unrealized):           {_fmt_pnl(open_mtm)}",
         f"Ledger:    data/processed/ledgers/pdt_robinhood_challenge_book.csv",
     ]
-    if open_mtm:
-        lines.append(f"Open MTM:  {_fmt_pnl(open_mtm)}")
     n_trades = len(trade_history)
     if n_trades:
         wins = 0
@@ -917,17 +916,19 @@ def build_pnl_text(root: Path) -> str:
     eq_rows = _load_all_csv_rows(p["equity_trade_log"])
     eq_d, eq_w, eq_a, eq_mtm = _pnl_aggregates_from_log(eq_rows)
     eq_snap = equity_book_snapshot(root)
+    eq_net = eq_snap.book_value - eq_snap.seed
     sections.append(
         "\n".join(
             [
                 "",
                 "--- LARGE EQUITIES (IBKR · prop-style book) ---",
                 f"Book seed: ${eq_snap.seed:,.2f}   Book value: ${eq_snap.book_value:,.2f}",
-                f"  (book = seed + closed realized from log + open MTM)",
-                f"Today:     {_fmt_pnl(eq_d)}",
-                f"This week: {_fmt_pnl(eq_w)}",
-                f"All-time:  {_fmt_pnl(eq_a)}",
-                f"Open MTM:  {_fmt_pnl(eq_mtm)}",
+                f"Net vs seed: {_fmt_pnl(eq_net)}  "
+                f"(realized on closes {_fmt_pnl(eq_snap.closed_realized)} + open MTM {_fmt_pnl(eq_snap.open_mtm)})",
+                f"Today (realized, exit date):     {_fmt_pnl(eq_d)}",
+                f"This week (realized, exit date): {_fmt_pnl(eq_w)}",
+                f"Realized all-time (closed only): {_fmt_pnl(eq_a)}",
+                f"Open MTM (unrealized):           {_fmt_pnl(eq_mtm)}",
             ]
         )
     )
@@ -935,16 +936,19 @@ def build_pnl_text(root: Path) -> str:
     opt_rows = _load_all_csv_rows(p["trade_log"])
     opt_d, opt_w, opt_a, opt_mtm = _pnl_aggregates_from_log(opt_rows)
     opt_snap = options_book_snapshot(root)
+    opt_net = opt_snap.book_value - opt_snap.seed
     sections.append(
         "\n".join(
             [
                 "",
-                "--- LARGE OPTIONS (advanced book · $250k seed default) ---",
+                "--- LARGE OPTIONS (advanced book · local monitor / not IBKR) ---",
                 f"Book seed: ${opt_snap.seed:,.2f}   Book value: ${opt_snap.book_value:,.2f}",
-                f"Today:     {_fmt_pnl(opt_d)}",
-                f"This week: {_fmt_pnl(opt_w)}",
-                f"All-time:  {_fmt_pnl(opt_a)}",
-                f"Open MTM:  {_fmt_pnl(opt_mtm)}",
+                f"Net vs seed: {_fmt_pnl(opt_net)}  "
+                f"(realized on closes {_fmt_pnl(opt_snap.closed_realized)} + open MTM {_fmt_pnl(opt_snap.open_mtm)})",
+                f"Today (realized, exit date):     {_fmt_pnl(opt_d)}",
+                f"This week (realized, exit date): {_fmt_pnl(opt_w)}",
+                f"Realized all-time (closed only): {_fmt_pnl(opt_a)}",
+                f"Open MTM (unrealized):           {_fmt_pnl(opt_mtm)}",
             ]
         )
     )
