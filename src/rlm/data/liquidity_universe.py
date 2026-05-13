@@ -6,6 +6,9 @@ typically among the most liquid, highest-capitalization US equities).
 :data:`LIQUID_STOCK_UNIVERSE_10` keeps Mag7 + :data:`LIQUID_STOCK_EXTRAS` for workflows
 that explicitly want a \"ten single-names\" list; it does **not** include the ETFs.
 
+:data:`LIQUID_TEN_STOCKS_PLUS_CORE_ETFS` is those **ten liquid single-names** plus **SPY** and **QQQ**
+(default symbol set for ``run_universe_options_pipeline``).
+
 :data:`EXPANDED_LIQUID_UNIVERSE` is :data:`LIQUID_UNIVERSE` plus :data:`LIQUID_STOCK_EXTRAS`,
 deduplicated (order-preserving). Used by ``rlm backtest --universe`` and walk-forward shims.
 """
@@ -28,6 +31,9 @@ LIQUID_STOCK_EXTRAS: tuple[str, ...] = ("AMD", "AVGO", "JPM")
 LIQUID_STOCK_UNIVERSE_10: tuple[str, ...] = MAGNIFICENT_SEVEN + LIQUID_STOCK_EXTRAS
 
 CORE_LIQUID_ETFS: tuple[str, ...] = ("SPY", "QQQ")
+
+# Ten liquid single-names + core index ETFs — default ``--symbols`` for universe options pipeline.
+LIQUID_TEN_STOCKS_PLUS_CORE_ETFS: tuple[str, ...] = LIQUID_STOCK_UNIVERSE_10 + CORE_LIQUID_ETFS
 
 # Mag7 + index ETFs — default universe for batch scripts and scans.
 LIQUID_UNIVERSE: tuple[str, ...] = MAGNIFICENT_SEVEN + CORE_LIQUID_ETFS

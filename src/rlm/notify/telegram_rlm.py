@@ -20,6 +20,7 @@ from typing import Any, Callable
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
+from rlm.notify.options_plain_language import humanize_strategy_name as _strategy_entry_human
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
 from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
 from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
@@ -90,38 +91,6 @@ def _regime_human(regime_key: str) -> str:
         if label:
             labels.append(label)
     return " · ".join(labels) if labels else regime_key
-
-
-def _strategy_entry_human(strategy_name: str) -> str:
-    """Map strategy_name to a human-readable entry logic description."""
-    _MAP = {
-        "long_call_spread": "Long call debit spread — defined-risk bullish play",
-        "bull_call_spread": "Bull call debit spread — defined-risk bullish play",
-        "0dte_bull_call_spread": "0DTE bull call spread — intraday bullish sniper",
-        "long_put_spread": "Long put debit spread — defined-risk bearish play",
-        "bear_put_spread": "Bear put debit spread — defined-risk bearish play",
-        "0dte_bear_put_spread": "0DTE bear put spread — intraday bearish sniper",
-        "long_call": "Long call — directional bullish exposure (undefined upside)",
-        "long_put": "Long put — directional bearish exposure (undefined downside)",
-        "aggressive_daytrader_call": "0–3DTE long call — short-duration bullish sniper, time/% stop",
-        "aggressive_daytrader_put": "0–3DTE long put — short-duration bearish sniper, time/% stop",
-        "iron_condor": "Iron condor — premium collection in range-bound market",
-        "long_iron_condor": "Long iron condor — owns breakout in range-bound market",
-        "0dte_iron_condor": "0DTE iron condor — same-day premium harvest in range",
-        "1dte_iron_condor": "1DTE iron condor — next-day premium harvest in range",
-        "long_straddle": "Long straddle — owns move in either direction (vol play)",
-        "scalp_long_straddle": "Short-dated straddle — owns intraday volatility move",
-        "long_strangle": "Long strangle — owns breakout in either direction",
-        "debit_spread_call": "Call debit spread — bullish directional defined-risk",
-        "debit_spread_put": "Put debit spread — bearish directional defined-risk",
-        "calendar_spread": "Calendar spread — transition regime, sells near / buys far expiry",
-        "no_trade": "No trade — conditions not met for entry",
-        "no_trade_or_micro_position": "No trade / micro probe — direction too ambiguous",
-        "aggressive_daytrader_0DTE_straddle": "0DTE straddle — high-vol event gamma capture",
-    }
-    if not strategy_name:
-        return "Unknown"
-    return _MAP.get(strategy_name, strategy_name.replace("_", " ").title())
 
 
 def _format_matched_legs(matched_legs: list, combo_qty: int) -> str:

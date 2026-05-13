@@ -2,7 +2,7 @@
 """
 **Universe -> full equity pipeline -> ROEE -> Massive option chain -> match legs -> risk plan.**
 
-For each symbol (default: ``LIQUID_UNIVERSE`` = Mag7 + SPY + QQQ):
+For each symbol (default: ``LIQUID_TEN_STOCKS_PLUS_CORE_ETFS`` = ten liquid single-names + SPY + QQQ):
 
 1. IBKR bars at ``--bar-size`` / duration (overridable via ``live_regime_model.json`` → ``timeframe_hierarchy.primary_*``).
 2. **Massive option snapshot** (broad chain) joined in ``prepare_bars_for_factors`` so GEX, volume/OI,
@@ -56,7 +56,7 @@ import pandas as pd
 # ruff: noqa: E402
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-from rlm.data.liquidity_universe import LIQUID_UNIVERSE
+from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.data.option_chain import select_nearest_expiry_slice
@@ -814,7 +814,11 @@ def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--symbols", default=",".join(LIQUID_UNIVERSE), help="Comma-separated tickers")
+    p.add_argument(
+        "--symbols",
+        default=",".join(LIQUID_TEN_STOCKS_PLUS_CORE_ETFS),
+        help="Comma-separated tickers (default: LIQUID_TEN_STOCKS_PLUS_CORE_ETFS)",
+    )
     p.add_argument("--duration", default="180 D", help="IBKR history window")
     p.add_argument(
         "--bar-size",
