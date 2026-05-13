@@ -156,6 +156,57 @@ def test_legacy_state_migrates_announced_trade_open(tmp_path: Path) -> None:
     assert "p1" in b.get("announced_trade_open", [])
 
 
+def test_challenge_positions_show_occ_and_state_freshness(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    ch = tmp_path / "data" / "challenge"
+    ch.mkdir(parents=True)
+    (dproc / "universe_trade_plans.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n",
+        encoding="utf-8",
+    )
+    state = {
+        "balance": 500,
+        "seed": 1000,
+        "target": 25000,
+        "session_count": 3,
+        "created_at": "2026-05-01T00:00:00Z",
+        "last_updated": "2026-05-13T16:00:00Z",
+        "open_positions": [
+            {
+                "position_id": "abc12345",
+                "symbol": "SPY",
+                "option_type": "call",
+                "direction": "long",
+                "underlying_entry": 500.0,
+                "strike": 505.0,
+                "dte_at_entry": 14,
+                "entry_date": "2026-05-01",
+                "premium_per_share": 2.5,
+                "qty": 1,
+                "total_cost": 250.0,
+                "delta_at_entry": 0.35,
+                "iv_at_entry": 0.2,
+                "dte_remaining": 10,
+                "current_premium": 2.7,
+                "current_value": 270.0,
+                "unrealised_pnl": 20.0,
+                "status": "open",
+            }
+        ],
+        "trade_history": [],
+    }
+    (ch / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "SPY260515C00505000" in text
+    assert "2026-05-15" in text
+    assert "last_updated=2026-05-13T16:00:00Z" in text
+    assert "state.json mtime" in text
+    assert "challenge session runs" in text
+
+
 def test_portfolio_report_flags_risk_warnings(tmp_path: Path) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)

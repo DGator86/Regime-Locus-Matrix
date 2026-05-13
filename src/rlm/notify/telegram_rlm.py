@@ -12,10 +12,11 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from rlm.data.occ_symbol import format_occ_compact_symbol
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
@@ -580,6 +581,16 @@ def build_status_brief(root: Path) -> str:
     return f"generated_at: {gen}\nfile mtime (UTC): {mtime}\nactive: {n_active}"
 
 
+def _challenge_expiry_from_entry(entry_date: str, dte_at_entry: Any) -> date | None:
+    """Expiry ≈ entry session date + ``dte_at_entry`` calendar days (matches challenge engine)."""
+    try:
+        d0 = date.fromisoformat(str(entry_date).strip()[:10])
+        dte = int(float(dte_at_entry))
+        return d0 + timedelta(days=dte)
+    except (ValueError, TypeError):
+        return None
+
+
 def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]:
     """Open PDT challenge positions + balance (``data/challenge/state.json``)."""
     ch_path = default_paths(root)["challenge_state"]
@@ -599,23 +610,52 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
     seed = float(raw.get("seed", 1000))
     opens = [x for x in (raw.get("open_positions") or []) if isinstance(x, dict)]
     lines.append(f"    Cash: {_fmt_dollar(bal)}  seed {_fmt_dollar(seed)}  ·  {len(opens)} open contract leg(s)")
+    lu = str(raw.get("last_updated") or "").strip() or "?"
+    mtime_s = (
+        datetime.fromtimestamp(ch_path.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        if ch_path.is_file()
+        else "?"
+    )
+    lines.append(f"    State: last_updated={lu}  ·  state.json mtime {mtime_s}")
+    lines.append(
+        "    Note: contract marks & MTM refresh when a challenge session runs "
+        "(`rlm challenge --run` or your master/everything loop), not on every Telegram poll."
+    )
     if not opens:
         lines.append("    (no open challenge positions)")
         return lines
     sorted_o = sorted(opens, key=lambda x: (str(x.get("symbol") or ""), str(x.get("position_id") or "")))
     for pos in sorted_o[:max_positions]:
         pid = pos.get("position_id", "?")
-        sym = pos.get("symbol", "?")
+        sym = str(pos.get("symbol") or "?")
         opt = pos.get("option_type", "?")
-        direc = pos.get("direction", "?")
+        direc = str(pos.get("direction") or "?")
         strike = pos.get("strike", "")
         qty = pos.get("qty", "")
-        dte = pos.get("dte_remaining", pos.get("dte_at_entry", ""))
+        entry = pos.get("entry_date", "?")
+        dte_ent = pos.get("dte_at_entry", "")
+        dte = pos.get("dte_remaining", dte_ent)
         upnl = pos.get("unrealised_pnl", 0)
         cost = pos.get("total_cost", "")
+        prem_e = pos.get("premium_per_share", "")
+        prem_c = pos.get("current_premium", prem_e)
+        exp_d = _challenge_expiry_from_entry(str(entry), dte_ent)
+        occ = "?"
+        exp_txt = "expiry ?"
+        if exp_d is not None:
+            exp_txt = exp_d.isoformat()
+            try:
+                occ = format_occ_compact_symbol(sym, exp_d, option_type=str(opt), strike=float(strike))
+            except (TypeError, ValueError):
+                occ = f"{sym} ?"
+        cp_lbl = "C" if str(opt).lower().startswith("c") else "P"
         lines.append(
-            f"  • {sym}  challenge_id={pid}  {opt}/{direc}  K={_fmt_dollar(strike)}  ×{qty}  "
-            f"DTE={dte}  cost≈{_fmt_dollar(cost)}  MTM P&L={_fmt_dollar(upnl)}"
+            f"  • {occ}  ·  {exp_txt}  ·  {direc.upper()} {cp_lbl} ×{qty} @ K={_fmt_dollar(strike)}"
+        )
+        lines.append(
+            f"    challenge_id={pid}  opened {entry}  DTE_now={dte}  "
+            f"mark {_fmt_dollar(prem_c)}/sh (entry {_fmt_dollar(prem_e)}/sh)  "
+            f"cost {_fmt_dollar(cost)}  MTM {_fmt_dollar(upnl)}"
         )
     if len(opens) > max_positions:
         lines.append(f"    … {len(opens) - max_positions} more")

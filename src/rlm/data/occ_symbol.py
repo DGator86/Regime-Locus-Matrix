@@ -3,8 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 import pandas as pd
+
+
+def format_occ_compact_symbol(
+    root: str,
+    expiry: date,
+    *,
+    option_type: str,
+    strike: float,
+) -> str:
+    """Build OCC root+6-digit expiry+C/P+8-digit strike (e.g. ``SPY260213C00450000``)."""
+    r = str(root).strip().upper().replace(" ", "")
+    ot = str(option_type).lower()
+    cp = "C" if ot.startswith("c") else "P"
+    yy = expiry.year % 100
+    m, d = expiry.month, expiry.day
+    yymmdd = f"{yy:02d}{m:02d}{d:02d}"
+    strike_millis = int(round(float(strike) * 1000))
+    strike8 = f"{max(0, strike_millis):08d}"
+    return f"{r}{yymmdd}{cp}{strike8}"
 
 
 @dataclass(frozen=True)
