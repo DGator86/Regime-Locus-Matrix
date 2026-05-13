@@ -47,7 +47,9 @@ CPU_WARN = float(os.getenv("CPU_WARN_PCT", "80"))
 RAM_WARN = float(os.getenv("RAM_WARN_PCT", "85"))
 DISK_WARN = float(os.getenv("DISK_WARN_PCT", "75"))
 WATCHED_SERVICES = [
-    s.strip() for s in os.getenv("WATCHED_SERVICES", "ollama").split(",") if s.strip()
+    s.strip()
+    for s in os.getenv("WATCHED_SERVICES", "ollama,regime-locus-crew").split(",")
+    if s.strip()
 ]
 
 RLM_ROOT = Path(os.getenv("RLM_ROOT", "/opt/Regime-Locus-Matrix")).resolve()

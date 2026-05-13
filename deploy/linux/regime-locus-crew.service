@@ -43,8 +43,9 @@
 
 [Unit]
 Description=RLM Hermes crew — health facts, market context, commander (gate_state.json)
-After=network-online.target regime-locus-master.service
-Wants=network-online.target
+# Hermes is independent of the trading master: keep online 24/7 with Ollama (or cloud LLM in .env).
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
 # Do not rate-limit restarts: transient import/config errors used to exhaust StartLimitBurst
 # and leave the unit permanently failed ("Start request repeated too quickly").
 StartLimitIntervalSec=0
