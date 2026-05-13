@@ -58,6 +58,9 @@ def _annotate_hmm_transition_fields(hmm: RLMHMM, df: pd.DataFrame, probs: np.nda
     next_p = np.clip(next_p, 1e-12, None)
     next_p = next_p / next_p.sum(axis=1, keepdims=True)
     df["hmm_next_probs"] = next_p.tolist()
+    if hmm.state_labels is not None and len(hmm.state_labels) == next_p.shape[1]:
+        sl = [str(x) for x in hmm.state_labels]
+        df["hmm_state_labels"] = [sl for _ in range(len(df))]
     df["hmm_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
     diag = np.diagonal(transition_matrices, axis1=1, axis2=2)
     df["hmm_expected_persistence"] = np.sum(probs * diag, axis=1)
@@ -137,6 +140,9 @@ def _annotate_markov_transition_fields(markov: RLMMarkovSwitching, df: pd.DataFr
     t = markov.calibrated_transition_matrix()
     next_p = RLMHMM.one_step_predictive_probs(probs, t)
     df["markov_next_probs"] = next_p.tolist()
+    if markov.state_labels is not None and len(markov.state_labels) == next_p.shape[1]:
+        sl = [str(x) for x in markov.state_labels]
+        df["markov_state_labels"] = [sl for _ in range(len(df))]
     df["markov_regime_transition_entropy"] = -np.sum(next_p * np.log(next_p + 1e-12), axis=1)
     diag = np.diag(t).reshape(1, -1)
     df["markov_expected_persistence"] = np.sum(probs * diag, axis=1)

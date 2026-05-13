@@ -13,8 +13,8 @@ Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
 ``trail_on`` per ``plan_id``.
 
-With ``--paper-close`` (paper **7497** / **4002** / **4004** only), submits a **market** combo in the opposite
-direction of ``ibkr_combo_spec`` once per plan when an exit **ACTION** fires.
+**IBKR policy:** Do not use ``--paper-close`` for live orders — it is **disabled** (exit). Use
+``--paper-close-dry-run`` to log close intent only. IBKR in this project is **equities** only.
 
 Examples::
 
@@ -23,7 +23,7 @@ Examples::
     python scripts/monitor_active_trade_plans.py \
         --plans data/processed/universe_trade_plans.json --interval 120
     python scripts/monitor_active_trade_plans.py \
-        --plans data/processed/universe_trade_plans.json --paper-close --once
+        --plans data/processed/universe_trade_plans.json --paper-close-dry-run --once
 """
 
 from __future__ import annotations
@@ -374,7 +374,7 @@ def main() -> int:
     p.add_argument(
         "--paper-close",
         action="store_true",
-        help="On exit ACTION, transmit IBKR **MKT** closing combo (paper port only)",
+        help="Disabled: would transmit IBKR MKT closes (use --paper-close-dry-run only)",
     )
     p.add_argument(
         "--paper-close-dry-run",
@@ -426,12 +426,20 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    plans_path = DATA_ROOT / args.plans if not args.plans.is_absolute() else args.plans
-    state_path = DATA_ROOT / args.state if not args.state.is_absolute() else args.state
+    if args.paper_close and not args.paper_close_dry_run:
+        from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
+
+        exit_ibkr_option_combo_blocked("monitor --paper-close (IBKR is equities-only; use --paper-close-dry-run)")
+
+    def _resolve_data_path(raw: Path) -> Path:
+        p = raw.expanduser()
+        return p if p.is_absolute() else (DATA_ROOT / p)
+
+    plans_path = _resolve_data_path(args.plans)
+    state_path = _resolve_data_path(args.state)
     trade_log_path: Path | None = None
     if not args.no_trade_log:
-        raw = args.trade_log
-        trade_log_path = DATA_ROOT / raw if not raw.is_absolute() else raw
+        trade_log_path = _resolve_data_path(args.trade_log)
 
     if not plans_path.is_file():
         print(f"Missing plans file: {plans_path}", file=sys.stderr)

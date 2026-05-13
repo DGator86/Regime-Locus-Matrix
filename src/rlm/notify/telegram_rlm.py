@@ -18,6 +18,8 @@ from typing import Any, Callable
 
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
+from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
+from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
 
 
 def _resolved_trade_log_for_notify(root: Path) -> Path:
@@ -25,10 +27,6 @@ def _resolved_trade_log_for_notify(root: Path) -> Path:
     for cand in options_trade_log_read_paths(root):
         if cand.is_file() and cand.stat().st_size > 120:
             return cand
-    return options_trade_log_primary(root)
-
-
-def _resolve_trade_log_path(root: Path) -> Path:
     return options_trade_log_primary(root)
 
 
@@ -54,6 +52,252 @@ def _exit_reason_human(sig: str) -> str:
         "time_stop": "time-based stop (low conviction near expiry)",
         "max_loss_stop": "max-loss kill switch",
     }.get(sig, sig)
+
+
+def _regime_human(regime_key: str) -> str:
+    """Convert pipe-delimited regime key to plain English."""
+    if not regime_key:
+        return "Unknown"
+    parts = regime_key.split("|")
+    direction_map = {
+        "bull": "Bullish trend",
+        "bear": "Bearish trend",
+        "range": "Range-bound",
+        "transition": "Transitioning",
+    }
+    vol_map = {
+        "low_vol": "low volatility",
+        "high_vol": "elevated volatility",
+        "transition": "volatility transitioning",
+    }
+    liq_map = {
+        "high_liquidity": "good liquidity",
+        "low_liquidity": "thin liquidity",
+    }
+    flow_map = {
+        "supportive": "dealer flow supportive",
+        "destabilizing": "dealer flow destabilizing",
+    }
+    maps = [direction_map, vol_map, liq_map, flow_map]
+    labels = []
+    for i, part in enumerate(parts[:4]):
+        p = part.strip()
+        label = maps[i].get(p, p) if i < len(maps) else p
+        if label:
+            labels.append(label)
+    return " · ".join(labels) if labels else regime_key
+
+
+def _strategy_entry_human(strategy_name: str) -> str:
+    """Map strategy_name to a human-readable entry logic description."""
+    _MAP = {
+        "long_call_spread": "Long call debit spread — defined-risk bullish play",
+        "bull_call_spread": "Bull call debit spread — defined-risk bullish play",
+        "0dte_bull_call_spread": "0DTE bull call spread — intraday bullish sniper",
+        "long_put_spread": "Long put debit spread — defined-risk bearish play",
+        "bear_put_spread": "Bear put debit spread — defined-risk bearish play",
+        "0dte_bear_put_spread": "0DTE bear put spread — intraday bearish sniper",
+        "long_call": "Long call — directional bullish exposure (undefined upside)",
+        "long_put": "Long put — directional bearish exposure (undefined downside)",
+        "aggressive_daytrader_call": "0–3DTE long call — short-duration bullish sniper, time/% stop",
+        "aggressive_daytrader_put": "0–3DTE long put — short-duration bearish sniper, time/% stop",
+        "iron_condor": "Iron condor — premium collection in range-bound market",
+        "long_iron_condor": "Long iron condor — owns breakout in range-bound market",
+        "0dte_iron_condor": "0DTE iron condor — same-day premium harvest in range",
+        "1dte_iron_condor": "1DTE iron condor — next-day premium harvest in range",
+        "long_straddle": "Long straddle — owns move in either direction (vol play)",
+        "scalp_long_straddle": "Short-dated straddle — owns intraday volatility move",
+        "long_strangle": "Long strangle — owns breakout in either direction",
+        "debit_spread_call": "Call debit spread — bullish directional defined-risk",
+        "debit_spread_put": "Put debit spread — bearish directional defined-risk",
+        "calendar_spread": "Calendar spread — transition regime, sells near / buys far expiry",
+        "no_trade": "No trade — conditions not met for entry",
+        "no_trade_or_micro_position": "No trade / micro probe — direction too ambiguous",
+        "aggressive_daytrader_0DTE_straddle": "0DTE straddle — high-vol event gamma capture",
+    }
+    if not strategy_name:
+        return "Unknown"
+    return _MAP.get(strategy_name, strategy_name.replace("_", " ").title())
+
+
+def _format_matched_legs(matched_legs: list, combo_qty: int) -> str:
+    """Format option legs into a compact human-readable string."""
+    if not matched_legs:
+        return ""
+    parts = []
+    for leg in matched_legs:
+        side = str(leg.get("side") or "").upper()
+        opt_type = str(leg.get("option_type") or "").upper()
+        strike = leg.get("strike")
+        expiry = str(leg.get("expiry") or "?")
+        leg_qty = leg.get("quantity") or combo_qty or 1
+        strike_fmt = f"{float(strike):g}" if strike is not None else "?"
+        type_char = opt_type[0] if opt_type else "?"
+        parts.append(f"{side} {leg_qty}x {strike_fmt}{type_char} {expiry}")
+    return "  |  ".join(parts)
+
+
+def _plan_by_pid(plans_data: dict) -> dict:
+    """Build a dict mapping plan_id -> plan row from the universe_trade_plans payload."""
+    result: dict[str, dict] = {}
+    for row in plans_data.get("results") or []:
+        pid = str(row.get("plan_id") or "")
+        if pid:
+            result[pid] = row
+    return result
+
+
+def _fmt_dollar(v: Any) -> str:
+    try:
+        fv = float(v)
+        return f"${fv:,.2f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _fmt_pnl_row(row: dict) -> str:
+    """Format unrealized_pnl + unrealized_pnl_pct from a trade_log row."""
+    upnl = row.get("unrealized_pnl") or ""
+    upnl_pct = row.get("unrealized_pnl_pct") or ""
+    try:
+        fv = float(upnl)
+        dollar_str = f"+${fv:,.2f}" if fv >= 0 else f"-${abs(fv):,.2f}"
+    except (TypeError, ValueError):
+        dollar_str = str(upnl)
+    try:
+        pct_str = f"{float(upnl_pct):+.1f}%"
+    except (TypeError, ValueError):
+        pct_str = str(upnl_pct)
+    if dollar_str and pct_str:
+        return f"{dollar_str}  ({pct_str})"
+    return dollar_str or pct_str
+
+
+_SEP = "─" * 30
+
+
+def _build_new_opt_message(
+    sym: str, pid: str, mark: str, entry_debit: str, sig: str, dte_val: str, plan: dict
+) -> str:
+    decision = plan.get("decision") or {}
+    regime_key = str(plan.get("regime_key") or decision.get("regime_key") or "")
+    rationale = str(decision.get("rationale") or "")
+    strategy_name = str(decision.get("strategy_name") or plan.get("strategy") or "")
+    thresholds = plan.get("thresholds") or {}
+    v_tp = thresholds.get("v_take_profit")
+    v_stop = thresholds.get("v_hard_stop")
+    matched_legs = plan.get("matched_legs") or []
+    combo_qty = int((plan.get("ibkr_combo_spec") or {}).get("quantity") or 1)
+    candidate = plan.get("candidate") or {}
+    target_pct = candidate.get("target_profit_pct")
+    max_risk_pct = candidate.get("max_risk_pct")
+    dte_min = candidate.get("target_dte_min")
+    dte_max = candidate.get("target_dte_max")
+
+    lines = [f"🟢 NEW OPTION POSITION — {sym}", f"Plan: {pid}", _SEP]
+
+    if regime_key:
+        lines.append(f"Regime:    {_regime_human(regime_key)}")
+    if strategy_name:
+        lines.append(f"Entry:     {_strategy_entry_human(strategy_name)}")
+    if rationale and rationale != strategy_name:
+        lines.append(f"Logic:     {rationale}")
+
+    lines.append(_SEP)
+    lines.append(f"Avg cost:  {_fmt_dollar(entry_debit)} per combo")
+
+    legs_str = _format_matched_legs(matched_legs, combo_qty)
+    if legs_str:
+        lines.append(f"Legs:      {legs_str}")
+        lines.append(f"Qty:       {combo_qty} combo(s)")
+
+    lines.append(_SEP)
+
+    if v_tp is not None:
+        tp_line = f"Profit:    mark ≥ {_fmt_dollar(v_tp)}"
+        if target_pct is not None:
+            tp_line += f"  (+{float(target_pct) * 100:.0f}% on debit)"
+        lines.append(tp_line)
+    elif target_pct is not None:
+        lines.append(f"Profit:    target +{float(target_pct) * 100:.0f}% on debit paid")
+
+    if v_stop is not None:
+        stop_line = f"Hard stop: mark ≤ {_fmt_dollar(v_stop)}  (exit to cut loss)"
+        lines.append(stop_line)
+
+    exit_conds: list[str] = []
+    if v_tp is not None:
+        exit_conds.append(f"take profit ≥ {_fmt_dollar(v_tp)}")
+    if v_stop is not None:
+        exit_conds.append(f"hard stop ≤ {_fmt_dollar(v_stop)}")
+    if dte_min is not None:
+        exit_conds.append(f"time stop near {dte_min} DTE")
+    if max_risk_pct is not None:
+        exit_conds.append(f"max portfolio risk {float(max_risk_pct) * 100:.1f}%")
+    if exit_conds:
+        lines.append(f"Exit when: {' | '.join(exit_conds)}")
+
+    lines.append(_SEP)
+
+    if dte_val:
+        lines.append(f"DTE now:   {dte_val} days remaining")
+    if dte_min is not None and dte_max is not None:
+        lines.append(f"Window:    {dte_min}–{dte_max} DTE  (aim to profit before ~{dte_min} DTE)")
+    elif dte_max is not None:
+        lines.append(f"Max DTE:   {dte_max} days")
+
+    lines.append(f"Mark: {mark}  |  Signal: {sig}")
+    return "\n".join(lines)
+
+
+def _build_tp_opt_message(sym: str, pid: str, mark: str, row: dict, plan: dict) -> str:
+    entry_debit = row.get("entry_debit") or row.get("entry_mid") or "?"
+    dte_val = row.get("dte") or ""
+    thresholds = plan.get("thresholds") or {}
+    v_tp = thresholds.get("v_take_profit")
+
+    lines = [
+        f"🎯 PROFIT TARGET HIT — {sym}",
+        f"Plan: {pid}",
+        _SEP,
+        f"Mark now:  {mark}",
+        f"Entry was: {_fmt_dollar(entry_debit)}",
+        f"P&L:       {_fmt_pnl_row(row)}",
+    ]
+    if v_tp is not None:
+        lines.append(f"Target:    mark ≥ {_fmt_dollar(v_tp)}  ✓ reached")
+    if dte_val:
+        lines.append(f"DTE:       {dte_val} days remaining")
+    lines.append(_SEP)
+    lines.append("▶ Consider exiting — profit target reached")
+    return "\n".join(lines)
+
+
+def _build_exit_opt_message(sym: str, pid: str, mark: str, sig: str, row: dict) -> str:
+    entry_debit = row.get("entry_debit") or row.get("entry_mid") or "?"
+    dte_val = row.get("dte") or ""
+
+    if sig == "take_profit":
+        emoji = "✅"
+    elif sig in ("hard_stop", "max_loss_stop"):
+        emoji = "🛑"
+    elif sig in ("expiry_force_close", "time_stop"):
+        emoji = "⏱"
+    else:
+        emoji = "🔴"
+
+    lines = [
+        f"{emoji} EXITED OPTION — {sym}",
+        f"Plan: {pid}",
+        _SEP,
+        f"Reason:    {_exit_reason_human(sig)}",
+        f"Exit mark: {mark}",
+        f"Entry was: {_fmt_dollar(entry_debit)}",
+        f"Final P&L: {_fmt_pnl_row(row)}",
+    ]
+    if dte_val:
+        lines.append(f"DTE:       {dte_val} days at exit")
+    return "\n".join(lines)
 
 
 def _read_plans(path: Path) -> dict[str, Any]:
@@ -177,31 +421,9 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     return "\n".join(lines)
 
 
-def _iter_active_plan_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Rows treated as the active universe set (matches monitor payload selection)."""
-    ranked = data.get("active_ranked") or []
-    if ranked:
-        return [r for r in ranked if isinstance(r, dict)]
-    return [r for r in (data.get("results") or []) if isinstance(r, dict) and r.get("status") == "active"]
-
-
 def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
-    out: set[str] = set()
-    for r in _iter_active_plan_rows(data):
-        pid = str(r.get("plan_id") or r.get("symbol") or "")
-        if pid:
-            out.add(pid)
-    return out
-
-
-def _symbol_by_plan_id(data: dict[str, Any]) -> dict[str, str]:
-    m: dict[str, str] = {}
-    for r in _iter_active_plan_rows(data):
-        pid = str(r.get("plan_id") or r.get("symbol") or "")
-        if not pid:
-            continue
-        m[pid] = str(r.get("symbol") or "?")
-    return m
+    """Active ``plan_id`` set (aligned with equity monitor + ranked/results union)."""
+    return _active_plan_ids_from_plans_payload(data)
 
 
 def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
@@ -223,7 +445,7 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
     if not data:
         return "No data"
     gen = str(data.get("generated_at_utc", "?"))
-    actives: list[dict[str, Any]] = list(_iter_active_plan_rows(data))
+    actives: list[dict[str, Any]] = list(_iter_active_trade_plan_rows(data))
     actives.sort(key=lambda x: float(x.get("rank_score") or 0.0), reverse=True)
     lines = [
         f"Universe report (top {min(max_active, len(actives))} of {len(actives)} active)\n" f"generated_at: {gen}\n"
@@ -602,6 +824,10 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if str((d or {}).get("status") or "") == "open":
             now_open.add(pkey)
 
+    # Load plans data once up front so all alert builders can use it
+    plans_data = _read_plans(p["plans"])
+    plan_lookup = _plan_by_pid(plans_data)
+
     if not st.notify_seeded:
         for pid, row in latest.items():
             sig = (row.get("signal") or "hold").strip()
@@ -613,8 +839,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
                 st.announced_tp.add(pid)
         st.announced_trade_open = {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
         st.last_equity_open = set(now_open)
-        plans_data0 = _read_plans(p["plans"])
-        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data0)
+        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
         st.notify_seeded = True
         merged = {**state_blob, **st.to_json()}
         return [], merged
@@ -626,8 +851,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         return [], merged
 
     if st.notify_seeded and "last_universe_active_ids" not in state_blob:
-        plans_data_u = _read_plans(p["plans"])
-        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data_u)
+        st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
         merged = {**state_blob, **st.to_json()}
         return [], merged
 
@@ -637,19 +861,23 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         sym = row.get("symbol", "")
         closed = (row.get("closed") or "0").strip() == "1"
         prev = st.last_opt_signal.get(pid, "")
+        plan = plan_lookup.get(pid, {})
 
         if not closed and pid not in st.announced_trade_open:
             st.announced_trade_open.add(pid)
             ed = row.get("entry_debit", row.get("entry_mid", ""))
-            out.append(f"Alert: New position — {sym}  plan={pid}  mark={mark}  entry~{ed}  signal={sig}")
+            dte_val = row.get("dte", "")
+            out.append(_build_new_opt_message(sym, pid, mark, ed, sig, dte_val, plan))
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
-            out.append(f"Alert: Position now above profit target — {sym}  plan={pid}  mark={mark}")
+            out.append(_build_tp_opt_message(sym, pid, mark, row, plan))
+
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
-            out.append(f"Alert: Exited position — {sym}  plan={pid}  reason={_exit_reason_human(sig)}  mark={mark}")
+            out.append(_build_exit_opt_message(sym, pid, mark, sig, row))
+
         st.last_opt_signal[pid] = sig
 
     for gone in set(st.announced_tp) - set(latest.keys()):
@@ -661,9 +889,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if not row or (row.get("closed") or "0").strip() == "1":
             st.announced_trade_open.discard(pid)
 
-    plans_data = _read_plans(p["plans"])
     cur_u = _active_plan_ids_from_plans(plans_data)
-    _symbol_by_plan_id(plans_data)
     # Disabling universe idea alerts to reduce chatter per user request
     # for pid in sorted(cur_u - st.last_universe_active_ids):
     #     out.append(
@@ -680,14 +906,14 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if st_eq == "open":
             if pkey not in prev_eq and pkey not in st.announced_equity_close:
                 out.append(
-                    f"Alert: New position — {pdat.get('symbol', '?')}  "
+                    f"Alert: [EQ] New position — {pdat.get('symbol', '?')}  "
                     f"side={pdat.get('side', '?')}  qty={pdat.get('quantity', '')}  "
-                    f"plan_id={pkey}  (equity)"
+                    f"plan_id={pkey}  (stock)"
                 )
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
             ex = pdat.get("exit_reason") or pdat.get("note") or "—"
-            out.append(f"Alert: Exited position — {pdat.get('symbol', '?')}  plan_id={pkey}  reason={ex}  (equity)")
+            out.append(f"Alert: [EQ] Exited position — {pdat.get('symbol', '?')} plan_id={pkey} reason={ex} (stock)")
 
     st.last_equity_open = now_open
     return out, {**state_blob, **st.to_json()}

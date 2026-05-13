@@ -90,6 +90,11 @@ def main() -> int:
     p.add_argument("--tif", default="DAY", help="Time in force (default DAY)")
     args = p.parse_args()
 
+    if args.transmit:
+        from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
+
+        exit_ibkr_option_combo_blocked("ibkr_place_roee_combo --transmit (IBKR is equities-only in RLM)")
+
     data = _parse_spec(args.spec)
     underlying = str(data.get("underlying", "")).upper().strip()
     if not underlying:

@@ -81,6 +81,10 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.system_gate import SystemGate
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.features.scoring.state_matrix import classify_state_matrix
+from rlm.regimes.forecast_regime_snapshot import (
+    build_regime_transition_snapshot,
+    regime_direction_equity,
+)
 from rlm.types.options import TradeDecision
 from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
@@ -304,6 +308,8 @@ def _prepare_symbol(
         "symbol": sym,
         "run_at_utc": run_at,
         "status": "skipped",
+        "primary_bar_size": str(bar_size).strip(),
+        "primary_duration": str(duration).strip(),
     }
 
     if market_hours_only and not entry_window_open(
@@ -410,6 +416,8 @@ def _prepare_symbol(
         "S_V": float(last["S_V"]) if pd.notna(last["S_V"]) else None,
         "S_L": float(last["S_L"]) if pd.notna(last["S_L"]) else None,
         "S_G": float(last["S_G"]) if pd.notna(last["S_G"]) else None,
+        "bar_size": str(bar_size).strip(),
+        "duration": str(duration).strip(),
     }
     if "tf_confirmation_failed" in last.index:
         pipeline_row["tf_confirmation_failed"] = bool(last["tf_confirmation_failed"])
@@ -417,6 +425,11 @@ def _prepare_symbol(
         pipeline_row["tf_confirmation_detail"] = (
             str(detail) if detail is not None and pd.notna(detail) else None
         )
+
+    pipeline_row["regime_transition"] = build_regime_transition_snapshot(
+        last,
+        live_model=str(active_model),
+    )
 
     base["pipeline"] = pipeline_row
 
@@ -438,6 +451,9 @@ def _prepare_symbol(
         "regime_key": decision.regime_key,
         "metadata": {k: v for k, v in (decision.metadata or {}).items() if k != "matched_legs"},
     }
+    base["regime_direction"] = regime_direction_equity(
+        str(decision.regime_key or pipeline_row.get("regime_key") or ""),
+    )
     event = build_pipeline_event(
         symbol=sym,
         bar_id=str(ts),
