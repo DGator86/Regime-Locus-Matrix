@@ -7,10 +7,16 @@ Uses committed files under ``data/health_snapshot/`` (see ``manifest.json``). In
   - 09:00 America/New_York (invoked from ``rlm-market-hours-start.sh`` before live sync)
 
 Does **not** call Massive/IBKR for marks; large-account SPY uses mids embedded in the snapshot plan.
+
+**Operational "full run" (manual):** after offline checks pass, run with ``--full`` to exercise
+``run_universe_options_pipeline.py`` (SPY, top 1) and ``monitor_active_trade_plans.py --once``
+with ``RLM_ROOT`` pointing at an isolated workdir (copies optional ``live_regime_model.json``
+from the host ``RLM_ROOT`` or repo). Requires working IBKR history + Massive credentials.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -41,6 +47,89 @@ def _prepare_workdir() -> Path:
         (WORK / sub).mkdir(parents=True, exist_ok=True)
     shutil.copy2(SNAP / "bars_SPY_slice.csv", WORK / "data/raw/bars_SPY.csv")
     return WORK
+
+
+def _host_data_root() -> Path:
+    """Where live ``data/`` lives for optional model copy (``RLM_ROOT`` or repo)."""
+    return Path(os.environ.get("RLM_ROOT", str(ROOT))).expanduser().resolve()
+
+
+def _copy_optional_live_model(work: Path, host_data: Path) -> None:
+    src = host_data / "data" / "processed" / "live_regime_model.json"
+    dst = work / "data" / "processed" / "live_regime_model.json"
+    if src.is_file():
+        shutil.copy2(src, dst)
+        _ok(f"optional live_regime_model.json <- {src}")
+    else:
+        print(f"[startup-health] note: no optional {src} (pipeline defaults)", flush=True)
+
+
+def _subprocess_env(work: Path) -> dict[str, str]:
+    py_path = str(ROOT / "src")
+    prev = os.environ.get("PYTHONPATH", "")
+    merged = py_path if not prev else py_path + os.pathsep + prev
+    return {**os.environ, "RLM_ROOT": str(work), "PYTHONPATH": merged}
+
+
+def _step_live_universe(work: Path) -> bool:
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_universe_options_pipeline.py"),
+        "--symbols",
+        "SPY",
+        "--top",
+        "1",
+        "--out",
+        "data/processed/universe_trade_plans.json",
+        "--no-vix",
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            env=_subprocess_env(work),
+            timeout=1200,
+        )
+    except subprocess.TimeoutExpired:
+        _fail("live universe subprocess timed out (1200s)")
+        return False
+    if r.returncode != 0:
+        _fail(f"live universe pipeline exit {r.returncode}")
+        return False
+    out = work / "data" / "processed" / "universe_trade_plans.json"
+    if not out.is_file():
+        _fail("live universe did not write universe_trade_plans.json under RLM_ROOT workdir")
+        return False
+    _ok("live SPY universe_trade_plans.json written (RLM_ROOT workdir)")
+    return True
+
+
+def _step_live_monitor(work: Path) -> bool:
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "monitor_active_trade_plans.py"),
+        "--plans",
+        "data/processed/universe_trade_plans.json",
+        "--state",
+        "data/processed/trade_monitor_startup_health_state.json",
+        "--once",
+        "--no-trade-log",
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            env=_subprocess_env(work),
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        _fail("live monitor subprocess timed out (600s)")
+        return False
+    if r.returncode != 0:
+        _fail(f"monitor_active_trade_plans --once exit {r.returncode}")
+        return False
+    _ok("live monitor cycle completed (--once)")
+    return True
 
 
 def _step_core_pipeline(work: Path) -> bool:
@@ -207,12 +296,25 @@ def _step_equity_dry_run(work: Path) -> bool:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="After offline checks, run SPY universe pipeline + monitor --once with RLM_ROOT=workdir "
+        "(IBKR + Massive required).",
+    )
+    args = parser.parse_args()
+
     failures = 0
     if not (SNAP / "manifest.json").is_file():
         _fail(f"missing snapshot bundle at {SNAP}")
         return 2
 
-    print(f"[startup-health] ROOT={ROOT} snapshot={SNAP}", flush=True)
+    host_data = _host_data_root()
+    print(f"[startup-health] ROOT={ROOT} snapshot={SNAP} host_data={host_data}", flush=True)
     work = _prepare_workdir()
     _ok(f"workdir {work.relative_to(ROOT)}")
 
@@ -230,6 +332,19 @@ def main() -> int:
         print(f"[startup-health] completed with {failures} failure(s)", flush=True)
         return 1
     print("[startup-health] all decision-tree branches passed", flush=True)
+
+    if args.full:
+        print("[startup-health] --full: live universe + monitor (isolated RLM_ROOT workdir)", flush=True)
+        _copy_optional_live_model(work, host_data)
+        if not _step_live_universe(work):
+            failures += 1
+        elif not _step_live_monitor(work):
+            failures += 1
+        if failures:
+            print(f"[startup-health] --full completed with {failures} failure(s)", flush=True)
+            return 1
+        print("[startup-health] --full live steps passed", flush=True)
+
     return 0
 
 

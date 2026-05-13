@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -38,9 +39,10 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = Path(os.environ.get("RLM_ROOT", str(REPO_ROOT))).expanduser().resolve()
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
@@ -429,12 +431,15 @@ def main() -> int:
 
         exit_ibkr_option_combo_blocked("monitor --paper-close (IBKR is equities-only; use --paper-close-dry-run)")
 
-    plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
-    state_path = ROOT / args.state if not args.state.is_absolute() else args.state
+    def _resolve_data_path(raw: Path) -> Path:
+        p = raw.expanduser()
+        return p if p.is_absolute() else (DATA_ROOT / p)
+
+    plans_path = _resolve_data_path(args.plans)
+    state_path = _resolve_data_path(args.state)
     trade_log_path: Path | None = None
     if not args.no_trade_log:
-        raw = args.trade_log
-        trade_log_path = ROOT / raw if not raw.is_absolute() else raw
+        trade_log_path = _resolve_data_path(args.trade_log)
 
     if not plans_path.is_file():
         print(f"Missing plans file: {plans_path}", file=sys.stderr)
