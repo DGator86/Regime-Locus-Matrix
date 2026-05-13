@@ -26,13 +26,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from rlm.notify.ledger_books import write_trading_ledgers
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
 
 _ET = ZoneInfo("America/New_York")
 
-_CH_TITLE = "Challenge $1K→$25K (PDT / dry-run)"
-_EQUITY_TITLE = "Equities (IBKR regime log)"
-_OPT_TITLE = "Options (universe monitor / swing or large acct)"
+_CH_TITLE = "PDT — Robinhood $1K→$25K (elite paper / dry-run)"
+_EQUITY_TITLE = "Large equities — IBKR prop-style log"
+_OPT_TITLE = "Large options — advanced book ($250k seed default)"
 
 
 def _equity_trade_log_path(root: Path) -> Path:
@@ -255,14 +256,18 @@ def _load_all_rows(path: Path) -> list[dict[str, str]]:
 
 def calculate_daily_pnl(root: Path) -> str:
     """Build HTML-ish Telegram string for the session (US/Eastern *calendar* day)."""
+    try:
+        write_trading_ledgers(root)
+    except Exception:
+        pass
     now_utc = _now_utc()
     session_date = now_utc.astimezone(_ET).date()
 
     try:
         blocks: list[str] = [
             f"<b>[EOD Report] {session_date} (ET)</b>\n"
-            f"<i>Options = swing/large acct log · Equities = stock leg · "
-            f"Challenge = PDT $1K→$25K dry-run</i>\n"
+            f"<i>Large options book · Large equities (IBKR) · PDT Robinhood elite paper</i>\n"
+            f"<i>Ledgers:</i> <code>data/processed/ledgers/*.csv</code>\n"
             f"<i>Options open P&amp;L = latest mark vs plan entry (paper monitor); not realized until exits. "
             f"Big red days are often mark noise, not a closed-book loss.</i>\n",
         ]

@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 
-from rlm.challenge.config import MILESTONES, ChallengeConfig
+from rlm.challenge.config import MILESTONES, ChallengeConfig, apply_challenge_profile_env
 from rlm.challenge.engine import ChallengeEngine
 from rlm.challenge.tracker import ChallengeTracker
 from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
@@ -79,10 +79,12 @@ def main() -> None:  # noqa: C901
     args = _parse_args()
     symbol = normalize_symbol(args.symbol)
 
-    cfg = ChallengeConfig(
-        seed_capital=args.capital,
-        target_capital=args.target,
-        symbol=symbol,
+    cfg = apply_challenge_profile_env(
+        ChallengeConfig(
+            seed_capital=args.capital,
+            target_capital=args.target,
+            symbol=symbol,
+        )
     )
     tracker = ChallengeTracker(data_root=args.data_root)
 

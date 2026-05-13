@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from rlm.execution.exit_signals import EXIT_SIGNALS
+from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
 from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
 from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
@@ -563,12 +564,12 @@ def _challenge_pnl_section(root: Path) -> str:
     p = default_paths(root)
     state_path = p["challenge_state"]
     if not state_path.is_file():
-        return "--- PDT CHALLENGE ($1K -> $25K) ---\n  (no challenge state — run `rlm challenge --reset`)"
+        return "--- PDT (Robinhood $1K → $25K · elite paper track) ---\n  (no challenge state — run `rlm challenge --reset`)"
 
     try:
         raw = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return "--- PDT CHALLENGE ($1K -> $25K) ---\n  (unreadable state file)"
+        return "--- PDT (Robinhood $1K → $25K · elite paper track) ---\n  (unreadable state file)"
 
     balance = float(raw.get("balance", 0))
     seed = float(raw.get("seed", 1000))
@@ -622,13 +623,14 @@ def _challenge_pnl_section(root: Path) -> str:
             pass
 
     lines = [
-        "--- PDT CHALLENGE ($1K -> $25K) ---",
+        "--- PDT (Robinhood $1K → $25K · elite paper track) ---",
         f"Balance:   ${balance:,.2f}",
         f"Seed:      ${seed:,.2f}",
         f"Progress:  {progress:.1f}% ({milestone_label})",
         f"Today:     {_fmt_pnl(daily)}",
         f"This week: {_fmt_pnl(weekly)}",
         f"All-time:  {_fmt_pnl(all_time)}",
+        f"Ledger:    data/processed/ledgers/pdt_robinhood_challenge_book.csv",
     ]
     if open_mtm:
         lines.append(f"Open MTM:  {_fmt_pnl(open_mtm)}")
@@ -680,16 +682,31 @@ def _ibkr_balance_section() -> str:
 
 def build_pnl_text(root: Path) -> str:
     """Full P&L report across all three systems: equities, options, PDT challenge + IBKR balances."""
+    ledger_note = ""
+    try:
+        write_trading_ledgers(root)
+        ledger_note = (
+            "\n--- LEDGERS (CSV for Sheets/Excel) ---\n"
+            "  data/processed/ledgers/large_equities_book.csv\n"
+            "  data/processed/ledgers/large_options_book.csv\n"
+            "  data/processed/ledgers/pdt_robinhood_challenge_book.csv\n"
+        )
+    except Exception as exc:  # noqa: BLE001
+        ledger_note = f"\n(ledgers sync error: {exc})\n"
+
     p = default_paths(root)
     sections: list[str] = ["=== P&L REPORT ==="]
 
     eq_rows = _load_all_csv_rows(p["equity_trade_log"])
     eq_d, eq_w, eq_a, eq_mtm = _pnl_aggregates_from_log(eq_rows)
+    eq_snap = equity_book_snapshot(root)
     sections.append(
         "\n".join(
             [
                 "",
-                "--- EQUITIES ---",
+                "--- LARGE EQUITIES (IBKR · prop-style book) ---",
+                f"Book seed: ${eq_snap.seed:,.2f}   Book value: ${eq_snap.book_value:,.2f}",
+                f"  (book = seed + closed realized from log + open MTM)",
                 f"Today:     {_fmt_pnl(eq_d)}",
                 f"This week: {_fmt_pnl(eq_w)}",
                 f"All-time:  {_fmt_pnl(eq_a)}",
@@ -700,11 +717,13 @@ def build_pnl_text(root: Path) -> str:
 
     opt_rows = _load_all_csv_rows(p["trade_log"])
     opt_d, opt_w, opt_a, opt_mtm = _pnl_aggregates_from_log(opt_rows)
+    opt_snap = options_book_snapshot(root)
     sections.append(
         "\n".join(
             [
                 "",
-                "--- OPTIONS (Large Acct) ---",
+                "--- LARGE OPTIONS (advanced book · $250k seed default) ---",
+                f"Book seed: ${opt_snap.seed:,.2f}   Book value: ${opt_snap.book_value:,.2f}",
                 f"Today:     {_fmt_pnl(opt_d)}",
                 f"This week: {_fmt_pnl(opt_w)}",
                 f"All-time:  {_fmt_pnl(opt_a)}",
@@ -719,7 +738,7 @@ def build_pnl_text(root: Path) -> str:
     sections.append("")
     sections.append(_ibkr_balance_section())
 
-    return "\n".join(sections)
+    return "\n".join(sections) + ledger_note
 
 
 def build_balances_text(root: Path) -> str:

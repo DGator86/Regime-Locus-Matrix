@@ -44,7 +44,7 @@ Python API::
 """
 
 from rlm.challenge.challenge_strategy_map import STRATEGY_MAP_CHALLENGE, get_challenge_strategy
-from rlm.challenge.config import MILESTONES, ChallengeConfig, ChallengeMilestone
+from rlm.challenge.config import MILESTONES, ChallengeConfig, ChallengeMilestone, apply_challenge_profile_env
 from rlm.challenge.daytrade_filters import get_iv_rank, is_great_daytrade_setup
 from rlm.challenge.engine import ChallengeEngine, SessionSummary
 from rlm.challenge.models import ChallengePipelineConfig
@@ -65,6 +65,7 @@ __all__ = [
     "MILESTONES",
     "STRATEGY_MAP_CHALLENGE",
     "SessionSummary",
+    "apply_challenge_profile_env",
     "get_challenge_strategy",
     "get_iv_rank",
     "is_great_daytrade_setup",

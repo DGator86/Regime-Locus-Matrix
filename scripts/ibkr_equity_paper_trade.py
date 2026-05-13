@@ -12,6 +12,12 @@ This runs alongside the options book for independent execution verification:
 - Bear regime  → SELL (short) shares
 - Range / other → skip
 
+**Prop-firm daily gates (optional):** ``RLM_EQUITY_PROP_MAX_DAILY_LOSS_PCT`` (default ``2.0``)
+times ``RLM_LARGE_EQUITY_BOOK_SEED`` (default ``250000``) defines a **floor** on today's
+realized equity P&L (US/Eastern session, from ``equity_trade_log.csv``); new entries
+halt if the floor is touched. ``RLM_EQUITY_MAX_NEW_OPENS_PER_DAY`` (default ``4``)
+limits fresh tickets per NY day. Set a knob to ``0`` to disable that side.
+
 Positions are tracked in ``equity_positions_state.json``.  On each run the
 script evaluates open equity positions against the **fresh** universe row for
 each ``plan_id`` (when still present): ROEE regime flip
@@ -184,6 +190,66 @@ def _parse_iso_utc(ts: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _equity_prop_firm_new_entry_ok(log_path: Path) -> tuple[bool, str]:
+    """Prop-style gates: stop adding risk after a red NY day or too many fresh tickets.
+
+    Disable loss cap with ``RLM_EQUITY_PROP_MAX_DAILY_LOSS_PCT=0``; disable open cap
+    with ``RLM_EQUITY_MAX_NEW_OPENS_PER_DAY=0``.
+    """
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    max_loss_spec = (os.environ.get("RLM_EQUITY_PROP_MAX_DAILY_LOSS_PCT") or "2.0").strip()
+    max_opens_spec = (os.environ.get("RLM_EQUITY_MAX_NEW_OPENS_PER_DAY") or "4").strip()
+    try:
+        max_loss_pct = float(max_loss_spec or "2.0")
+    except ValueError:
+        max_loss_pct = 2.0
+    try:
+        max_opens = int(float(max_opens_spec or "4"))
+    except ValueError:
+        max_opens = 4
+    if max_loss_pct <= 0 and max_opens <= 0:
+        return True, ""
+    try:
+        book_seed = float((os.environ.get("RLM_LARGE_EQUITY_BOOK_SEED") or "250000").strip())
+    except ValueError:
+        book_seed = 250_000.0
+    today_et = datetime.now(tz=et).date()
+    realized_today = 0.0
+    opens_today = 0
+    if log_path.is_file():
+        try:
+            with log_path.open("r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    try:
+                        ts = _parse_iso_utc(str(row.get("timestamp_utc", "")))
+                    except ValueError:
+                        continue
+                    if ts.astimezone(et).date() != today_et:
+                        continue
+                    if (row.get("closed") or "0").strip() == "1":
+                        try:
+                            realized_today += float(row.get("unrealized_pnl") or 0.0)
+                        except (TypeError, ValueError):
+                            pass
+                    if str(row.get("signal", "")).strip().lower() == "open":
+                        opens_today += 1
+        except OSError:
+            pass
+    if max_loss_pct > 0 and book_seed > 0:
+        floor = -book_seed * (max_loss_pct / 100.0)
+        if realized_today <= floor - 1e-9:
+            return (
+                False,
+                f"daily realized {realized_today:+.2f} hit floor {floor:+.2f} "
+                f"({max_loss_pct:.2f}% of ${book_seed:,.0f} book seed)",
+            )
+    if max_opens > 0 and opens_today >= max_opens:
+        return False, f"opens today {opens_today} ≥ cap {max_opens}"
+    return True, ""
 
 
 def _plan_missing_grace_sec(cli_value: float | None) -> float:
@@ -814,6 +880,11 @@ def open_equity_positions(
     log_path: Path,
 ) -> None:
     open_symbols = {pos.symbol.upper() for pos in positions.values() if pos.status == "open"}
+
+    ok, gate_reason = _equity_prop_firm_new_entry_ok(log_path)
+    if not ok:
+        print(f"  [equity] prop-firm gate — {gate_reason} — skip new opens this run", flush=True)
+        return
 
     for plan in plans:
         sym = str(plan.get("symbol", "")).upper()

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -99,3 +100,33 @@ class ChallengeConfig:
         if balance < 10_000.0:
             return self.stage2_otm_pct
         return self.stage3_otm_pct
+
+
+def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
+    """Tune challenge risk from env without changing seed/target.
+
+    ``RLM_CHALLENGE_PROFILE=robinhood_elite`` — swing/LEAPS-leaning: longer DTE,
+    smaller % of balance per entry, slightly wider OTM, wider min-DTE exit buffer.
+    """
+    prof = (os.environ.get("RLM_CHALLENGE_PROFILE") or "").strip().lower()
+    if prof in ("", "default", "aggressive"):
+        return cfg
+    if prof == "robinhood_elite":
+        return replace(
+            cfg,
+            max_concurrent_positions=2,
+            stage1_size_frac=0.12,
+            stage2_size_frac=0.10,
+            stage3_size_frac=0.08,
+            stage1_dte=45,
+            stage2_dte=60,
+            stage3_dte=90,
+            scalp_dte=3,
+            stage1_otm_pct=0.015,
+            stage2_otm_pct=0.010,
+            stage3_otm_pct=0.003,
+            profit_target_mult=2.2,
+            stop_loss_mult=0.55,
+            min_dte_exit=5,
+        )
+    return cfg
