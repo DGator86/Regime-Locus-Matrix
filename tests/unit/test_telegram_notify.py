@@ -223,3 +223,39 @@ def test_portfolio_report_flags_risk_warnings(tmp_path: Path) -> None:
     assert "⚠ MAX_LOSS_BREACH" in text
     assert "⚠ TIME_STOP_ZONE" in text
     assert "⚠ FORCE_CLOSE_ZONE" in text
+
+
+def test_large_options_positions_human_format(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    plans = {
+        "results": [
+            {
+                "plan_id": "plan_a",
+                "symbol": "SPY",
+                "strategy": "debit_spread_call",
+                "decision": {"strategy_name": "debit_spread_call"},
+                "matched_legs": [
+                    {
+                        "side": "long",
+                        "option_type": "call",
+                        "strike": 719.0,
+                        "expiry": "2026-05-20",
+                    }
+                ],
+            }
+        ]
+    }
+    (dproc / "universe_trade_plans.json").write_text(json.dumps(plans), encoding="utf-8")
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+        "2026-04-28T00:00:00Z,plan_a,SPY,x,123.45,120,130.25,130.25,6.8,5.5,hold,0,12\n",
+        encoding="utf-8",
+    )
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "SPY $719 Call - Exp. 05.20.26" in text
+    assert "Cost - $123.45" in text
+    assert "Current val - $130.25" in text
+    assert "Current PnL - $6.80" in text
+    assert "plan_a" in text

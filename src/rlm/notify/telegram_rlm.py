@@ -662,6 +662,96 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
     return lines
 
 
+def _expiry_mmddyy(expiry_raw: str) -> str:
+    """Normalize expiry to ``MM.DD.YY`` (US-style) for Telegram."""
+    s = str(expiry_raw).strip()
+    if not s or s == "?":
+        return "?"
+    try:
+        d = date.fromisoformat(s[:10])
+    except ValueError:
+        return s[:10] if len(s) >= 10 else s
+    return f"{d.month:02d}.{d.day:02d}.{str(d.year)[-2:]}"
+
+
+def _option_type_call_put(option_type: str) -> str:
+    o = str(option_type).lower().strip()
+    if o.startswith("c"):
+        return "Call"
+    if o.startswith("p"):
+        return "Put"
+    return (option_type or "Opt").title()
+
+
+def _fmt_strike_money(strike: Any) -> str:
+    try:
+        x = float(strike)
+    except (TypeError, ValueError):
+        return "?"
+    if abs(x - int(x)) < 1e-9:
+        return f"${int(round(x)):,}"
+    return f"${x:,.2f}"
+
+
+def _large_options_position_lines(
+    plan: dict,
+    row: dict[str, str],
+    pid: str,
+    *,
+    warn_suffix: str,
+) -> list[str]:
+    """Large-options book: human option line(s) + cost / value / PnL (trade_log dollars)."""
+    sym = str(row.get("symbol") or "?")
+    legs = [x for x in (plan.get("matched_legs") or []) if isinstance(x, dict)]
+    lines: list[str] = []
+    strat_human, _, _ = _plan_option_structure_lines(plan, row)
+
+    if len(legs) == 1:
+        lg = legs[0]
+        sk = _fmt_strike_money(lg.get("strike"))
+        ot = _option_type_call_put(str(lg.get("option_type") or ""))
+        exp = _expiry_mmddyy(str(lg.get("expiry") or ""))
+        lines.append(f"  • {sym} {sk} {ot} - Exp. {exp}{warn_suffix}")
+    elif len(legs) > 1:
+        lines.append(f"  • {sym} ({strat_human}){warn_suffix}")
+        for lg in legs:
+            sk = _fmt_strike_money(lg.get("strike"))
+            ot = _option_type_call_put(str(lg.get("option_type") or ""))
+            exp = _expiry_mmddyy(str(lg.get("expiry") or ""))
+            side = str(lg.get("side") or "").upper() or "—"
+            lines.append(f"      {side} {sk} {ot} - Exp. {exp}")
+    else:
+        strat = _universe_row_strategy(plan)
+        lines.append(f"  • {sym} ({strat or '—'}){warn_suffix}")
+
+    indent = "    "
+    try:
+        cost = float(row.get("entry_debit") or "")
+    except (TypeError, ValueError):
+        cost = None
+    try:
+        cur = float(row.get("current_mark") or "")
+    except (TypeError, ValueError):
+        cur = None
+    try:
+        upnl = float(row.get("unrealized_pnl") or "")
+    except (TypeError, ValueError):
+        upnl = None
+
+    if cost is not None:
+        lines.append(f"{indent}Cost - {_fmt_dollar(cost)}")
+    if cur is not None:
+        lines.append(f"{indent}Current val - {_fmt_dollar(cur)}")
+    if upnl is not None:
+        lines.append(f"{indent}Current PnL - {_fmt_dollar(upnl)}")
+
+    sig = str(row.get("signal", "") or "")
+    dte_r = str(row.get("dte", "") or "")
+    lines.append(f"{indent}{pid}  ·  {sig}  ·  DTE={dte_r}")
+
+    return lines
+
+
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
     """Positions grouped by trading account (large options, large equities, PDT); then active universe."""
     p = default_paths(root)
@@ -697,9 +787,8 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             pnl_val: float | None = None
             try:
                 pnl_val = float(raw_pnl)
-                pnl_fmt = f"{pnl_val:+.1f}%"
             except (TypeError, ValueError):
-                pnl_fmt = str(raw_pnl)
+                pass
             dte_val: float | None = None
             try:
                 dte_val = float(row.get("dte") or "")
@@ -715,24 +804,7 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             warn_suffix = f"  {' '.join(warn)}" if warn else ""
 
             plan = plan_lookup.get(pid, {})
-            strat = _universe_row_strategy(plan)
-            if len(strat) > 40:
-                strat = strat[:37] + "…"
-            _, struct, cq = _plan_option_structure_lines(plan, row)
-            ed = row.get("entry_debit") or row.get("entry_mid") or ""
-            leg_line = ""
-            if struct and struct != strat and struct != "—":
-                leg_line = struct
-                if len(leg_line) > 100:
-                    leg_line = leg_line[:97] + "…"
-
-            lines.append(
-                f"  • {row.get('symbol', '?')}  {pid}\n"
-                f"      strategy={strat}  debit≈{_fmt_dollar(ed)} ×{cq}  mark={row.get('current_mark', '')}  "
-                f"PnL={pnl_fmt}  {row.get('signal', '')}  DTE={row.get('dte', '')}{warn_suffix}"
-            )
-            if leg_line:
-                lines.append(f"      legs: {leg_line}")
+            lines.extend(_large_options_position_lines(plan, row, pid, warn_suffix=warn_suffix))
 
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
