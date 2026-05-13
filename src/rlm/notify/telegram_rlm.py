@@ -177,6 +177,94 @@ def _fmt_pnl_row(row: dict) -> str:
 
 _SEP = "─" * 30
 
+# User-facing labels for the three parallel paper sleeves.
+ACCOUNT_LARGE_OPTIONS = "Account: LARGE OPTIONS (local paper book · not IBKR)"
+ACCOUNT_LARGE_EQUITIES = "Account: LARGE EQUITIES (IBKR paper · stocks only)"
+ACCOUNT_PDT_CHALLENGE = "Account: PDT CHALLENGE ($1K→$25K · local paper)"
+
+
+def _options_exit_account_impact(root: Path) -> str:
+    """One line summarizing large-options book after a closed row is on disk."""
+    try:
+        snap = options_book_snapshot(root)
+        return (
+            f"Book impact: large-options est. value {_fmt_dollar(snap.book_value)} "
+            f"(seed {_fmt_dollar(snap.seed)}; closed realized + open MTM in monitor CSV)."
+        )
+    except Exception:  # noqa: BLE001
+        return "Book impact: (could not read large-options book snapshot)"
+
+
+def _equity_exit_pnl_usd(pdat: dict[str, Any]) -> float | None:
+    try:
+        ep = float(pdat.get("entry_price") or 0.0)
+        xp = float(pdat.get("exit_price") or 0.0)
+        qty = int(float(pdat.get("quantity") or 0))
+    except (TypeError, ValueError):
+        return None
+    if qty <= 0 or xp <= 0:
+        return None
+    side = str(pdat.get("side") or "long").lower()
+    if side == "short":
+        return (ep - xp) * float(qty)
+    return (xp - ep) * float(qty)
+
+
+def _equity_exit_account_impact(root: Path) -> str:
+    try:
+        snap = equity_book_snapshot(root)
+        return (
+            f"Book impact: large-equities est. value {_fmt_dollar(snap.book_value)} "
+            f"(seed {_fmt_dollar(snap.seed)}; from equity CSV + open marks)."
+        )
+    except Exception:  # noqa: BLE001
+        return "Book impact: (could not read large-equities book snapshot)"
+
+
+def _challenge_exit_reason_human(reason: str) -> str:
+    return {
+        "target": "profit target",
+        "stop": "stop loss",
+        "expiry": "expiry / DTE",
+        "manual": "manual / engine",
+    }.get(reason, reason)
+
+
+def _build_challenge_entry_message(pos: dict[str, Any], state: dict[str, Any]) -> str:
+    bal = state.get("balance")
+    lines = [
+        f"🟢 PDT CHALLENGE — NEW POSITION — {pos.get('symbol', '?')}",
+        ACCOUNT_PDT_CHALLENGE,
+        _SEP,
+        f"Id:        {pos.get('position_id', '?')}",
+        f"Structure: {pos.get('option_type', '?')} {pos.get('direction', '?')}  "
+        f"strike {_fmt_dollar(pos.get('strike', ''))}  ×{pos.get('qty', '')}  "
+        f"DTE {pos.get('dte_remaining', pos.get('dte_at_entry', ''))}",
+        f"Entry:     premium {_fmt_dollar(pos.get('premium_per_share', ''))}/sh  "
+        f"(cost {_fmt_dollar(pos.get('total_cost', ''))})",
+        _SEP,
+        f"Challenge balance: {_fmt_dollar(bal)}",
+    ]
+    return "\n".join(lines)
+
+
+def _build_challenge_exit_message(trade: dict[str, Any]) -> str:
+    pnl = trade.get("pnl", 0)
+    bb = trade.get("balance_before")
+    ba = trade.get("balance_after")
+    reason = _challenge_exit_reason_human(str(trade.get("exit_reason", "")))
+    lines = [
+        f"✅ PDT CHALLENGE — CLOSED — {trade.get('symbol', '?')}",
+        ACCOUNT_PDT_CHALLENGE,
+        _SEP,
+        f"Trade P&L:      {_fmt_pnl_row({'unrealized_pnl': pnl, 'unrealized_pnl_pct': trade.get('pnl_pct', '')})}",
+        f"Balance:        {_fmt_dollar(bb)}  →  {_fmt_dollar(ba)}",
+        f"Exit reason:    {reason}",
+        _SEP,
+        f"Strike {_fmt_dollar(trade.get('strike', ''))}  {trade.get('option_type', '')}  {trade.get('direction', '')}",
+    ]
+    return "\n".join(lines)
+
 
 def _build_new_opt_message(
     sym: str, pid: str, mark: str, entry_debit: str, sig: str, dte_val: str, plan: dict
@@ -197,7 +285,12 @@ def _build_new_opt_message(
     dte_min = candidate.get("target_dte_min")
     dte_max = candidate.get("target_dte_max")
 
-    lines = [f"🟢 NEW OPTION POSITION — {sym}", f"Plan: {pid}", _SEP]
+    lines = [
+        f"🟢 NEW OPTION POSITION — {sym}",
+        ACCOUNT_LARGE_OPTIONS,
+        f"Plan: {pid}",
+        _SEP,
+    ]
 
     if regime_key:
         lines.append(f"Regime:    {_regime_human(regime_key)}")
@@ -261,6 +354,7 @@ def _build_tp_opt_message(sym: str, pid: str, mark: str, row: dict, plan: dict) 
 
     lines = [
         f"🎯 PROFIT TARGET HIT — {sym}",
+        ACCOUNT_LARGE_OPTIONS,
         f"Plan: {pid}",
         _SEP,
         f"Mark now:  {mark}",
@@ -291,6 +385,7 @@ def _build_exit_opt_message(sym: str, pid: str, mark: str, sig: str, row: dict) 
 
     lines = [
         f"{emoji} EXITED OPTION — {sym}",
+        ACCOUNT_LARGE_OPTIONS,
         f"Plan: {pid}",
         _SEP,
         f"Reason:    {_exit_reason_human(sig)}",
@@ -798,6 +893,8 @@ class _St:
     last_equity_open: set[str] = field(default_factory=set)
     announced_equity_close: set[str] = field(default_factory=set)
     last_universe_active_ids: set[str] = field(default_factory=set)
+    challenge_trade_n: int = 0
+    challenge_open_ids: set[str] = field(default_factory=set)
 
     @staticmethod
     def from_json(d: dict[str, Any]) -> _St:
@@ -814,6 +911,13 @@ class _St:
         raw_u = d.get("last_universe_active_ids")
         if raw_u is not None:
             s.last_universe_active_ids = set(str(x) for x in raw_u)
+        try:
+            s.challenge_trade_n = int(d.get("challenge_trade_n", 0))
+        except (TypeError, ValueError):
+            s.challenge_trade_n = 0
+        raw_ch = d.get("challenge_open_ids")
+        if raw_ch is not None:
+            s.challenge_open_ids = {str(x) for x in raw_ch}
         return s
 
     def to_json(self) -> dict[str, Any]:
@@ -826,7 +930,46 @@ class _St:
             "last_equity_open": sorted(self.last_equity_open),
             "announced_equity_close": sorted(self.announced_equity_close),
             "last_universe_active_ids": sorted(self.last_universe_active_ids),
+            "challenge_trade_n": self.challenge_trade_n,
+            "challenge_open_ids": sorted(self.challenge_open_ids),
         }
+
+
+def _challenge_notification_messages(root: Path, st: _St) -> list[str]:
+    """Emit Telegram lines for new challenge opens / closes; updates ``st`` challenge counters."""
+    msgs: list[str] = []
+    path = default_paths(root)["challenge_state"]
+    if not path.is_file():
+        st.challenge_trade_n = 0
+        st.challenge_open_ids = set()
+        return msgs
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return msgs
+    if not isinstance(raw, dict):
+        return msgs
+    history = list(raw.get("trade_history") or [])
+    opens = list(raw.get("open_positions") or [])
+    cur_open_ids = {str(o.get("position_id")) for o in opens if o.get("position_id")}
+    prev_n = st.challenge_trade_n
+    prev_open = st.challenge_open_ids
+
+    if len(history) > prev_n:
+        for t in history[prev_n:]:
+            if isinstance(t, dict):
+                msgs.append(_build_challenge_exit_message(t))
+
+    for pos in opens:
+        if not isinstance(pos, dict):
+            continue
+        pid = str(pos.get("position_id") or "")
+        if pid and pid not in prev_open:
+            msgs.append(_build_challenge_entry_message(pos, raw))
+
+    st.challenge_trade_n = len(history)
+    st.challenge_open_ids = cur_open_ids
+    return msgs
 
 
 def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
@@ -861,6 +1004,22 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         st.announced_trade_open = {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
         st.last_equity_open = set(now_open)
         st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
+        ch_path = p["challenge_state"]
+        if ch_path.is_file():
+            try:
+                ch_raw = json.loads(ch_path.read_text(encoding="utf-8"))
+                st.challenge_trade_n = len(ch_raw.get("trade_history") or [])
+                st.challenge_open_ids = {
+                    str(o.get("position_id"))
+                    for o in (ch_raw.get("open_positions") or [])
+                    if o.get("position_id")
+                }
+            except (OSError, json.JSONDecodeError):
+                st.challenge_trade_n = 0
+                st.challenge_open_ids = set()
+        else:
+            st.challenge_trade_n = 0
+            st.challenge_open_ids = set()
         st.notify_seeded = True
         merged = {**state_blob, **st.to_json()}
         return [], merged
@@ -873,6 +1032,23 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
     if st.notify_seeded and "last_universe_active_ids" not in state_blob:
         st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
+        merged = {**state_blob, **st.to_json()}
+        return [], merged
+
+    if st.notify_seeded and "challenge_trade_n" not in state_blob:
+        ch_path = p["challenge_state"]
+        if ch_path.is_file():
+            try:
+                ch_raw = json.loads(ch_path.read_text(encoding="utf-8"))
+                st.challenge_trade_n = len(ch_raw.get("trade_history") or [])
+                st.challenge_open_ids = {
+                    str(o.get("position_id"))
+                    for o in (ch_raw.get("open_positions") or [])
+                    if o.get("position_id")
+                }
+            except (OSError, json.JSONDecodeError):
+                st.challenge_trade_n = 0
+                st.challenge_open_ids = set()
         merged = {**state_blob, **st.to_json()}
         return [], merged
 
@@ -897,7 +1073,11 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
-            out.append(_build_exit_opt_message(sym, pid, mark, sig, row))
+            out.append(
+                _build_exit_opt_message(sym, pid, mark, sig, row)
+                + "\n"
+                + _options_exit_account_impact(root)
+            )
 
         st.last_opt_signal[pid] = sig
 
@@ -927,16 +1107,34 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         if st_eq == "open":
             if pkey not in prev_eq and pkey not in st.announced_equity_close:
                 out.append(
-                    f"Alert: [EQ] New position — {pdat.get('symbol', '?')}  "
-                    f"side={pdat.get('side', '?')}  qty={pdat.get('quantity', '')}  "
-                    f"plan_id={pkey}  (stock)"
+                    "\n".join(
+                        [
+                            f"🟢 NEW EQUITY POSITION — {pdat.get('symbol', '?')}",
+                            ACCOUNT_LARGE_EQUITIES,
+                            _SEP,
+                            f"side={pdat.get('side', '?')}  qty={pdat.get('quantity', '')}  "
+                            f"plan_id={pkey}  (stock)",
+                        ]
+                    )
                 )
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
             ex = pdat.get("exit_reason") or pdat.get("note") or "—"
-            out.append(f"Alert: [EQ] Exited position — {pdat.get('symbol', '?')} plan_id={pkey} reason={ex} (stock)")
+            lines_eq: list[str] = [
+                f"🔴 EXITED EQUITY — {pdat.get('symbol', '?')}",
+                ACCOUNT_LARGE_EQUITIES,
+                _SEP,
+                f"plan_id={pkey}",
+                f"reason: {ex}",
+            ]
+            pnl_est = _equity_exit_pnl_usd(pdat)
+            if pnl_est is not None:
+                lines_eq.append(f"This exit P&L (est.): {_fmt_dollar(pnl_est)}")
+            lines_eq.append(_equity_exit_account_impact(root))
+            out.append("\n".join(lines_eq))
 
     st.last_equity_open = now_open
+    out.extend(_challenge_notification_messages(root, st))
     return out, {**state_blob, **st.to_json()}
 
 

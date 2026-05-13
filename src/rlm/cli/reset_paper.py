@@ -9,6 +9,7 @@ Clears / archives under ``<repo>/data/processed``:
   ``options_large_account_trade_log.csv`` when distinct)
 - ``trade_monitor_state.json`` (monitor peaks / trail / paper_close_sent)
 - ``telegram_notify_state.json`` (option alerts de-dupe)
+- ``data/processed/ledgers/*.csv`` (Excel/Sheets exports — regenerated on next ledger sync)
 
 Optional: ``--with-challenge`` runs the same reset as ``rlm challenge --reset``.
 """
@@ -199,6 +200,17 @@ def reset_paper_books(
             _archive_or_drop(opt_log, stamp=stamp, archive=archive)
         _write_csv_header_only(opt_log, _OPTIONS_LOG_COLUMNS)
         lines.append(f"header-only: {rel}")
+
+    ledgers = proc / "ledgers"
+    if ledgers.is_dir():
+        for ledger_csv in sorted(ledgers.glob("*.csv")):
+            if ledger_csv.is_file():
+                _archive_or_drop(ledger_csv, stamp=stamp, archive=archive)
+                try:
+                    rel_ldg = ledger_csv.relative_to(data_parent.parent)
+                except ValueError:
+                    rel_ldg = ledger_csv
+                lines.append(f"archived/dropped: {rel_ldg}")
 
     return lines
 

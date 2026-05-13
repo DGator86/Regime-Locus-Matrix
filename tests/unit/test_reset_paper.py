@@ -32,6 +32,10 @@ def test_reset_paper_books_clears_json_and_logs(tmp_path: Path, monkeypatch: pyt
         encoding="utf-8",
     )
 
+    ledgers = proc / "ledgers"
+    ledgers.mkdir(parents=True)
+    (ledgers / "large_options_book.csv").write_text("dummy\n", encoding="utf-8")
+
     rp.reset_paper_books(data_parent=data, archive=False, stamp="FIXTURE")
 
     assert json.loads((proc / "equity_positions_state.json").read_text(encoding="utf-8")) == {}
@@ -47,3 +51,5 @@ def test_reset_paper_books_clears_json_and_logs(tmp_path: Path, monkeypatch: pyt
     with tlog.open(encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows == []
+
+    assert not (ledgers / "large_options_book.csv").exists()

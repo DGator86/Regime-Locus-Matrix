@@ -20,6 +20,7 @@ Examples::
     python scripts/run_everything.py --master --with-equity              # default master: equities IBKR + local options
     python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR stock orders
     python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
+    python scripts/run_everything.py --master --with-equity --with-challenge   # all three paper sleeves
 
 **Master mode** (``--master``): **60s** monitor polls, **300s** (5 min) universe rescans
 (**Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``). Options are **local**; IBKR is for equities when
@@ -238,6 +239,13 @@ def main() -> int:
             flush=True,
         )
 
+    run_challenge = bool(args.with_challenge) and not bool(args.skip_challenge)
+    if run_challenge:
+        print(
+            "[info] --with-challenge: PDT challenge sleeve via ``rlm challenge --run`` each cycle.",
+            flush=True,
+        )
+
     if not hasattr(args, "interval"):
         args.interval = 60.0 if args.master else 120.0
     if not hasattr(args, "rescan_interval"):
@@ -304,6 +312,33 @@ def main() -> int:
             ecmd.append("--dry-run")
         return ecmd
 
+    def challenge_cmd() -> list[str]:
+        sym = (os.environ.get("RLM_CHALLENGE_SYMBOL") or "SPY").strip() or "SPY"
+        extra = shlex.split((os.environ.get("RLM_CHALLENGE_RUN_ARGS") or "").strip())
+        return [py, "-m", "rlm.cli.main", "challenge", "--run", "--symbol", sym, *extra]
+
+    challenge_join_sec = 600.0
+    try:
+        challenge_join_sec = max(30.0, float((os.environ.get("RLM_CHALLENGE_JOIN_SEC") or "600").strip()))
+    except ValueError:
+        challenge_join_sec = 600.0
+
+    def run_challenge_step(where: str) -> None:
+        def _inner() -> None:
+            rc = _run(challenge_cmd())
+            if rc != 0:
+                print(f"[warn] challenge step ({where}) exited with code {rc}", flush=True)
+
+        th = threading.Thread(target=_inner, name=f"challenge-{where}", daemon=True)
+        th.start()
+        th.join(timeout=challenge_join_sec)
+        if th.is_alive():
+            print(
+                f"[info] challenge ({where}) still running after {challenge_join_sec:.0f}s — "
+                "continuing in background",
+                flush=True,
+            )
+
     if not args.skip_pipeline:
         rc = _run(pipeline_cmd())
         if rc != 0:
@@ -326,6 +361,9 @@ def main() -> int:
         et = threading.Thread(target=_run_equity, name="equity-trade", daemon=True)
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue
+
+    if run_challenge:
+        run_challenge_step("initial")
 
     if args.skip_monitor:
         return 0
@@ -356,6 +394,9 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
+                    if run_challenge:
+                        print("[rescan] PDT challenge session", flush=True)
+                        run_challenge_step("rescan")
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
 
