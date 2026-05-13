@@ -582,18 +582,24 @@ def build_status_brief(root: Path) -> str:
 
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
     """Universe summary plus open option rows (trade_log) and open equity rows (state json)."""
-    lines: list[str] = [
-        "=== Universe ===",
-        build_universe_report(root, max_active=max_active),
-        "",
-        "=== Options (trade_log, open) ===",
-    ]
     p = default_paths(root)
+    plans_data = _read_plans(p["plans"])
+    plan_lookup = _plan_by_pid(plans_data)
+    univ_text = (
+        build_universe_report_from_data(plans_data, max_active=max_active)
+        if plans_data
+        else build_universe_report(root, max_active=max_active)
+    )
+    lines: list[str] = ["=== Universe ===", univ_text, ""]
+
     latest = _latest_rows_per_plan_csv(p["trade_log"])
     opts: list[tuple[str, dict[str, str]]] = []
     for pid, row in latest.items():
         if (row.get("closed") or "0").strip() != "1":
             opts.append((pid, row))
+    opts.sort(key=lambda t: (str(t[1].get("symbol") or ""), t[0]))
+
+    lines.append(f"=== Options (large paper book, {len(opts)} open) ===")
     if not opts:
         lines.append("  (none — no rows with closed=0)")
     else:
@@ -618,30 +624,145 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             if dte_val is not None and dte_val <= 14.0:
                 warn.append("⚠ FORCE_CLOSE_ZONE")
             warn_suffix = f"  {' '.join(warn)}" if warn else ""
+
+            plan = plan_lookup.get(pid, {})
+            strat = _universe_row_strategy(plan)
+            if len(strat) > 40:
+                strat = strat[:37] + "…"
+            _, struct, cq = _plan_option_structure_lines(plan, row)
+            ed = row.get("entry_debit") or row.get("entry_mid") or ""
+            leg_line = ""
+            if struct and struct != strat and struct != "—":
+                leg_line = struct
+                if len(leg_line) > 100:
+                    leg_line = leg_line[:97] + "…"
+
             lines.append(
-                f"  • {row.get('symbol', '?')}  plan={pid}  mark={row.get('current_mark', '')}  "
-                f"PnL={pnl_fmt}  signal={row.get('signal', '')}  dte={row.get('dte', '')}{warn_suffix}"
+                f"  • {row.get('symbol', '?')}  {pid}\n"
+                f"      strategy={strat}  debit≈{_fmt_dollar(ed)} ×{cq}  mark={row.get('current_mark', '')}  "
+                f"PnL={pnl_fmt}  {row.get('signal', '')}  DTE={row.get('dte', '')}{warn_suffix}"
             )
+            if leg_line:
+                lines.append(f"      legs: {leg_line}")
+
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
+
     eq = _read_equity_state(p["equity_state"])
     eq_open = [(str(k), v or {}) for k, v in eq.items() if str((v or {}).get("status") or "") == "open"]
-    lines.extend(["", "=== Equity (state file, open) ==="])
+    eq_open.sort(key=lambda t: (str(t[1].get("symbol") or ""), t[0]))
+    eq_log = _latest_equity_open_rows_by_plan(p["equity_trade_log"])
+
+    lines.extend(["", f"=== Equities (IBKR paper, {len(eq_open)} open) ==="])
     if not eq_open:
         lines.append("  (none open)")
     else:
         for pid, d in eq_open[:max_positions]:
+            lr = eq_log.get(pid, {})
+            sym = d.get("symbol", "?")
+            side = str(d.get("side", "?"))
+            qty = d.get("quantity", "")
+            ep = d.get("entry_price", "")
+            mark = lr.get("current_mark", "") if lr else ""
+            usd_raw = lr.get("unrealized_pnl", "") if lr else ""
+            upct_raw = lr.get("unrealized_pnl_pct", "") if lr else ""
+            sig = lr.get("signal", "") if lr else ""
+            eq_plan = plan_lookup.get(pid, {})
+            thesis = _universe_row_strategy(eq_plan)
+            if len(thesis) > 36:
+                thesis = thesis[:33] + "…"
+            reg_h = _universe_row_regime_head(eq_plan)
+            pnl_usd_try = ""
+            try:
+                if str(usd_raw).strip():
+                    fu = float(usd_raw)
+                    pnl_usd_try = f"  ${fu:+,.2f}"
+            except (TypeError, ValueError):
+                pass
+            pct_try = ""
+            try:
+                if str(upct_raw).strip():
+                    fp = float(upct_raw)
+                    pct_try = f" ({fp:+.2f}%)"
+            except (TypeError, ValueError):
+                pct_try = f" ({upct_raw})" if upct_raw else ""
+
             lines.append(
-                f"  • {d.get('symbol', '?')}  side={d.get('side', '?')}  qty={d.get('quantity', '')}  plan_id={pid}"
+                f"  • {sym}  {pid}\n"
+                f"      {side.upper()} {qty} sh @ {_fmt_dollar(ep)}  mark={mark}{pnl_usd_try}{pct_try}  "
+                f"{sig}  thesis={thesis}  regime={reg_h}"
             )
+
         if len(eq_open) > max_positions:
             lines.append(f"  … {len(eq_open) - max_positions} more")
+
     return "\n".join(lines)
 
 
 def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
     """Active ``plan_id`` set (aligned with equity monitor + ranked/results union)."""
     return _active_plan_ids_from_plans_payload(data)
+
+
+def _universe_row_strategy(r: dict[str, Any]) -> str:
+    d = r.get("decision") if isinstance(r.get("decision"), dict) else {}
+    s = str(d.get("strategy_name") or "").strip()
+    if s:
+        return s
+    return str(r.get("strategy") or "").strip() or "—"
+
+
+def _universe_row_confidence_pct(r: dict[str, Any]) -> str:
+    for key in ("regime_confidence", "confidence"):
+        raw = r.get(key)
+        if raw is not None and str(raw) not in ("", "nan", "None"):
+            try:
+                v = float(raw)
+                return f"{v * 100:.1f}%" if abs(v) <= 1.0 else f"{v:.1f}%"
+            except (TypeError, ValueError):
+                return str(raw).strip()
+    d = r.get("decision") if isinstance(r.get("decision"), dict) else {}
+    meta = d.get("metadata") if isinstance(d.get("metadata"), dict) else {}
+    for key in ("regime_confidence", "confidence", "kronos_confidence"):
+        raw = meta.get(key)
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+            return f"{v * 100:.1f}%" if abs(v) <= 1.0 else f"{v:.1f}%"
+        except (TypeError, ValueError):
+            continue
+    pl = r.get("pipeline") if isinstance(r.get("pipeline"), dict) else {}
+    raw = pl.get("kronos_confidence")
+    if raw is not None:
+        try:
+            v = float(raw)
+            return f"{v * 100:.1f}%"
+        except (TypeError, ValueError):
+            pass
+    return "—"
+
+
+def _universe_row_regime_head(r: dict[str, Any]) -> str:
+    d = r.get("decision") if isinstance(r.get("decision"), dict) else {}
+    rk = str(r.get("regime_key") or d.get("regime_key") or "").strip()
+    if not rk:
+        return "—"
+    return rk.split("|", 1)[0].strip() or "—"
+
+
+def _latest_equity_open_rows_by_plan(path: Path) -> dict[str, dict[str, str]]:
+    """Last open (closed!=1) row per plan_id from equity_trade_log."""
+    rows = _load_all_csv_rows(path)
+    out: dict[str, dict[str, str]] = {}
+    for row in rows:
+        pid = str(row.get("plan_id") or "")
+        if not pid:
+            continue
+        if (row.get("closed") or "0").strip() == "1":
+            continue
+        out[pid] = row
+    return out
 
 
 def build_session_brief_text(root: Path, *, max_active: int = 12) -> str:
@@ -670,19 +791,20 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
     ]
     for r in actives[:max_active]:
         sym = r.get("symbol", "?")
-        st = r.get("strategy", "?")
+        st = _universe_row_strategy(r)
+        if len(st) > 44:
+            st = st[:41] + "…"
         rs = r.get("rank_score")
-        conf = r.get("regime_confidence", r.get("confidence"))
+        conf_fmt = _universe_row_confidence_pct(r)
+        reg_h = _universe_row_regime_head(r)
         pid = r.get("plan_id", "")
         try:
             rs_fmt = f"{float(rs):.4f}"  # type: ignore[arg-type]
         except (TypeError, ValueError):
             rs_fmt = str(rs or "?")
-        try:
-            conf_fmt = f"{float(conf) * 100:.1f}%"  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            conf_fmt = "?"
-        lines.append(f"  • {sym}  {st}  score={rs_fmt}  conf={conf_fmt}  id={pid}")
+        lines.append(
+            f"  • {sym}  strategy={st}  regime={reg_h}  score={rs_fmt}  conf={conf_fmt}  id={pid}"
+        )
     if not actives:
         lines.append("  (no active rows)")
     return "\n".join(lines)
