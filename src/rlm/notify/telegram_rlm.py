@@ -183,6 +183,43 @@ ACCOUNT_LARGE_EQUITIES = "Account: LARGE EQUITIES (IBKR paper · stocks only)"
 ACCOUNT_PDT_CHALLENGE = "Account: PDT CHALLENGE ($1K→$25K · local paper)"
 
 
+def _large_options_book_status(root: Path) -> str:
+    """One line: seeded book value (for footers on entry / TP)."""
+    try:
+        snap = options_book_snapshot(root)
+        return (
+            f"Large-options book: {_fmt_dollar(snap.book_value)} "
+            f"(seed {_fmt_dollar(snap.seed)}; closed realized + open MTM)"
+        )
+    except Exception:  # noqa: BLE001
+        return "Large-options book: (unavailable)"
+
+
+def _large_equities_book_status(root: Path) -> str:
+    try:
+        snap = equity_book_snapshot(root)
+        return (
+            f"Large-equities book: {_fmt_dollar(snap.book_value)} "
+            f"(seed {_fmt_dollar(snap.seed)}; closed realized + open MTM)"
+        )
+    except Exception:  # noqa: BLE001
+        return "Large-equities book: (unavailable)"
+
+
+def _plan_option_structure_lines(plan: dict, row: dict[str, str] | None) -> tuple[str, str, int]:
+    """Human strategy label, one-line structure (legs or fallback), combo qty."""
+    decision = plan.get("decision") or {}
+    row = row or {}
+    strategy_name = str(decision.get("strategy_name") or plan.get("strategy") or row.get("strategy", ""))
+    human = _strategy_entry_human(strategy_name) if strategy_name else "—"
+    matched_legs = plan.get("matched_legs") or []
+    spec = plan_combo_spec(plan)
+    combo_qty = int((spec or {}).get("quantity") or 1)
+    legs_str = _format_matched_legs(matched_legs, combo_qty)
+    structure = legs_str if legs_str else strategy_name or str(row.get("strategy", "")) or "—"
+    return human, structure, combo_qty
+
+
 def _options_exit_account_impact(root: Path) -> str:
     """One line summarizing large-options book after a closed row is on disk."""
     try:
@@ -267,45 +304,54 @@ def _build_challenge_exit_message(trade: dict[str, Any]) -> str:
 
 
 def _build_new_opt_message(
-    sym: str, pid: str, mark: str, entry_debit: str, sig: str, dte_val: str, plan: dict
+    sym: str,
+    pid: str,
+    mark: str,
+    entry_debit: str,
+    sig: str,
+    dte_val: str,
+    plan: dict,
+    row: dict[str, str],
+    root: Path,
 ) -> str:
-    decision = plan.get("decision") or {}
-    regime_key = str(plan.get("regime_key") or decision.get("regime_key") or "")
-    rationale = str(decision.get("rationale") or "")
-    strategy_name = str(decision.get("strategy_name") or plan.get("strategy") or "")
+    decis = plan.get("decision") or {}
+    regime_key = str(plan.get("regime_key") or decis.get("regime_key") or "")
+    rationale = str(decis.get("rationale") or "")
+    strat_human, structure, combo_qty = _plan_option_structure_lines(plan, row)
     thresholds = plan.get("thresholds") or {}
     v_tp = thresholds.get("v_take_profit")
     v_stop = thresholds.get("v_hard_stop")
-    matched_legs = plan.get("matched_legs") or []
-    spec = plan_combo_spec(plan)
-    combo_qty = int((spec or {}).get("quantity") or 1)
     candidate = plan.get("candidate") or {}
     target_pct = candidate.get("target_profit_pct")
     max_risk_pct = candidate.get("max_risk_pct")
     dte_min = candidate.get("target_dte_min")
     dte_max = candidate.get("target_dte_max")
 
-    lines = [
-        f"🟢 NEW OPTION POSITION — {sym}",
-        ACCOUNT_LARGE_OPTIONS,
-        f"Plan: {pid}",
-        _SEP,
-    ]
+    try:
+        ed = float(entry_debit)
+        total_debit = ed * float(combo_qty)
+        entry_line = (
+            f"Entry:     {_fmt_dollar(ed)} per combo  ×{combo_qty}  "
+            f"≈ {_fmt_dollar(total_debit)} total debit (monitor basis)"
+        )
+    except (TypeError, ValueError):
+        entry_line = f"Entry:     {_fmt_dollar(entry_debit)} per combo  ×{combo_qty}"
 
+    lines = [
+        f"🟢 LARGE OPTIONS — NEW POSITION — {sym}",
+        ACCOUNT_LARGE_OPTIONS,
+        _SEP,
+        f"Id:        {pid}",
+        f"Strategy:  {strat_human}",
+        f"Structure: {structure}",
+        entry_line,
+    ]
+    if dte_val:
+        lines.append(f"DTE:       {dte_val} days (row)")
     if regime_key:
         lines.append(f"Regime:    {_regime_human(regime_key)}")
-    if strategy_name:
-        lines.append(f"Entry:     {_strategy_entry_human(strategy_name)}")
-    if rationale and rationale != strategy_name:
+    if rationale and rationale not in (strat_human, structure):
         lines.append(f"Logic:     {rationale}")
-
-    lines.append(_SEP)
-    lines.append(f"Avg cost:  {_fmt_dollar(entry_debit)} per combo")
-
-    legs_str = _format_matched_legs(matched_legs, combo_qty)
-    if legs_str:
-        lines.append(f"Legs:      {legs_str}")
-        lines.append(f"Qty:       {combo_qty} combo(s)")
 
     lines.append(_SEP)
 
@@ -318,8 +364,7 @@ def _build_new_opt_message(
         lines.append(f"Profit:    target +{float(target_pct) * 100:.0f}% on debit paid")
 
     if v_stop is not None:
-        stop_line = f"Hard stop: mark ≤ {_fmt_dollar(v_stop)}  (exit to cut loss)"
-        lines.append(stop_line)
+        lines.append(f"Hard stop: mark ≤ {_fmt_dollar(v_stop)}  (exit to cut loss)")
 
     exit_conds: list[str] = []
     if v_tp is not None:
@@ -333,32 +378,36 @@ def _build_new_opt_message(
     if exit_conds:
         lines.append(f"Exit when: {' | '.join(exit_conds)}")
 
-    lines.append(_SEP)
-
-    if dte_val:
-        lines.append(f"DTE now:   {dte_val} days remaining")
     if dte_min is not None and dte_max is not None:
         lines.append(f"Window:    {dte_min}–{dte_max} DTE  (aim to profit before ~{dte_min} DTE)")
     elif dte_max is not None:
         lines.append(f"Max DTE:   {dte_max} days")
 
+    lines.append(_SEP)
     lines.append(f"Mark: {mark}  |  Signal: {sig}")
+    lines.append(_SEP)
+    lines.append(_large_options_book_status(root))
     return "\n".join(lines)
 
 
-def _build_tp_opt_message(sym: str, pid: str, mark: str, row: dict, plan: dict) -> str:
+def _build_tp_opt_message(
+    sym: str, pid: str, mark: str, row: dict, plan: dict, root: Path
+) -> str:
     entry_debit = row.get("entry_debit") or row.get("entry_mid") or "?"
     dte_val = row.get("dte") or ""
     thresholds = plan.get("thresholds") or {}
     v_tp = thresholds.get("v_take_profit")
+    strat_human, structure, combo_qty = _plan_option_structure_lines(plan, row)
 
     lines = [
-        f"🎯 PROFIT TARGET HIT — {sym}",
+        f"🎯 LARGE OPTIONS — PROFIT TARGET — {sym}",
         ACCOUNT_LARGE_OPTIONS,
-        f"Plan: {pid}",
         _SEP,
+        f"Id:        {pid}",
+        f"Strategy:  {strat_human}",
+        f"Structure: {structure}",
+        f"Entry:     {_fmt_dollar(entry_debit)}  (×{combo_qty} combo)",
         f"Mark now:  {mark}",
-        f"Entry was: {_fmt_dollar(entry_debit)}",
         f"P&L:       {_fmt_pnl_row(row)}",
     ]
     if v_tp is not None:
@@ -366,13 +415,15 @@ def _build_tp_opt_message(sym: str, pid: str, mark: str, row: dict, plan: dict) 
     if dte_val:
         lines.append(f"DTE:       {dte_val} days remaining")
     lines.append(_SEP)
+    lines.append(_large_options_book_status(root))
     lines.append("▶ Consider exiting — profit target reached")
     return "\n".join(lines)
 
 
-def _build_exit_opt_message(sym: str, pid: str, mark: str, sig: str, row: dict) -> str:
+def _build_exit_opt_message(sym: str, pid: str, mark: str, sig: str, row: dict, plan: dict) -> str:
     entry_debit = row.get("entry_debit") or row.get("entry_mid") or "?"
     dte_val = row.get("dte") or ""
+    strat_human, structure, combo_qty = _plan_option_structure_lines(plan, row)
 
     if sig == "take_profit":
         emoji = "✅"
@@ -384,18 +435,87 @@ def _build_exit_opt_message(sym: str, pid: str, mark: str, sig: str, row: dict) 
         emoji = "🔴"
 
     lines = [
-        f"{emoji} EXITED OPTION — {sym}",
+        f"{emoji} LARGE OPTIONS — CLOSED — {sym}",
         ACCOUNT_LARGE_OPTIONS,
-        f"Plan: {pid}",
+        _SEP,
+        f"Id:        {pid}",
+        f"Strategy:  {strat_human}",
+        f"Structure: {structure}",
+        f"Entry was: {_fmt_dollar(entry_debit)}  (×{combo_qty} combo)",
         _SEP,
         f"Reason:    {_exit_reason_human(sig)}",
         f"Exit mark: {mark}",
-        f"Entry was: {_fmt_dollar(entry_debit)}",
         f"Final P&L: {_fmt_pnl_row(row)}",
     ]
     if dte_val:
         lines.append(f"DTE:       {dte_val} days at exit")
     return "\n".join(lines)
+
+
+def _build_new_equity_message(root: Path, plan_id: str, pdat: dict[str, Any], plan: dict) -> str:
+    sym = str(pdat.get("symbol", "?"))
+    side = str(pdat.get("side", "?"))
+    qty_raw = pdat.get("quantity", "")
+    direction = str(pdat.get("direction", "") or "")
+    entry_rk = str(pdat.get("entry_regime_key", "") or "")
+    decision = plan.get("decision") or {}
+    regime_key = str(plan.get("regime_key") or decision.get("regime_key") or entry_rk or "")
+    rationale = str(decision.get("rationale") or "")
+    strategy_name = str(decision.get("strategy_name") or plan.get("strategy") or "")
+    strat_human = _strategy_entry_human(strategy_name) if strategy_name else "—"
+    structure = f"{side.upper()} {qty_raw} sh"
+    if direction:
+        structure += f"  ·  thesis bias: {direction}"
+
+    lines = [
+        f"🟢 LARGE EQUITIES — NEW POSITION — {sym}",
+        ACCOUNT_LARGE_EQUITIES,
+        _SEP,
+        f"Id:        {plan_id}",
+        f"Strategy:  {strat_human}",
+        f"Structure: {structure}",
+    ]
+    try:
+        ep = float(pdat.get("entry_price") or 0.0)
+        qi = int(float(qty_raw))
+        notion = ep * float(qi)
+        lines.append(f"Entry:     {_fmt_dollar(ep)}/sh  (est. notional {_fmt_dollar(notion)})")
+    except (TypeError, ValueError):
+        lines.append(f"Entry:     {_fmt_dollar(pdat.get('entry_price', ''))}  qty {qty_raw}")
+
+    if regime_key:
+        lines.append(f"Regime:    {_regime_human(regime_key)}")
+    if rationale and rationale != strategy_name:
+        lines.append(f"Logic:     {rationale}")
+
+    lines.extend([_SEP, _large_equities_book_status(root)])
+    return "\n".join(lines)
+
+
+def _build_exit_equity_message(root: Path, plan_id: str, pdat: dict[str, Any], exit_reason: str) -> str:
+    sym = str(pdat.get("symbol", "?"))
+    side = str(pdat.get("side", "?"))
+    qty_raw = pdat.get("quantity", "")
+    lines_eq: list[str] = [
+        f"🔴 LARGE EQUITIES — CLOSED — {sym}",
+        ACCOUNT_LARGE_EQUITIES,
+        _SEP,
+        f"Id:        {plan_id}",
+        f"Structure: {side.upper()} {qty_raw} sh",
+        _SEP,
+        f"Reason:    {exit_reason}",
+    ]
+    try:
+        ep = float(pdat.get("entry_price") or 0.0)
+        xp = float(pdat.get("exit_price") or 0.0)
+        lines_eq.append(f"Entry:     {_fmt_dollar(ep)}/sh  →  exit {_fmt_dollar(xp)}/sh")
+    except (TypeError, ValueError):
+        pass
+    pnl_est = _equity_exit_pnl_usd(pdat)
+    if pnl_est is not None:
+        lines_eq.append(f"This exit P&L (est.): {_fmt_dollar(pnl_est)}")
+    lines_eq.extend([_SEP, _equity_exit_account_impact(root)])
+    return "\n".join(lines_eq)
 
 
 def _read_plans(path: Path) -> dict[str, Any]:
@@ -1064,17 +1184,17 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             st.announced_trade_open.add(pid)
             ed = row.get("entry_debit", row.get("entry_mid", ""))
             dte_val = row.get("dte", "")
-            out.append(_build_new_opt_message(sym, pid, mark, ed, sig, dte_val, plan))
+            out.append(_build_new_opt_message(sym, pid, mark, ed, sig, dte_val, plan, row, root))
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
-            out.append(_build_tp_opt_message(sym, pid, mark, row, plan))
+            out.append(_build_tp_opt_message(sym, pid, mark, row, plan, root))
 
         if closed and sig in EXIT_SIGNALS and pid not in st.announced_exit:
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
             out.append(
-                _build_exit_opt_message(sym, pid, mark, sig, row)
+                _build_exit_opt_message(sym, pid, mark, sig, row, plan)
                 + "\n"
                 + _options_exit_account_impact(root)
             )
@@ -1106,32 +1226,12 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         st_eq = str(pdat.get("status") or "")
         if st_eq == "open":
             if pkey not in prev_eq and pkey not in st.announced_equity_close:
-                out.append(
-                    "\n".join(
-                        [
-                            f"🟢 NEW EQUITY POSITION — {pdat.get('symbol', '?')}",
-                            ACCOUNT_LARGE_EQUITIES,
-                            _SEP,
-                            f"side={pdat.get('side', '?')}  qty={pdat.get('quantity', '')}  "
-                            f"plan_id={pkey}  (stock)",
-                        ]
-                    )
-                )
+                eq_plan = plan_lookup.get(pkey, {})
+                out.append(_build_new_equity_message(root, pkey, pdat, eq_plan))
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
             ex = pdat.get("exit_reason") or pdat.get("note") or "—"
-            lines_eq: list[str] = [
-                f"🔴 EXITED EQUITY — {pdat.get('symbol', '?')}",
-                ACCOUNT_LARGE_EQUITIES,
-                _SEP,
-                f"plan_id={pkey}",
-                f"reason: {ex}",
-            ]
-            pnl_est = _equity_exit_pnl_usd(pdat)
-            if pnl_est is not None:
-                lines_eq.append(f"This exit P&L (est.): {_fmt_dollar(pnl_est)}")
-            lines_eq.append(_equity_exit_account_impact(root))
-            out.append("\n".join(lines_eq))
+            out.append(_build_exit_equity_message(root, pkey, pdat, str(ex)))
 
     st.last_equity_open = now_open
     out.extend(_challenge_notification_messages(root, st))

@@ -103,7 +103,7 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     s1, _ = notification_cycle(tmp_path, b0)
     # Universe "new idea" alerts are disabled to reduce chatter; trade_log still notifies.
     assert len(s1) == 1
-    assert any("NEW OPTION POSITION" in m and "p2" in m and "QQQ" in m for m in s1)
+    assert any("LARGE OPTIONS" in m and "NEW POSITION" in m and "p2" in m and "QQQ" in m for m in s1)
 
 
 def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:
@@ -131,7 +131,7 @@ def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:
     )
     s2, _ = notification_cycle(tmp_path, b1)
     assert len(s2) == 1
-    assert "EXITED OPTION" in s2[0]
+    assert "LARGE OPTIONS" in s2[0] and "CLOSED" in s2[0]
 
 
 def test_legacy_state_migrates_announced_trade_open(tmp_path: Path) -> None:
