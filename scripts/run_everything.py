@@ -60,6 +60,25 @@ def _run(cmd: list[str]) -> int:
     return int(p.returncode)
 
 
+def _pipeline_cmd_has_flag(cmd: list[str], flag: str) -> bool:
+    if flag in cmd:
+        return True
+    prefix = f"{flag}="
+    return any(str(a).startswith(prefix) for a in cmd)
+
+
+def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
+    """Append pipeline sizing flags from env when not already present (CLI or RLM_PIPELINE_ARGS)."""
+    if not _pipeline_cmd_has_flag(cmd, "--max-active-per-symbol"):
+        mas = (os.environ.get("RLM_MAX_ACTIVE_PER_SYMBOL") or "").strip()
+        if mas:
+            cmd.extend(["--max-active-per-symbol", mas])
+    if not _pipeline_cmd_has_flag(cmd, "--top"):
+        top = (os.environ.get("RLM_UNIVERSE_TOP") or "").strip()
+        if top:
+            cmd.extend(["--top", top])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -327,6 +346,7 @@ def main() -> int:
             cmd.extend(shlex.split(args.pipeline_args))
         if args.use_vp_gating and "--use-vp-gating" not in cmd:
             cmd.append("--use-vp-gating")
+        _extend_pipeline_cmd_from_env(cmd)
         return cmd
 
     def paper_cmd() -> list[str]:

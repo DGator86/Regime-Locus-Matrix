@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+import csv
+import io
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -295,3 +297,67 @@ def test_large_options_uses_trade_plan_snapshots_when_missing_from_universe(tmp_
     assert "Cost - $100.00" in text
     assert "Current val - $105.00" in text
     assert "Current PnL - $5.00" in text
+
+
+def test_large_options_uses_trade_log_legs_json_when_universe_has_no_legs(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    plans = {
+        "results": [
+            {
+                "plan_id": "plan_b",
+                "symbol": "META",
+                "strategy": "debit_spread_put",
+                "decision": {"strategy_name": "debit_spread_put"},
+            }
+        ]
+    }
+    (dproc / "universe_trade_plans.json").write_text(json.dumps(plans), encoding="utf-8")
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    legs = [
+        {"side": "long", "option_type": "put", "strike": 600.0, "expiry": "2026-06-05"},
+        {"side": "short", "option_type": "put", "strike": 590.0, "expiry": "2026-06-05"},
+    ]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "timestamp_utc",
+            "plan_id",
+            "symbol",
+            "strategy",
+            "entry_debit",
+            "entry_mid",
+            "current_mark",
+            "peak_mark",
+            "unrealized_pnl",
+            "unrealized_pnl_pct",
+            "signal",
+            "closed",
+            "dte",
+            "legs_json",
+        ]
+    )
+    w.writerow(
+        [
+            "2026-04-28T00:00:00Z",
+            "plan_b",
+            "META",
+            "x",
+            "410",
+            "410",
+            "385",
+            "385",
+            "-25",
+            "-6",
+            "hold",
+            "0",
+            "20",
+            json.dumps(legs),
+        ]
+    )
+    (dproc / "trade_log.csv").write_text(buf.getvalue(), encoding="utf-8")
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "META (Put debit spread" in text or "Put debit spread" in text
+    assert "$600 Put" in text and "$590 Put" in text
+    assert "plan_b" in text

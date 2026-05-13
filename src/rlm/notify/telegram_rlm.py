@@ -205,6 +205,23 @@ def _resolved_options_plan(
     return merged
 
 
+def _plan_with_trade_log_legs(plan: dict[str, Any], row: dict[str, str]) -> dict[str, Any]:
+    """Fill ``matched_legs`` from ``trade_log`` ``legs_json`` when universe/snapshots lack legs."""
+    out = dict(plan)
+    if out.get("matched_legs"):
+        return out
+    lj = (row.get("legs_json") or "").strip()
+    if not lj:
+        return out
+    try:
+        legs = json.loads(lj)
+    except json.JSONDecodeError:
+        return out
+    if isinstance(legs, list) and legs:
+        out["matched_legs"] = legs
+    return out
+
+
 def _legs_from_combo_spec_display(spec: dict[str, Any] | None) -> list[dict[str, Any]]:
     """``combo_spec.legs`` as ``matched_legs``-shaped rows for Telegram."""
     if not spec or not isinstance(spec, dict):
@@ -893,7 +910,10 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
                 warn.append("⚠ FORCE_CLOSE_ZONE")
             warn_suffix = f"  {' '.join(warn)}" if warn else ""
 
-            plan = _resolved_options_plan(plans_data, pid, plan_snapshots)
+            plan = _plan_with_trade_log_legs(
+                _resolved_options_plan(plans_data, pid, plan_snapshots),
+                row,
+            )
             lines.extend(_large_options_position_lines(plan, row, pid, warn_suffix=warn_suffix))
 
         if len(opts) > max_positions:

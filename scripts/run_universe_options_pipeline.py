@@ -61,6 +61,7 @@ from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.engines import ForecastPipeline
@@ -123,6 +124,7 @@ _TRADE_LOG_COLUMNS = [
     "signal",
     "closed",
     "dte",
+    "legs_json",
 ]
 
 
@@ -662,6 +664,43 @@ def _load_open_symbols_from_trade_log(path: Path) -> set[str]:
         if sym:
             open_symbols.add(sym)
     return open_symbols
+
+
+def _merge_trade_plan_snapshots(processed_dir: Path, final_results: list[dict[str, object]]) -> None:
+    """Upsert per-plan snapshots from pipeline rows (so plan_ids exist before the monitor runs)."""
+    path = processed_dir / "trade_plan_snapshots.json"
+    existing: dict[str, dict] = {}
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                existing = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+    for row in final_results:
+        if not isinstance(row, dict):
+            continue
+        pid = str(row.get("plan_id") or "").strip()
+        if not pid:
+            continue
+        if not (row.get("matched_legs") or []) and plan_combo_spec(row) is None:
+            continue
+        spec = plan_combo_spec(row)
+        existing[pid] = {
+            "plan_id": row.get("plan_id"),
+            "symbol": row.get("symbol"),
+            "strategy": row.get("strategy"),
+            "decision": row.get("decision"),
+            "matched_legs": list(row.get("matched_legs") or []),
+            "combo_spec": spec,
+            "candidate": row.get("candidate"),
+            "regime_key": row.get("regime_key"),
+            "thresholds": row.get("thresholds") or {},
+            "entry_debit_dollars": row.get("entry_debit_dollars"),
+            "entry_mid_mark_dollars": row.get("entry_mid_mark_dollars"),
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
 
 
 def _apply_active_plan_guards(
@@ -1296,6 +1335,7 @@ def main() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    _merge_trade_plan_snapshots(out_path.parent, final_results)
     _write_universe_latest_views(final_results, processed_dir)
     print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0

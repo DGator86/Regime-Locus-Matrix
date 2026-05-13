@@ -93,13 +93,55 @@ _TRADE_LOG_COLUMNS = [
     "signal",
     "closed",
     "dte",
+    "legs_json",
 ]
+
+
+def _migrate_trade_log_add_columns(log_path: Path, fieldnames: list[str]) -> None:
+    """Rewrite CSV when new monitor columns appear (e.g. legs_json)."""
+    if not log_path.is_file() or log_path.stat().st_size == 0:
+        return
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            old_names = list(reader.fieldnames or [])
+            if old_names and all(c in old_names for c in fieldnames):
+                return
+            rows = list(reader)
+    except OSError:
+        return
+    with log_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({k: (r.get(k) or "") for k in fieldnames})
+
+
+def _legs_json_for_trade_log(updated: list[dict] | None) -> str:
+    """Compact legs for CSV (Telegram + bookkeeping without universe JSON)."""
+    if not updated:
+        return ""
+    slim: list[dict[str, object]] = []
+    for m in updated:
+        exp = m.get("expiry")
+        exp_s = str(pd.Timestamp(exp).date()) if exp is not None else str(m.get("expiry") or "")
+        slim.append(
+            {
+                "side": m.get("side"),
+                "option_type": m.get("option_type"),
+                "strike": m.get("strike"),
+                "expiry": exp_s[:10] if exp_s else "",
+            }
+        )
+    return json.dumps(slim, separators=(",", ":"), default=str)
 
 
 def _append_trade_log(log_path: Path, row: dict) -> None:
     """Append one row to the trade log CSV, creating headers on first write."""
     is_new = not log_path.is_file() or log_path.stat().st_size == 0
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    if not is_new:
+        _migrate_trade_log_add_columns(log_path, _TRADE_LOG_COLUMNS)
     with log_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
         if is_new:
@@ -316,6 +358,9 @@ def _evaluate_plan(
 
     st["last_signal"] = signal
 
+    if plan_snapshots is not None and updated is not None:
+        _persist_trade_plan_snapshot(plan_snapshots, {**plan, "matched_legs": list(updated)})
+
     # --- Trade log -----------------------------------------------------------
     if trade_log_path is not None:
         _append_trade_log(
@@ -334,6 +379,7 @@ def _evaluate_plan(
                 "signal": signal,
                 "closed": "1" if signal in EXIT_SIGNALS else "0",
                 "dte": round(plan_dte, 3) if plan_dte == plan_dte else "",
+                "legs_json": _legs_json_for_trade_log(updated),
             },
         )
     # -------------------------------------------------------------------------
