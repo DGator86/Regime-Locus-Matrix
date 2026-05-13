@@ -580,8 +580,50 @@ def build_status_brief(root: Path) -> str:
     return f"generated_at: {gen}\nfile mtime (UTC): {mtime}\nactive: {n_active}"
 
 
+def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]:
+    """Open PDT challenge positions + balance (``data/challenge/state.json``)."""
+    ch_path = default_paths(root)["challenge_state"]
+    lines: list[str] = [
+        "─── PDT CHALLENGE ($1K→$25K · local paper) ───",
+        f"    {ACCOUNT_PDT_CHALLENGE}",
+    ]
+    if not ch_path.is_file():
+        lines.append("    (no challenge state — `rlm challenge --reset`)")
+        return lines
+    try:
+        raw = json.loads(ch_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        lines.append("    (unreadable challenge state)")
+        return lines
+    bal = float(raw.get("balance", 0))
+    seed = float(raw.get("seed", 1000))
+    opens = [x for x in (raw.get("open_positions") or []) if isinstance(x, dict)]
+    lines.append(f"    Cash: {_fmt_dollar(bal)}  seed {_fmt_dollar(seed)}  ·  {len(opens)} open contract leg(s)")
+    if not opens:
+        lines.append("    (no open challenge positions)")
+        return lines
+    sorted_o = sorted(opens, key=lambda x: (str(x.get("symbol") or ""), str(x.get("position_id") or "")))
+    for pos in sorted_o[:max_positions]:
+        pid = pos.get("position_id", "?")
+        sym = pos.get("symbol", "?")
+        opt = pos.get("option_type", "?")
+        direc = pos.get("direction", "?")
+        strike = pos.get("strike", "")
+        qty = pos.get("qty", "")
+        dte = pos.get("dte_remaining", pos.get("dte_at_entry", ""))
+        upnl = pos.get("unrealised_pnl", 0)
+        cost = pos.get("total_cost", "")
+        lines.append(
+            f"  • {sym}  challenge_id={pid}  {opt}/{direc}  K={_fmt_dollar(strike)}  ×{qty}  "
+            f"DTE={dte}  cost≈{_fmt_dollar(cost)}  MTM P&L={_fmt_dollar(upnl)}"
+        )
+    if len(opens) > max_positions:
+        lines.append(f"    … {len(opens) - max_positions} more")
+    return lines
+
+
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
-    """Universe summary plus open option rows (trade_log) and open equity rows (state json)."""
+    """Positions grouped by trading account (large options, large equities, PDT); then active universe."""
     p = default_paths(root)
     plans_data = _read_plans(p["plans"])
     plan_lookup = _plan_by_pid(plans_data)
@@ -590,7 +632,8 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
         if plans_data
         else build_universe_report(root, max_active=max_active)
     )
-    lines: list[str] = ["=== Universe ===", univ_text, ""]
+
+    lines: list[str] = ["=== Positions by account ===", ""]
 
     latest = _latest_rows_per_plan_csv(p["trade_log"])
     opts: list[tuple[str, dict[str, str]]] = []
@@ -599,7 +642,13 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             opts.append((pid, row))
     opts.sort(key=lambda t: (str(t[1].get("symbol") or ""), t[0]))
 
-    lines.append(f"=== Options (large paper book, {len(opts)} open) ===")
+    lines.extend(
+        [
+            "─── LARGE OPTIONS (local paper book · not IBKR) ───",
+            f"    {ACCOUNT_LARGE_OPTIONS}",
+            f"    Open: {len(opts)} monitor position(s) (trade_log)",
+        ]
+    )
     if not opts:
         lines.append("  (none — no rows with closed=0)")
     else:
@@ -653,7 +702,14 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     eq_open.sort(key=lambda t: (str(t[1].get("symbol") or ""), t[0]))
     eq_log = _latest_equity_open_rows_by_plan(p["equity_trade_log"])
 
-    lines.extend(["", f"=== Equities (IBKR paper, {len(eq_open)} open) ==="])
+    lines.extend(
+        [
+            "",
+            "─── LARGE EQUITIES (IBKR paper · stocks only) ───",
+            f"    {ACCOUNT_LARGE_EQUITIES}",
+            f"    Open: {len(eq_open)} stock position(s)",
+        ]
+    )
     if not eq_open:
         lines.append("  (none open)")
     else:
@@ -695,6 +751,17 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
 
         if len(eq_open) > max_positions:
             lines.append(f"  … {len(eq_open) - max_positions} more")
+
+    lines.append("")
+    lines.extend(_positions_challenge_section(root, max_positions=max_positions))
+
+    lines.extend(
+        [
+            "",
+            "=== Active universe (plan source — not a separate balance) ===",
+            univ_text,
+        ]
+    )
 
     return "\n".join(lines)
 
