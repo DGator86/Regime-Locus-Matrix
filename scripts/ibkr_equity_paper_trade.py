@@ -249,7 +249,7 @@ def _equity_prop_firm_new_entry_ok(log_path: Path) -> tuple[bool, str]:
                 f"({max_loss_pct:.2f}% of ${book_seed:,.0f} book seed)",
             )
     if max_opens > 0 and opens_today >= max_opens:
-        return False, f"opens today {opens_today} ≥ cap {max_opens}"
+        return False, f"opens today {opens_today} >= cap {max_opens}"
     return True, ""
 
 
@@ -968,7 +968,7 @@ def open_equity_positions(
         print(
             f"  [equity] {sym}: {action} {qty} shares @ ~${entry_price:.2f} "
             f"(${qty * entry_price:,.0f} notional) [dry={dry_run}]"
-            + (f" | {prof_note} stop±{eff_s:.2f}% tgt+{eff_tgt:.2f}% hold≥{eff_mh:.0f}s" if dynamic_horizon else ""),
+            + (f" | {prof_note} stop±{eff_s:.2f}% tgt+{eff_tgt:.2f}% hold>={eff_mh:.0f}s" if dynamic_horizon else ""),
             flush=True,
         )
 
@@ -1407,7 +1407,7 @@ def main() -> None:
         print(f"  plan missing grace (universe): {grace_sec:.0f}s", flush=True)
     print(f"  min hold (thesis exits): {min_hold_main:.0f}s", flush=True)
     if trail_act is not None and trail_rf is not None:
-        print(f"  trailing give-back: arm ≥{trail_act:.2f}% MFE, retrace {trail_rf:.0%}", flush=True)
+        print(f"  trailing give-back: arm >={trail_act:.2f}% MFE, retrace {trail_rf:.0%}", flush=True)
     else:
         print("  trailing give-back: disabled", flush=True)
     print(
