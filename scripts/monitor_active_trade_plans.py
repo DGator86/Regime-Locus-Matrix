@@ -178,7 +178,7 @@ def _refresh_matched_mids(chain: pd.DataFrame, matched_legs: list[dict]) -> list
 
 
 def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) -> None:
-    """Remember leg structure for open positions even after the plan leaves universe JSON."""
+    """Remember leg structure + risk marks for open rows after the plan leaves universe JSON."""
     pid = str(plan.get("plan_id") or "").strip()
     if not pid:
         return
@@ -192,7 +192,26 @@ def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) ->
         "combo_spec": spec,
         "candidate": plan.get("candidate"),
         "regime_key": plan.get("regime_key"),
+        "thresholds": plan.get("thresholds") or {},
+        "entry_debit_dollars": plan.get("entry_debit_dollars"),
+        "entry_mid_mark_dollars": plan.get("entry_mid_mark_dollars"),
     }
+
+
+def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
+    """``plan_id`` values whose latest CSV row is still open (``closed`` != 1)."""
+    if not log_path.is_file():
+        return set()
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return set()
+    return {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
 
 
 def _evaluate_plan(
@@ -493,6 +512,37 @@ def main() -> int:
                     plan_snapshots = {str(k): v for k, v in loaded.items() if isinstance(v, dict)}
             except (OSError, json.JSONDecodeError):
                 plan_snapshots = {}
+
+        # Re-evaluate open trade_log rows that fell out of universe JSON (use snapshots).
+        if trade_log_path is not None:
+            for oid in sorted(_open_trade_log_plan_ids(trade_log_path)):
+                if oid in seen:
+                    continue
+                sp = plan_snapshots.get(oid)
+                if not isinstance(sp, dict):
+                    continue
+                if not (sp.get("matched_legs") or []) and plan_combo_spec(sp) is None:
+                    continue
+                sym_g = str(sp.get("symbol") or "").strip().upper()
+                if not sym_g:
+                    continue
+                ghost = {
+                    "plan_id": sp.get("plan_id") or oid,
+                    "symbol": sym_g,
+                    "strategy": sp.get("strategy"),
+                    "decision": sp.get("decision"),
+                    "matched_legs": list(sp.get("matched_legs") or []),
+                    "combo_spec": sp.get("combo_spec"),
+                    "candidate": sp.get("candidate"),
+                    "regime_key": sp.get("regime_key"),
+                    "thresholds": sp.get("thresholds") or {},
+                    "entry_debit_dollars": sp.get("entry_debit_dollars"),
+                    "entry_mid_mark_dollars": sp.get("entry_mid_mark_dollars"),
+                    "status": "open",
+                }
+                seen.add(oid)
+                uniq.append(ghost)
+                print(f"[monitor] ghost plan from snapshot: {oid} ({sym_g})", flush=True)
 
         by_sym: dict[str, list[dict]] = {}
         for pl in uniq:

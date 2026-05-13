@@ -196,6 +196,12 @@ def _resolved_options_plan(
         merged["strategy"] = snap.get("strategy")
     if not str(merged.get("symbol") or "").strip() and str(snap.get("symbol") or "").strip():
         merged["symbol"] = snap.get("symbol")
+    if not (merged.get("thresholds") or {}) and (snap.get("thresholds") or {}):
+        merged["thresholds"] = snap["thresholds"]
+    if merged.get("entry_debit_dollars") is None and snap.get("entry_debit_dollars") is not None:
+        merged["entry_debit_dollars"] = snap.get("entry_debit_dollars")
+    if merged.get("entry_mid_mark_dollars") is None and snap.get("entry_mid_mark_dollars") is not None:
+        merged["entry_mid_mark_dollars"] = snap.get("entry_mid_mark_dollars")
     return merged
 
 
