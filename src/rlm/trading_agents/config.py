@@ -20,17 +20,17 @@ def _parse_int_env(name: str, default: int) -> int:
 # Sensible model defaults per provider so users only need to set
 # TRADING_AGENTS_LLM_PROVIDER without also specifying model names.
 _PROVIDER_DEFAULTS: dict = {
-    "openai":     ("gpt-4o",                              "gpt-4o-mini"),
-    "anthropic":  ("claude-opus-4-7",                     "claude-haiku-4-5-20251001"),
-    "google":     ("gemini-2.0-flash",                    "gemini-2.0-flash"),
-    "openrouter": ("meta-llama/llama-4-maverick:free",    "google/gemini-2.0-flash-exp:free"),
-    "deepseek":   ("deepseek-reasoner",                   "deepseek-chat"),
-    "xai":        ("grok-2",                              "grok-2"),
-    "ollama":     ("llama3.2",                            "llama3.2"),
-    "qwen":       ("qwen-max",                            "qwen-turbo"),
-    "glm":        ("glm-4",                               "glm-4-flash"),
+    "openai": ("gpt-4o", "gpt-4o-mini"),
+    "anthropic": ("claude-opus-4-7", "claude-haiku-4-5-20251001"),
+    "google": ("gemini-2.0-flash", "gemini-2.0-flash"),
+    "openrouter": ("meta-llama/llama-4-maverick:free", "google/gemini-2.0-flash-exp:free"),
+    "deepseek": ("deepseek-reasoner", "deepseek-chat"),
+    "xai": ("grok-2", "grok-2"),
+    "ollama": ("llama3.2", "llama3.2"),
+    "qwen": ("qwen-max", "qwen-turbo"),
+    "glm": ("glm-4", "glm-4-flash"),
     # Groq via openai-compat endpoint
-    "_groq":      ("llama-3.3-70b-versatile",             "llama-3.1-8b-instant"),
+    "_groq": ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
 }
 
 
@@ -85,9 +85,7 @@ class TradingAgentsConfig:
     backend_url: Optional[str] = None  # None = use provider's native endpoint
     max_debate_rounds: int = 1
     max_risk_discuss_rounds: int = 1
-    selected_analysts: List[str] = field(
-        default_factory=lambda: ["market", "news", "fundamentals"]
-    )
+    selected_analysts: List[str] = field(default_factory=lambda: ["market", "news", "fundamentals"])
     online_tools: bool = False
     checkpoint_enabled: bool = False
 
@@ -100,9 +98,7 @@ class TradingAgentsConfig:
 
         if explicit_provider:
             provider = explicit_provider
-            default_deep, default_quick = _PROVIDER_DEFAULTS.get(
-                explicit_provider.lower(), ("gpt-4o", "gpt-4o-mini")
-            )
+            default_deep, default_quick = _PROVIDER_DEFAULTS.get(explicit_provider.lower(), ("gpt-4o", "gpt-4o-mini"))
             deep = explicit_deep or default_deep
             quick = explicit_quick or default_quick
             backend = explicit_backend

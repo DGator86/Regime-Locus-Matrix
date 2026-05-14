@@ -20,8 +20,8 @@ from typing import Any, Callable
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
-from rlm.notify.options_plain_language import humanize_strategy_name as _strategy_entry_human
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
+from rlm.notify.options_plain_language import humanize_strategy_name as _strategy_entry_human
 from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
 from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
 
@@ -462,9 +462,7 @@ def _build_new_opt_message(
     return "\n".join(lines)
 
 
-def _build_tp_opt_message(
-    sym: str, pid: str, mark: str, row: dict, plan: dict, root: Path
-) -> str:
+def _build_tp_opt_message(sym: str, pid: str, mark: str, row: dict, plan: dict, root: Path) -> str:
     entry_debit = row.get("entry_debit") or row.get("entry_mid") or "?"
     dte_val = row.get("dte") or ""
     thresholds = plan.get("thresholds") or {}
@@ -1060,9 +1058,7 @@ def build_universe_report_from_data(data: dict[str, Any], *, max_active: int = 1
             rs_fmt = f"{float(rs):.4f}"  # type: ignore[arg-type]
         except (TypeError, ValueError):
             rs_fmt = str(rs or "?")
-        lines.append(
-            f"  • {sym}  strategy={st}  regime={reg_h}  score={rs_fmt}  conf={conf_fmt}  id={pid}"
-        )
+        lines.append(f"  • {sym}  strategy={st}  regime={reg_h}  score={rs_fmt}  conf={conf_fmt}  id={pid}")
     if not actives:
         lines.append("  (no active rows)")
     return "\n".join(lines)
@@ -1228,7 +1224,7 @@ def _challenge_pnl_section(root: Path) -> str:
         f"This week (realized, exit date): {_fmt_pnl(weekly)}",
         f"Net vs seed (cash):              {_fmt_pnl(all_time)}",
         f"Open MTM (unrealized):           {_fmt_pnl(open_mtm)}",
-        f"Ledger:    data/processed/ledgers/pdt_robinhood_challenge_book.csv",
+        "Ledger:    data/processed/ledgers/pdt_robinhood_challenge_book.csv",
     ]
     n_trades = len(trade_history)
     if n_trades:
@@ -1514,9 +1510,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
                 ch_raw = json.loads(ch_path.read_text(encoding="utf-8"))
                 st.challenge_trade_n = len(ch_raw.get("trade_history") or [])
                 st.challenge_open_ids = {
-                    str(o.get("position_id"))
-                    for o in (ch_raw.get("open_positions") or [])
-                    if o.get("position_id")
+                    str(o.get("position_id")) for o in (ch_raw.get("open_positions") or []) if o.get("position_id")
                 }
             except (OSError, json.JSONDecodeError):
                 st.challenge_trade_n = 0
@@ -1546,9 +1540,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
                 ch_raw = json.loads(ch_path.read_text(encoding="utf-8"))
                 st.challenge_trade_n = len(ch_raw.get("trade_history") or [])
                 st.challenge_open_ids = {
-                    str(o.get("position_id"))
-                    for o in (ch_raw.get("open_positions") or [])
-                    if o.get("position_id")
+                    str(o.get("position_id")) for o in (ch_raw.get("open_positions") or []) if o.get("position_id")
                 }
             except (OSError, json.JSONDecodeError):
                 st.challenge_trade_n = 0
@@ -1578,9 +1570,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             st.announced_exit.add(pid)
             st.announced_trade_open.discard(pid)
             out.append(
-                _build_exit_opt_message(sym, pid, mark, sig, row, plan)
-                + "\n"
-                + _options_exit_account_impact(root)
+                _build_exit_opt_message(sym, pid, mark, sig, row, plan) + "\n" + _options_exit_account_impact(root)
             )
 
         st.last_opt_signal[pid] = sig

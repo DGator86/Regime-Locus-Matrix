@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Strategy keys match ``select_trade`` / ``decision.strategy_name`` naming.
 _STRATEGY_TITLE: dict[str, str] = {
     "long_call_spread": "Long call debit spread — defined-risk bullish play",
@@ -199,7 +198,5 @@ def explain_trade_plan(plan: dict[str, Any]) -> str:
         lines.extend(thold)
 
     lines.append("")
-    lines.append(
-        "Note: 'Model' levels come from the pipeline/monitor; always confirm bid/ask and your broker's P/L."
-    )
+    lines.append("Note: 'Model' levels come from the pipeline/monitor; always confirm bid/ask and your broker's P/L.")
     return "\n".join(lines).rstrip() + "\n"

@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from rlm.features.factors.base import standardize_factor_frame
 from rlm.factors import FactorPipeline
+from rlm.features.factors.base import standardize_factor_frame
 from rlm.types.factors import FactorCategory, FactorSpec, TransformKind
 
 
@@ -73,11 +73,7 @@ def test_standardized_factors_are_bounded() -> None:
 
 
 def test_standardize_factor_frame_coerces_nullable_missing_values() -> None:
-    raw = pd.DataFrame(
-        {
-            "spread_ratio": pd.Series([pd.NA, 1.0, 1.1, 0.9, 1.2, 0.8])
-        }
-    )
+    raw = pd.DataFrame({"spread_ratio": pd.Series([pd.NA, 1.0, 1.1, 0.9, 1.2, 0.8])})
     specs = [
         FactorSpec(
             "spread_ratio",

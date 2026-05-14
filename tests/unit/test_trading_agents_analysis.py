@@ -4,10 +4,7 @@ import importlib.util
 import pathlib
 
 # Load directly from file to avoid rlm.hermes_facts.__init__ → pandas import chain.
-_fact_path = (
-    pathlib.Path(__file__).resolve().parents[2]
-    / "src" / "rlm" / "hermes_facts" / "trading_agents_analysis.py"
-)
+_fact_path = pathlib.Path(__file__).resolve().parents[2] / "src" / "rlm" / "hermes_facts" / "trading_agents_analysis.py"
 _spec = importlib.util.spec_from_file_location("rlm.hermes_facts.trading_agents_analysis", _fact_path)
 ta_module = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(ta_module)  # type: ignore[union-attr]

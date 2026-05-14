@@ -242,8 +242,7 @@ def main() -> None:
         tracker = ChallengeTracker(data_root=str(data_parent))
         state = tracker.reset(cfg)
         print(
-            f"Challenge reset: balance=${state.balance:,.2f} target=${state.target:,.2f} "
-            f"({tracker.state_path()})"
+            f"Challenge reset: balance=${state.balance:,.2f} target=${state.target:,.2f} " f"({tracker.state_path()})"
         )
 
 

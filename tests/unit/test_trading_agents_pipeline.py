@@ -18,32 +18,27 @@ Synthetic data intentionally covers:
   - All risk level variants
   - All confidence derivation paths
 """
+
 from __future__ import annotations
 
+import importlib.util
 import json
+import pathlib
 from typing import Any
 
 import pytest
-
-import importlib.util
-import pathlib
 
 import rlm.trading_agents.integration as integration_mod
 
 # Load the fact module directly from its file to avoid triggering
 # rlm.hermes_facts.__init__, which eagerly imports market_context → pandas.
-_fact_path = (
-    pathlib.Path(__file__).resolve().parents[2]
-    / "src" / "rlm" / "hermes_facts" / "trading_agents_analysis.py"
-)
+_fact_path = pathlib.Path(__file__).resolve().parents[2] / "src" / "rlm" / "hermes_facts" / "trading_agents_analysis.py"
 _spec = importlib.util.spec_from_file_location("rlm.hermes_facts.trading_agents_analysis", _fact_path)
 ta_module = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(ta_module)  # type: ignore[union-attr]
 from rlm.trading_agents.config import (
     _GROQ_BASE_URL,
     _PROVIDER_DEFAULTS,
-    _auto_detect_provider,
-    _parse_int_env,
 )
 from rlm.trading_agents.integration import (
     TradingAgentsResult,
@@ -78,6 +73,7 @@ SYNTHETIC_FULL_STATE = {
     "messages": [{"role": "assistant", "content": "Analysis complete."}],
 }
 
+
 # Object-style decision (simulates a Pydantic model)
 class _ObjDecision:
     action = "SELL"
@@ -102,8 +98,11 @@ SYNTHETIC_NO_PRICES_DICT = {
 SYNTHETIC_MINIMAL_STATE: dict = {}
 
 _ALL_ENV_KEYS = (
-    "GROQ_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY",
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
 )
 
 
@@ -116,10 +115,12 @@ def _clear_provider_keys(monkeypatch):
 # STAGE 1 — Config loading
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestStage1Config:
     def test_default_config_has_no_backend_url(self):
         """TradingAgentsConfig() bare default must NOT preset a Groq URL."""
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig()
         assert cfg.backend_url is None
 
@@ -127,6 +128,7 @@ class TestStage1Config:
         _clear_provider_keys(monkeypatch)
         monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.backend_url == _GROQ_BASE_URL
         assert cfg.llm_provider == "openai"
@@ -136,6 +138,7 @@ class TestStage1Config:
         _clear_provider_keys(monkeypatch)
         monkeypatch.setenv("GOOGLE_API_KEY", "AIza_test")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.backend_url is None
         assert cfg.llm_provider == "google"
@@ -145,6 +148,7 @@ class TestStage1Config:
         _clear_provider_keys(monkeypatch)
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.backend_url is None
         assert cfg.llm_provider == "openrouter"
@@ -155,6 +159,7 @@ class TestStage1Config:
         monkeypatch.delenv("TRADING_AGENTS_DEEP_THINK_LLM", raising=False)
         monkeypatch.delenv("TRADING_AGENTS_QUICK_THINK_LLM", raising=False)
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.llm_provider == "anthropic"
         assert "claude" in cfg.deep_think_llm.lower()
@@ -166,6 +171,7 @@ class TestStage1Config:
         monkeypatch.delenv("TRADING_AGENTS_DEEP_THINK_LLM", raising=False)
         monkeypatch.delenv("TRADING_AGENTS_QUICK_THINK_LLM", raising=False)
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.llm_provider == "google"
         assert "gemini" in cfg.deep_think_llm.lower()
@@ -175,6 +181,7 @@ class TestStage1Config:
         monkeypatch.setenv("TRADING_AGENTS_DEEP_THINK_LLM", "claude-opus-4-7")
         monkeypatch.setenv("TRADING_AGENTS_QUICK_THINK_LLM", "claude-sonnet-4-6")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.deep_think_llm == "claude-opus-4-7"
         assert cfg.quick_think_llm == "claude-sonnet-4-6"
@@ -184,12 +191,14 @@ class TestStage1Config:
         monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
         monkeypatch.setenv("TRADING_AGENTS_BACKEND_URL", "http://localhost:11434/v1")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.backend_url == "http://localhost:11434/v1"
 
     def test_analysts_parsed_correctly(self, monkeypatch):
         monkeypatch.setenv("TRADING_AGENTS_ANALYSTS", "market, social , news")
         from rlm.trading_agents.config import TradingAgentsConfig
+
         cfg = TradingAgentsConfig.from_env()
         assert cfg.selected_analysts == ["market", "social", "news"]
 
@@ -204,67 +213,77 @@ class TestStage1Config:
 # STAGE 2 — Data normalizers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestStage2Normalizers:
 
     # ── _normalise_action ────────────────────────────────────────────────────
-    @pytest.mark.parametrize("raw,expected", [
-        ("BUY", "BUY"),
-        ("buy", "BUY"),             # lowercase
-        ("OVERWEIGHT", "BUY"),
-        ("STRONG BUY", "BUY"),
-        ("STRONG_BUY", "BUY"),
-        ("SELL", "SELL"),
-        ("sell", "SELL"),
-        ("UNDERWEIGHT", "SELL"),
-        ("STRONG SELL", "SELL"),
-        ("STRONG_SELL", "SELL"),
-        ("HOLD", "HOLD"),
-        ("hold", "HOLD"),
-        (None, "HOLD"),
-        ("UNKNOWN", "HOLD"),        # unrecognised → HOLD
-        ("", "HOLD"),               # empty string → HOLD
-        (123, "HOLD"),              # numeric → HOLD (not a token)
-        ({"action": "BUY"}, "HOLD"),  # dict as raw → str("{'action': 'BUY'}") → HOLD
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("BUY", "BUY"),
+            ("buy", "BUY"),  # lowercase
+            ("OVERWEIGHT", "BUY"),
+            ("STRONG BUY", "BUY"),
+            ("STRONG_BUY", "BUY"),
+            ("SELL", "SELL"),
+            ("sell", "SELL"),
+            ("UNDERWEIGHT", "SELL"),
+            ("STRONG SELL", "SELL"),
+            ("STRONG_SELL", "SELL"),
+            ("HOLD", "HOLD"),
+            ("hold", "HOLD"),
+            (None, "HOLD"),
+            ("UNKNOWN", "HOLD"),  # unrecognised → HOLD
+            ("", "HOLD"),  # empty string → HOLD
+            (123, "HOLD"),  # numeric → HOLD (not a token)
+            ({"action": "BUY"}, "HOLD"),  # dict as raw → str("{'action': 'BUY'}") → HOLD
+        ],
+    )
     def test_normalise_action(self, raw, expected):
         assert _normalise_action(raw) == expected
 
     # ── _normalise_risk ──────────────────────────────────────────────────────
-    @pytest.mark.parametrize("raw,expected", [
-        ("HIGH", "HIGH"),
-        ("high", "HIGH"),
-        ("HIGH RISK", "HIGH"),
-        ("AGGRESSIVE", "HIGH"),
-        ("LOW", "LOW"),
-        ("low", "LOW"),
-        ("CONSERVATIVE", "LOW"),
-        ("MINIMAL", "LOW"),
-        ("MODERATE", "MODERATE"),
-        ("MEDIUM", "MODERATE"),
-        ("NEUTRAL", "MODERATE"),
-        ("BALANCED", "MODERATE"),
-        (None, "MODERATE"),
-        ("", "MODERATE"),
-        ("UNKNOWN_LEVEL", "UNKNOWN_LEVEL"),  # passthrough unknown
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("HIGH", "HIGH"),
+            ("high", "HIGH"),
+            ("HIGH RISK", "HIGH"),
+            ("AGGRESSIVE", "HIGH"),
+            ("LOW", "LOW"),
+            ("low", "LOW"),
+            ("CONSERVATIVE", "LOW"),
+            ("MINIMAL", "LOW"),
+            ("MODERATE", "MODERATE"),
+            ("MEDIUM", "MODERATE"),
+            ("NEUTRAL", "MODERATE"),
+            ("BALANCED", "MODERATE"),
+            (None, "MODERATE"),
+            ("", "MODERATE"),
+            ("UNKNOWN_LEVEL", "UNKNOWN_LEVEL"),  # passthrough unknown
+        ],
+    )
     def test_normalise_risk(self, raw, expected):
         assert _normalise_risk(raw) == expected
 
     # ── _safe_float ──────────────────────────────────────────────────────────
-    @pytest.mark.parametrize("value,expected", [
-        (524.50, 524.50),
-        ("524.50", 524.50),
-        ("$524.50", 524.50),
-        ("$1,510.00", 1510.00),
-        ("$1,234,567.89", 1234567.89),
-        (0, 0.0),
-        (None, None),
-        ("N/A", None),
-        ("n/a", None),
-        ("--", None),
-        ("", None),
-        ("not a number", None),
-    ])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (524.50, 524.50),
+            ("524.50", 524.50),
+            ("$524.50", 524.50),
+            ("$1,510.00", 1510.00),
+            ("$1,234,567.89", 1234567.89),
+            (0, 0.0),
+            (None, None),
+            ("N/A", None),
+            ("n/a", None),
+            ("--", None),
+            ("", None),
+            ("not a number", None),
+        ],
+    )
     def test_safe_float(self, value, expected):
         assert _safe_float(value) == expected
 
@@ -289,6 +308,7 @@ class TestStage2Normalizers:
         class _Obj:
             action = None
             investment_thesis = "thesis"
+
         assert _pick(_Obj(), ("action", "investment_thesis")) == "thesis"
 
     def test_pick_falsy_zero_is_valid(self):
@@ -351,6 +371,7 @@ class TestStage2Normalizers:
 # STAGE 3 — Adapter.analyze() with synthetic decision formats
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _make_adapter_with_mock(monkeypatch, state, decision):
     """Build a TradingAgentsAdapter whose _graph.propagate returns (state, decision)."""
     from rlm.trading_agents.config import TradingAgentsConfig
@@ -383,7 +404,7 @@ class TestStage3Adapter:
         assert result.entry_price == pytest.approx(524.50)
         assert result.stop_loss == pytest.approx(1510.00)
         assert result.risk_level == "MODERATE"
-        assert result.confidence == "HIGH"   # OVERWEIGHT in research_plan
+        assert result.confidence == "HIGH"  # OVERWEIGHT in research_plan
         assert result.symbol == "SPY"
         assert result.analysis_date == "2026-05-06"
         assert "bullish momentum" in result.rationale
@@ -395,7 +416,7 @@ class TestStage3Adapter:
         assert result.entry_price == pytest.approx(498.00)
         assert result.stop_loss == pytest.approx(510.00)
         assert result.risk_level == "HIGH"
-        assert result.confidence == "MEDIUM"   # no research plan → MEDIUM
+        assert result.confidence == "MEDIUM"  # no research plan → MEDIUM
 
     def test_minimal_dict_defaults_correctly(self, monkeypatch):
         adapter = _make_adapter_with_mock(monkeypatch, {}, SYNTHETIC_MINIMAL_DICT)
@@ -419,7 +440,7 @@ class TestStage3Adapter:
         """state returned as a list should not crash — defaults to empty dict."""
         adapter = _make_adapter_with_mock(monkeypatch, ["unexpected", "list"], SYNTHETIC_MINIMAL_DICT)
         result = adapter.analyze("SPY", "2026-05-06")
-        assert result.confidence == "MEDIUM"   # no research_plan found
+        assert result.confidence == "MEDIUM"  # no research_plan found
 
     def test_symbol_uppercased_automatically(self, monkeypatch):
         adapter = _make_adapter_with_mock(monkeypatch, {}, SYNTHETIC_MINIMAL_DICT)
@@ -438,6 +459,7 @@ class TestStage3Adapter:
 
     def test_date_defaults_to_today(self, monkeypatch):
         from datetime import date
+
         today = date.today().strftime("%Y-%m-%d")
         adapter = _make_adapter_with_mock(monkeypatch, {}, SYNTHETIC_MINIMAL_DICT)
         result = adapter.analyze("SPY")
@@ -463,10 +485,18 @@ class TestStage3Adapter:
 # STAGE 4 — TradingAgentsResult serialisation
 # ─────────────────────────────────────────────────────────────────────────────
 
-EXPECTED_RESULT_KEYS = frozenset({
-    "symbol", "analysis_date", "action", "rationale",
-    "entry_price", "stop_loss", "risk_level", "confidence",
-})
+EXPECTED_RESULT_KEYS = frozenset(
+    {
+        "symbol",
+        "analysis_date",
+        "action",
+        "rationale",
+        "entry_price",
+        "stop_loss",
+        "risk_level",
+        "confidence",
+    }
+)
 
 
 class TestStage4Serialisation:
@@ -520,10 +550,20 @@ class TestStage4Serialisation:
 # STAGE 5 — Hermes fact gatherer response contract
 # ─────────────────────────────────────────────────────────────────────────────
 
-EXPECTED_RESPONSE_KEYS = frozenset({
-    "available", "symbol", "analysis_date", "action", "rationale",
-    "entry_price", "stop_loss", "risk_level", "confidence", "error",
-})
+EXPECTED_RESPONSE_KEYS = frozenset(
+    {
+        "available",
+        "symbol",
+        "analysis_date",
+        "action",
+        "rationale",
+        "entry_price",
+        "stop_loss",
+        "risk_level",
+        "confidence",
+        "error",
+    }
+)
 
 
 class TestStage5HermesFact:
@@ -544,12 +584,13 @@ class TestStage5HermesFact:
         self._assert_contract(result, "SPY")
         assert result["available"] is False
         assert result["error"] is not None
-        assert result["analysis_date"] is not None   # must always be present
+        assert result["analysis_date"] is not None  # must always be present
 
     def test_runtime_error_returns_full_shape(self, monkeypatch):
         class _FlakyAdapter:
             def __init__(self, *a, **kw):
                 pass
+
             def analyze(self, *a, **kw):
                 raise RuntimeError("LLM timeout")
 
@@ -562,14 +603,20 @@ class TestStage5HermesFact:
 
     def test_success_returns_full_shape_with_data(self, monkeypatch):
         mock_result = TradingAgentsResult(
-            symbol="SPY", analysis_date="2026-05-06", action="BUY",
-            rationale="Strong breakout.", entry_price=524.0, stop_loss=510.0,
-            risk_level="MODERATE", confidence="HIGH",
+            symbol="SPY",
+            analysis_date="2026-05-06",
+            action="BUY",
+            rationale="Strong breakout.",
+            entry_price=524.0,
+            stop_loss=510.0,
+            risk_level="MODERATE",
+            confidence="HIGH",
         )
 
         class _GoodAdapter:
             def __init__(self, *a, **kw):
                 pass
+
             def analyze(self, symbol, date=None):
                 return mock_result
 
@@ -592,6 +639,7 @@ class TestStage5HermesFact:
 
     def test_date_default_populated_on_error(self, monkeypatch):
         from datetime import date
+
         today = date.today().strftime("%Y-%m-%d")
 
         class _BrokenAdapter:
@@ -606,6 +654,7 @@ class TestStage5HermesFact:
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 6 — Tool handler (register_rlm_tools)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _stub_tools_registry(monkeypatch):
     """Stub out tools.registry so register_rlm_tools can be imported without hermes-agent."""
@@ -646,11 +695,17 @@ def _stub_tools_registry(monkeypatch):
         "rlm.hermes_facts.trading_agents_analysis": {
             "gather_trading_agents_analysis": ta_module.gather_trading_agents_analysis,
         },
-        "rlm.roee.system_gate": {"SystemGate": type("SystemGate", (), {
-            "__init__": lambda self, *a, **kw: None,
-            "load": lambda self: type("St", (), {"posture": "", "status": "", "last_updated": ""})(),
-            "is_trading_allowed": lambda self: False,
-        })},
+        "rlm.roee.system_gate": {
+            "SystemGate": type(
+                "SystemGate",
+                (),
+                {
+                    "__init__": lambda self, *a, **kw: None,
+                    "load": lambda self: type("St", (), {"posture": "", "status": "", "last_updated": ""})(),
+                    "is_trading_allowed": lambda self: False,
+                },
+            )
+        },
     }
 
     for dep, attrs in _dep_attrs.items():
@@ -669,6 +724,7 @@ class TestStage6ToolHandler:
         # Force re-import now that stubs are in place
         import importlib
         import sys
+
         sys.modules.pop("rlm_hermes_tools.register_rlm_tools", None)
         sys.modules.pop("rlm_hermes_tools", None)
         mod = importlib.import_module("rlm_hermes_tools.register_rlm_tools")
@@ -693,11 +749,18 @@ class TestStage6ToolHandler:
         monkeypatch.setattr(
             ta_module,
             "gather_trading_agents_analysis",
-            lambda symbol, date=None: {"available": True, "symbol": symbol, "action": "HOLD",
-                                       "analysis_date": "2026-05-06", "rationale": "",
-                                       "entry_price": None, "stop_loss": None,
-                                       "risk_level": "MODERATE", "confidence": "MEDIUM",
-                                       "error": None},
+            lambda symbol, date=None: {
+                "available": True,
+                "symbol": symbol,
+                "action": "HOLD",
+                "analysis_date": "2026-05-06",
+                "rationale": "",
+                "entry_price": None,
+                "stop_loss": None,
+                "risk_level": "MODERATE",
+                "confidence": "MEDIUM",
+                "error": None,
+            },
         )
         raw = handler({"symbol": "spy"})
         result = json.loads(raw)
@@ -709,11 +772,21 @@ class TestStage6ToolHandler:
 
         def _fake(symbol, date=None):
             captured.append((symbol, date))
-            return {"available": False, "symbol": symbol, "analysis_date": date,
-                    "action": None, "rationale": None, "entry_price": None,
-                    "stop_loss": None, "risk_level": None, "confidence": None, "error": "test"}
+            return {
+                "available": False,
+                "symbol": symbol,
+                "analysis_date": date,
+                "action": None,
+                "rationale": None,
+                "entry_price": None,
+                "stop_loss": None,
+                "risk_level": None,
+                "confidence": None,
+                "error": "test",
+            }
 
         import sys
+
         reg_mod = sys.modules["rlm_hermes_tools.register_rlm_tools"]
         monkeypatch.setattr(reg_mod, "gather_trading_agents_analysis", _fake)
         handler({"symbol": "SPY", "date": "2026-05-06"})
@@ -725,11 +798,21 @@ class TestStage6ToolHandler:
 
         def _fake(symbol, date=None):
             captured.append((symbol, date))
-            return {"available": False, "symbol": symbol, "analysis_date": date,
-                    "action": None, "rationale": None, "entry_price": None,
-                    "stop_loss": None, "risk_level": None, "confidence": None, "error": "test"}
+            return {
+                "available": False,
+                "symbol": symbol,
+                "analysis_date": date,
+                "action": None,
+                "rationale": None,
+                "entry_price": None,
+                "stop_loss": None,
+                "risk_level": None,
+                "confidence": None,
+                "error": "test",
+            }
 
         import sys
+
         reg_mod = sys.modules["rlm_hermes_tools.register_rlm_tools"]
         monkeypatch.setattr(reg_mod, "gather_trading_agents_analysis", _fake)
         handler({"symbol": "SPY", "analysis_date": "2026-05-06"})
@@ -749,7 +832,9 @@ class TestStage6ToolHandler:
 
     def test_schema_requires_symbol(self, monkeypatch):
         _stub_tools_registry(monkeypatch)
-        import importlib, sys
+        import importlib
+        import sys
+
         sys.modules.pop("rlm_hermes_tools.register_rlm_tools", None)
         sys.modules.pop("rlm_hermes_tools", None)
         mod = importlib.import_module("rlm_hermes_tools.register_rlm_tools")
@@ -757,7 +842,9 @@ class TestStage6ToolHandler:
 
     def test_schema_date_is_optional(self, monkeypatch):
         _stub_tools_registry(monkeypatch)
-        import importlib, sys
+        import importlib
+        import sys
+
         sys.modules.pop("rlm_hermes_tools.register_rlm_tools", None)
         sys.modules.pop("rlm_hermes_tools", None)
         mod = importlib.import_module("rlm_hermes_tools.register_rlm_tools")

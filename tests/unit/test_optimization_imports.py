@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_optimization_tuning_compatibility_module_exports_helpers() -> None:
@@ -80,6 +84,7 @@ def test_microstructure_collector_compatibility_cli_modules_show_help() -> None:
             check=False,
             capture_output=True,
             text=True,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
         )
 
         assert result.returncode == 0, result.stderr

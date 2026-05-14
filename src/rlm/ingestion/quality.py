@@ -32,7 +32,9 @@ def validate_option_chain(df: pd.DataFrame) -> QualityResult:
     missing = sorted(required - set(df.columns))
     reasons: list[str] = [f"missing-col:{m}" for m in missing]
     if not missing:
-        if (pd.to_numeric(df["bid"], errors="coerce") < 0).any() or (pd.to_numeric(df["ask"], errors="coerce") < 0).any():
+        if (pd.to_numeric(df["bid"], errors="coerce") < 0).any() or (
+            pd.to_numeric(df["ask"], errors="coerce") < 0
+        ).any():
             reasons.append("negative-bid-ask")
         if pd.to_datetime(df["expiration"], errors="coerce").isna().any():
             reasons.append("invalid-expiration")

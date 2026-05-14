@@ -12,4 +12,3 @@ EXIT_SIGNALS = frozenset(
         "max_loss_stop",
     }
 )
-

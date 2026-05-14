@@ -17,12 +17,12 @@ from rlm.data.lake import (
     stock_1d_parquet,
     stock_1m_parquet,
 )
-from rlm.ingestion.quality import validate_bar_timestamps, validate_option_contracts
 from rlm.ingestion.fetchers.ibkr.stocks import IBKRStockFetcher
 from rlm.ingestion.fetchers.massive.bars import MassiveOptionBarsFetcher
 from rlm.ingestion.fetchers.massive.contracts import MassiveContractsFetcher
 from rlm.ingestion.fetchers.massive.quotes import MassiveOptionQuotesFetcher
 from rlm.ingestion.fetchers.massive.trades import MassiveOptionTradesFetcher
+from rlm.ingestion.quality import validate_bar_timestamps, validate_option_contracts
 
 
 def write_ibkr_stock_parquet(
