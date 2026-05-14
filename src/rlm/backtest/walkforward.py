@@ -149,13 +149,23 @@ def _safe_last_value(df: pd.DataFrame, col: str) -> Any:
 
 
 def _extract_next_regime_and_locus_snapshot(oos_features: pd.DataFrame) -> dict[str, Any]:
-    """Return last-bar regime transition probability + likely next price locus fields."""
+    """Return combined next-regime diagnostics + likely next price locus fields."""
     snapshot: dict[str, Any] = {
         "next_regime_model": "none",
         "next_regime_label": None,
         "next_regime_probability": None,
         "next_regime_calibrated_probability": None,
         "next_regime_state": None,
+        "hmm_next_regime_probability": None,
+        "hmm_next_regime_calibrated_probability": None,
+        "hmm_next_regime_state": None,
+        "hmm_next_regime_label": None,
+        "markov_next_regime_probability": None,
+        "markov_next_regime_calibrated_probability": None,
+        "markov_next_regime_state": None,
+        "markov_next_regime_label": None,
+        "ensemble_next_regime_probability": None,
+        "ensemble_next_regime_state": None,
         "next_regime_price_locus_center": _safe_last_value(oos_features, "mean_price"),
         "next_regime_price_locus_lower_1s": _safe_last_value(oos_features, "lower_1s"),
         "next_regime_price_locus_upper_1s": _safe_last_value(oos_features, "upper_1s"),
@@ -163,24 +173,36 @@ def _extract_next_regime_and_locus_snapshot(oos_features: pd.DataFrame) -> dict[
         "next_regime_price_locus_upper_2s": _safe_last_value(oos_features, "upper_2s"),
     }
 
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
     for family in ("hmm", "markov"):
         prob = _safe_last_value(oos_features, f"{family}_most_likely_next_prob")
         if prob is None:
             continue
-        snapshot["next_regime_model"] = family
-        snapshot["next_regime_probability"] = float(prob)
-        snapshot["next_regime_calibrated_probability"] = _safe_last_value(
-            oos_features, f"{family}_most_likely_next_prob_calibrated"
-        )
-        st = _safe_last_value(oos_features, f"{family}_most_likely_next_state")
-        snapshot["next_regime_state"] = int(st) if st is not None else None
-        snapshot["next_regime_label"] = _safe_last_value(oos_features, f"{family}_most_likely_next_label")
-        break
+        state = _safe_last_value(oos_features, f"{family}_most_likely_next_state")
+        label = _safe_last_value(oos_features, f"{family}_most_likely_next_label")
+        calibrated = _safe_last_value(oos_features, f"{family}_most_likely_next_prob_calibrated")
+        snapshot[f"{family}_next_regime_probability"] = float(prob)
+        snapshot[f"{family}_next_regime_calibrated_probability"] = calibrated
+        snapshot[f"{family}_next_regime_state"] = int(state) if state is not None else None
+        snapshot[f"{family}_next_regime_label"] = label
+        candidates.append((float(prob), family, {
+            "next_regime_state": snapshot[f"{family}_next_regime_state"],
+            "next_regime_label": label,
+            "next_regime_calibrated_probability": calibrated,
+        }))
 
-    if snapshot["next_regime_model"] == "none" and "regime_ensemble_confidence" in oos_features.columns:
-        snapshot["next_regime_model"] = "ensemble"
-        snapshot["next_regime_probability"] = _safe_last_value(oos_features, "regime_ensemble_confidence")
-        snapshot["next_regime_state"] = _safe_last_value(oos_features, "regime_ensemble_state")
+    ensemble_prob = _safe_last_value(oos_features, "regime_ensemble_confidence")
+    ensemble_state = _safe_last_value(oos_features, "regime_ensemble_state")
+    if ensemble_prob is not None:
+        snapshot["ensemble_next_regime_probability"] = float(ensemble_prob)
+        snapshot["ensemble_next_regime_state"] = int(ensemble_state) if ensemble_state is not None else None
+        candidates.append((float(ensemble_prob), "ensemble", {"next_regime_state": snapshot["ensemble_next_regime_state"], "next_regime_label": None, "next_regime_calibrated_probability": None}))
+
+    if candidates:
+        best_prob, best_model, meta = max(candidates, key=lambda item: item[0])
+        snapshot["next_regime_model"] = best_model
+        snapshot["next_regime_probability"] = best_prob
+        snapshot.update(meta)
 
     return snapshot
 

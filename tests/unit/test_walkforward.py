@@ -135,7 +135,11 @@ def test_run_walkforward_reports_next_regime_and_price_locus_fields() -> None:
     assert not summary_df.empty
     assert "next_regime_model" in summary_df.columns
     assert "next_regime_probability" in summary_df.columns
+    assert "hmm_next_regime_probability" in summary_df.columns
+    assert "markov_next_regime_probability" in summary_df.columns
+    assert "ensemble_next_regime_probability" in summary_df.columns
     assert "next_regime_price_locus_center" in summary_df.columns
     assert "next_regime_price_locus_lower_1s" in summary_df.columns
     assert "next_regime_price_locus_upper_1s" in summary_df.columns
     assert summary_df["next_regime_model"].isin(["hmm", "markov", "ensemble", "none"]).all()
+    assert summary_df["hmm_next_regime_probability"].notna().any()
