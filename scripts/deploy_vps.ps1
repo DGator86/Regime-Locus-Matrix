@@ -1,5 +1,8 @@
 # Sync repo to VPS: git push (unless -SkipPush), then ssh pull + restart systemd unit(s).
 # From repo root:  .\scripts\deploy_vps.ps1
+# After pull, seeds data/processed/live_*.json from configs/*.seed.json only when those files are
+# missing (host-tuned JSON stays gitignored). Optional -StashOnVpsBeforePull for pre-pull local edits
+# to tracked files; configs/*.seed.json are restored to HEAD after stash pop.
 # Overrides: $env:VPS_HOST, $env:VPS_USER, $env:VPS_REPO, $env:VPS_SYSTEMD_UNITS, $env:VPS_ENSURE_UNITS
 #
 # -SystemdUnits: comma-separated base names or full unit names (e.g. regime-locus-master,rlm-master-telegram).
@@ -11,7 +14,7 @@ param(
     [switch] $SkipPush,
     [switch] $SkipRestart,
     [switch] $SkipEnsure,
-    [switch] $StashOnVpsBeforePull, # Stash before pull so host-only data/processed/*.json survives if git drops tracked copies
+    [switch] $StashOnVpsBeforePull,
     [string] $SystemdUnits = "",
     [string] $EnsureUnits = ""
 )
@@ -38,9 +41,14 @@ if ($StashOnVpsBeforePull) {
     $remote += "git stash push -u -m deploy_vps_autostash 2>/dev/null || true; "
 }
 $remote += "git pull --ff-only origin main"
+# Host runtime JSON is gitignored; after a pull that drops tracked copies, seed from configs/ if missing.
+$remote += " && mkdir -p data/processed"
+$remote += " && (test -f data/processed/live_regime_model.json || (test -f configs/live_regime_model.seed.json && cp configs/live_regime_model.seed.json data/processed/live_regime_model.json))"
+$remote += " && (test -f data/processed/live_nightly_hyperparams.json || (test -f configs/live_nightly_hyperparams.seed.json && cp configs/live_nightly_hyperparams.seed.json data/processed/live_nightly_hyperparams.json))"
 if ($StashOnVpsBeforePull) {
     $remote += " && (git stash pop || true)"
 }
+$remote += " && (git restore configs/live_regime_model.seed.json configs/live_nightly_hyperparams.seed.json 2>/dev/null || true)"
 # Match deploy_to_vps.sh: refresh editable install (PEP 668 safe via /opt/rlm-venv on Ubuntu VPS)
 $remote += " && PY=/opt/rlm-venv/bin/python; if [ -x `"`$PY`" ]; then `"`$PY`" -m pip install -e . -q; elif [ -x .venv/bin/python ]; then .venv/bin/python -m pip install -e . -q; fi"
 if (-not $SkipRestart) {
