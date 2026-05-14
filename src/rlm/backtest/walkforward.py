@@ -139,6 +139,52 @@ def _expand_training_window_for_regimes(
     return adjusted_start, coverage
 
 
+def _safe_last_value(df: pd.DataFrame, col: str) -> Any:
+    if col not in df.columns or df.empty:
+        return None
+    val = df[col].iloc[-1]
+    if pd.isna(val):
+        return None
+    return val
+
+
+def _extract_next_regime_and_locus_snapshot(oos_features: pd.DataFrame) -> dict[str, Any]:
+    """Return last-bar regime transition probability + likely next price locus fields."""
+    snapshot: dict[str, Any] = {
+        "next_regime_model": "none",
+        "next_regime_label": None,
+        "next_regime_probability": None,
+        "next_regime_calibrated_probability": None,
+        "next_regime_state": None,
+        "next_regime_price_locus_center": _safe_last_value(oos_features, "mean_price"),
+        "next_regime_price_locus_lower_1s": _safe_last_value(oos_features, "lower_1s"),
+        "next_regime_price_locus_upper_1s": _safe_last_value(oos_features, "upper_1s"),
+        "next_regime_price_locus_lower_2s": _safe_last_value(oos_features, "lower_2s"),
+        "next_regime_price_locus_upper_2s": _safe_last_value(oos_features, "upper_2s"),
+    }
+
+    for family in ("hmm", "markov"):
+        prob = _safe_last_value(oos_features, f"{family}_most_likely_next_prob")
+        if prob is None:
+            continue
+        snapshot["next_regime_model"] = family
+        snapshot["next_regime_probability"] = float(prob)
+        snapshot["next_regime_calibrated_probability"] = _safe_last_value(
+            oos_features, f"{family}_most_likely_next_prob_calibrated"
+        )
+        st = _safe_last_value(oos_features, f"{family}_most_likely_next_state")
+        snapshot["next_regime_state"] = int(st) if st is not None else None
+        snapshot["next_regime_label"] = _safe_last_value(oos_features, f"{family}_most_likely_next_label")
+        break
+
+    if snapshot["next_regime_model"] == "none" and "regime_ensemble_confidence" in oos_features.columns:
+        snapshot["next_regime_model"] = "ensemble"
+        snapshot["next_regime_probability"] = _safe_last_value(oos_features, "regime_ensemble_confidence")
+        snapshot["next_regime_state"] = _safe_last_value(oos_features, "regime_ensemble_state")
+
+    return snapshot
+
+
 def run_walkforward(
     *,
     bars: pd.DataFrame,
@@ -326,6 +372,8 @@ def run_walkforward(
             tr["window_id"] = window_id
             all_trades.append(tr)
 
+        transition_snapshot = _extract_next_regime_and_locus_snapshot(oos_features)
+
         summary_row = {
             "window_id": window_id,
             "is_start": str(is_bars.index[0]),
@@ -343,6 +391,7 @@ def run_walkforward(
             "regime_safety_fraction": round(float(oos_features["regime_safety_ok"].mean()), 3),
             "regime_safety_passed": float(oos_features["regime_safety_ok"].mean()) >= 0.70,
             **regime_meta,
+            **transition_snapshot,
         }
         if cfg.log_vp_metrics:
             balance_ratio = (

@@ -113,3 +113,29 @@ def test_run_walkforward_reports_purge_and_regime_metadata() -> None:
     assert "regime_safety_passed" in summary_df.columns
     assert int(summary_df["purge_bars"].iloc[0]) == 5
     assert bool(summary_df["regime_aware"].iloc[0]) is True
+
+
+
+def test_run_walkforward_reports_next_regime_and_price_locus_fields() -> None:
+    bars = make_bars(240)
+    chain = make_chain(bars)
+
+    _, _, summary_df = run_walkforward(
+        bars=bars,
+        option_chain=chain,
+        forecast_config=ForecastConfig(),
+        wf_config=WalkForwardConfig(
+            is_window=100,
+            oos_window=40,
+            step_size=40,
+        ),
+        use_hmm=True,
+    )
+
+    assert not summary_df.empty
+    assert "next_regime_model" in summary_df.columns
+    assert "next_regime_probability" in summary_df.columns
+    assert "next_regime_price_locus_center" in summary_df.columns
+    assert "next_regime_price_locus_lower_1s" in summary_df.columns
+    assert "next_regime_price_locus_upper_1s" in summary_df.columns
+    assert summary_df["next_regime_model"].isin(["hmm", "markov", "ensemble", "none"]).all()
