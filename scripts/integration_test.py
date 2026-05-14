@@ -136,16 +136,18 @@ except Exception as e:
 # STEP 2 — LiveRegimeModelConfig load + field validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-step("LiveRegimeModelConfig — load from live_regime_model.json")
+step("LiveRegimeModelConfig — load from live_regime_model.json or configs seed")
 
 import pandas as pd
 
 live_model_path = ROOT / "data" / "processed" / "live_regime_model.json"
+seed_model_path = ROOT / "configs" / "live_regime_model.seed.json"
+path_for_live = live_model_path if live_model_path.is_file() else seed_model_path
 live_cfg: LiveRegimeModelConfig | None = None
 
 try:
-    live_cfg = load_live_regime_model(live_model_path)
-    ok(f"Loaded from {live_model_path.name}")
+    live_cfg = load_live_regime_model(path_for_live)
+    ok(f"Loaded from {path_for_live.relative_to(ROOT)}")
     info(f"model = {live_cfg.model!r}")
     info(f"roee.confidence_threshold = {live_cfg.roee.confidence_threshold}")
     info(f"roee.high_vol_kelly_multiplier = {live_cfg.roee.high_vol_kelly_multiplier}")
@@ -156,7 +158,11 @@ except Exception as e:
     fail(f"load_live_regime_model: {e}")
 
 if live_cfg is not None:
-    check(live_cfg.model == "hmm", "model == 'hmm'", f"model = {live_cfg.model!r} (expected 'hmm')")
+    check(
+        live_cfg.model in ("hmm", "markov", "forecast"),
+        "model is hmm | markov | forecast",
+        f"model = {live_cfg.model!r} (unexpected)",
+    )
     check(
         hasattr(live_cfg.roee, "high_vol_kelly_multiplier"),
         "LiveROEEParameters has high_vol_kelly_multiplier",

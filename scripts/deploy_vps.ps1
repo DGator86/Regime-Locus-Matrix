@@ -11,7 +11,7 @@ param(
     [switch] $SkipPush,
     [switch] $SkipRestart,
     [switch] $SkipEnsure,
-    [switch] $StashOnVpsBeforePull,
+    [switch] $StashOnVpsBeforePull, # Stash before pull so host-only data/processed/*.json survives if git drops tracked copies
     [string] $SystemdUnits = "",
     [string] $EnsureUnits = ""
 )

@@ -1018,7 +1018,7 @@ def main() -> int:
             live_model = load_live_regime_model(live_model_path)
             print(f"Using live model config: {live_model_path}")
         else:
-            # Same defaults as versioned data/processed/live_regime_model.json; persist after overlay
+            # Same defaults as configs/live_regime_model.seed.json; persist after overlay
             # so hosts without that file match fresh-clone behavior. Weekly calibrate overwrites when run.
             live_model = LiveRegimeModelConfig(model="hmm")
             live_model_bootstrapped = True
