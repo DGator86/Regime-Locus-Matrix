@@ -14,7 +14,7 @@ from pathlib import Path
 from tools.registry import registry
 
 from rlm.hermes_facts.health import gather_health_report
-from rlm.hermes_facts.market_context import build_trade_and_regime_context
+from rlm.hermes_facts.market_context import build_regime_strategy_matrix, build_trade_and_regime_context
 from rlm.hermes_facts.trading_agents_analysis import gather_trading_agents_analysis
 from rlm.roee.system_gate import SystemGate
 
@@ -32,6 +32,10 @@ def _rlm_get_trade_and_regime_context_json(args: dict | None = None, **kw) -> st
     root = _root()
     text = build_trade_and_regime_context(root)
     return json.dumps({"context": text}, ensure_ascii=False)
+
+
+def _rlm_get_regime_strategy_matrix_json(args: dict | None = None, **kw) -> str:
+    return json.dumps({"matrix": build_regime_strategy_matrix()}, ensure_ascii=False, default=str)
 
 
 def _rlm_get_system_gate_state_json(args: dict | None = None, **kw) -> str:
@@ -90,6 +94,15 @@ RLM_CONTEXT_SCHEMA = {
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
+RLM_STRATEGY_MATRIX_SCHEMA = {
+    "name": "rlm_get_regime_strategy_matrix",
+    "description": (
+        "Return JSON matrix of deterministic regime-conditioned decision mappings for equities and "
+        "options, including short-DTE and standard strategy branches."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
 RLM_GATE_SCHEMA = {
     "name": "rlm_get_system_gate_state",
     "description": "Return JSON system gate posture/status from data/processed/gate_state.json.",
@@ -136,6 +149,15 @@ registry.register(
     handler=lambda args, **kw: _rlm_get_health_report_json(args or {}, **kw),
     check_fn=_check_rlm_root,
     emoji="🔧",
+)
+
+registry.register(
+    name="rlm_get_regime_strategy_matrix",
+    toolset="rlm",
+    schema=RLM_STRATEGY_MATRIX_SCHEMA,
+    handler=lambda args, **kw: _rlm_get_regime_strategy_matrix_json(args or {}, **kw),
+    check_fn=lambda: True,
+    emoji="🧭",
 )
 
 registry.register(

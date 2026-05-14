@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from rlm.roee.strategy_map import get_strategy_for_regime
 from rlm.utils.market_hours import session_label
 
 _STALE_THRESHOLD_MINUTES = 30
@@ -282,3 +283,47 @@ def build_trade_and_regime_context(root: Path) -> str:
         sections.append(f"=== Walk-forward OOS (universe aggregate) ===\n{wf_agg}")
 
     return "\n\n".join(sections) if sections else "No active plans or signals found."
+
+
+def build_regime_strategy_matrix() -> list[dict[str, object]]:
+    """Return explicit regime→equity/options decision mappings for Hermes analysis.
+
+    The matrix is generated from the current deterministic strategy router so it
+    stays aligned with production decision logic.
+    """
+
+    rows: list[dict[str, object]] = []
+    directions = ("bull", "bear", "range", "transition")
+    volatilities = ("low_vol", "high_vol")
+    liquidities = ("high_liquidity", "low_liquidity")
+    flows = ("supportive", "destabilizing")
+
+    for direction in directions:
+        equity_action = "long" if direction == "bull" else "short" if direction == "bear" else "hold"
+        for volatility in volatilities:
+            for liquidity in liquidities:
+                for flow in flows:
+                    for short_dte in (False, True):
+                        candidate = get_strategy_for_regime(
+                            direction=direction,
+                            volatility=volatility,
+                            liquidity=liquidity,
+                            dealer_flow=flow,
+                            short_dte=short_dte,
+                        )
+                        rows.append(
+                            {
+                                "direction": direction,
+                                "volatility": volatility,
+                                "liquidity": liquidity,
+                                "dealer_flow": flow,
+                                "short_dte": short_dte,
+                                "equity_action": equity_action,
+                                "options_strategy": candidate.strategy_name,
+                                "target_dte": [candidate.target_dte_min, candidate.target_dte_max],
+                                "target_profit_pct": candidate.target_profit_pct,
+                                "max_risk_pct": candidate.max_risk_pct,
+                                "defined_risk": candidate.defined_risk,
+                            }
+                        )
+    return rows
