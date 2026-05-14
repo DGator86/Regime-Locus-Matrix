@@ -338,6 +338,7 @@ class RLMHMM:
                 perm_keys_raw,
                 perm_values_raw,
             )
+            self._state_permutation = None
             return t_old
         t_new = np.zeros((n, n), dtype=np.float64)
         for i_old in range(n):
