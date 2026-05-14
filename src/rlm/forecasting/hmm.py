@@ -316,17 +316,27 @@ class RLMHMM:
         if self._state_permutation is None:
             return t_old
         n = t_old.shape[0]
-        perm_keys = set(int(k) for k in self._state_permutation.keys())
-        perm_values = [int(v) for v in self._state_permutation.values()]
-        perm_value_set = set(perm_values)
+        perm_keys_raw = list(self._state_permutation.keys())
+        perm_values_raw = list(self._state_permutation.values())
         expected = set(range(n))
-        if perm_keys != expected or perm_value_set != expected or len(perm_values) != n:
+        valid_key_types = all(isinstance(k, (int, np.integer)) for k in perm_keys_raw)
+        valid_value_types = all(isinstance(v, (int, np.integer)) for v in perm_values_raw)
+        perm_keys = set(perm_keys_raw) if valid_key_types else None
+        perm_value_set = set(perm_values_raw) if valid_value_types else None
+        if (
+            not valid_key_types
+            or not valid_value_types
+            or len(perm_keys_raw) != n
+            or len(perm_values_raw) != n
+            or perm_keys != expected
+            or perm_value_set != expected
+        ):
             logger.warning(
                 "Invalid HMM state permutation detected for transition matrix reordering; "
                 "expected bijection over [0, %d], got keys=%s values=%s. Falling back to identity.",
                 n - 1,
-                sorted(perm_keys),
-                sorted(perm_values),
+                perm_keys_raw,
+                perm_values_raw,
             )
             return t_old
         t_new = np.zeros((n, n), dtype=np.float64)
