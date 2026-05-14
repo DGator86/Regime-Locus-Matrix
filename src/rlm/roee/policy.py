@@ -13,6 +13,7 @@ from rlm.roee.sizing import (
     compute_regime_adjusted_kelly_fraction,
     compute_regime_penalty_multiplier,
     compute_size_fraction,
+    kelly_confidence_from_uncertainty,
     kelly_voltarget_size,
     parse_latent_regime_label,
     quantize_fraction,
@@ -140,6 +141,42 @@ def build_candidate_from_strategy_name(
             target_profit_pct=0.25,
             max_risk_pct=0.005,
             defined_risk=True,
+        )
+    if strategy_name == "aggressive_daytrader_call":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_call",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0-3DTE long call, time-or-percent stop.",
+            target_dte_min=0,
+            target_dte_max=3,
+            target_profit_pct=2.0,
+            max_risk_pct=0.08,
+            long_sigma=0.2,
+            defined_risk=False,
+        )
+    if strategy_name == "aggressive_daytrader_put":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_put",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0-3DTE long put, time-or-percent stop.",
+            target_dte_min=0,
+            target_dte_max=3,
+            target_profit_pct=2.0,
+            max_risk_pct=0.08,
+            long_sigma=-0.2,
+            defined_risk=False,
+        )
+    if strategy_name == "aggressive_daytrader_0DTE_straddle":
+        return TradeCandidate(
+            strategy_name="aggressive_daytrader_0DTE_straddle",
+            regime_key=regime_key,
+            rationale="Aggressive sniper: 0DTE ATM straddle on high-vol event.",
+            target_dte_min=0,
+            target_dte_max=0,
+            target_profit_pct=1.5,
+            max_risk_pct=0.05,
+            long_sigma=0.0,
+            defined_risk=False,
         )
 
     legacy_candidate = get_strategy_for_regime(
@@ -341,11 +378,12 @@ def _core_trade_decision_from_strategy_name(
             max_kelly_fraction=effective_kelly_fraction,
             max_capital_fraction=max_capital_fraction,
         )
+        kelly_confidence = kelly_confidence_from_uncertainty(forecast_uncertainty=forecast_uncertainty)
         size_fraction = quantize_fraction(
             min(
                 candidate.max_risk_pct,
                 max_capital_fraction,
-                raw_dynamic_size * regime_penalty,
+                raw_dynamic_size * regime_penalty * kelly_confidence,
             )
         )
         size_model = "kelly_vol_target"
@@ -359,6 +397,7 @@ def _core_trade_decision_from_strategy_name(
                 "max_kelly_fraction": effective_kelly_fraction,
                 "max_capital_fraction": float(max_capital_fraction),
                 "raw_dynamic_size": raw_dynamic_size,
+                "kelly_confidence_multiplier": kelly_confidence,
                 "regime_adjusted_kelly": regime_adjusted_kelly,
                 "regime_state_label": regime_state_label or "",
                 "regime_state_confidence": (

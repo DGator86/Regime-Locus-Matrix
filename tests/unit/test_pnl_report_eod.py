@@ -42,9 +42,9 @@ def test_eod_report_open_closed_and_worst_symbols(tmp_path: Path, monkeypatch: p
     assert "Exits (closed=1): 1" in text
     assert "IWM" in text or "Worst" in text
     # Missing parallel books: placeholders, not a failure
-    assert "Equities" in text
+    assert "Large equities" in text or "equities" in text.lower()
     assert "no file" in text.lower() or "file empty" in text
-    assert "Challenge" in text
+    assert "Robinhood" in text or "PDT" in text
     assert "no data/challenge/state" in text or "state.json" in text
 
 
@@ -152,5 +152,5 @@ def test_eod_includes_challenge_when_state_exists(tmp_path: Path, monkeypatch: p
     fixed = datetime(2026, 4, 24, 20, 0, tzinfo=timezone.utc)
     monkeypatch.setattr("rlm.notify.pnl_report._now_utc", lambda: fixed, raising=True)
     out = calculate_daily_pnl(tmp_path)
-    assert "Challenge" in out
+    assert "Robinhood" in out or "PDT" in out
     assert "1,100.00" in out

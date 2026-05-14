@@ -7,9 +7,9 @@ always completes.
 
 Also writes:
 
-* ``walkforward_summary_universe_all_windows.csv`` — concatenated OOS window rows + ``symbol`` column
-* ``walkforward_universe_latest.json`` — snapshot aggregates for dashboards / crew
-* appends one JSON object per run to ``walkforward_universe_runs.jsonl`` — time series of
+* ``walkforward_summary_universe_all_windows.csv`` - concatenated OOS window rows + ``symbol`` column
+* ``walkforward_universe_latest.json`` - snapshot aggregates for dashboards / crew
+* appends one JSON object per run to ``walkforward_universe_runs.jsonl`` - time series of
   cross-symbol OOS quality (track record / optimization feedback)
 
 Install the systemd units in ``deploy/systemd/`` for daily unattended runs.
@@ -123,7 +123,7 @@ def main() -> int:
     total_windows = 0
 
     print(
-        f"[walkforward-universe] {len(symbols)} symbols → processed dir {out_dir}",
+        f"[walkforward-universe] {len(symbols)} symbols -> processed dir {out_dir}",
         flush=True,
     )
 
@@ -133,11 +133,11 @@ def main() -> int:
             chain_df = load_option_chain(sym, data_root=args.data_root, backend=args.backend)
         except FileNotFoundError as e:
             failed.append({"symbol": sym, "error": f"missing data: {e}"})
-            print(f"  [skip] {sym} — {e}", flush=True)
+            print(f"  [skip] {sym} - {e}", flush=True)
             continue
         except Exception as e:
             failed.append({"symbol": sym, "error": str(e)})
-            print(f"  [skip] {sym} — load error: {e}", flush=True)
+            print(f"  [skip] {sym} - load error: {e}", flush=True)
             continue
 
         cfg = build_pipeline_config(args, sym)
@@ -156,7 +156,7 @@ def main() -> int:
             svc.write_outputs(req, result)
         except Exception:
             failed.append({"symbol": sym, "error": traceback.format_exc()[-800:]})
-            print(f"  [fail] {sym} — walkforward/backtest error", flush=True)
+            print(f"  [fail] {sym} - walkforward/backtest error", flush=True)
             traceback.print_exc()
             continue
 
@@ -170,7 +170,7 @@ def main() -> int:
                     sharpes.append(m)
 
         wf_path = out_dir / walkforward_summary_filename(sym)
-        print(f"  [ok] {sym} — {wf_path.name}", flush=True)
+        print(f"  [ok] {sym} - {wf_path.name}", flush=True)
 
     combined = _concat_universe_summaries(out_dir)
     if combined is not None:
@@ -198,7 +198,7 @@ def main() -> int:
     _append_jsonl(out_dir / "walkforward_universe_runs.jsonl", snapshot)
 
     print(
-        f"[walkforward-universe] done — ok={len(ok)} failed={len(failed)} " f"mean_window_sharpe={cross_sharpe}",
+        f"[walkforward-universe] done - ok={len(ok)} failed={len(failed)} " f"mean_window_sharpe={cross_sharpe}",
         flush=True,
     )
     return 0 if ok else 1

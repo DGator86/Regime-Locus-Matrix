@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 
-from rlm.challenge.config import MILESTONES, ChallengeConfig
+from rlm.challenge.config import MILESTONES, ChallengeConfig, apply_challenge_profile_env
 from rlm.challenge.engine import ChallengeEngine
 from rlm.challenge.tracker import ChallengeTracker
 from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
@@ -79,10 +79,12 @@ def main() -> None:  # noqa: C901
     args = _parse_args()
     symbol = normalize_symbol(args.symbol)
 
-    cfg = ChallengeConfig(
-        seed_capital=args.capital,
-        target_capital=args.target,
-        symbol=symbol,
+    cfg = apply_challenge_profile_env(
+        ChallengeConfig(
+            seed_capital=args.capital,
+            target_capital=args.target,
+            symbol=symbol,
+        )
     )
     tracker = ChallengeTracker(data_root=args.data_root)
 
@@ -179,6 +181,21 @@ def _get_signals(
         directive = persona.sisko.directive
         alignment = persona.seven.signal_alignment
         conf = persona.seven.confidence
+
+        if directive == "no_trade" and not result.policy_df.empty:
+            from rlm.challenge.regime_signal import (
+                regime_fallback_directive_from_policy_row,
+                regime_fallback_floor_scores,
+            )
+
+            prow = result.policy_df.iloc[-1]
+            fb, fb_note = regime_fallback_directive_from_policy_row(prow)
+            if fb in ("long", "short"):
+                floor_a, floor_c = regime_fallback_floor_scores()
+                directive = fb
+                alignment = max(alignment, floor_a)
+                conf = max(conf, floor_c)
+                print(f"[challenge] {fb_note} — using {fb} for dry-run session", file=sys.stderr)
 
         # Underlying price: last close from bars
         price = underlying_price_override

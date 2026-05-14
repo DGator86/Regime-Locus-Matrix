@@ -2,7 +2,7 @@
 """Post-session performance check: trigger nightly re-optimization when win rate degrades.
 
 Reads ``data/processed/trade_log.csv`` (closed rows only), computes a rolling
-win rate over the last ``--lookback`` closed trades, and fires
+win rate over the last ``--lookback`` distinct closed trades, and fires
 ``run_nightly_hyperparam_opt.py`` when the rate falls below ``--warn-threshold``.
 If it falls below ``--critical-threshold`` it also re-runs
 ``calibrate_regime_models.py`` to promote a new champion regime model.
@@ -41,17 +41,20 @@ DEFAULT_CRITICAL_THRESHOLD = 0.30  # also trigger regime re-calibration below th
 
 
 def _read_closed_pnl(path: Path, lookback: int) -> list[float]:
-    """Return PnL values for the last ``lookback`` closed trades (closed=1)."""
+    """Return PnL values for the last ``lookback`` distinct closed trades."""
     if not path.is_file():
         return []
-    rows: list[float] = []
+    closed_by_plan: dict[str, tuple[int, float]] = {}
     with path.open("r", encoding="utf-8", newline="") as f:
-        for r in csv.DictReader(f):
+        for seq, r in enumerate(csv.DictReader(f)):
             if str(r.get("closed", "0")).strip() == "1":
                 try:
-                    rows.append(float(r.get("unrealized_pnl", 0) or 0))
+                    pnl = float(r.get("unrealized_pnl", 0) or 0)
                 except (TypeError, ValueError):
-                    rows.append(0.0)
+                    pnl = 0.0
+                plan_id = str(r.get("plan_id", "")).strip() or f"__closed_row_{seq}"
+                closed_by_plan[plan_id] = (seq, pnl)
+    rows = [pnl for _, pnl in sorted(closed_by_plan.values(), key=lambda item: item[0])]
     return rows[-lookback:]
 
 

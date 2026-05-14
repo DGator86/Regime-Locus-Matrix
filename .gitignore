@@ -37,12 +37,17 @@ data/options/
 
 # Bare (no-symbol) backtest output — symbol-specific files are canonical
 data/processed/backtest_equity.csv
+# Runtime outputs in data/processed are intentionally untracked to prevent
+# deploy-time merge conflicts across hosts. Keep only promoted config below.
 
 # Keep gitkeep sentinels; ignore everything else under data/ subdirs
 data/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/live_regime_model.json
+!data/processed/live_nightly_hyperparams.json
+!data/processed/regime_transition_calibration.json
+!data/challenge/.gitkeep
 
 # Model / experiment artifacts
 artifacts/
@@ -59,8 +64,13 @@ checkpoints/
 *.csv
 *.json
 !data/processed/live_regime_model.json
+!data/processed/live_nightly_hyperparams.json
+!data/processed/regime_transition_calibration.json
 !dashboard/package.json
 !dashboard/tsconfig.json
+!market-field-navigator/frontend/package.json
+!market-field-navigator/frontend/package-lock.json
+!market-field-navigator/frontend/tsconfig.json
 !configs/*.json
 !configs/*.yaml
 
@@ -75,6 +85,19 @@ checkpoints/
 # Backup junk
 _rebase_abort_backup/
 
+# JavaScript dependencies/build artifacts
+node_modules/
+dist/
+
+# Python build artifacts (editable installs, setuptools)
+build/
+
 # IDE
 .cursor/
 *.code-workspace
+
+# Committed health snapshot (startup decision-tree); overrides data/** and *.csv/*.json above
+!data/health_snapshot/
+!data/health_snapshot/manifest.json
+!data/health_snapshot/bars_SPY_slice.csv
+!data/health_snapshot/spy_large_plan.json

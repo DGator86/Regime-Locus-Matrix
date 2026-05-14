@@ -1,8 +1,8 @@
 [Unit]
-Description=Timer for RLM weekly regime model calibration (Sunday 20:00 ET = 00:00 UTC Monday)
+Description=Timer for RLM weekly regime model calibration (Sun 20:00 America/New_York)
 
 [Timer]
-OnCalendar=Mon *-*-* 00:00:00
+OnCalendar=Sun *-*-* 20:00:00 America/New_York
 Persistent=true
 RandomizedDelaySec=300
 

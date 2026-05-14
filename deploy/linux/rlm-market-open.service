@@ -1,0 +1,10 @@
+[Unit]
+Description=RLM Market Open - start trading services at 9:00 AM ET
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/rlm-market-hours-start.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -148,8 +148,8 @@ def generate_model_card(
     ## Usage
 
     ```python
-    from rlm.kronos.config import KronosConfig
-    from rlm.pipeline import FullRLMPipeline, FullRLMConfig
+    from rlm.forecasting.kronos_config import KronosConfig
+    from rlm.core.pipeline import FullRLMPipeline, FullRLMConfig
 
     # Point at the checkpoint for the current live regime (e.g. regime_2)
     kronos_cfg = KronosConfig(finetuned_model_path="regime_2/model")
@@ -166,7 +166,7 @@ def generate_model_card(
     from huggingface_hub import snapshot_download
     local = snapshot_download("{repo_id}")
 
-    from rlm.kronos.config import KronosConfig
+    from rlm.forecasting.kronos_config import KronosConfig
     cfg = KronosConfig(finetuned_model_path=f"{{local}}/regime_2/model")
     ```
 

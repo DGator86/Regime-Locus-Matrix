@@ -1,13 +1,13 @@
 """
 EOD PnL Report — daily performance across the books you run in parallel.
 
-**Options (swing / large-account universe monitor)** — ``data/processed/trade_log.csv``:
-per-poll append, ``unrealized_pnl`` = mark minus entry debit. The headline
-“win%” is mark quality, not closed-round-trip quality; we split open vs
-exit rows.
+**Options (swing / large-account universe monitor)** — primary
+``data/processed/trade_log.csv`` or ``RLM_OPTIONS_TRADE_LOG_PATH``; if that file is
+empty, readers also try ``data/processed/options_large_account_trade_log.csv`` (common
+master-stack override). Same columns: per-poll ``unrealized_pnl`` = mark minus entry debit.
 
-**Equities (regime stock leg)** — ``data/processed/equity_trade_log.csv``: same
-shape idea (``action``/``quantity`` present); one section when the file exists.
+**Equities (regime stock leg)** — ``data/processed/equity_trade_log.csv`` (override with
+``RLM_EQUITY_TRADE_LOG_PATH``): same shape idea (``action``/``quantity`` present); one section when the file exists.
 
 **$1K → $25K PDT options challenge (dry-run)** — ``data/challenge/state.json`` (and
 optional ``data/challenge/trade_log.csv`` for history): session closed P&L
@@ -19,17 +19,29 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections.abc import Iterator
 from datetime import date as date_type
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from rlm.notify.ledger_books import write_trading_ledgers
+from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
+
 _ET = ZoneInfo("America/New_York")
 
-_CH_TITLE = "Challenge $1K→$25K (PDT / dry-run)"
-_EQUITY_TITLE = "Equities (IBKR regime log)"
-_OPT_TITLE = "Options (universe monitor / swing or large acct)"
+_CH_TITLE = "PDT — Robinhood $1K→$25K (elite paper / dry-run)"
+_EQUITY_TITLE = "Large equities — IBKR prop-style log"
+_OPT_TITLE = "Large options — advanced book ($250k seed default)"
+
+
+def _equity_trade_log_path(root: Path) -> Path:
+    raw = (os.environ.get("RLM_EQUITY_TRADE_LOG_PATH") or "").strip()
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else root / p
+    return root / "data" / "processed" / "equity_trade_log.csv"
 
 
 def _now_utc() -> datetime:
@@ -244,30 +256,66 @@ def _load_all_rows(path: Path) -> list[dict[str, str]]:
 
 def calculate_daily_pnl(root: Path) -> str:
     """Build HTML-ish Telegram string for the session (US/Eastern *calendar* day)."""
+    try:
+        write_trading_ledgers(root)
+    except Exception:
+        pass
     now_utc = _now_utc()
     session_date = now_utc.astimezone(_ET).date()
 
     try:
         blocks: list[str] = [
             f"<b>[EOD Report] {session_date} (ET)</b>\n"
-            f"<i>Options = swing/large acct log · Equities = stock leg · "
-            f"Challenge = PDT $1K→$25K dry-run</i>\n",
+            f"<i>Large options book · Large equities (IBKR) · PDT Robinhood elite paper</i>\n"
+            f"<i>Ledgers:</i> <code>data/processed/ledgers/*.csv</code>\n"
+            f"<i>Options open P&amp;L = latest mark vs plan entry (paper monitor); not realized until exits. "
+            f"Big red days are often mark noise, not a closed-book loss.</i>\n",
         ]
 
-        opt_path = root / "data" / "processed" / "trade_log.csv"
-        if opt_path.is_file():
-            raw = _load_all_rows(opt_path)
-            if not raw:
-                blocks.append(f"<b>{_OPT_TITLE}</b>\n  (file empty)\n")
-            else:
-                today = _rows_for_session_day(raw, session_date, equity_only=False)
-                today_opt = [r for r in today if not _is_equity_log_row(r)]
-                blocks.append(_format_log_section(title=_OPT_TITLE, today_rows=today_opt))
-        else:
-            msg = f"<b>{_OPT_TITLE}</b>\n  (no options trade_log — run universe monitor)\n"
-            blocks.append(msg)
+        raw: list[dict[str, str]] = []
+        opt_path_used: Path | None = None
+        opt_path_empty: Path | None = None
+        for cand in options_trade_log_read_paths(root):
+            if not cand.is_file():
+                continue
+            rows = _load_all_rows(cand)
+            if rows:
+                raw = rows
+                opt_path_used = cand
+                break
+            if opt_path_empty is None:
+                opt_path_empty = cand
 
-        eq_path = root / "data" / "processed" / "equity_trade_log.csv"
+        if raw:
+            today = _rows_for_session_day(raw, session_date, equity_only=False)
+            today_opt = [r for r in today if not _is_equity_log_row(r)]
+            block = _format_log_section(title=_OPT_TITLE, today_rows=today_opt)
+            primary = options_trade_log_primary(root)
+            if opt_path_used is not None and opt_path_used.resolve() != primary.resolve():
+                try:
+                    rel = opt_path_used.relative_to(root)
+                except ValueError:
+                    rel = opt_path_used
+                block += f"\n  <i>source:</i> <code>{rel}</code>\n"
+            blocks.append(block)
+        elif opt_path_empty is not None:
+            try:
+                rel = opt_path_empty.relative_to(root)
+            except ValueError:
+                rel = opt_path_empty
+            blocks.append(f"<b>{_OPT_TITLE}</b>\n  (file empty) <code>{rel}</code>\n")
+        else:
+            bits: list[str] = []
+            for p in options_trade_log_read_paths(root):
+                try:
+                    bits.append(f"<code>{p.relative_to(root)}</code>")
+                except ValueError:
+                    bits.append(f"<code>{p}</code>")
+            blocks.append(
+                f"<b>{_OPT_TITLE}</b>\n  (no options trade_log — tried {'; '.join(bits)}; run universe monitor)\n"
+            )
+
+        eq_path = _equity_trade_log_path(root)
         if eq_path.is_file():
             eq_raw = _load_all_rows(eq_path)
             if not eq_raw:
@@ -276,7 +324,17 @@ def calculate_daily_pnl(root: Path) -> str:
                 today_eq = _rows_for_session_day(eq_raw, session_date, equity_only=True)
                 blocks.append(_format_log_section(title=_EQUITY_TITLE, today_rows=today_eq))
         else:
-            blocks.append(f"<b>{_EQUITY_TITLE}</b>\n  (no file — run ibkr_equity_paper_trade to log this)\n")
+            try:
+                eq_show = eq_path.relative_to(root)
+            except ValueError:
+                eq_show = eq_path
+            blocks.append(
+                f"<b>{_EQUITY_TITLE}</b>\n"
+                f"  <i>no file:</i> <code>{eq_show}</code>\n"
+                "  Run the stock leg with <code>ibkr_equity_paper_trade.py</code> "
+                "(<code>run_everything.py --with-equity</code> in the master stack). "
+                "Check <code>journalctl -u rlm-master-trader -n 80</code> if you expect it already.\n"
+            )
 
         ch = _format_challenge_eod(root, session_date)
         if ch is not None:

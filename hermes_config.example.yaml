@@ -1,0 +1,37 @@
+# RLM Hermes crew — LLM backend configuration
+#
+# The crew reads its settings from environment variables, NOT from this file.
+# Copy the block you want into your .env file (see .env.example).
+# This file is documentation only.
+#
+# ─── OpenRouter (recommended free cloud when BASE_URL unset) ─────────────────
+#
+#   OPENROUTER_API_KEY=sk-or-...
+#   # Optional: RLM_HERMES_MODEL=meta-llama/llama-3.2-3b-instruct:free
+#
+# ─── Groq (opt-in — set AUTO_GROQ so a leftover GROQ_API_KEY does not hijack Ollama / OpenRouter) ──
+#
+#   GROQ_API_KEY=gsk_...
+#   RLM_HERMES_AUTO_GROQ=1
+#   # Optional: RLM_HERMES_MODEL=llama-3.3-70b-versatile
+#
+# ─── local Ollama ─────────────────────────────────────────────────────────────
+#
+#   RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
+#   RLM_HERMES_API_KEY=ollama
+#   RLM_HERMES_MODEL=llama3.2
+#
+# ─── any OpenAI-compatible endpoint (explicit BASE_URL) ───────────────────────
+#
+#   RLM_HERMES_BASE_URL=https://your-endpoint/v1
+#   RLM_HERMES_API_KEY=your-api-key
+#   RLM_HERMES_MODEL=your-model-id
+#
+# ─── Optional tuning ──────────────────────────────────────────────────────────
+#
+#   RLM_HERMES_MAX_ITERATIONS=20    # Hermes tool-call loop limit per agent
+#   RLM_HERMES_SKIP_MEMORY=1        # Disable Hermes persistent memory (headless VPS)
+#
+# ─── Repo root (set automatically by scripts/run_crew.py) ────────────────────
+#
+#   RLM_ROOT=/opt/Regime-Locus-Matrix

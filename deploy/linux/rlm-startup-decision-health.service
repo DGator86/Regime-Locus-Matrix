@@ -1,0 +1,25 @@
+# One-shot: offline SPY decision-tree health (core pipeline + large options + PDT + equity dry-run).
+# Runs at boot and from rlm-market-hours-start.sh (09:00 ET) before live bar sync.
+#
+# Install (same pattern as other linux units):
+#   cp deploy/linux/rlm-startup-decision-health.service /etc/systemd/system/
+#   sed -i 's|@INSTALL_ROOT@|/opt/Regime-Locus-Matrix|g' /etc/systemd/system/rlm-startup-decision-health.service
+#   systemctl daemon-reload
+#   systemctl enable rlm-startup-decision-health.service
+
+[Unit]
+Description=RLM startup decision-tree health (offline SPY snapshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_startup_decision_tree_health.py
+
+[Install]
+WantedBy=multi-user.target

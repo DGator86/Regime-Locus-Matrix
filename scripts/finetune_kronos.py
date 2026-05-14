@@ -27,9 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.kronos.model.kronos import Kronos, KronosTokenizer
+from rlm.forecasting.models.kronos.model.kronos import Kronos, KronosTokenizer
 
-from rlm.kronos.config import KronosConfig
+from rlm.forecasting.kronos_config import KronosConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

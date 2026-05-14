@@ -23,20 +23,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.multi_timeframe import (
+from rlm.features.factors.multi_timeframe import (
     MultiTimeframeEngine,
     format_precompute_instructions,
     parse_higher_tfs,
 )
-from rlm.factors.pipeline import FactorPipeline
-from rlm.optimization.tuning import (
+from rlm.features.factors.pipeline import FactorPipeline
+from rlm.features.optimization.tuning import (
     ForecastParamSample,
     generate_forecast_param_samples,
     random_search_forecast_params,
 )
 
 from rlm.datasets.backtest_data import synthetic_bars_demo, synthetic_option_chain_from_bars
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL, rel_bars_csv, rel_option_chain_csv
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
@@ -123,7 +123,15 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/live_regime_model.json",
         help="Promoted live-model config path (repo-relative)",
     )
-    p.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
+    promote_group = p.add_mutually_exclusive_group()
+    promote_group.add_argument(
+        "--promote",
+        dest="no_promote",
+        action="store_false",
+        default=False,
+        help="Promote the best model to the live config (default).",
+    )
+    promote_group.add_argument("--no-promote", action="store_true", help="Write the report but do not update live model")
     return p.parse_args()
 
 

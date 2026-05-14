@@ -1,4 +1,4 @@
-"""Scanner window (09:00–16:00 America/New_York, Mon–Fri) for universe rescans."""
+"""Scanner window (09:30–16:00 America/New_York, Mon–Fri) for universe rescans."""
 
 from __future__ import annotations
 
@@ -28,14 +28,16 @@ def test_scanner_closed_weekend() -> None:
     assert "weekend" in scanner_window_label(_override=sat)
 
 
-def test_scanner_before_9am_weekday() -> None:
-    mon = _et(2026, 4, 20, 8, 59)  # Monday
+def test_scanner_before_930_weekday() -> None:
+    mon = _et(2026, 4, 20, 9, 0)  # Monday pre-open
     assert not is_scanner_window_open(_override=mon)
     assert "before_scanner_open" in scanner_window_label(_override=mon)
+    mon_929 = _et(2026, 4, 20, 9, 29)
+    assert not is_scanner_window_open(_override=mon_929)
 
 
-def test_scanner_opens_9am_weekday() -> None:
-    mon = _et(2026, 4, 20, 9, 0)
+def test_scanner_opens_930_weekday() -> None:
+    mon = _et(2026, 4, 20, 9, 30)
     assert is_scanner_window_open(_override=mon)
     assert scanner_window_label(_override=mon) == "scanner_open"
 

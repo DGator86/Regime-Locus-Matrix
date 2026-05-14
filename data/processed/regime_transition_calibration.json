@@ -1,0 +1,8 @@
+{
+  "kind": "isotonic_top1_next_regime",
+  "regime_family": "markov",
+  "x_thresholds": [0.0, 1.0],
+  "y_thresholds": [0.0, 1.0],
+  "n_samples": 0,
+  "note": "identity bootstrap until fit_regime_transition_calibration.py --universe is run"
+}

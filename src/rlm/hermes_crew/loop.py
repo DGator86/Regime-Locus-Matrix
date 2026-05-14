@@ -1,0 +1,380 @@
+"""Hermes AI crew loop: pipeline health (data_monitor) → regime research (research_analyst) → commander.
+
+A separate VPS service ``rlm-host-watchdog`` runs `scripts/rlm_enterprise_watchdog.py`; it is not this crew.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional, Tuple
+
+from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
+from rlm.hermes_facts.crew_command import (
+    CommandDecision,
+    parse_command_decision,
+    save_decision,
+    utc_timestamp,
+)
+from rlm.hermes_facts.health import gather_health_report
+from rlm.hermes_facts.market_context import build_trade_and_regime_context
+from rlm.roee.system_gate import SystemGate
+from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id, telegram_crew_send
+
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
+
+_COMMANDER_SYSTEM = """\
+You are the Hermes Crew Commander for Regime Locus Matrix (options / regime trading stack).
+You have two prior reports: Pipeline Health (engineering/systems) and Regime Research (markets/plans).
+Your role: issue one clear command decision and crew orders.
+
+You may call the rlm_* tools to refresh live facts from the trading host before deciding.
+
+SYSTEM HOURS:
+- Market State: [rth / pre_market / after_hours / weekend]
+- If the state is 'after_hours' or 'weekend', batch services may be idle — that is often NORMAL.
+- Maintain STAND-DOWN / HOLD when flat risk budgets after hours unless facts justify otherwise.
+- Do not alert the operator for expected after-hours service closures.
+
+Response format (plain text, no markdown):
+SYSTEM STATUS: [NOMINAL / DEGRADED / CRITICAL]
+MARKET POSTURE: [AGGRESSIVE / NORMAL / DEFENSIVE / STAND-DOWN]
+COMMAND DECISION: <one decisive sentence — GO / HOLD / STAND-DOWN / ALERT OPERATOR>
+RATIONALE: <2-3 sentences max, referencing the pipeline health and regime research highlights>
+CREW ORDERS:
+  - Pipeline Health: <one action item or "maintain current status">
+  - Regime Research: <one action item or "continue monitoring">
+  - Trading Engine: <one directive for execution / risk controls>
+"""
+
+_PIPELINE_HEALTH_FALLBACK = """\
+You are the Pipeline Health analyst for Regime Locus Matrix. Be practical and direct.
+When the market is closed, do not panic about powered-down batch services.
+Summarise what is broken, what is fine, and what to do next in 3-10 short bullets (plain text, no markdown headers).
+"""
+
+_REGIME_RESEARCH_FALLBACK = """\
+You are the Regime Research analyst: logical, probability-focused, no emotional language.
+Analyse active trade plans and regime signals. Number each active plan:
+  1. SYMBOL | STRATEGY | REGIME | ACTION: [GO / HOLD / ABORT] | RATIONALE: <one sentence>
+End with: OVERALL RISK POSTURE: [LOW / MODERATE / HIGH / CRITICAL]
+"""
+
+
+@dataclass
+class HermesCrewConfig:
+    health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "120"))
+    analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300"))
+    briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "600"))
+    telegram_token: str = os.environ.get("RLM_HERMES_TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID") or os.environ.get(
+        "TELEGRAM_NOTIFY_CHAT_ID", ""
+    )
+    silent_health_ok: bool = True
+
+
+def _load_skill_text(root: Path, skill_name: str, fallback: str) -> str:
+    p = root / "hermes_skills" / skill_name / "SKILL.md"
+    if not p.is_file():
+        return fallback
+    raw = p.read_text(encoding="utf-8")
+    if raw.startswith("---"):
+        parts = raw.split("---", 2)
+        if len(parts) >= 3:
+            return parts[2].strip()
+    return raw.strip() or fallback
+
+
+def _load_commander_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "commander", _COMMANDER_SYSTEM)
+
+
+def _load_pipeline_health_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "data_monitor", _PIPELINE_HEALTH_FALLBACK)
+
+
+def _load_regime_research_skill_text(root: Path) -> str:
+    return _load_skill_text(root, "research_analyst", _REGIME_RESEARCH_FALLBACK)
+
+
+def _hermes_updates_system_gate() -> bool:
+    """When false, commander briefing still runs but gate_state.json is not overwritten."""
+    v = (os.environ.get("RLM_HERMES_UPDATE_GATE") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
+    os.environ.setdefault("RLM_ROOT", str(root))
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.append(root_str)
+    try:
+        import run_agent  # noqa: WPS433 — third-party entry
+
+        import rlm_hermes_tools.register_rlm_tools  # noqa: F401, WPS433 — registers tools
+    except ImportError as e:
+        raise RuntimeError('Hermes agent is not installed. Install with: pip install -e ".[hermes]"') from e
+    return run_agent.AIAgent, run_agent
+
+
+def _hermes_effective_toolsets(toolsets: list[str]) -> list[str]:
+    """OpenRouter free routes often omit tool-calling; disable tools unless explicitly enabled."""
+    if (os.environ.get("RLM_HERMES_DISABLE_TOOLS") or "").strip().lower() in _TRUTHY_ENV:
+        return []
+    if (os.environ.get("RLM_HERMES_ENABLE_TOOLS") or "").strip().lower() in _TRUTHY_ENV:
+        return list(toolsets)
+    base = (os.environ.get("RLM_HERMES_BASE_URL") or "").lower()
+    if "openrouter.ai" in base:
+        return []
+    return list(toolsets)
+
+
+def _make_agent_with_skill(
+    root: Path,
+    skill_prompt: str,
+    toolsets: list[str],
+    backend: tuple[str, str, str],
+):
+    AIAgent, _ = _ensure_hermes(root)
+    base_url, api_key, model = backend
+    skip_memory = os.environ.get("RLM_HERMES_SKIP_MEMORY", "").strip().lower() in ("1", "true", "yes")
+    max_it = int(os.environ.get("RLM_HERMES_MAX_ITERATIONS", "20"))
+    return AIAgent(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        quiet_mode=True,
+        enabled_toolsets=_hermes_effective_toolsets(toolsets),
+        ephemeral_system_prompt=skill_prompt,
+        skip_memory=skip_memory,
+        max_iterations=max_it,
+        skip_context_files=True,
+    )
+
+
+def _chat_with_failover(root: Path, skill_prompt: str, user_prompt: str, toolsets: list[str]) -> str:
+    backends = resolve_hermes_backend_tuples()
+    last_error: Exception | None = None
+    for idx, backend in enumerate(backends, start=1):
+        base_url, _, model = backend
+        try:
+            if idx > 1:
+                print(
+                    f"[Hermes crew] retrying with fallback backend #{idx}: {base_url} model={model}",
+                    flush=True,
+                )
+            agent = _make_agent_with_skill(root, skill_prompt, toolsets, backend)
+            out = agent.chat(user_prompt)
+            if out:
+                return out
+            raise RuntimeError("Hermes returned empty response")
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            print(
+                f"[Hermes crew] backend #{idx} failed ({base_url} model={model}): {exc}",
+                flush=True,
+            )
+            continue
+    if last_error is None:
+        raise RuntimeError("No Hermes backends configured")
+    raise RuntimeError(f"All Hermes backends failed: {last_error}")
+
+
+def _make_agent(root: Path):
+    """Commander Hermes agent (backward-compatible helper)."""
+    backend = resolve_hermes_backend_tuples()[0]
+    return _make_agent_with_skill(
+        root,
+        _load_commander_skill_text(root),
+        ["rlm"],
+        backend,
+    )
+
+
+def _run_pipeline_health_agent(root: Path, health_facts_json: str) -> str:
+    """Run the data_monitor (pipeline health) Hermes agent."""
+    return _chat_with_failover(
+        root,
+        _load_pipeline_health_skill_text(root),
+        f"Here are the raw system health facts (JSON):\n\n{health_facts_json}\n\n"
+        "Call rlm_get_health_report or rlm_get_system_gate_state if you need fresher data. "
+        "Produce your engineering report now.",
+        ["rlm"],
+    )
+
+
+def _run_regime_research_agent(root: Path, market_context: str) -> str:
+    """Run the research_analyst Hermes agent."""
+    return _chat_with_failover(
+        root,
+        _load_regime_research_skill_text(root),
+        f"Here is the current market context:\n\n{market_context}\n\n"
+        "Call rlm_get_trade_and_regime_context, rlm_get_system_gate_state, or "
+        "rlm_check_portfolio_limits if you need fresher data. "
+        "Produce your analysis now.",
+        ["rlm"],
+    )
+
+
+def _run_full_briefing(
+    root: Path,
+    health_payload: dict,
+    market_context: str,
+) -> tuple[str, str, str]:
+    """Pipeline health → regime research → commander. Returns (health_text, research_text, commander_text)."""
+    import json
+
+    health_json = json.dumps(health_payload, default=str)
+
+    print("[Hermes crew] Pipeline health agent (data_monitor)...", flush=True)
+    health_report = _run_pipeline_health_agent(root, health_json)
+    print(f"[Hermes crew] Pipeline health done ({len(health_report)} chars)", flush=True)
+
+    print("[Hermes crew] Regime research agent (research_analyst)...", flush=True)
+    research_report = _run_regime_research_agent(root, market_context)
+    print(f"[Hermes crew] Regime research done ({len(research_report)} chars)", flush=True)
+
+    print("[Hermes crew] Commander agent...", flush=True)
+    commander_prompt = (
+        "Here are your crew reports.\n\n"
+        f"=== Pipeline health report ===\n{health_report}\n\n"
+        f"=== Regime research summary ===\n{research_report}\n\n"
+        "You may call rlm_get_health_report, rlm_get_trade_and_regime_context, "
+        "rlm_get_system_gate_state, or rlm_check_portfolio_limits if you need fresher data.\n\n"
+        "Issue your command decision in the required format."
+    )
+    commander_text = _chat_with_failover(root, _load_commander_skill_text(root), commander_prompt, ["rlm"])
+    print(f"[Hermes crew] Commander done ({len(commander_text)} chars)", flush=True)
+
+    return health_report, research_report, commander_text
+
+
+def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> CommandDecision:
+    cfg = cfg or HermesCrewConfig()
+    os.environ["RLM_ROOT"] = str(root.resolve())
+    health = gather_health_report(root)
+    ctx = build_trade_and_regime_context(root)
+    health_ok = bool(health.get("overall_ok", True))
+
+    _, _, llm_text = _run_full_briefing(root, health, ctx)
+
+    ts = utc_timestamp()
+    decision = parse_command_decision(
+        ts,
+        llm_text,
+        health_overall_ok=health_ok,
+        context_for_risk=ctx,
+    )
+    save_decision(root, decision)
+    if _hermes_updates_system_gate():
+        gate = SystemGate(root)
+        gate.update(
+            posture=decision.market_posture,
+            status=decision.system_status,
+            timestamp=decision.timestamp,
+        )
+    if decision.system_status == "CRITICAL" and "ALERT OPERATOR" in decision.command.upper():
+        cid = (cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(root)
+        telegram_crew_send(
+            decision.to_telegram_message(),
+            cfg.telegram_token,
+            cid,
+            silent=False,
+        )
+    return decision
+
+
+def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None:
+    cfg = cfg or HermesCrewConfig()
+    root = root.resolve()
+    os.environ["RLM_ROOT"] = str(root)
+    print(
+        f"[Hermes crew] root={root} health={cfg.health_interval}s "
+        f"analysis={cfg.analysis_interval}s briefing={cfg.briefing_interval}s",
+        flush=True,
+    )
+    gate = SystemGate(root)
+    last_health = 0.0
+    last_analysis = 0.0
+    last_briefing = 0.0
+    last_health_payload: dict = {}
+    last_context = ""
+    eod_sent = False
+
+    while True:
+        now = time.monotonic()
+        try:
+            if now - last_health >= cfg.health_interval:
+                last_health = now
+                last_health_payload = gather_health_report(root)
+                print(last_health_payload.get("report_text", ""), flush=True)
+
+            if now - last_analysis >= cfg.analysis_interval:
+                last_analysis = now
+                last_context = build_trade_and_regime_context(root)
+
+            if now - last_briefing >= cfg.briefing_interval:
+                last_briefing = now
+                if not last_health_payload:
+                    last_health_payload = gather_health_report(root)
+                if not last_context.strip():
+                    last_context = build_trade_and_regime_context(root)
+                health_ok = bool(last_health_payload.get("overall_ok", True))
+
+                _, _, llm_text = _run_full_briefing(root, last_health_payload, last_context)
+                ts = utc_timestamp()
+                decision = parse_command_decision(
+                    ts,
+                    llm_text,
+                    health_overall_ok=health_ok,
+                    context_for_risk=last_context,
+                )
+                save_decision(root, decision)
+                if _hermes_updates_system_gate():
+                    gate.update(
+                        posture=decision.market_posture,
+                        status=decision.system_status,
+                        timestamp=decision.timestamp,
+                    )
+                print(
+                    f"[Hermes crew] Command: {decision.command} " f"(Posture: {decision.market_posture})",
+                    flush=True,
+                )
+                if decision.system_status == "CRITICAL" and "ALERT OPERATOR" in decision.command.upper():
+                    cid = (cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(root)
+                    telegram_crew_send(
+                        decision.to_telegram_message(),
+                        cfg.telegram_token,
+                        cid,
+                        silent=False,
+                    )
+        except KeyboardInterrupt:
+            raise
+        except BaseException as exc:
+            print(f"[Hermes crew ERROR] {exc!r}", flush=True)
+
+        now_utc = datetime.now(timezone.utc)
+        if now_utc.hour == 20 and 15 <= now_utc.minute < 30:
+            if not eod_sent:
+                try:
+                    from rlm.notify.pnl_report import calculate_daily_pnl
+
+                    report_text = calculate_daily_pnl(root)
+                    cid = (cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(root)
+                    telegram_crew_send(
+                        report_text,
+                        cfg.telegram_token,
+                        cid,
+                        silent=False,
+                    )
+                    eod_sent = True
+                except Exception as exc:
+                    print(f"[EOD ERROR] {exc}", flush=True)
+        elif now_utc.hour != 20:
+            eod_sent = False
+
+        time.sleep(1.0)

@@ -23,6 +23,7 @@ def main() -> None:
             "  backtest   Execute a strategy backtest (with optional walk-forward)\n"
             "  trade      Generate and execute live/paper trade plans\n"
             "  challenge  $1K->$25K aggressive options dry-run challenge\n"
+            "  reset-paper  Reset paper equity/options monitor files on disk (not IBKR flat)\n"
             "  doctor     Diagnose the environment, providers, and data lake\n"
             "  status     View consolidated PnL across all systems\n"
             "  dashboard  Open the Next.js dashboard (local dev or VPS URL)\n"
@@ -38,6 +39,7 @@ def main() -> None:
             "backtest",
             "trade",
             "challenge",
+            "reset-paper",
             "doctor",
             "status",
             "dashboard",
@@ -64,6 +66,8 @@ def main() -> None:
         from rlm.cli.trade import main as _main  # type: ignore[assignment]
     elif ns.command == "challenge":
         from rlm.cli.challenge import main as _main  # type: ignore[assignment]
+    elif ns.command == "reset-paper":
+        from rlm.cli.reset_paper import main as _main  # type: ignore[assignment]
     elif ns.command == "doctor":
         from rlm.cli.doctor import main as _main  # type: ignore[assignment]
     elif ns.command == "status":

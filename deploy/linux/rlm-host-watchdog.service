@@ -1,0 +1,25 @@
+# Template: install via deploy/linux/install-systemd.sh (replaces @INSTALL_ROOT@).
+# Optional Telegram + tuning: /opt/enterprise/config/.env (loaded by the script by default).
+# After=ollama is optional — disable on hosts without Ollama.
+
+[Unit]
+Description=RLM host watchdog (systemd + resources + optional Telegram; Hermes crew is separate)
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/rlm_enterprise_watchdog.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rlm-host-watchdog
+
+[Install]
+WantedBy=multi-user.target

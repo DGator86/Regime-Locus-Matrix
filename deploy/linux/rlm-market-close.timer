@@ -1,0 +1,9 @@
+[Unit]
+Description=RLM Market Close Timer (NYSE) - fire at 16:30 America/New_York Mon-Fri
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

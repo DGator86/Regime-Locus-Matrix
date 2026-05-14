@@ -221,6 +221,8 @@ class FullRLMPipeline:
         nightly = self.config.nightly_hyperparams
         roee_overrides: dict[str, float | int | bool] = {}
         for key, value in nightly.items():
+            if key == "mtf_regimes":
+                continue
             if hasattr(self.config, key):
                 setattr(self.config, key, value)
             elif hasattr(self.config.roee_config, key):

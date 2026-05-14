@@ -11,10 +11,12 @@ vs exit rules:
 Input: JSON from ``scripts/run_universe_options_pipeline.py`` (``--out``).
 
 State file (repo root relative): ``data/processed/trade_monitor_state.json`` tracks ``peak_v`` and
-``trail_on`` per ``plan_id``.
+``trail_on`` per ``plan_id``.  ``trade_plan_snapshots.json`` (same directory) stores the last known
+``matched_legs`` / combo for each evaluated plan so Telegram ``/positions`` still formats rows
+after a plan drops out of ``universe_trade_plans.json``.
 
-With ``--paper-close`` (paper **7497** / **4002** / **4004** only), submits a **market** combo in the opposite
-direction of ``ibkr_combo_spec`` once per plan when an exit **ACTION** fires.
+**IBKR policy:** Do not use ``--paper-close`` for live orders — it is **disabled** (exit). Use
+``--paper-close-dry-run`` to log close intent only. IBKR in this project is **equities** only.
 
 Examples::
 
@@ -23,7 +25,7 @@ Examples::
     python scripts/monitor_active_trade_plans.py \
         --plans data/processed/universe_trade_plans.json --interval 120
     python scripts/monitor_active_trade_plans.py \
-        --plans data/processed/universe_trade_plans.json --paper-close --once
+        --plans data/processed/universe_trade_plans.json --paper-close-dry-run --once
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -38,21 +41,20 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = Path(os.environ.get("RLM_ROOT", str(REPO_ROOT))).expanduser().resolve()
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.dte_utils import dte_from_plan, needs_force_close
-from rlm.execution.ibkr_combo_orders import (
-    assert_paper_trading_port,
-    legs_from_ibkr_combo_spec,
-    load_ibkr_order_socket_config,
-    place_options_combo_market_order,
-    reverse_legs_for_close,
+from rlm.execution.exit_signals import EXIT_SIGNALS
+from rlm.execution.combo_spec import (
+    legs_from_combo_spec,
+    plan_combo_spec,
+    reverse_combo_legs,
 )
 from rlm.execution.risk_targets import trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs
@@ -91,13 +93,55 @@ _TRADE_LOG_COLUMNS = [
     "signal",
     "closed",
     "dte",
+    "legs_json",
 ]
+
+
+def _migrate_trade_log_add_columns(log_path: Path, fieldnames: list[str]) -> None:
+    """Rewrite CSV when new monitor columns appear (e.g. legs_json)."""
+    if not log_path.is_file() or log_path.stat().st_size == 0:
+        return
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            old_names = list(reader.fieldnames or [])
+            if old_names and all(c in old_names for c in fieldnames):
+                return
+            rows = list(reader)
+    except OSError:
+        return
+    with log_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({k: (r.get(k) or "") for k in fieldnames})
+
+
+def _legs_json_for_trade_log(updated: list[dict] | None) -> str:
+    """Compact legs for CSV (Telegram + bookkeeping without universe JSON)."""
+    if not updated:
+        return ""
+    slim: list[dict[str, object]] = []
+    for m in updated:
+        exp = m.get("expiry")
+        exp_s = str(pd.Timestamp(exp).date()) if exp is not None else str(m.get("expiry") or "")
+        slim.append(
+            {
+                "side": m.get("side"),
+                "option_type": m.get("option_type"),
+                "strike": m.get("strike"),
+                "expiry": exp_s[:10] if exp_s else "",
+            }
+        )
+    return json.dumps(slim, separators=(",", ":"), default=str)
 
 
 def _append_trade_log(log_path: Path, row: dict) -> None:
     """Append one row to the trade log CSV, creating headers on first write."""
     is_new = not log_path.is_file() or log_path.stat().st_size == 0
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    if not is_new:
+        _migrate_trade_log_add_columns(log_path, _TRADE_LOG_COLUMNS)
     with log_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
         if is_new:
@@ -175,6 +219,43 @@ def _refresh_matched_mids(chain: pd.DataFrame, matched_legs: list[dict]) -> list
     return updated
 
 
+def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) -> None:
+    """Remember leg structure + risk marks for open rows after the plan leaves universe JSON."""
+    pid = str(plan.get("plan_id") or "").strip()
+    if not pid:
+        return
+    spec = plan_combo_spec(plan)
+    plan_snapshots[pid] = {
+        "plan_id": plan.get("plan_id"),
+        "symbol": plan.get("symbol"),
+        "strategy": plan.get("strategy"),
+        "decision": plan.get("decision"),
+        "matched_legs": list(plan.get("matched_legs") or []),
+        "combo_spec": spec,
+        "candidate": plan.get("candidate"),
+        "regime_key": plan.get("regime_key"),
+        "thresholds": plan.get("thresholds") or {},
+        "entry_debit_dollars": plan.get("entry_debit_dollars"),
+        "entry_mid_mark_dollars": plan.get("entry_mid_mark_dollars"),
+    }
+
+
+def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
+    """``plan_id`` values whose latest CSV row is still open (``closed`` != 1)."""
+    if not log_path.is_file():
+        return set()
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return set()
+    return {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
+
+
 def _evaluate_plan(
     plan: dict,
     *,
@@ -187,11 +268,15 @@ def _evaluate_plan(
     min_profit_pct_for_soft_hold: float,
     max_loss_pct: float,
     trade_log_path: Path | None = None,
+    plan_snapshots: dict[str, dict] | None = None,
 ) -> None:
     pid = str(plan.get("plan_id") or plan.get("symbol") or "unknown")
     thr = plan.get("thresholds") or {}
     mlegs = plan.get("matched_legs") or []
     sym = str(plan.get("symbol", ""))
+
+    if plan_snapshots is not None:
+        _persist_trade_plan_snapshot(plan_snapshots, plan)
 
     updated = _refresh_matched_mids(chain, mlegs)
     if updated is None:
@@ -231,7 +316,7 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
+    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
         pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
     ):
         signal = "time_stop"
@@ -273,6 +358,9 @@ def _evaluate_plan(
 
     st["last_signal"] = signal
 
+    if plan_snapshots is not None and updated is not None:
+        _persist_trade_plan_snapshot(plan_snapshots, {**plan, "matched_legs": list(updated)})
+
     # --- Trade log -----------------------------------------------------------
     if trade_log_path is not None:
         _append_trade_log(
@@ -291,21 +379,23 @@ def _evaluate_plan(
                 "signal": signal,
                 "closed": "1" if signal in EXIT_SIGNALS else "0",
                 "dte": round(plan_dte, 3) if plan_dte == plan_dte else "",
+                "legs_json": _legs_json_for_trade_log(updated),
             },
         )
     # -------------------------------------------------------------------------
 
     if (
-        paper_close
+        paper_close_dry_run
         and signal in EXIT_SIGNALS
         and not st.get("paper_close_sent")
-        and isinstance(plan.get("ibkr_combo_spec"), dict)
+        and plan_combo_spec(plan) is not None
     ):
-        spec = plan["ibkr_combo_spec"]
+        spec = plan_combo_spec(plan)
+        assert spec is not None
         qty = int(spec.get("quantity", 1))
         try:
-            open_legs = legs_from_ibkr_combo_spec(spec)
-            close_legs = reverse_legs_for_close(open_legs)
+            open_legs = legs_from_combo_spec(spec)
+            close_legs = reverse_combo_legs(open_legs)
         except Exception as e:
             print(f"[{sym}] {pid} PAPER-CLOSE skip (bad spec): {e}", file=sys.stderr)
             return
@@ -313,23 +403,8 @@ def _evaluate_plan(
         oa = str(spec.get("combo_order_action", "BUY")).upper()
         close_parent = "BUY" if oa == "SELL" else "SELL"
 
-        if paper_close_dry_run:
-            print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
-            st["paper_close_sent"] = True
-            return
-
-        try:
-            oid, trail = place_options_combo_market_order(
-                close_legs,
-                quantity=qty,
-                transmit=True,
-                acknowledge_live=False,
-                combo_order_action=close_parent,  # type: ignore[arg-type]
-            )
-            print(f"[{sym}] {pid} PAPER-CLOSE orderId={oid} trail={trail}")
-            st["paper_close_sent"] = True
-        except Exception as e:
-            print(f"[{sym}] {pid} PAPER-CLOSE FAILED: {e}", file=sys.stderr)
+        print(f"[{sym}] {pid} PAPER-CLOSE DRY-RUN MKT " f"{close_parent} qty={qty} legs={len(close_legs)}")
+        st["paper_close_sent"] = True
 
 
 def main() -> int:
@@ -372,12 +447,12 @@ def main() -> int:
     p.add_argument(
         "--paper-close",
         action="store_true",
-        help="On exit ACTION, transmit IBKR **MKT** closing combo (paper port only)",
+        help="Removed path — exits with error; use --paper-close-dry-run (options are never sent to IBKR)",
     )
     p.add_argument(
         "--paper-close-dry-run",
         action="store_true",
-        help="Print close intent only (no IBKR); does not require paper port",
+        help="Print option close intent only (log); RLM does not broker options through IBKR",
     )
     p.add_argument(
         "--trade-log",
@@ -393,17 +468,17 @@ def main() -> int:
     p.add_argument(
         "--force-close-dte",
         type=float,
-        default=14.0,
+        default=0.0,
         help=(
             "Force-close positions when DTE falls below this threshold (fractional days). "
-            "Default 14.0 enables a two-week expiry safety close."
+            "0.0 = disabled. Recommended: 0.1 (~2.4 h) for 0DTE positions."
         ),
     )
     p.add_argument(
         "--soft-time-stop-dte",
         type=float,
-        default=21.0,
-        help="At/under this DTE, close low-conviction positions (see --min-profit-pct-for-soft-hold).",
+        default=0.0,
+        help="If >0, at/under this DTE close low-conviction positions (see --min-profit-pct-for-soft-hold).",
     )
     p.add_argument(
         "--min-profit-pct-for-soft-hold",
@@ -424,12 +499,20 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    plans_path = ROOT / args.plans if not args.plans.is_absolute() else args.plans
-    state_path = ROOT / args.state if not args.state.is_absolute() else args.state
+    if args.paper_close and not args.paper_close_dry_run:
+        from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
+
+        exit_ibkr_option_combo_blocked("monitor --paper-close (IBKR is equities-only; use --paper-close-dry-run)")
+
+    def _resolve_data_path(raw: Path) -> Path:
+        p = raw.expanduser()
+        return p if p.is_absolute() else (DATA_ROOT / p)
+
+    plans_path = _resolve_data_path(args.plans)
+    state_path = _resolve_data_path(args.state)
     trade_log_path: Path | None = None
     if not args.no_trade_log:
-        raw = args.trade_log
-        trade_log_path = ROOT / raw if not raw.is_absolute() else raw
+        trade_log_path = _resolve_data_path(args.trade_log)
 
     if not plans_path.is_file():
         print(f"Missing plans file: {plans_path}", file=sys.stderr)
@@ -450,10 +533,6 @@ def main() -> int:
             )
             return max(5.0, float(args.interval))
 
-        if args.paper_close and not args.paper_close_dry_run:
-            _, port, _ = load_ibkr_order_socket_config()
-            assert_paper_trading_port(port)
-
         payload = _load_json(plans_path)
         ranked = list(payload.get("active_ranked") or [])
         if ranked:
@@ -470,6 +549,46 @@ def main() -> int:
             uniq.append(r)
 
         state = _load_state(state_path)
+        snap_path = state_path.with_name("trade_plan_snapshots.json")
+        plan_snapshots: dict[str, dict] = {}
+        if snap_path.is_file():
+            try:
+                loaded = json.loads(snap_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    plan_snapshots = {str(k): v for k, v in loaded.items() if isinstance(v, dict)}
+            except (OSError, json.JSONDecodeError):
+                plan_snapshots = {}
+
+        # Re-evaluate open trade_log rows that fell out of universe JSON (use snapshots).
+        if trade_log_path is not None:
+            for oid in sorted(_open_trade_log_plan_ids(trade_log_path)):
+                if oid in seen:
+                    continue
+                sp = plan_snapshots.get(oid)
+                if not isinstance(sp, dict):
+                    continue
+                if not (sp.get("matched_legs") or []) and plan_combo_spec(sp) is None:
+                    continue
+                sym_g = str(sp.get("symbol") or "").strip().upper()
+                if not sym_g:
+                    continue
+                ghost = {
+                    "plan_id": sp.get("plan_id") or oid,
+                    "symbol": sym_g,
+                    "strategy": sp.get("strategy"),
+                    "decision": sp.get("decision"),
+                    "matched_legs": list(sp.get("matched_legs") or []),
+                    "combo_spec": sp.get("combo_spec"),
+                    "candidate": sp.get("candidate"),
+                    "regime_key": sp.get("regime_key"),
+                    "thresholds": sp.get("thresholds") or {},
+                    "entry_debit_dollars": sp.get("entry_debit_dollars"),
+                    "entry_mid_mark_dollars": sp.get("entry_mid_mark_dollars"),
+                    "status": "open",
+                }
+                seen.add(oid)
+                uniq.append(ghost)
+                print(f"[monitor] ghost plan from snapshot: {oid} ({sym_g})", flush=True)
 
         by_sym: dict[str, list[dict]] = {}
         for pl in uniq:
@@ -512,12 +631,17 @@ def main() -> int:
                     min_profit_pct_for_soft_hold=args.min_profit_pct_for_soft_hold,
                     max_loss_pct=args.max_loss_pct,
                     trade_log_path=trade_log_path,
+                    plan_snapshots=plan_snapshots,
                 )
                 d = dte_from_plan(pl)
                 if d == d and d >= 0:  # not NaN, not expired
                     min_dte_seen = min(min_dte_seen, d)
 
         _save_state(state_path, state)
+        try:
+            snap_path.write_text(json.dumps(plan_snapshots, indent=2, default=str), encoding="utf-8")
+        except OSError as e:
+            print(f"[monitor] could not write {snap_path}: {e}", file=sys.stderr)
 
         # Adaptive interval: short-DTE positions need faster polling
         base = max(5.0, args.interval)

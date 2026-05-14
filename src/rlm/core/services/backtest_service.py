@@ -103,10 +103,18 @@ class BacktestService:
             arts.trades_rows = len(result.backtest_trades)
             log.info("backtest output  trades=%s rows=%d", arts.trades_csv, arts.trades_rows)
 
-        if result.backtest_equity is not None and not result.backtest_equity.empty:
+        equity_df = result.backtest_equity
+        if (equity_df is None or equity_df.empty) and result.backtest_trades is not None:
+            # Some engine paths only return an "equity-like" trades frame.
+            # Recover a usable equity curve when possible.
+            cols = {"timestamp", "equity"}
+            if cols.issubset(result.backtest_trades.columns):
+                equity_df = result.backtest_trades.loc[:, ["timestamp", "equity"]].copy()
+
+        if equity_df is not None and not equity_df.empty:
             arts.equity_csv = req.out_dir / f"backtest_equity_{req.symbol}.csv"
-            result.backtest_equity.to_csv(arts.equity_csv)
-            arts.equity_rows = len(result.backtest_equity)
+            equity_df.to_csv(arts.equity_csv, index=False)
+            arts.equity_rows = len(equity_df)
             log.info("backtest output  equity=%s rows=%d", arts.equity_csv, arts.equity_rows)
 
         arts.duration_s = time.monotonic() - t0

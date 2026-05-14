@@ -1,11 +1,37 @@
-# Regime-Locus-Matrix — Starfleet AI Crew (Scotty / Spock / Kirk)
+# Regime-Locus-Matrix — Hermes AI crew (health + market context + commander)
 #
 # Prereqs on the VPS:
-#   - Python venv at @INSTALL_ROOT@/.venv  (pip install -e ".[agents]")
-#     Many VPSes use a shared venv instead: set ExecStart to e.g. /opt/rlm-venv/bin/python after sed.
-#   - .env with GROQ_API_KEY (free key from console.groq.com)
-#             + TELEGRAM_BOT_TOKEN, TELEGRAM_NOTIFY_CHAT_ID  (same as master)
-#   - OR: set LLM_BACKEND=ollama if you prefer a fully-local model
+#   - Python venv for ExecStart (Hermes must be installed into THAT interpreter's site-packages.)
+#     Many VPSes use /opt/rlm-venv/bin/python — then run from repo root:
+#       /opt/rlm-venv/bin/pip install -e ".[hermes]"
+#     If ExecStart is @INSTALL_ROOT@/.venv/bin/python (PEP 668: never use system pip):
+#       cd @INSTALL_ROOT@ && .venv/bin/pip install -e ".[hermes]"
+#     One-shot helper: scripts/setup_hermes_on_vps.sh (prefers /opt/rlm-venv when present).
+#
+#   LLM backend — add to .env (precedence: explicit BASE_URL > AUTO_GROQ > OpenRouter key > Ollama):
+#
+#   Option A — OpenRouter (free :free models; get key at https://openrouter.ai )
+#     OPENROUTER_API_KEY=sk-or-...
+#     # Optional overrides:
+#     # RLM_HERMES_MODEL=meta-llama/llama-3.2-3b-instruct:free
+#     # RLM_HERMES_OPENROUTER_MODEL=...
+#
+#   Option B — Groq (only when explicitly enabled; avoids silent daily cap when key is left in .env)
+#     GROQ_API_KEY=gsk_...
+#     RLM_HERMES_AUTO_GROQ=1
+#     # RLM_HERMES_MODEL=llama-3.3-70b-versatile
+#
+#   Option C — local Ollama (no cloud keys)
+#     RLM_HERMES_BASE_URL=http://127.0.0.1:11434/v1
+#     RLM_HERMES_API_KEY=ollama
+#     RLM_HERMES_MODEL=llama3.2
+#
+#   Also add (Hermes channel bot; dedicated token):
+#     RLM_HERMES_TELEGRAM_BOT_TOKEN=...
+#     RLM_HERMES_TELEGRAM_CHAT_ID=...
+#   Legacy fallback still supported:
+#     TELEGRAM_BOT_TOKEN=...
+#     TELEGRAM_NOTIFY_CHAT_ID=...
 #
 # Install:
 #   cp deploy/linux/regime-locus-crew.service /etc/systemd/system/
@@ -16,11 +42,13 @@
 # Logs: journalctl -u regime-locus-crew -f
 
 [Unit]
-Description=RLM Starfleet AI Crew — Scotty health guardian + Spock analyst + Kirk commander
-After=network-online.target regime-locus-master.service
-Wants=network-online.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
+Description=RLM Hermes crew — health facts, market context, commander (gate_state.json)
+# Hermes is independent of the trading master: keep online 24/7 with Ollama (or cloud LLM in .env).
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+# Do not rate-limit restarts: transient import/config errors used to exhaust StartLimitBurst
+# and leave the unit permanently failed ("Start request repeated too quickly").
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -28,23 +56,25 @@ User=root
 Group=root
 WorkingDirectory=@INSTALL_ROOT@
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=@INSTALL_ROOT@/src:@INSTALL_ROOT@
 EnvironmentFile=-@INSTALL_ROOT@/.env
 
 # Intervals (seconds) — override here or in .env
 Environment=CREW_HEALTH_INTERVAL=120
 Environment=CREW_ANALYSIS_INTERVAL=300
 Environment=CREW_BRIEFING_INTERVAL=600
-# Scotty: auto-restart dead RLM systemd units (never restarts regime-locus-crew from inside this process)
-Environment=SCOTTY_AUTO_RESTART=1
-Environment=SCOTTY_RESTART_COOLDOWN_SEC=180
+# Auto-restart dead RLM systemd units during health gather (never restarts regime-locus-crew from inside this process)
+Environment=RLM_HEALTH_AUTO_RESTART=1
+Environment=RLM_HEALTH_RESTART_COOLDOWN_SEC=180
 
-# After install, replace with /opt/rlm-venv/bin/python if that is your venv.
-ExecStart=@INSTALL_ROOT@/.venv/bin/python scripts/run_crew.py
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_crew.py
 
 Restart=always
-RestartSec=30
+RestartSec=15
 KillMode=mixed
 TimeoutStopSec=60
+# Slightly prefer keeping this process when the OOM killer scans (best-effort).
+OOMScoreAdjust=-50
 
 StandardOutput=journal
 StandardError=journal

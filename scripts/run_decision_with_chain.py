@@ -60,10 +60,11 @@ def main() -> int:
     p.add_argument("--strike-increment", type=float, default=0.5)
     p.add_argument("--no-expiry-slice", action="store_true", help="Use full chain (all expiries) for matching")
     p.add_argument(
-        "--write-ibkr-spec",
+        "--write-combo-spec",
         type=Path,
         default=None,
-        help="After a successful match, write JSON for scripts/ibkr_place_roee_combo.py",
+        dest="write_combo_spec",
+        help="After a successful match, write combo_spec JSON (legs + limit) for auditing / external workflows",
     )
     args = p.parse_args()
 
@@ -133,13 +134,15 @@ def main() -> int:
         if debit == debit:  # not NaN
             print(f"estimated entry debit (×100): {debit:.2f}")
 
-        if args.write_ibkr_spec:
+        if args.write_combo_spec:
             mlegs = matched.metadata.get("matched_legs") or []
             lim = float(round(debit, 4)) if debit == debit else 0.0
+            coa = "SELL" if (debit == debit and float(debit) < 0) else "BUY"
             payload = {
                 "underlying": u,
                 "quantity": 1,
                 "limit_price": lim,
+                "combo_order_action": coa,
                 "legs": [
                     {
                         "side": str(m["side"]),
@@ -150,10 +153,10 @@ def main() -> int:
                     for m in mlegs
                 ],
             }
-            path = args.write_ibkr_spec
+            path = args.write_combo_spec
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            print(f"\nWrote IBKR combo spec: {path}")
+            print(f"\nWrote combo_spec JSON: {path}")
 
     return 0
 

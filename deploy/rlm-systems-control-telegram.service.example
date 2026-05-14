@@ -1,0 +1,29 @@
+# Systemd: Systems Control Telegram bot (standalone long-poll process)
+# copy to /etc/systemd/system/rlm-systems-control-telegram.service
+#   sudo systemctl enable --now rlm-systems-control-telegram
+#
+# Required in /opt/Regime-Locus-Matrix/.env:
+#   RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN=...
+# Optional:
+#   RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS=123456789
+#   RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID=123456789
+
+[Unit]
+Description=RLM Systems Control Telegram bot (long-poll)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/Regime-Locus-Matrix
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/Regime-Locus-Matrix/.env
+ExecStart=/opt/rlm-venv/bin/python /opt/Regime-Locus-Matrix/scripts/rlm_telegram_bot.py
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

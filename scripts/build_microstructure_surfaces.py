@@ -50,12 +50,12 @@ def build_surfaces_for_date(
     duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> None:
     """Build and persist GEX + IV surfaces for *symbol* on *target_date*."""
-    from rlm.microstructure.calculators.gex import build_gex_surface, save_gex_surface
-    from rlm.microstructure.calculators.iv_surface import (
+    from rlm.data.microstructure.calculators.gex import build_gex_surface, save_gex_surface
+    from rlm.data.microstructure.calculators.iv_surface import (
         build_iv_surface_from_parquet,
         save_iv_surface,
     )
-    from rlm.microstructure.database.query import MicrostructureDB
+    from rlm.data.microstructure.database.query import MicrostructureDB
 
     db = MicrostructureDB(data_path=data_root)
     db._conn = duckdb_conn
@@ -90,7 +90,7 @@ def build_surfaces_for_date(
             print(f"  [WARN] GEX surface is empty for {symbol} @ {timestamp}")
         else:
             save_gex_surface(gex_df, symbol=symbol, data_path=data_root)
-            from rlm.microstructure.calculators.gex import aggregate_gex_profile, gex_flip_level
+            from rlm.data.microstructure.calculators.gex import aggregate_gex_profile, gex_flip_level
 
             profile = aggregate_gex_profile(gex_df)
             flip = gex_flip_level(gex_df)
@@ -111,7 +111,7 @@ def build_surfaces_for_date(
             print(f"  [WARN] IV surface is empty for {symbol} @ {timestamp}")
         else:
             save_iv_surface(iv_df, symbol=symbol, data_path=data_root)
-            from rlm.microstructure.calculators.iv_surface import query_iv_surface, skew_at_dte
+            from rlm.data.microstructure.calculators.iv_surface import query_iv_surface, skew_at_dte
 
             atm_iv = query_iv_surface(iv_df, moneyness=1.0, dte=30.0)
             skew = skew_at_dte(iv_df, dte=30.0)

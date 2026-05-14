@@ -470,7 +470,7 @@ Install: `pip install -e ".[ibkr,datalake]"` (`pyarrow` for Parquet). For flat-f
 
 Optional **ib_insync** reference: `pip install -e ".[ib-insync]"` and `python scripts/examples/ib_insync_fetch_stock_example.py`.
 
-**Live / paper option combos (IBKR):** `rlm.execution` resolves each leg with `reqContractDetails`, builds a **BAG**, and calls `placeOrder`. CLI: `python scripts/ibkr_place_roee_combo.py --spec combo.json` (default `transmit=False`). Live ports **7496** / **4001** require `--acknowledge-live`. Export a spec: `python scripts/run_decision_with_chain.py ... --write-ibkr-spec data/processed/ibkr_combo_spy.json`.
+**Options vs IBKR:** RLM uses IBKR for **equity bars and stock orders** only. Multi-leg option plans are stored as vendor-neutral ``combo_spec`` in ``universe_trade_plans.json`` and tracked locally (Massive marks, ``trade_log``). Export a combo JSON: ``python scripts/run_decision_with_chain.py ... --write-combo-spec data/processed/combo_spy.json``.
 
 **Universe scan (market open):** `python scripts/analyze_universe_live.py` loops `LIQUID_UNIVERSE` (Mag 7 + SPY + QQQ) with IBKR daily history → factors → forecast → `select_trade` on the latest bar.
 
@@ -621,6 +621,27 @@ result = FullRLMPipeline(cfg).run(bars)
 ## Runtime backends
 
 Use `--backend {auto,csv,lake}` on `forecast`, `backtest`, `trade`, `ingest`, and `doctor`.
+
+
+### DevOps: reproducible local stack
+
+Use Docker Compose to run a consistent development stack with:
+- MinIO S3-compatible data lake
+- Jupyter Lab (mounted to this repo)
+- IBKR Gateway (paper mode via IBeam)
+
+```bash
+docker compose -f docker-compose.dev.yml --env-file .env up -d
+```
+
+Then open:
+- Jupyter Lab: `http://localhost:8888`
+- MinIO Console: `http://localhost:9001`
+- IBKR Gateway API bridge: `http://localhost:5000`
+
+The Compose stack binds published ports to `127.0.0.1` so the default
+development credentials and repo-mounted Jupyter environment are not exposed
+on your LAN.
 
 ## Profiles and config files
 

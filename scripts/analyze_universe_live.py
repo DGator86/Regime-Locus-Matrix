@@ -3,10 +3,11 @@
 **Full-universe sweep** while the market is open: pull fresh **daily** history from IBKR per
 symbol, run **factors → state matrix → forecast bands → ROEE** on the latest bar, and print a table.
 
-For **Massive option chains + matched legs + entry/stop/trail plan + IBKR combo JSON**, use
+For **Massive option chains + matched legs + entry/stop/trail plan + ``combo_spec`` JSON**, use
 ``scripts/run_universe_options_pipeline.py`` instead.
 
-Uses :data:`rlm.data.liquidity_universe.LIQUID_UNIVERSE` by default (Magnificent 7 + SPY + QQQ).
+Uses :data:`rlm.data.liquidity_universe.LIQUID_TEN_STOCKS_PLUS_CORE_ETFS` by default
+(ten liquid single-names + SPY + QQQ).
 
 Examples::
 
@@ -30,11 +31,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.factors.pipeline import FactorPipeline
+from rlm.features.factors.pipeline import FactorPipeline
 
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-from rlm.data.liquidity_universe import LIQUID_UNIVERSE
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
@@ -43,7 +44,7 @@ from rlm.forecasting.live_model import (
 )
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.scoring.state_matrix import classify_state_matrix
+from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def _parse_symbols(s: str) -> list[str]:
@@ -144,8 +145,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
         "--symbols",
-        default=",".join(LIQUID_UNIVERSE),
-        help="Comma-separated tickers (default: LIQUID_UNIVERSE)",
+        default=",".join(LIQUID_TEN_STOCKS_PLUS_CORE_ETFS),
+        help="Comma-separated tickers (default: LIQUID_TEN_STOCKS_PLUS_CORE_ETFS)",
     )
     p.add_argument("--duration", default="180 D", help="IBKR historical duration string")
     p.add_argument("--bar-size", default="1 day", help="IBKR bar size (e.g., '1 day', '1 hour', '5 mins').")

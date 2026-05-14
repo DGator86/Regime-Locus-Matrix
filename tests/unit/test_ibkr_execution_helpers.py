@@ -2,6 +2,7 @@ import pytest
 
 from rlm.execution.ibkr_combo_orders import (
     assert_paper_or_live_acknowledged,
+    build_ibkr_algo_fields,
     expiry_iso_to_ib,
     option_type_to_ib_right,
     roee_side_to_ib_action,
@@ -56,3 +57,24 @@ def test_assert_paper_trading_port() -> None:
     assert legs[0][1] == "BUY" and legs[1][1] == "SELL"
     rev = reverse_legs_for_close(legs)
     assert rev[0][1] == "SELL" and rev[1][1] == "BUY"
+
+
+def test_build_ibkr_algo_fields() -> None:
+    name, params = build_ibkr_algo_fields(strategy="NONE")
+    assert name is None
+    assert params == []
+
+    name, params = build_ibkr_algo_fields(strategy="ADAPTIVE", adaptive_priority="Patient")
+    assert name == "Adaptive"
+    assert ("adaptivePriority", "Patient") in params
+
+    name, params = build_ibkr_algo_fields(
+        strategy="VWAP",
+        vwap_max_pct_vol=0.2,
+        vwap_start_time="09:35:00 US/Eastern",
+        vwap_end_time="15:45:00 US/Eastern",
+    )
+    assert name == "Vwap"
+    assert ("maxPctVol", "0.2000") in params
+    assert ("startTime", "09:35:00 US/Eastern") in params
+    assert ("endTime", "15:45:00 US/Eastern") in params

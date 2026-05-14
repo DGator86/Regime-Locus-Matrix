@@ -33,7 +33,7 @@ from rlm.datasets.backtest_data import (
     synthetic_5m_bars_range,
     synthetic_option_chain_intraday_from_bars,
 )
-from rlm.datasets.bars_enrichment import prepare_bars_for_factors
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.datasets.paths import DEFAULT_SYMBOL
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.forecasting.engines import (

@@ -4,13 +4,15 @@ import json
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, MutableMapping
 
 
 class _ContextAdapter(logging.LoggerAdapter):
-    def process(self, msg: str, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        extra = dict(self.extra)
-        extra.update(kwargs.get("extra", {}))
+    def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> tuple[str, MutableMapping[str, Any]]:
+        extra: dict[str, Any] = dict(self.extra)
+        nested = kwargs.pop("extra", None)
+        if isinstance(nested, dict):
+            extra.update(nested)
         kwargs["extra"] = extra
         return msg, kwargs
 

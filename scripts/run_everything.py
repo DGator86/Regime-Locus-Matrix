@@ -2,10 +2,13 @@
 """
 Run the **full stack** from repo root in order:
 
-1. ``run_universe_options_pipeline.py`` — IBKR + factors + forecast + ROEE + Massive chain match + risk plan JSON
-2. Optional: ``ibkr_paper_trade_from_plans.py``  — **paper** opening combos (Level 2 debit structures)
-3. Optional: ``ibkr_equity_paper_trade.py``       — **paper** equity BUY/SELL from regime direction
-4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; optional ``--paper-close`` **MKT** exits
+1. ``run_universe_options_pipeline.py`` — IBKR **bars** + factors + forecast + ROEE + Massive chain match + plans JSON
+2. ``ibkr_paper_trade_from_plans.py`` — **dry-run only** from this orchestrator (lists combos; **no** option orders)
+3. ``ibkr_equity_paper_trade.py`` (with ``--with-equity``) — **IBKR paper** equity BUY/SELL
+4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; writes local ``trade_log.csv`` (**no** IBKR option closes here)
+
+**Policy:** IBKR paper is **equities-only**. Large-account options and the PDT challenge are tracked **locally**.
+This script never passes live option orders to IBKR (hard invariant — standalone scripts also refuse transmits).
 
 Examples::
 
@@ -13,22 +16,23 @@ Examples::
     python scripts/run_master.py
     python scripts/run_everything.py
     python scripts/run_everything.py --full-paper --interval 60 --rescan-interval 300
-    python scripts/run_everything.py --paper-trade --paper-close --follow --interval 120
     python scripts/run_everything.py --pipeline-args "--top 2 --no-vix"
-    python scripts/run_everything.py --master --with-equity              # options + equities book
-    python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR orders
+    python scripts/run_everything.py --master --with-equity              # default master: equities IBKR + local options
+    python scripts/run_everything.py --with-equity --equity-dry-run      # equity signals only, no IBKR stock orders
     python scripts/run_everything.py --master --telegram-bot             # + Telegram long-poll bot (``.env``)
+    python scripts/run_everything.py --master --with-equity --with-challenge   # all three paper sleeves
 
-**Master mode** (``--master``): continuous monitor, **60s** mark polls, **300s** (5 min) universe
-rescans (only **Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``), and optional IBKR
-**paper** option opens/closes (see ``--paper-trade`` / ``--paper-close``).
-With ``--with-equity`` (recommended: ``scripts/run_master.py``), **options stay simulation-only**
-(local marks, ``trade_log.csv``, state); **only equities** use IBKR. Override timing with
-``--interval`` / ``--rescan-interval`` if needed.
+**Master mode** (``--master``): **60s** monitor polls, **300s** (5 min) universe rescans
+(**Mon–Fri 09:00–16:00 US/Eastern** unless ``--scanner-24h``). Options are **local**; IBKR is for equities when
+``--with-equity`` is set. Override timing with ``--interval`` / ``--rescan-interval``.
 
-``--with-equity`` runs a parallel equity paper book alongside the options book using the same
-regime signals.  This requires no options permissions — plain stock BUY/SELL orders.  Positions
-are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
+``--with-equity`` runs the stock leg with real IBKR paper orders alongside **locally tracked-option** marks/P&L.
+Positions are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
+
+**PDT challenge** (``--with-challenge``, **on by default with** ``--master`` unless ``--skip-challenge``):
+runs ``rlm challenge --run`` at startup, then on a background tick matching ``--interval`` (override with
+``--challenge-interval`` or ``RLM_CHALLENGE_INTERVAL_SEC``). Use ``--challenge-interval 0`` to run only at
+startup and each universe rescan. Ticks respect the same ET scanner window as rescans when enabled.
 """
 
 from __future__ import annotations
@@ -47,7 +51,6 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from rlm.data.paths import get_data_root  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
@@ -57,8 +60,29 @@ def _run(cmd: list[str]) -> int:
     return int(p.returncode)
 
 
+def _pipeline_cmd_has_flag(cmd: list[str], flag: str) -> bool:
+    if flag in cmd:
+        return True
+    prefix = f"{flag}="
+    return any(str(a).startswith(prefix) for a in cmd)
+
+
+def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
+    """Append pipeline sizing flags from env when not already present (CLI or RLM_PIPELINE_ARGS)."""
+    if not _pipeline_cmd_has_flag(cmd, "--max-active-per-symbol"):
+        mas = (os.environ.get("RLM_MAX_ACTIVE_PER_SYMBOL") or "").strip()
+        if mas:
+            cmd.extend(["--max-active-per-symbol", mas])
+    if not _pipeline_cmd_has_flag(cmd, "--top"):
+        top = (os.environ.get("RLM_UNIVERSE_TOP") or "").strip()
+        if top:
+            cmd.extend(["--top", top])
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument(
         "--out",
         default="data/processed/universe_trade_plans.json",
@@ -91,21 +115,37 @@ def main() -> int:
         default=argparse.SUPPRESS,
         help="Re-run universe pipeline every N seconds in the background when --follow (default: 0, or 300 with --master)",
     )
-    ap.add_argument("--skip-monitor", action="store_true", help="Only run the universe options pipeline")
-    ap.add_argument("--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)")
+    ap.add_argument(
+        "--skip-monitor", action="store_true", help="Only run the universe options pipeline"
+    )
+    ap.add_argument(
+        "--skip-pipeline", action="store_true", help="Only run monitor (plans file must exist)"
+    )
     ap.add_argument(
         "--paper-trade",
         action="store_true",
-        help="After pipeline, place opening LMT combos from plans (paper IBKR only)",
+        help="After pipeline, run option open **dry-run** log from plans (IBKR option orders disabled here)",
     )
-    ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap opening orders")
-    ap.add_argument("--paper-dry-run", action="store_true", help="Log openings only (no IBKR transmit)")
+    ap.add_argument("--paper-trade-max", type=int, default=10, help="Cap rows in open dry-run step")
+    ap.add_argument(
+        "--paper-dry-run",
+        action="store_true",
+        help="(Always on under run_everything) Log openings only — enforced for IBKR equities-only policy",
+    )
     ap.add_argument(
         "--paper-close",
         action="store_true",
-        help="Monitor transmits MKT closes on exit signals (paper IBKR only)",
+        help="Ignored by run_everything — IBKR is not used for option combo closes in this stack",
     )
     ap.add_argument("--paper-close-dry-run", action="store_true", help="Log closes only")
+    ap.add_argument(
+        "--options-trade-log",
+        default="data/processed/trade_log.csv",
+        help=(
+            "CSV path for options dry-run tracking rows written by monitor_active_trade_plans.py "
+            "(default: data/processed/trade_log.csv)"
+        ),
+    )
     ap.add_argument(
         "--force-close-dte",
         type=float,
@@ -116,14 +156,13 @@ def main() -> int:
     ap.add_argument(
         "--full-paper",
         action="store_true",
-        help="Shorthand: --paper-trade --paper-close --follow (continuous monitor + paper in/out)",
+        help="Shorthand: --paper-trade --follow (local options + monitor; no IBKR option orders)",
     )
     ap.add_argument(
         "--master",
         action="store_true",
         help=(
-            "Timed rescans + monitor every 60s; implies --paper-trade --paper-close --follow "
-            "unless combined with --with-equity (then options are dry-run only, no IBKR option closes)."
+            "Timed rescans + monitor every 60s; implies --paper-trade --follow (local options; IBKR = equities only with --with-equity)."
         ),
     )
     # -----------------------------------------------------------------------
@@ -178,24 +217,6 @@ def main() -> int:
         default=10.0,
         help="Max %% of account balance per equity position (default: 10)",
     )
-    # -----------------------------------------------------------------------
-    # Challenge book flags
-    # -----------------------------------------------------------------------
-    ap.add_argument(
-        "--with-challenge",
-        action="store_true",
-        help="Run the $1K→$25K PDT challenge session on each rescan cycle.",
-    )
-    ap.add_argument(
-        "--challenge-symbol",
-        default="SPY",
-        help="Underlying for the challenge (default: SPY)",
-    )
-    ap.add_argument(
-        "--challenge-no-kronos",
-        action="store_true",
-        help="Disable Kronos overlay in the challenge persona pipeline",
-    )
     ap.add_argument(
         "--scanner-hours-et",
         action="store_true",
@@ -213,37 +234,92 @@ def main() -> int:
         help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
     )
     ap.add_argument(
-        "--monitor-rth-only-poll",
+        "--with-challenge",
         action="store_true",
-        help="Pass --rth-only-poll to monitor (skip Massive API cycles outside NYSE RTH).",
+        help=(
+            "Enable PDT $1K→$25K sleeve (`rlm challenge --run`). On by default with --master unless "
+            "--skip-challenge."
+        ),
+    )
+    ap.add_argument(
+        "--skip-challenge",
+        action="store_true",
+        help="Disable PDT challenge (overrides --master default and --with-challenge).",
+    )
+    ap.add_argument(
+        "--challenge-interval",
+        type=float,
+        default=None,
+        metavar="SEC",
+        help=(
+            "Seconds between challenge sessions when --follow (default: same as --interval). "
+            "0 = only at startup and each universe rescan (no periodic ticks). "
+            "Override env: RLM_CHALLENGE_INTERVAL_SEC."
+        ),
     )
     args = ap.parse_args()
 
+    env_otl = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
+    if env_otl and "--options-trade-log" not in sys.argv:
+        args.options_trade_log = env_otl
+
     if args.master:
         args.paper_trade = True
-        args.paper_close = True
         args.follow = True
     if args.full_paper:
         args.paper_trade = True
-        args.paper_close = True
         args.follow = True
+    if args.master and not args.skip_challenge:
+        args.with_challenge = True
 
-    # Equity-primary mode: IBKR for stocks only. Options are hypothetical (no combo orders).
-    if args.with_equity:
-        if not args.paper_dry_run:
-            args.paper_dry_run = True
-        if args.paper_close:
-            args.paper_close = False
+    # IBKR equities-only: never transmit option combos from this orchestrator.
+    if args.paper_close:
         print(
-            "[info] --with-equity: options are simulation-only (dry-run opens, no IBKR closes); "
-            "equities use IBKR per ibkr_equity_paper_trade.py",
+            "[policy] Ignoring --paper-close under run_everything — "
+            "option closes are not sent to IBKR (local monitor only).",
+            flush=True,
+        )
+    args.paper_close = False
+    args.paper_dry_run = True
+
+    if args.with_equity:
+        print(
+            "[info] --with-equity: equities via ibkr_equity_paper_trade.py (IBKR); "
+            "large-account options tracked locally (trade_log / Massive).",
+            flush=True,
+        )
+
+    run_challenge = bool(args.with_challenge) and not bool(args.skip_challenge)
+    if run_challenge:
+        print(
+            "[info] PDT challenge sleeve: ``rlm challenge --run`` at startup; periodic ticks match monitor "
+            "unless --challenge-interval 0 (see --help).",
             flush=True,
         )
 
     if not hasattr(args, "interval"):
-        args.interval = 60.0
+        args.interval = 60.0 if args.master else 120.0
     if not hasattr(args, "rescan_interval"):
         args.rescan_interval = 300.0 if args.master else 0.0
+
+    ch_env = (os.environ.get("RLM_CHALLENGE_INTERVAL_SEC") or "").strip()
+    challenge_tick_sec = 0.0
+    if run_challenge:
+        if args.challenge_interval is not None:
+            challenge_tick_sec = float(args.challenge_interval)
+        elif ch_env:
+            try:
+                challenge_tick_sec = float(ch_env)
+            except ValueError:
+                challenge_tick_sec = float(args.interval)
+                print(
+                    f"[warn] invalid RLM_CHALLENGE_INTERVAL_SEC={ch_env!r} — using --interval",
+                    flush=True,
+                )
+        else:
+            challenge_tick_sec = float(args.interval)
+        if challenge_tick_sec < 0:
+            challenge_tick_sec = 0.0
 
     if args.scanner_hours_et:
         args.follow = True
@@ -263,10 +339,14 @@ def main() -> int:
 
     def pipeline_cmd() -> list[str]:
         cmd = [py, str(ROOT / "scripts" / "run_universe_options_pipeline.py"), "--out", plans]
+        env_pipeline_args = (os.environ.get("RLM_PIPELINE_ARGS") or "").strip()
+        if env_pipeline_args:
+            cmd.extend(shlex.split(env_pipeline_args))
         if args.pipeline_args.strip():
             cmd.extend(shlex.split(args.pipeline_args))
         if args.use_vp_gating and "--use-vp-gating" not in cmd:
             cmd.append("--use-vp-gating")
+        _extend_pipeline_cmd_from_env(cmd)
         return cmd
 
     def paper_cmd() -> list[str]:
@@ -304,19 +384,34 @@ def main() -> int:
         return ecmd
 
     def challenge_cmd() -> list[str]:
-        rlm_bin = Path(py).parent / "rlm"
-        ccmd = [
-            str(rlm_bin),
-            "challenge",
-            "--run",
-            "--symbol",
-            args.challenge_symbol,
-            "--data-root",
-            str(get_data_root()),
-        ]
-        if args.challenge_no_kronos:
-            ccmd.append("--no-kronos")
-        return ccmd
+        sym = (os.environ.get("RLM_CHALLENGE_SYMBOL") or "SPY").strip() or "SPY"
+        extra = shlex.split((os.environ.get("RLM_CHALLENGE_RUN_ARGS") or "").strip())
+        return [py, "-m", "rlm.cli.main", "challenge", "--run", "--symbol", sym, *extra]
+
+    challenge_join_sec = 600.0
+    try:
+        challenge_join_sec = max(30.0, float((os.environ.get("RLM_CHALLENGE_JOIN_SEC") or "600").strip()))
+    except ValueError:
+        challenge_join_sec = 600.0
+
+    def run_challenge_blocking(where: str) -> None:
+        rc = _run(challenge_cmd())
+        if rc != 0:
+            print(f"[warn] challenge ({where}) exited with code {rc}", flush=True)
+
+    def run_challenge_step(where: str) -> None:
+        def _inner() -> None:
+            run_challenge_blocking(where)
+
+        th = threading.Thread(target=_inner, name=f"challenge-{where}", daemon=True)
+        th.start()
+        th.join(timeout=challenge_join_sec)
+        if th.is_alive():
+            print(
+                f"[info] challenge ({where}) still running after {challenge_join_sec:.0f}s — "
+                "continuing in background",
+                flush=True,
+            )
 
     if not args.skip_pipeline:
         rc = _run(pipeline_cmd())
@@ -326,7 +421,9 @@ def main() -> int:
     if args.paper_trade:
         rc = _run(paper_cmd())
         if rc != 0:
-            print(f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True)
+            print(
+                f"[warn] paper-trade step exited with code {rc}; continuing to monitor", flush=True
+            )
 
     if args.with_equity:
         # Run equity book in a background thread so it doesn't block the monitor
@@ -339,10 +436,8 @@ def main() -> int:
         et.start()
         et.join(timeout=120)  # wait up to 2 min; if still running, let it continue
 
-    if args.with_challenge:
-        print("[rescan] challenge session", flush=True)
-        if _run(challenge_cmd()) != 0:
-            print("[rescan] challenge step failed (continuing)", flush=True)
+    if run_challenge:
+        run_challenge_step("initial")
 
     if args.skip_monitor:
         return 0
@@ -373,19 +468,33 @@ def main() -> int:
                         print("[rescan] equity paper trade", flush=True)
                         if _run(equity_cmd()) != 0:
                             print("[rescan] equity trade step failed (continuing)", flush=True)
-                    if args.with_challenge:
-                        print("[rescan] challenge session", flush=True)
-                        if _run(challenge_cmd()) != 0:
-                            print("[rescan] challenge step failed (continuing)", flush=True)
+                    if run_challenge and challenge_tick_sec <= 0:
+                        print("[rescan] PDT challenge session", flush=True)
+                        run_challenge_step("rescan")
 
         threading.Thread(target=_rescan_loop, name="universe-rescan", daemon=True).start()
 
+    if run_challenge and challenge_tick_sec > 0 and args.follow:
+
+        def _challenge_tick_loop() -> None:
+            tick = max(15.0, float(challenge_tick_sec))
+            print(f"[info] PDT challenge background tick every {tick:.0f}s (aligned with monitor cadence)", flush=True)
+            while True:
+                time.sleep(tick)
+                if scanner_hours_et and not is_scanner_window_open():
+                    print(
+                        f"[challenge] skip tick — outside ET scanner window ({scanner_window_label()})",
+                        flush=True,
+                    )
+                    continue
+                print("[challenge] periodic session (tick)", flush=True)
+                run_challenge_blocking("tick")
+
+        threading.Thread(target=_challenge_tick_loop, name="challenge-tick", daemon=True).start()
+
     if args.telegram_bot:
         tscript = ROOT / "scripts" / "rlm_telegram_bot.py"
-        print(
-            f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)",
-            flush=True,
-        )
+        print(f"+ [telegram] starting {tscript} (separate process; .env loaded inside bot)", flush=True)
         try:
             subprocess.Popen(
                 [py, str(tscript)],
@@ -400,6 +509,8 @@ def main() -> int:
         str(ROOT / "scripts" / "monitor_active_trade_plans.py"),
         "--plans",
         plans,
+        "--trade-log",
+        str(args.options_trade_log),
     ]
     if args.follow:
         mcmd.extend(["--interval", str(args.interval)])
@@ -409,20 +520,8 @@ def main() -> int:
         mcmd.append("--paper-close")
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
-    if args.force_close_dte > 0.0:
-        mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
-    if args.monitor_rth_only_poll:
-        mcmd.append("--rth-only-poll")
-    rc = _run(mcmd)
-
-    # Post-session: check win rate and re-tune if below threshold
-    _run_check = [py, str(ROOT / "scripts" / "check_performance_and_retune.py")]
-    try:
-        subprocess.run(_run_check, cwd=str(ROOT))
-    except OSError as e:
-        print(f"[warn] could not run check_performance_and_retune: {e}", flush=True)
-
-    return rc
+    mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    return _run(mcmd)
 
 
 if __name__ == "__main__":

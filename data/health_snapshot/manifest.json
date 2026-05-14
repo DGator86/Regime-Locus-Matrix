@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "description": "Offline SPY slice (daily bars) + synthetic large-account debit spread for startup decision-tree health.",
+  "bars_csv": "bars_SPY_slice.csv",
+  "spy_large_plan_json": "spy_large_plan.json",
+  "bars_rows": 65,
+  "source": "Tail of data/raw/bars_SPY.csv committed for reproducible CI/VPS health."
+}

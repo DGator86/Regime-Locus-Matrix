@@ -1,22 +1,16 @@
-# Configuration schema version. Increment when fields are added or removed.
-# Backtest runs log this value for full reproducibility tracing.
-config_version: "1.0"
-
-# Example defaults for backtest / walk-forward (reference only; wire in your own runner if needed).
+config_version: '1.0'
 backtest:
   initial_capital: 100000
   contract_multiplier: 100
   strike_increment: 1.0
   underlying_symbol: SPY
   quantity_per_trade: 1
-
 lifecycle:
   force_close_dte: 1
   close_at_expiry_if_open: true
-  expiry_liquidation_policy: liquidate_before_expiry  # or settle_at_expiry
+  expiry_liquidation_policy: liquidate_before_expiry
   max_holding_bars: null
   one_trade_per_bar: true
-
 walkforward:
   is_window: 100
   oos_window: 50
@@ -24,11 +18,9 @@ walkforward:
   purge_bars: 0
   regime_aware: false
   min_regime_train_samples: 20
-
-# Used by ForecastPipeline / HybridForecastPipeline (optimize via scripts/optimize_forecast_params.py).
 forecast:
   drift_gamma_alpha: 0.65
-  sigma_floor: 1.0e-4
+  sigma_floor: 0.0001
   direction_neutral_threshold: 0.3
   move_window: 100
   vol_window: 100
@@ -36,103 +28,96 @@ forecast:
   realized_vol_annualization: 252.0
   probabilistic_lower_quantile: 0.1
   probabilistic_upper_quantile: 0.9
-
 feature_engineering:
   enabled_factors:
     direction:
-      - price_vs_vwap
-      - price_vs_anchored_vwap
-      - cvd_slope
-      - volume_imbalance
-      - ma_spread_over_atr
-      - adx_direction_bias
-      - roc_n
-      - market_breadth_ratio
-      - relative_strength_vs_index
-      - kronos_return_forecast
-      - overnight_symbol_change_pct
-      - news_avg_sentiment
+    - price_vs_vwap
+    - price_vs_anchored_vwap
+    - cvd_slope
+    - volume_imbalance
+    - ma_spread_over_atr
+    - adx_direction_bias
+    - roc_n
+    - market_breadth_ratio
+    - relative_strength_vs_index
+    - kronos_return_forecast
+    - overnight_symbol_change_pct
+    - news_avg_sentiment
     volatility:
-      - atr_over_price
-      - bollinger_width
-      - realized_volatility
-      - vix_ratio
-      - vvix_ratio
-      - abnormal_options_volume
-      - options_volume_to_oi
-      - underlying_vix_corr
-      - underlying_vix_corr_breakdown
-      - kronos_range_forecast
-      - kronos_path_dispersion
-      - premarket_gap_pct
+    - atr_over_price
+    - bollinger_width
+    - realized_volatility
+    - vix_ratio
+    - vvix_ratio
+    - abnormal_options_volume
+    - options_volume_to_oi
+    - underlying_vix_corr
+    - underlying_vix_corr_breakdown
+    - kronos_range_forecast
+    - kronos_path_dispersion
+    - premarket_gap_pct
     liquidity:
-      - spread_over_price
-      - volume_vs_average
-      - spread_pct_mid
-      - spread_shock
-      - order_book_depth_ratio
+    - spread_over_price
+    - volume_vs_average
+    - spread_pct_mid
+    - spread_shock
+    - order_book_depth_ratio
     dealer_flow:
-      - gex_signal
-      - vanna_signal
-      - charm_signal
-      - put_call_skew
-      - iv_rank_ratio
-      - term_structure_ratio
-      - dealer_position_proxy
-
+    - gex_signal
+    - vanna_signal
+    - charm_signal
+    - put_call_skew
+    - iv_rank_ratio
+    - term_structure_ratio
+    - dealer_position_proxy
 regime:
-  model: hmm  # hmm | markov
-  hmm_transition_pseudocount: 0.1  # Dirichlet-style smoothing for P(i→j); raise for stickier regimes
+  model: hmm
+  hmm_transition_pseudocount: 0.1
   markov_transition_pseudocount: 0.1
   markov_k_regimes: 3
   markov_switching_variance: true
-
 options_surface:
   enabled: true
   min_dte: 7
   max_dte: 120
   min_points_per_expiry: 5
-
 roee_hmm:
   hmm_confidence_threshold: 0.6
   sizing_multiplier: 1.0
   transition_penalty: 0.5
   use_dynamic_sizing: false
   vol_target: 0.15
-  max_kelly_fraction: 0.25  # Fractional Kelly cap; keep below 1.0.
+  max_kelly_fraction: 0.25
   max_capital_fraction: 0.5
   regime_adjusted_kelly: true
   high_vol_kelly_multiplier: 0.5
   transition_kelly_multiplier: 0.75
   calm_trend_kelly_multiplier: 1.25
-
-# Kronos foundation model -- regime confidence, forecasting, and factor generation.
 kronos:
-  model_name: "NeoQuasar/Kronos-mini"
-  tokenizer_name: "NeoQuasar/Kronos-Tokenizer-2k"
+  model_name: NeoQuasar/Kronos-mini
+  tokenizer_name: NeoQuasar/Kronos-Tokenizer-2k
   max_context: 2048
   pred_len: 5
   temperature: 0.8
   top_p: 0.9
   sample_count: 10
-  device: "cpu"
-  finetuned_model_path: null
+  device: cpu
+  finetuned_model_path: data/models/kronos/SPY/model
   cache_ttl_bars: 1
   regime_confidence_weight: 0.4
   hmm_confidence_weight: 0.6
-
 transaction_cost:
   extra_spread_fraction: 0.0
   underlying_slippage_bps: 0.0
   market_impact_factor: 0.0
   avg_daily_volume_floor: 1000
-
 morning_briefing:
   enabled: true
-  news_api: "finnhub"
-  news_api_key: "${NEWS_API_KEY}"
-  start_time: "09:00"          # ET
-  execution_time: "09:45"      # ET
+  news_api: finnhub
+  news_api_key: ${NEWS_API_KEY}
+  start_time: 09:00
+  execution_time: 09:45
   allow_premarket_execution: false
-  overnight_sources: ["ibkr"]
-  mode: "dry-run"             # paper | dry-run
+  overnight_sources:
+  - ibkr
+  mode: dry-run

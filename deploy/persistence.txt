@@ -37,11 +37,15 @@ for IBKR **502** / auth messages.
 IBKR / unattended limits
 ------------------------
 
+For Dockerized IB Gateway, set ``EXISTING_SESSION_DETECTED_ACTION`` (e.g. ``primaryoverride``) in compose
+so the **Existing session detected** dialog does not block API login indefinitely; see
+``deploy/ib-gateway-compose.example.yml``.
+
 Fully unattended operation is **not** guaranteed: periodic **2FA**, password changes, **NYSE holidays**
 and **early closes**, Gateway/UI prompts, and host/network faults can still require human action.
 Use supported unattended patterns (e.g. IBC ``AUTO_RESTART_TIME``, account settings) and alert on
 failures (Telegram, journald). Equity orders from ``ibkr_equity_paper_trade.py`` are gated to **NYSE RTH**
-by default; universe rescans use a separate **09:00–16:00 ET** scanner window.
+by default; universe rescans use a separate **09:30–16:00 ET** scanner window (NYSE cash session).
 
 Telegram
 --------

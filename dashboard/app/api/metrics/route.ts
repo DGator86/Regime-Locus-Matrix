@@ -6,6 +6,10 @@ import {
   parseHmmStateIndex,
   sanitizeHmmStateLabel,
 } from "@/lib/hmmDisplay";
+import {
+  resolveOptionsTradeLogPath,
+  resolveRepoRootFromProcessed,
+} from "@/lib/tradingOverview";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +43,20 @@ function resolveProcessedDir(): {
   }
 
   const cwd = process.cwd();
-  candidates.push(
-    { label: "cwd/../data/processed", abs: path.resolve(cwd, "..", "data", "processed") },
-    { label: "cwd/data/processed", abs: path.resolve(cwd, "data", "processed") },
-    { label: "VPS default", abs: "/opt/Regime-Locus-Matrix/data/processed" },
-  );
+  const cwdBase = path.basename(cwd).toLowerCase();
+  const cwdDataProcessed = { label: "cwd/data/processed", abs: path.resolve(cwd, "data", "processed") };
+  const parentDataProcessed = {
+    label: "cwd/../data/processed",
+    abs: path.resolve(cwd, "..", "data", "processed"),
+  };
+
+  // Avoid selecting unrelated sibling `../data` when running from repo root.
+  if (cwdBase === "dashboard") {
+    candidates.push(parentDataProcessed, cwdDataProcessed);
+  } else {
+    candidates.push(cwdDataProcessed, parentDataProcessed);
+  }
+  candidates.push({ label: "VPS default", abs: "/opt/Regime-Locus-Matrix/data/processed" });
 
   for (const { label, abs } of candidates) {
     tried.push(abs);
@@ -98,6 +111,81 @@ function num(v: any): number {
   return isNaN(n) ? 0 : n;
 }
 
+function parseTimestampMs(v: string | undefined): number {
+  if (!v) return 0;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function inferRepoRootFromCwd(): string {
+  const cwd = process.cwd();
+  return path.basename(cwd).toLowerCase() === "dashboard"
+    ? path.resolve(cwd, "..")
+    : cwd;
+}
+
+function listSymbolFiles(dataDir: string, prefix: string): { symbol: string; filePath: string }[] {
+  try {
+    const names = fs.readdirSync(dataDir);
+    return names
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".csv"))
+      .map((name) => ({
+        symbol: name.slice(prefix.length, -4).toUpperCase(),
+        filePath: path.join(dataDir, name),
+      }))
+      .filter((x) => x.symbol.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function resolvePrimarySymbol(dataDir: string, activePlans: any[]): string {
+  const envSymbol = process.env.RLM_DASHBOARD_SYMBOL?.trim();
+  if (envSymbol) return envSymbol.toUpperCase();
+
+  const firstActive = activePlans.find((p) => typeof p?.symbol === "string" && p.symbol.trim().length > 0);
+  if (firstActive?.symbol) return String(firstActive.symbol).toUpperCase();
+
+  const symbolIndex = readJson(path.join(dataDir, "universe_symbol_index.json"));
+  if (symbolIndex && Array.isArray(symbolIndex.symbols) && symbolIndex.symbols.length > 0) {
+    const first = String(symbolIndex.symbols[0] || "").trim().toUpperCase();
+    if (first) return first;
+  }
+
+  const forecasts = listSymbolFiles(dataDir, "forecast_features_");
+  if (forecasts.length > 0) {
+    const latest = forecasts
+      .map((f) => ({ ...f, mtimeMs: fs.existsSync(f.filePath) ? fs.statSync(f.filePath).mtimeMs : 0 }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+    if (latest?.symbol) return latest.symbol;
+  }
+
+  return "SPY";
+}
+
+function fileMtimeIso(filePath: string): string | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return fs.statSync(filePath).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function latestMtimeIso(filePaths: string[]): string | null {
+  let latest = 0;
+  for (const filePath of filePaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const mt = fs.statSync(filePath).mtimeMs;
+      if (mt > latest) latest = mt;
+    } catch {
+      // ignore unreadable files
+    }
+  }
+  return latest > 0 ? new Date(latest).toISOString() : null;
+}
+
 function buildMarketState(dataDir: string) {
   const gate = readJson(path.join(dataDir, "gate_state.json"));
   if (!gate) return { posture: "UNKNOWN", status: "UNKNOWN", lastUpdated: "" };
@@ -105,6 +193,40 @@ function buildMarketState(dataDir: string) {
     posture: gate.posture || gate.gate_posture || "UNKNOWN",
     status: gate.status || gate.gate_status || "UNKNOWN",
     lastUpdated: gate.last_updated || gate.timestamp || "",
+  };
+}
+
+function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
+  const ibkrLastUpdated =
+    marketStateLastUpdated && String(marketStateLastUpdated).trim().length > 0
+      ? String(marketStateLastUpdated)
+      : fileMtimeIso(path.join(dataDir, "gate_state.json"));
+
+  const massiveLastUpdated = latestMtimeIso(
+    listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath)
+  );
+
+  const repoRoot = resolveRepoRootFromProcessed(dataDir);
+  const optionsLogPath = resolveOptionsTradeLogPath(repoRoot, dataDir);
+  const lakeLastUpdated = latestMtimeIso([
+    ...listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath),
+    path.join(dataDir, "universe_trade_plans.json"),
+    optionsLogPath,
+    path.join(dataDir, "equity_trade_log.csv"),
+  ]);
+
+  const doctorLastUpdated = latestMtimeIso([
+    path.join(dataDir, "doctor_report.json"),
+    path.join(dataDir, "doctor_status.json"),
+    path.join(dataDir, "diagnostics_report.json"),
+    path.join(dataDir, "model_health.json"),
+  ]);
+
+  return {
+    ibkrLastUpdated,
+    massiveLastUpdated,
+    lakeLastUpdated,
+    doctorLastUpdated,
   };
 }
 
@@ -183,7 +305,9 @@ function buildActivePlans(dataDir: string) {
 }
 
 function buildTradeSummary(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "trade_log.csv"));
+  const repoRoot = resolveRepoRootFromProcessed(dataDir);
+  const logPath = resolveOptionsTradeLogPath(repoRoot, dataDir);
+  const rows = readCsvFile(logPath);
   if (rows.length === 0) {
     return {
       totalTrades: 0,
@@ -314,12 +438,59 @@ function buildEquityTradeSummary(dataDir: string) {
   };
 }
 
-function buildForecastTimeseries(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "forecast_features_SPY.csv"));
-  if (rows.length === 0) return [];
+function buildForecastTimeseries(dataDir: string, symbol: string) {
+  const rows = readCsvFile(path.join(dataDir, `forecast_features_${symbol}.csv`));
+  const universeLatest = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
+  const fallbackBarsRows = readCsvFile(
+    path.join(inferRepoRootFromCwd(), "data", "raw", `bars_${symbol}.csv`)
+  );
+  const fallbackSeries = fallbackBarsRows.slice(-60).map((r) => ({
+    timestamp: r.timestamp || r.date || r.Date || "",
+    close: num(r.close || r.Close),
+    S_D: 0,
+    S_V: 0,
+    S_L: 0,
+    S_G: 0,
+    sigma: null,
+    mean_price: null,
+    lower_1s: null,
+    upper_1s: null,
+    lower_2s: null,
+    upper_2s: null,
+    hmm_state: null,
+    hmm_confidence: null,
+    hmm_state_label: null,
+    forecast_return: null,
+    forecast_uncertainty: null,
+  }));
 
-  const tail = rows.slice(-60);
-  return tail.map((r) => {
+  if (rows.length === 0) {
+    const one = universeLatest.filter((r) => String(r.symbol || "").toUpperCase() === symbol).slice(-60);
+    if (one.length > 0) {
+      return one.map((r) => ({
+        timestamp: r.run_at_utc || "",
+        close: num(r.close),
+        S_D: num(r.S_D),
+        S_V: num(r.S_V),
+        S_L: num(r.S_L),
+        S_G: num(r.S_G),
+        sigma: optionalNum(r.sigma),
+        mean_price: null,
+        lower_1s: null,
+        upper_1s: null,
+        lower_2s: null,
+        upper_2s: null,
+        hmm_state: null,
+        hmm_confidence: null,
+        hmm_state_label: null,
+        forecast_return: null,
+        forecast_uncertainty: null,
+      }));
+    }
+    return fallbackSeries;
+  }
+
+  const fromForecast = rows.slice(-60).map((r) => {
     const hmmIdx = parseHmmStateIndex(r.hmm_state ?? r.HMM_State);
     const hmmLblRaw = r.hmm_state_label ?? r.HMM_State_Label;
     return {
@@ -344,10 +515,38 @@ function buildForecastTimeseries(dataDir: string) {
         : null,
     };
   });
+
+  const forecastLastTs = parseTimestampMs(fromForecast[fromForecast.length - 1]?.timestamp);
+  const barsLastTs = parseTimestampMs(fallbackSeries[fallbackSeries.length - 1]?.timestamp);
+  const staleByMs = barsLastTs - forecastLastTs;
+  const staleThresholdMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+  return staleByMs > staleThresholdMs ? fallbackSeries : fromForecast;
 }
 
-function buildBacktestEquity(dataDir: string) {
-  const rows = readCsvFile(path.join(dataDir, "backtest_equity_SPY.csv"));
+function buildUniverseForecastLatest(dataDir: string) {
+  const rows = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
+  return rows.map((r) => ({
+    run_at_utc: r.run_at_utc || "",
+    symbol: (r.symbol || "").toUpperCase(),
+    status: r.status || "",
+    skip_reason: r.skip_reason || "",
+    action: r.action || "",
+    strategy_name: r.strategy_name || "",
+    regime_key: r.regime_key || "",
+    close: r.close ? num(r.close) : null,
+    sigma: optionalNum(r.sigma),
+    S_D: optionalNum(r.S_D),
+    S_V: optionalNum(r.S_V),
+    S_L: optionalNum(r.S_L),
+    S_G: optionalNum(r.S_G),
+    regime_safety_ok: String(r.regime_safety_ok || "").toLowerCase() === "true",
+    regime_train_sample_count: r.regime_train_sample_count ? num(r.regime_train_sample_count) : null,
+  }));
+}
+
+function buildBacktestEquity(dataDir: string, symbol: string) {
+  const rows = readCsvFile(path.join(dataDir, `backtest_equity_${symbol}.csv`));
   if (rows.length === 0) return [];
 
   const tail = rows.slice(-200);
@@ -357,7 +556,7 @@ function buildBacktestEquity(dataDir: string) {
   }));
 }
 
-function buildWalkforwardSummary(dataDir: string) {
+function buildWalkforwardSummary(dataDir: string, symbol: string) {
   const data = readJson(path.join(dataDir, "walkforward_summary.json"));
   if (data && Array.isArray(data)) {
     return data.map((w: any) => ({
@@ -374,7 +573,7 @@ function buildWalkforwardSummary(dataDir: string) {
     }));
   }
 
-  const rows = readCsvFile(path.join(dataDir, "walkforward_summary.csv"));
+  const rows = readCsvFile(path.join(dataDir, `walkforward_summary_${symbol}.csv`));
   return rows.map((r) => ({
     windowId: num(r.window_id),
     oosStart: r.oos_start || "",
@@ -394,19 +593,23 @@ export async function GET() {
     const resolved = resolveProcessedDir();
     const dataDir = resolved.dir;
 
-    const forecastPath = path.join(dataDir, "forecast_features_SPY.csv");
+    const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
+    const universeForecastLatest = buildUniverseForecastLatest(dataDir);
+    const primarySymbol = resolvePrimarySymbol(dataDir, activePlans);
+
+    const forecastPath = path.join(dataDir, `forecast_features_${primarySymbol}.csv`);
     const plansPath = path.join(dataDir, "universe_trade_plans.json");
     const hasForecast = fs.existsSync(forecastPath);
     const hasPlans = fs.existsSync(plansPath);
 
     const marketState = buildMarketState(dataDir);
-    const { activePlans, topRanked, symbolsInUniverse } = buildActivePlans(dataDir);
+    const dataAge = buildDataAge(dataDir, marketState.lastUpdated);
     const tradeSummary = buildTradeSummary(dataDir);
     const equityPositions = buildEquityPositions(dataDir);
     const equityTradeSummary = buildEquityTradeSummary(dataDir);
-    const forecastTimeseries = buildForecastTimeseries(dataDir);
-    const backtestEquity = buildBacktestEquity(dataDir);
-    const walkforwardSummary = buildWalkforwardSummary(dataDir);
+    const forecastTimeseries = buildForecastTimeseries(dataDir, primarySymbol);
+    const backtestEquity = buildBacktestEquity(dataDir, primarySymbol);
+    const walkforwardSummary = buildWalkforwardSummary(dataDir, primarySymbol);
 
     return NextResponse.json({
       marketState,
@@ -416,9 +619,12 @@ export async function GET() {
       equityPositions,
       equityTradeSummary,
       forecastTimeseries,
+      universeForecastLatest,
       backtestEquity,
       walkforwardSummary,
       generatedAt: new Date().toISOString(),
+      dataAge,
+      primarySymbol,
       symbolsInUniverse,
       dataMeta: {
         processedDir: dataDir,

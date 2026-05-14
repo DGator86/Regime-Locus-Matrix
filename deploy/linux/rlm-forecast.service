@@ -1,0 +1,17 @@
+[Unit]
+Description=RLM Forecast Pipeline (one-shot)
+After=network.target
+# Forecast can run longer than the default start timeout; avoid SIGTERM mid-run.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@INSTALL_ROOT@
+EnvironmentFile=@INSTALL_ROOT@/.env
+Environment=PATH=@INSTALL_ROOT@/.venv/bin:/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=0
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_forecast_pipeline.py --no-vix
+
+[Install]
+WantedBy=multi-user.target

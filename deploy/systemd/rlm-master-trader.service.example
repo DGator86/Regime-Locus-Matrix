@@ -1,11 +1,19 @@
 # Copy to /etc/systemd/system/rlm-master-trader.service, adjust paths if needed.
 # First-time PDT challenge: cd repo && rlm challenge --reset --symbol SPY
+# ``scripts/run_master.py`` → ``run_everything.py --master --with-equity --with-challenge``; ``--master``
+# enables the PDT sleeve by default (disable with ``--skip-challenge`` on the command line).
+# Periodic ``rlm challenge --run`` ticks match ``--interval`` (60s default); see ``--challenge-interval``.
 # Then: systemctl daemon-reload && systemctl enable --now rlm-master-trader
+#
+# Enable exactly ONE master trading loop: this unit OR regime-locus-master.service OR
+# rlm-master-telegram.service (mutual Conflicts).
 
 [Unit]
-Description=RLM Master Trader (Options dry-run + Equity paper + PDT challenge)
-After=network.target docker.service
-Wants=docker.service
+Description=RLM Master Trader (Options dry-run + Equity paper)
+Conflicts=regime-locus-master.service rlm-master-telegram.service
+After=network-online.target docker.service ib-gateway.service
+Wants=network-online.target docker.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -13,9 +21,10 @@ User=root
 WorkingDirectory=/opt/Regime-Locus-Matrix
 EnvironmentFile=/opt/Regime-Locus-Matrix/.env
 Environment=PATH=/opt/rlm-venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/opt/rlm-venv/bin/python scripts/run_everything.py --master --with-equity --equity-use-account-scale --with-challenge
-Restart=on-failure
-RestartSec=30
+ExecStart=/opt/Regime-Locus-Matrix/scripts/systemd_exec_python.sh scripts/run_master.py --equity-use-account-scale
+Restart=always
+RestartSec=20
+OOMScoreAdjust=-50
 
 [Install]
 WantedBy=multi-user.target

@@ -82,6 +82,9 @@ class KronosRegimeConfidence:
         fc_vol = float(np.std(per_ret)) if arr.shape[0] > 1 else float(abs(fc_ret))
 
         base_conf = float(np.clip(0.5 + 0.5 * (1.0 - min(fc_vol * 10.0, 1.0)), 0.0, 1.0))
+        epistemic_uncertainty = float(np.clip(1.0 / np.sqrt(max(arr.shape[0], 1)), 0.0, 1.0))
+        aleatoric_uncertainty = float(np.clip(min(fc_vol * 10.0, 1.0), 0.0, 1.0))
+
         if current_regime_key is None:
             agreement = base_conf
             transition = False
@@ -101,6 +104,8 @@ class KronosRegimeConfidence:
 
         return {
             "kronos_confidence": confidence,
+            "kronos_epistemic_uncertainty": epistemic_uncertainty,
+            "kronos_aleatoric_uncertainty": aleatoric_uncertainty,
             "kronos_regime_agreement": agreement if current_regime_key is not None else confidence,
             "kronos_predicted_regime": pred_regime,
             "kronos_transition_flag": transition,
@@ -120,6 +125,8 @@ class KronosRegimeConfidence:
         out = df.copy()
         extra = {
             "kronos_confidence": np.nan,
+            "kronos_epistemic_uncertainty": np.nan,
+            "kronos_aleatoric_uncertainty": np.nan,
             "kronos_regime_agreement": np.nan,
             "kronos_predicted_regime": None,
             "kronos_transition_flag": False,

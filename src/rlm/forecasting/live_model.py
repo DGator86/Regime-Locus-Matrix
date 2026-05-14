@@ -65,6 +65,11 @@ class LiveROEEParameters(BaseModel):
     confidence_threshold: float = 0.6
     sizing_multiplier: float = 1.0
     transition_penalty: float = 0.5
+    kronos_confidence_weight: float = 0.4
+    hmm_confidence_weight: float = 0.6
+    kronos_transition_penalty: float = 0.3
+    kronos_epistemic_disable_threshold: float | None = 0.7
+    kronos_aleatoric_size_penalty: float = 0.5
     use_dynamic_sizing: bool = False
     vol_target: float = 0.15
     max_kelly_fraction: float = 0.25
@@ -78,6 +83,11 @@ class LiveROEEParameters(BaseModel):
             hmm_confidence_threshold=self.confidence_threshold,
             sizing_multiplier=self.sizing_multiplier,
             transition_penalty=self.transition_penalty,
+            kronos_confidence_weight=self.kronos_confidence_weight,
+            hmm_confidence_weight=self.hmm_confidence_weight,
+            kronos_transition_penalty=self.kronos_transition_penalty,
+            kronos_epistemic_disable_threshold=self.kronos_epistemic_disable_threshold,
+            kronos_aleatoric_size_penalty=self.kronos_aleatoric_size_penalty,
             use_dynamic_sizing=self.use_dynamic_sizing,
             vol_target=self.vol_target,
             max_kelly_fraction=self.max_kelly_fraction,
@@ -92,6 +102,11 @@ class LiveROEEParameters(BaseModel):
             "hmm_confidence_threshold": self.confidence_threshold,
             "hmm_sizing_multiplier": self.sizing_multiplier,
             "hmm_transition_penalty": self.transition_penalty,
+            "kronos_confidence_weight": self.kronos_confidence_weight,
+            "hmm_confidence_weight": self.hmm_confidence_weight,
+            "kronos_transition_penalty": self.kronos_transition_penalty,
+            "kronos_epistemic_disable_threshold": self.kronos_epistemic_disable_threshold,
+            "kronos_aleatoric_size_penalty": self.kronos_aleatoric_size_penalty,
             "use_dynamic_sizing": self.use_dynamic_sizing,
             "vol_target": self.vol_target,
             "max_kelly_fraction": self.max_kelly_fraction,
@@ -140,6 +155,27 @@ class LiveMarkovParameters(BaseModel):
         )
 
 
+ConfirmationMode = Literal["direction", "regime_head", "both"]
+
+
+class LiveTimeframeHierarchy(BaseModel):
+    """Primary IBKR bar stream sets regime + forecast; finer streams confirm before entries.
+
+    ``HybridForecastPipeline`` hierarchical mode resamples the *same* bar dataframe; on coarse
+    primary bars (e.g. daily) micro-HMM fits are skipped because ``len(resampled) >= len(df)``.
+    For real lower-timeframe confirmation while keeping a slow primary bias, list IBKR bar sizes
+    here — each is fetched separately (short ``confirmation_duration`` window) and aligned to
+    the primary decision row inside ``run_universe_options_pipeline``.
+    """
+
+    primary_bar_size: str | None = None
+    primary_duration: str | None = None
+    confirmation_bar_sizes: tuple[str, ...] = ()
+    confirmation_duration: str = "10 D"
+    confirmation_mode: ConfirmationMode = "direction"
+    require_all_confirmations: bool = True
+
+
 class LiveRegimeModelConfig(BaseModel):
     model: RegimeModelName = "forecast"
     forecast: LiveForecastParameters = Field(default_factory=LiveForecastParameters)
@@ -148,7 +184,10 @@ class LiveRegimeModelConfig(BaseModel):
     markov: LiveMarkovParameters = Field(default_factory=LiveMarkovParameters)
     use_kronos: bool = False
     kronos: LiveKronosParameters = Field(default_factory=LiveKronosParameters)
+    timeframe_hierarchy: LiveTimeframeHierarchy = Field(default_factory=LiveTimeframeHierarchy)
     provenance: dict[str, Any] = Field(default_factory=dict)
+    #: When set, overrides ``--min-regime-train-samples`` for regime safety / ROEE gating.
+    min_regime_train_samples: int | None = None
 
     def build_pipeline(
         self,
