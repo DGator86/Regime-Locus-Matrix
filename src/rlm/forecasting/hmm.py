@@ -14,6 +14,8 @@ from hmmlearn import hmm
 from pydantic import BaseModel, Field
 from scipy.special import logsumexp, softmax
 
+logger = logging.getLogger(__name__)
+
 try:
     from numba import njit
 except Exception:  # pragma: no cover - optional acceleration path
@@ -296,6 +298,19 @@ class RLMHMM:
         if self._state_permutation is None:
             return t_old
         n = t_old.shape[0]
+        perm_keys = set(int(k) for k in self._state_permutation.keys())
+        perm_values = [int(v) for v in self._state_permutation.values()]
+        perm_value_set = set(perm_values)
+        expected = set(range(n))
+        if perm_keys != expected or perm_value_set != expected or len(perm_values) != n:
+            logger.warning(
+                "Invalid HMM state permutation detected for transition matrix reordering; "
+                "expected bijection over [0, %d], got keys=%s values=%s. Falling back to identity.",
+                n - 1,
+                sorted(perm_keys),
+                sorted(perm_values),
+            )
+            return t_old
         t_new = np.zeros((n, n), dtype=np.float64)
         for i_old in range(n):
             for j_old in range(n):

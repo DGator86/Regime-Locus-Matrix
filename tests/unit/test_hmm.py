@@ -95,3 +95,16 @@ def test_hmm_calibrated_transmat_and_one_step_predictive() -> None:
     nxt = RLMHMM.one_step_predictive_probs(gamma, t)
     assert nxt.shape == gamma.shape
     assert np.allclose(nxt.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_permuted_transmat_invalid_permutation_falls_back_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    df = _synthetic_scores(140)
+    m = RLMHMM(HMMConfig(n_states=4, n_iter=15, random_state=1, filter_backend="numpy")).fit(df, verbose=False)
+    base = m.model.transmat_.astype(np.float64).copy()
+    m._state_permutation = {0: 0, 1: 1, 2: 2, 3: 2}
+    caplog.set_level(logging.WARNING)
+    got = m.permuted_transmat()
+    assert np.allclose(got, base)
+    assert any("Invalid HMM state permutation detected" in rec.getMessage() for rec in caplog.records)
