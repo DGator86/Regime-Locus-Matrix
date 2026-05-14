@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.live_model import (
@@ -87,6 +88,11 @@ def test_live_regime_model_timeframe_hierarchy_with_confirmations_roundtrip(tmp_
     assert loaded.timeframe_hierarchy.require_all_confirmations is False
 
 
+@pytest.mark.filterwarnings(
+    "ignore:Invalid regime transition probabilities estimated in EM iteration:statsmodels.tools.sm_exceptions.EstimationWarning"
+)
+@pytest.mark.filterwarnings("ignore:divide by zero encountered:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
 def test_live_regime_model_round_trip_builds_markov_pipeline(tmp_path) -> None:
     cfg = LiveRegimeModelConfig(
         model="markov",
