@@ -73,6 +73,34 @@ def test_policy_df_has_action_columns(pipeline_result: PipelineResult) -> None:
     assert not missing, f"policy_df missing action columns: {missing}"
 
 
+def test_policy_df_has_regime_identifier_columns(pipeline_result: PipelineResult) -> None:
+    regime_cols = {
+        "direction_regime",
+        "volatility_regime",
+        "liquidity_regime",
+        "dealer_flow_regime",
+        "regime_key",
+    }
+    missing = regime_cols - set(pipeline_result.policy_df.columns)
+    assert not missing, f"policy_df missing regime identifier columns: {missing}"
+
+
+def test_policy_regime_key_matches_component_columns(pipeline_result: PipelineResult) -> None:
+    df = pipeline_result.policy_df.copy()
+    expected_key = (
+        df["direction_regime"].astype(str)
+        + "|"
+        + df["volatility_regime"].astype(str)
+        + "|"
+        + df["liquidity_regime"].astype(str)
+        + "|"
+        + df["dealer_flow_regime"].astype(str)
+    )
+    assert (df["regime_key"].astype(str) == expected_key).all(), (
+        "regime_key must be the pipe-joined regime identifiers in the expected order"
+    )
+
+
 def test_policy_df_last_row_has_action(pipeline_result: PipelineResult) -> None:
     last = pipeline_result.policy_df.iloc[-1]
     assert pd.notna(last["roee_action"]), "Last policy row roee_action should not be null"
