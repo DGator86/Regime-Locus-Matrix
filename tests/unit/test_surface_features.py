@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from rlm.data.bars_enrichment import enrich_bars_with_surface_features
 
@@ -50,6 +51,7 @@ def _make_chain(bars: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@pytest.mark.filterwarnings("ignore:Covariance of the parameters could not be estimated:scipy.optimize.OptimizeWarning")
 def test_enrich_bars_adds_surface_features() -> None:
     bars = _make_bars()
     chain = _make_chain(bars)
