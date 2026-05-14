@@ -65,12 +65,12 @@ _RISK_MODERATE = frozenset({"MODERATE", "MEDIUM", "NEUTRAL", "BALANCED", "NORMAL
 class TradingAgentsResult:
     symbol: str
     analysis_date: str
-    action: str       # BUY | HOLD | SELL
+    action: str  # BUY | HOLD | SELL
     rationale: str
     entry_price: Optional[float]
     stop_loss: Optional[float]
-    risk_level: str   # HIGH | MODERATE | LOW
-    confidence: str   # HIGH | MEDIUM | LOW
+    risk_level: str  # HIGH | MODERATE | LOW
+    confidence: str  # HIGH | MEDIUM | LOW
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -243,10 +243,7 @@ class TradingAgentsAdapter:
             from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
         except ImportError as exc:
-            raise ImportError(
-                "tradingagents is not installed. "
-                "Run: pip install -e '.[trading_agents]'"
-            ) from exc
+            raise ImportError("tradingagents is not installed. " "Run: pip install -e '.[trading_agents]'") from exc
 
         ta_config = DEFAULT_CONFIG.copy()
         ta_config["llm_provider"] = cfg.llm_provider

@@ -150,11 +150,11 @@ def apply_roee_policy(
             week_pnl += pnl_val
 
         mod = _hmm_modulators_for_config(row, cfg)
-        day_blocked = (
-            cfg.daily_loss_circuit_breaker_pct is not None and day_pnl <= float(cfg.daily_loss_circuit_breaker_pct)
+        day_blocked = cfg.daily_loss_circuit_breaker_pct is not None and day_pnl <= float(
+            cfg.daily_loss_circuit_breaker_pct
         )
-        week_blocked = (
-            cfg.weekly_loss_circuit_breaker_pct is not None and week_pnl <= float(cfg.weekly_loss_circuit_breaker_pct)
+        week_blocked = cfg.weekly_loss_circuit_breaker_pct is not None and week_pnl <= float(
+            cfg.weekly_loss_circuit_breaker_pct
         )
         regime_train_sample_count = int(row.get("regime_train_sample_count", 0) or 0)
         regime_safety_ok = bool(row.get("regime_safety_ok", True))

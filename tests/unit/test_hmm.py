@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import HybridForecastPipeline, _annotate_hmm_transition_fields, _annotate_regime_ensemble
 from rlm.forecasting.hmm import RLMHMM, HMMConfig
-from rlm.features.scoring.state_matrix import classify_state_matrix
 
 
 def _synthetic_scores(n: int = 300) -> pd.DataFrame:
@@ -93,7 +93,6 @@ def test_rlm_hmm_legacy_pickle_without_new_config_fields_still_predicts() -> Non
     assert np.allclose(transmat.sum(axis=1), 1.0, atol=1e-5)
     assert np.allclose(updated_transmat.sum(axis=1), 1.0, atol=1e-5)
     assert np.allclose(online_mats.sum(axis=2), 1.0, atol=1e-5)
-
 
 
 def test_hybrid_forecast_pipeline_adds_hmm_columns() -> None:
@@ -348,9 +347,7 @@ def test_online_transition_update_zero_step_returns_calibrated_without_mutation(
 def test_online_transition_update_non_finite_step_raises() -> None:
     """Non-finite step_size must raise ValueError."""
     df = _synthetic_scores(200)
-    m = RLMHMM(
-        HMMConfig(n_states=4, n_iter=20, random_state=11, filter_backend="numpy")
-    ).fit(df, verbose=False)
+    m = RLMHMM(HMMConfig(n_states=4, n_iter=20, random_state=11, filter_backend="numpy")).fit(df, verbose=False)
     gamma = m.predict_proba_filtered(df)
     with pytest.raises(ValueError, match="finite"):
         m.online_transition_update(gamma, step_size=float("nan"))
@@ -359,9 +356,7 @@ def test_online_transition_update_non_finite_step_raises() -> None:
 def test_online_transition_update_step_size_clamped_to_one() -> None:
     """step_size > 1.0 must be clamped to 1.0 (not raise, not extrapolate)."""
     df = _synthetic_scores(200)
-    m = RLMHMM(
-        HMMConfig(n_states=4, n_iter=20, random_state=13, filter_backend="numpy")
-    ).fit(df, verbose=False)
+    m = RLMHMM(HMMConfig(n_states=4, n_iter=20, random_state=13, filter_backend="numpy")).fit(df, verbose=False)
     gamma = m.predict_proba_filtered(df)
     # Should not raise and result must be a valid stochastic matrix
     result = m.online_transition_update(gamma, step_size=5.0)

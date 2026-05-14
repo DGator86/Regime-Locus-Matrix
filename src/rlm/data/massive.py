@@ -111,7 +111,6 @@ class MassiveClient:
             return None
         return json.loads(raw)
 
-
     def option_chain_snapshot(
         self,
         underlying: str,
@@ -196,7 +195,7 @@ class MassiveClient:
 
 def _sleep_retry_backoff(attempt: int) -> None:
     base = 0.5
-    delay = min(4.0, base * (2**max(0, attempt)))
+    delay = min(4.0, base * (2 ** max(0, attempt)))
     time.sleep(delay)
 
 

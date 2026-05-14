@@ -53,7 +53,7 @@ _BENIGN_LOG_PATTERNS = (
     "unknown api key",
     "apply_kronos_blend: kronos inference failed; returning base forecast unchanged. reason: 'datetimeindex' object has no attribute 'dt'",
     "convergencewarning: maximum likelihood optimization failed to converge",
-    "warnings.warn(\"maximum likelihood optimization failed to ",
+    'warnings.warn("maximum likelihood optimization failed to ',
 )
 
 
@@ -364,7 +364,9 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
             if s.name == "regime-locus-master" and not scanner_open:
                 continue
             service_issues.append(s.name)
-    degraded = bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
+    degraded = (
+        bool(service_issues) or any(d.pct > 90 for d in report.disk) or (scanner_open and bool(report.stale_files))
+    )
     if report.recent_errors:
         degraded = True
     report.overall_ok = not degraded
@@ -372,9 +374,7 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
 
 
 def _try_restart_inactive_services(root: Path, report: HealthReport, services: list[str]) -> list[str]:
-    raw = (
-        os.environ.get("RLM_HEALTH_AUTO_RESTART") or os.environ.get("SCOTTY_AUTO_RESTART") or "1"
-    ).strip().lower()
+    raw = (os.environ.get("RLM_HEALTH_AUTO_RESTART") or os.environ.get("SCOTTY_AUTO_RESTART") or "1").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return []
     if shutil.which("systemctl") is None:
@@ -385,7 +385,11 @@ def _try_restart_inactive_services(root: Path, report: HealthReport, services: l
     skip_crew = any("run_crew" in (a or "") for a in sys.argv)
     try:
         cooldown = float(
-            (os.environ.get("RLM_HEALTH_RESTART_COOLDOWN_SEC") or os.environ.get("SCOTTY_RESTART_COOLDOWN_SEC") or "180").strip()
+            (
+                os.environ.get("RLM_HEALTH_RESTART_COOLDOWN_SEC")
+                or os.environ.get("SCOTTY_RESTART_COOLDOWN_SEC")
+                or "180"
+            ).strip()
         )
     except ValueError:
         cooldown = 180.0

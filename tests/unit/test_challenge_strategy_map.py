@@ -34,23 +34,29 @@ class TestCanonicalLabels:
 
 
 class TestGetChallengeStrategy:
-    @pytest.mark.parametrize("regime,expected", [
-        (("bull", "low_vol",  "high_liquidity", "supportive"),    "aggressive_daytrader_call"),
-        (("bull", "high_vol", "high_liquidity", "supportive"),    "aggressive_daytrader_0DTE_straddle"),
-        (("bear", "low_vol",  "high_liquidity", "supportive"),    "aggressive_daytrader_put"),
-        (("bear", "high_vol", "high_liquidity", "supportive"),    "aggressive_daytrader_put"),
-        (("bear", "low_vol",  "high_liquidity", "destabilizing"), "aggressive_daytrader_put"),
-        (("bear", "high_vol", "high_liquidity", "destabilizing"), "aggressive_daytrader_put"),
-    ])
+    @pytest.mark.parametrize(
+        "regime,expected",
+        [
+            (("bull", "low_vol", "high_liquidity", "supportive"), "aggressive_daytrader_call"),
+            (("bull", "high_vol", "high_liquidity", "supportive"), "aggressive_daytrader_0DTE_straddle"),
+            (("bear", "low_vol", "high_liquidity", "supportive"), "aggressive_daytrader_put"),
+            (("bear", "high_vol", "high_liquidity", "supportive"), "aggressive_daytrader_put"),
+            (("bear", "low_vol", "high_liquidity", "destabilizing"), "aggressive_daytrader_put"),
+            (("bear", "high_vol", "high_liquidity", "destabilizing"), "aggressive_daytrader_put"),
+        ],
+    )
     def test_mapped_regimes(self, regime, expected):
         assert get_challenge_strategy(regime) == expected
 
-    @pytest.mark.parametrize("regime", [
-        ("range",      "low_vol",  "high_liquidity", "supportive"),
-        ("transition", "high_vol", "high_liquidity", "supportive"),
-        ("bull",       "high_vol", "low_liquidity",  "destabilizing"),
-        ("bull",       "low_vol",  "high_liquidity", "destabilizing"),
-    ])
+    @pytest.mark.parametrize(
+        "regime",
+        [
+            ("range", "low_vol", "high_liquidity", "supportive"),
+            ("transition", "high_vol", "high_liquidity", "supportive"),
+            ("bull", "high_vol", "low_liquidity", "destabilizing"),
+            ("bull", "low_vol", "high_liquidity", "destabilizing"),
+        ],
+    )
     def test_unmapped_regimes_return_no_trade(self, regime):
         assert get_challenge_strategy(regime) == "no_trade"
 

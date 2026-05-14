@@ -26,4 +26,3 @@ def build_pipeline_event(
     if extra:
         payload.update(extra)
     return payload
-

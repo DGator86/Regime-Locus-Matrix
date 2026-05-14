@@ -147,8 +147,7 @@ def _read_walkforward_performance(root: Path, windows: int = 3) -> str:
                     safe = r.get("regime_safety_passed", "?")
                     safe_str = f"{safe} ({float(safe_frac):.0%})" if safe_frac else str(safe)
                     all_lines.append(
-                        f"  OOS {oos_end}: win={wr} sharpe={sh} "
-                        f"avg_pnl={pnl} trades={n} safe={safe_str}"
+                        f"  OOS {oos_end}: win={wr} sharpe={sh} " f"avg_pnl={pnl} trades={n} safe={safe_str}"
                     )
                 except (ValueError, KeyError):
                     continue
@@ -232,9 +231,7 @@ def _read_walkforward_oos_aggregate(root: Path) -> str:
         )
         best = by_sharpe[0]
         worst = by_sharpe[-1]
-        lines.append(
-            f"  best OOS (by mean window sharpe): {best[0]} mean_sharpe={best[1].get('mean_sharpe', 'n/a')}"
-        )
+        lines.append(f"  best OOS (by mean window sharpe): {best[0]} mean_sharpe={best[1].get('mean_sharpe', 'n/a')}")
         lines.append(f"  worst: {worst[0]} mean_sharpe={worst[1].get('mean_sharpe', 'n/a')}")
     return "\n".join(lines)
 

@@ -255,6 +255,7 @@ class TestProbabilisticRegimeEngine:
         out = engine.run_batch(df)
 
         assert len(out) == len(df)
+
     def test_run_batch_treats_nullable_missing_kronos_as_absent(self, ltf_df):
         nullable_df = _with_nullable_missing_kronos(ltf_df)
         engine = ProbabilisticRegimeEngine(_small_config())
@@ -620,12 +621,9 @@ class TestExtractPreConfidence:
         assert result is None
 
     def test_clamps_finite_values_to_unit_interval(self):
-        assert extract_pre_confidence(pd.Series({"pre_confidence": 1.25})) == pytest.approx(
-            1.0
-        )
-        assert extract_pre_confidence(pd.Series({"pre_confidence": -0.25})) == pytest.approx(
-            0.0
-        )
+        assert extract_pre_confidence(pd.Series({"pre_confidence": 1.25})) == pytest.approx(1.0)
+        assert extract_pre_confidence(pd.Series({"pre_confidence": -0.25})) == pytest.approx(0.0)
+
     def test_clamps_to_probability_interval(self):
         assert extract_pre_confidence(pd.Series({"pre_confidence": 2.5})) == pytest.approx(1.0)
         assert extract_pre_confidence(pd.Series({"pre_confidence": -0.5})) == pytest.approx(0.0)

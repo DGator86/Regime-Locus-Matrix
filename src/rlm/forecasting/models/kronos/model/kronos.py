@@ -33,41 +33,45 @@ def _load_vendor_module() -> ModuleType | None:
     return module
 
 
+class _StubKronosTokenizer:
+    @classmethod
+    def from_pretrained(cls, *_args: Any, **_kwargs: Any) -> "_StubKronosTokenizer":
+        raise ImportError(
+            "KronosTokenizer.from_pretrained is not available in the stub module. "
+            "Set RLM_KRONOS_VENDOR_PATH to a Kronos checkout, or use "
+            "KronosForecastPipeline(predictor=mock) in tests."
+        )
+
+
+class _StubKronos:
+    @classmethod
+    def from_pretrained(cls, *_args: Any, **_kwargs: Any) -> "_StubKronos":
+        raise ImportError(
+            "Kronos.from_pretrained is not available in the stub module. "
+            "Set RLM_KRONOS_VENDOR_PATH to a Kronos checkout, or use "
+            "KronosForecastPipeline(predictor=mock) in tests."
+        )
+
+
+class _StubKronosPredictor:
+    """Torch predictor with ``predict(df, x_timestamp, y_timestamp, ...) -> DataFrame``."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise ImportError(
+            "KronosPredictor is a stub unless a Kronos runtime is available via "
+            "RLM_KRONOS_VENDOR_PATH."
+        )
+
+    def predict(self, **_kwargs: Any):  # pragma: no cover - stub
+        raise ImportError("KronosPredictor.predict requires the vendored Kronos runtime.")
+
+
 _VENDOR = _load_vendor_module()
 if _VENDOR is not None and all(hasattr(_VENDOR, name) for name in ("KronosTokenizer", "Kronos", "KronosPredictor")):
     KronosTokenizer = _VENDOR.KronosTokenizer  # type: ignore[misc,assignment]
     Kronos = _VENDOR.Kronos  # type: ignore[misc,assignment]
     KronosPredictor = _VENDOR.KronosPredictor  # type: ignore[misc,assignment]
 else:
-
-    class KronosTokenizer:
-        @classmethod
-        def from_pretrained(cls, *_args: Any, **_kwargs: Any) -> "KronosTokenizer":
-            raise ImportError(
-                "KronosTokenizer.from_pretrained is not available in the stub module. "
-                "Set RLM_KRONOS_VENDOR_PATH to a Kronos checkout, or use "
-                "KronosForecastPipeline(predictor=mock) in tests."
-            )
-
-
-    class Kronos:
-        @classmethod
-        def from_pretrained(cls, *_args: Any, **_kwargs: Any) -> "Kronos":
-            raise ImportError(
-                "Kronos.from_pretrained is not available in the stub module. "
-                "Set RLM_KRONOS_VENDOR_PATH to a Kronos checkout, or use "
-                "KronosForecastPipeline(predictor=mock) in tests."
-            )
-
-
-    class KronosPredictor:
-        """Torch predictor with ``predict(df, x_timestamp, y_timestamp, ...) -> DataFrame``."""
-
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            raise ImportError(
-                "KronosPredictor is a stub unless a Kronos runtime is available via "
-                "RLM_KRONOS_VENDOR_PATH."
-            )
-
-        def predict(self, **_kwargs: Any):  # pragma: no cover - stub
-            raise ImportError("KronosPredictor.predict requires the vendored Kronos runtime.")
+    KronosTokenizer = _StubKronosTokenizer
+    Kronos = _StubKronos
+    KronosPredictor = _StubKronosPredictor

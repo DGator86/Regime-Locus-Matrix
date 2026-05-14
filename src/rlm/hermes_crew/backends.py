@@ -192,9 +192,8 @@ def resolve_hermes_backend_tuples() -> list[tuple[str, str, str]]:
         primary: tuple[str, str, str] = (explicit_base, key, model)
     elif _truthy("RLM_HERMES_AUTO_GROQ") and groq_key:
         model = (
-            (os.environ.get("RLM_HERMES_MODEL") or os.environ.get("LLM_MODEL") or "").strip()
-            or "llama-3.3-70b-versatile"
-        )
+            os.environ.get("RLM_HERMES_MODEL") or os.environ.get("LLM_MODEL") or ""
+        ).strip() or "llama-3.3-70b-versatile"
         primary = ("https://api.groq.com/openai/v1", groq_key, model)
     elif openrouter_key:
         model = (

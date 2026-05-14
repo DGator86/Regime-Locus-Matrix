@@ -852,8 +852,6 @@ class ProbabilisticRegimeEngineMTF:
         if cfg.kronos_enabled and kronos_col and kronos_col in ltf_df.columns:
             kronos_series = pd.to_numeric(ltf_df[kronos_col], errors="coerce")
 
-        arts = self._artefacts
-
         confidences: list[float] = []
         spot_attrs: list[float] = []
         ltf_states: list[int] = []

@@ -70,13 +70,9 @@ class HermesCrewConfig:
     health_interval: int = int(os.environ.get("CREW_HEALTH_INTERVAL", "120"))
     analysis_interval: int = int(os.environ.get("CREW_ANALYSIS_INTERVAL", "300"))
     briefing_interval: int = int(os.environ.get("CREW_BRIEFING_INTERVAL", "600"))
-    telegram_token: str = (
-        os.environ.get("RLM_HERMES_TELEGRAM_BOT_TOKEN")
-        or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    )
-    telegram_chat_id: str = (
-        os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID")
-        or os.environ.get("TELEGRAM_NOTIFY_CHAT_ID", "")
+    telegram_token: str = os.environ.get("RLM_HERMES_TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID") or os.environ.get(
+        "TELEGRAM_NOTIFY_CHAT_ID", ""
     )
     silent_health_ok: bool = True
 
@@ -118,11 +114,10 @@ def _ensure_hermes(root: Path) -> Tuple[Any, Any]:
         sys.path.append(root_str)
     try:
         import run_agent  # noqa: WPS433 — third-party entry
+
         import rlm_hermes_tools.register_rlm_tools  # noqa: F401, WPS433 — registers tools
     except ImportError as e:
-        raise RuntimeError(
-            'Hermes agent is not installed. Install with: pip install -e ".[hermes]"'
-        ) from e
+        raise RuntimeError('Hermes agent is not installed. Install with: pip install -e ".[hermes]"') from e
     return run_agent.AIAgent, run_agent
 
 
@@ -346,8 +341,7 @@ def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None
                         timestamp=decision.timestamp,
                     )
                 print(
-                    f"[Hermes crew] Command: {decision.command} "
-                    f"(Posture: {decision.market_posture})",
+                    f"[Hermes crew] Command: {decision.command} " f"(Posture: {decision.market_posture})",
                     flush=True,
                 )
                 if decision.system_status == "CRITICAL" and "ALERT OPERATOR" in decision.command.upper():

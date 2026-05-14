@@ -136,9 +136,7 @@ def test_objective_does_not_suggest_or_apply_mtf_regimes(monkeypatch):
 
     monkeypatch.setattr(
         "rlm.optimization.base.OptimizationBase.load_bars",
-        staticmethod(
-            lambda symbol, lookback_bars=252 * 2, root=None: pd.DataFrame({"close": [1.0]})
-        ),
+        staticmethod(lambda symbol, lookback_bars=252 * 2, root=None: pd.DataFrame({"close": [1.0]})),
     )
     monkeypatch.setattr("rlm.optimization.base.FullRLMPipeline", FakePipeline)
 

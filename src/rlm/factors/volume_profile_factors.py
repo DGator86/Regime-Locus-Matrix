@@ -19,6 +19,7 @@ else:
             def compute(self, data: pd.DataFrame) -> pd.DataFrame:
                 raise NotImplementedError
 
+
 from rlm.volume_profile.auction_metrics import (
     auction_state,
     effort_result_divergence,

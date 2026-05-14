@@ -18,13 +18,13 @@ from __future__ import annotations
 
 STRATEGY_MAP_CHALLENGE: dict[tuple[str, str, str, str], str] = {
     # Bullish momentum + cheap premium (low vol) → long call
-    ("bull", "low_vol",  "high_liquidity", "supportive"):    "aggressive_daytrader_call",
+    ("bull", "low_vol", "high_liquidity", "supportive"): "aggressive_daytrader_call",
     # Bullish + high vol → prefer ATM straddle to capture outsized move either way
-    ("bull", "high_vol", "high_liquidity", "supportive"):    "aggressive_daytrader_0DTE_straddle",
+    ("bull", "high_vol", "high_liquidity", "supportive"): "aggressive_daytrader_0DTE_straddle",
     # Bearish momentum — supportive or destabilizing dealer flow both produce put setups
-    ("bear", "low_vol",  "high_liquidity", "supportive"):    "aggressive_daytrader_put",
-    ("bear", "high_vol", "high_liquidity", "supportive"):    "aggressive_daytrader_put",
-    ("bear", "low_vol",  "high_liquidity", "destabilizing"): "aggressive_daytrader_put",
+    ("bear", "low_vol", "high_liquidity", "supportive"): "aggressive_daytrader_put",
+    ("bear", "high_vol", "high_liquidity", "supportive"): "aggressive_daytrader_put",
+    ("bear", "low_vol", "high_liquidity", "destabilizing"): "aggressive_daytrader_put",
     ("bear", "high_vol", "high_liquidity", "destabilizing"): "aggressive_daytrader_put",
 }
 

@@ -19,8 +19,7 @@ def test_options_book_respects_seed(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     proc.mkdir(parents=True)
     log = proc / "trade_log.csv"
     log.write_text(
-        "plan_id,symbol,timestamp_utc,closed,unrealized_pnl,note\n"
-        "p1,SPY,2026-01-02T15:00:00+00:00,0,-100,\n",
+        "plan_id,symbol,timestamp_utc,closed,unrealized_pnl,note\n" "p1,SPY,2026-01-02T15:00:00+00:00,0,-100,\n",
         encoding="utf-8",
     )
     snap = options_book_snapshot(tmp_path)
@@ -36,8 +35,7 @@ def test_write_trading_ledgers_creates_files(monkeypatch: pytest.MonkeyPatch, tm
     proc = tmp_path / "data" / "processed"
     proc.mkdir(parents=True)
     (proc / "trade_log.csv").write_text(
-        "plan_id,symbol,timestamp_utc,closed,unrealized_pnl,note\n"
-        "x,TSLA,2026-01-01T10:00:00+00:00,1,50,\n",
+        "plan_id,symbol,timestamp_utc,closed,unrealized_pnl,note\n" "x,TSLA,2026-01-01T10:00:00+00:00,1,50,\n",
         encoding="utf-8",
     )
     (proc / "equity_trade_log.csv").write_text(
@@ -79,7 +77,7 @@ def test_equity_book_ignores_options_rows(monkeypatch: pytest.MonkeyPatch, tmp_p
     proc.mkdir(parents=True)
     (proc / "equity_trade_log.csv").write_text(
         "plan_id,symbol,timestamp_utc,action,quantity,unrealized_pnl,signal,closed\n"
-        "o1,SPY,2026-01-02T15:00:00+00:00,BUY,1,1,open,0\n",  # missing strategy col like real log? 
+        "o1,SPY,2026-01-02T15:00:00+00:00,BUY,1,1,open,0\n",  # missing strategy col like real log?
         encoding="utf-8",
     )
     monkeypatch.delenv("RLM_EQUITY_TRADE_LOG_PATH", raising=False)

@@ -62,13 +62,10 @@ def gather_trading_agents_analysis(symbol: str, analysis_date: Optional[str] = N
 
     try:
         from rlm.trading_agents.integration import TradingAgentsAdapter
-    except ImportError as exc:
+    except ImportError:
         return {
             **base,
-            "error": (
-                "tradingagents package not installed. "
-                "Run: pip install -e '.[trading_agents]'"
-            ),
+            "error": ("tradingagents package not installed. " "Run: pip install -e '.[trading_agents]'"),
         }
 
     try:
