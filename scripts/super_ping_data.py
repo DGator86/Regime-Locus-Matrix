@@ -7,6 +7,7 @@ Run from repo root (loads ``.env`` via dotenv inside clients):
 
     python scripts/super_ping_data.py
     python scripts/super_ping_data.py --ticker QQQ
+    python scripts/super_ping_data.py --allow-missing-massive-key
     python scripts/super_ping_data.py --strict-ibkr   # exit 2 if IBKR fails
 
 Exit codes:
@@ -56,6 +57,11 @@ def main() -> None:
         action="store_true",
         help="Exit with code 2 if IBKR historical bars fail",
     )
+    parser.add_argument(
+        "--allow-missing-massive-key",
+        action="store_true",
+        help="Continue non-Massive probes when MASSIVE_API_KEY is not set (returns success if no other hard failures)",
+    )
     args = parser.parse_args()
     sym = str(args.ticker).upper()
 
@@ -72,8 +78,12 @@ def main() -> None:
     try:
         client = MassiveClient()
     except ValueError as e:
-        _line("FAIL", "Massive API key", str(e))
-        raise SystemExit(1)
+        if args.allow_missing_massive_key:
+            _line("SKIP", "Massive API key", f"{e} (allowed by --allow-missing-massive-key)")
+            client = None
+        else:
+            _line("FAIL", "Massive API key", str(e))
+            raise SystemExit(1)
 
     def try_massive(label: str, fn: Callable[[], Any], *, entitlement_ok: bool = False) -> None:
         nonlocal failures
@@ -101,41 +111,46 @@ def main() -> None:
                 failures += 1
                 _line("FAIL", label, str(e)[:500])
 
-    _line("INFO", "Massive base", client.base_url)
+    if client is not None:
+        _line("INFO", "Massive base", client.base_url)
 
-    try_massive(
-        f"Massive options snapshot {sym}",
-        lambda: client.option_chain_snapshot(sym, limit=2),
-        entitlement_ok=False,
-    )
+    if client is not None:
+        try_massive(
+            f"Massive options snapshot {sym}",
+            lambda: client.option_chain_snapshot(sym, limit=2),
+            entitlement_ok=False,
+        )
 
-    try_massive(
-        f"Massive options contracts ref ({sym})",
-        lambda: client.option_contracts_reference(underlying_ticker=sym, limit=3),
-        entitlement_ok=True,
-    )
+        try_massive(
+            f"Massive options contracts ref ({sym})",
+            lambda: client.option_contracts_reference(underlying_ticker=sym, limit=3),
+            entitlement_ok=True,
+        )
 
     # Option chain helpers (in-process)
-    try:
-        from rlm.data.massive_option_chain import massive_option_snapshot_to_normalized_chain
-        from rlm.data.occ_symbol import parse_occ_option_symbol
+    if client is not None:
+        try:
+            from rlm.data.massive_option_chain import massive_option_snapshot_to_normalized_chain
+            from rlm.data.occ_symbol import parse_occ_option_symbol
 
-        snap = client.option_chain_snapshot(sym, limit=1)
-        if isinstance(snap, dict) and snap.get("results"):
-            df = massive_option_snapshot_to_normalized_chain(snap, underlying=sym)
-            raw0 = snap["results"][0]
-            occ = str(raw0.get("details", {}).get("ticker") or "")
-            parsed = parse_occ_option_symbol(occ) if occ else None
-            _line(
-                "PASS",
-                "RLM option normalize + OCC",
-                f"rows={len(df)} occ={occ[:36]!r} strike={parsed.strike if parsed else None}",
-            )
-        else:
-            _line("WARN", "RLM option normalize + OCC", "no results to parse")
-    except Exception as e:
-        failures += 1
-        _line("FAIL", "RLM option normalize + OCC", str(e)[:300])
+            snap = client.option_chain_snapshot(sym, limit=1)
+            if isinstance(snap, dict) and snap.get("results"):
+                df = massive_option_snapshot_to_normalized_chain(snap, underlying=sym)
+                raw0 = snap["results"][0]
+                occ = str(raw0.get("details", {}).get("ticker") or "")
+                parsed = parse_occ_option_symbol(occ) if occ else None
+                _line(
+                    "PASS",
+                    "RLM option normalize + OCC",
+                    f"rows={len(df)} occ={occ[:36]!r} strike={parsed.strike if parsed else None}",
+                )
+            else:
+                _line("WARN", "RLM option normalize + OCC", "no results to parse")
+        except Exception as e:
+            failures += 1
+            _line("FAIL", "RLM option normalize + OCC", str(e)[:300])
+    else:
+        _line("SKIP", "RLM option normalize + OCC", "requires Massive options snapshot probe")
 
     # --- IBKR ---
     try:
