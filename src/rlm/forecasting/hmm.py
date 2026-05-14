@@ -14,7 +14,7 @@ from hmmlearn import hmm
 from pydantic import BaseModel, Field
 from scipy.special import logsumexp, softmax
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit
@@ -316,6 +316,30 @@ class RLMHMM:
         if self._state_permutation is None:
             return t_old
         n = t_old.shape[0]
+        perm_keys_raw = list(self._state_permutation.keys())
+        perm_values_raw = list(self._state_permutation.values())
+        expected = set(range(n))
+        valid_key_types = all(isinstance(k, (int, np.integer)) for k in perm_keys_raw)
+        valid_value_types = all(isinstance(v, (int, np.integer)) for v in perm_values_raw)
+        perm_keys = set(perm_keys_raw) if valid_key_types else None
+        perm_value_set = set(perm_values_raw) if valid_value_types else None
+        if (
+            not valid_key_types
+            or not valid_value_types
+            or len(perm_keys_raw) != n
+            or len(perm_values_raw) != n
+            or perm_keys != expected
+            or perm_value_set != expected
+        ):
+            logger.warning(
+                "Invalid HMM state permutation detected for transition matrix reordering; "
+                "expected bijection over [0, %d], got keys=%s values=%s. Falling back to identity.",
+                n - 1,
+                perm_keys_raw,
+                perm_values_raw,
+            )
+            self._state_permutation = None
+            return t_old
         t_new = np.zeros((n, n), dtype=np.float64)
         for i_old in range(n):
             for j_old in range(n):
@@ -353,7 +377,7 @@ class RLMHMM:
         n = updated.shape[0]
         inv = {new: old_i for old_i, new in self._state_permutation.items()}
         if len(inv) != n or any((k < 0 or k >= n or v < 0 or v >= n) for k, v in inv.items()):
-            log.warning(
+            logger.warning(
                 "Invalid HMM state permutation during online transition update; "
                 "falling back to identity mapping (states=%d, inv_size=%d).",
                 n,
