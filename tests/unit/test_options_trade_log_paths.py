@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from rlm.notify.options_paths import options_trade_log_read_paths  # noqa: E402
+from rlm.notify.options_paths import count_open_option_monitor_positions, options_trade_log_read_paths  # noqa: E402
 from rlm.notify.pnl_report import calculate_daily_pnl  # noqa: E402
 
 
@@ -42,3 +42,20 @@ def test_eod_reads_fallback_when_primary_empty(tmp_path: Path, monkeypatch: pyte
     text = calculate_daily_pnl(tmp_path)
     assert "SPY" in text
     assert "source:" in text.lower()
+
+
+def test_count_open_option_monitor_positions(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    h = (
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,"
+        "peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+    )
+    (dproc / "trade_log.csv").write_text(
+        h
+        + "2026-01-01T00:00:00Z,a,SPY,x,1,1,1,1,0,0,hold,0,5\n"
+        + "2026-01-01T01:00:00Z,a,SPY,x,1,1,1,1,0,0,hold,1,5\n"
+        + "2026-01-01T00:00:00Z,b,QQQ,x,1,1,1,1,0,0,hold,0,5\n",
+        encoding="utf-8",
+    )
+    assert count_open_option_monitor_positions(tmp_path) == 1

@@ -8,6 +8,7 @@ elsewhere. ``RLM_OPTIONS_TRADE_LOG_PATH`` wins when set (same as monitor flag).
 
 from __future__ import annotations
 
+import csv
 import os
 from pathlib import Path
 
@@ -37,3 +38,31 @@ def options_trade_log_read_paths(root: Path) -> list[Path]:
 def options_trade_log_mtime_paths(root: Path) -> list[Path]:
     """Same as :func:`options_trade_log_read_paths` (alias for health / staleness)."""
     return options_trade_log_read_paths(root)
+
+
+def count_open_option_monitor_positions(root: Path) -> int:
+    """Count distinct ``plan_id`` with latest CSV row ``closed`` not ``1`` (options monitor book)."""
+    from collections import OrderedDict
+
+    n_open = 0
+    for log_path in options_trade_log_read_paths(root):
+        if not log_path.is_file() or log_path.stat().st_size < 80:
+            continue
+        try:
+            with log_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames or "plan_id" not in reader.fieldnames:
+                    continue
+                last_by_pid: OrderedDict[str, dict[str, str]] = OrderedDict()
+                for row in reader:
+                    if not isinstance(row, dict):
+                        continue
+                    pid = str(row.get("plan_id") or "").strip()
+                    if pid:
+                        last_by_pid[pid] = row
+                for row in last_by_pid.values():
+                    if (row.get("closed") or "0").strip() != "1":
+                        n_open += 1
+        except OSError:
+            continue
+    return n_open

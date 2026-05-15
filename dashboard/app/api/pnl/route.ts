@@ -18,6 +18,8 @@ function resolveRepoRoot(): string {
 }
 
 function resolveLedgerDir(repoRoot: string): string {
+  const rlmRoot = process.env.RLM_ROOT?.trim();
+  if (rlmRoot) return path.join(path.resolve(rlmRoot), "data", "processed", "ledgers");
   const envDir = process.env.RLM_DATA_DIR?.trim();
   if (envDir) return path.join(envDir, "ledgers");
   const dataRoot = process.env.RLM_DATA_ROOT?.trim();

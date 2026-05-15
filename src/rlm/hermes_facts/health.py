@@ -7,6 +7,7 @@ sets both by default on ``win32``.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -17,8 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from rlm.notify.options_paths import options_trade_log_mtime_paths
-from rlm.utils.market_hours import is_scanner_window_open, session_label
+from rlm.notify.options_paths import (
+    count_open_option_monitor_positions,
+    options_trade_log_mtime_paths,
+)
+from rlm.utils.market_hours import is_rth_now, is_scanner_window_open, session_label
 
 _DEFAULT_SERVICES = [
     "regime-locus-master",
@@ -207,26 +211,46 @@ def _check_disk(root: Path) -> list[DiskUsage]:
     return results
 
 
+def _count_open_equity_positions(root: Path) -> int:
+    p = root / "data" / "processed" / "equity_positions_state.json"
+    if not p.is_file():
+        return 0
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if not isinstance(raw, dict):
+        return 0
+    n = 0
+    for _k, v in raw.items():
+        if isinstance(v, dict) and str(v.get("status") or "") == "open":
+            n += 1
+    return n
+
+
 def _check_staleness(root: Path) -> list[str]:
     processed = root / "data" / "processed"
     stale: list[str] = []
     now = time.time()
     active_plans_count = 0
+    open_opts = count_open_option_monitor_positions(root)
+    open_eq = _count_open_equity_positions(root)
     plans_path = processed / "universe_trade_plans.json"
     if plans_path.is_file():
         try:
-            import json
-
             payload = json.loads(plans_path.read_text(encoding="utf-8"))
             rows = payload.get("results") if isinstance(payload, dict) else []
             if isinstance(rows, list):
                 active_plans_count = sum(1 for r in rows if isinstance(r, dict) and str(r.get("status")) == "active")
         except Exception:
             active_plans_count = 0
+    has_book = active_plans_count > 0 or open_opts > 0 or open_eq > 0
     for fname, max_hours in _STALE_HOURS.items():
         if fname == "trade_log.csv":
             log_paths = [p for p in options_trade_log_mtime_paths(root) if p.is_file()]
-            if not log_paths or active_plans_count <= 0:
+            if not log_paths or not has_book:
+                continue
+            if not is_rth_now() and open_opts == 0 and open_eq == 0:
                 continue
             newest = max(p.stat().st_mtime for p in log_paths)
             age_hours = (now - newest) / 3600
@@ -238,7 +262,7 @@ def _check_staleness(root: Path) -> list[str]:
         if not fpath.exists():
             continue
         age_hours = (now - fpath.stat().st_mtime) / 3600
-        if fname in {"universe_trade_plans.json", "equity_positions_state.json"} and active_plans_count <= 0:
+        if fname in {"universe_trade_plans.json", "equity_positions_state.json"} and not has_book:
             continue
         if age_hours > max_hours:
             stale.append(f"{fname} ({age_hours:.1f}h old)")

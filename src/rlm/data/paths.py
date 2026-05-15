@@ -69,3 +69,24 @@ def get_artifacts_dir(explicit: str | Path | None = None) -> Path:
 def get_repo_root() -> Path:
     """Return the absolute path to the repository root."""
     return Path(__file__).resolve().parent.parent.parent.parent
+
+
+def get_rlm_runtime_root() -> Path:
+    """Directory that contains ``data/processed`` (plans, trade_log, etc.).
+
+    Resolution:
+    1. ``RLM_ROOT`` when set — must match pipeline/monitor/equity ``DATA_ROOT``.
+    2. Else :func:`get_repo_root` (typical dev / VPS checkout).
+
+    Use for Telegram, health, and readers that must see the same on-disk state as
+    ``run_universe_options_pipeline`` / ``monitor_active_trade_plans``.
+    """
+    env = (os.environ.get("RLM_ROOT") or "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    return get_repo_root()
+
+
+def get_rlm_processed_dir() -> Path:
+    """``<runtime root>/data/processed`` (directory may not exist yet)."""
+    return get_rlm_runtime_root() / "data" / "processed"

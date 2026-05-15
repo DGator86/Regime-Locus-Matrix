@@ -234,6 +234,13 @@ def main() -> int:
         help="Start scripts/rlm_telegram_bot.py in a separate process (reads TELEGRAM_* from .env).",
     )
     ap.add_argument(
+        "--pipeline-soft-fail",
+        action="store_true",
+        help="Keep running if a background universe rescan fails. Default with --master: exit the "
+        "process on rescan failure so systemd restarts a coherent stack. Override with env "
+        "RLM_PIPELINE_SOFT_FAIL=1.",
+    )
+    ap.add_argument(
         "--with-challenge",
         action="store_true",
         help=(
@@ -258,6 +265,8 @@ def main() -> int:
         ),
     )
     args = ap.parse_args()
+
+    os.environ.setdefault("RLM_ROOT", str(ROOT.resolve()))
 
     env_otl = (os.environ.get("RLM_OPTIONS_TRADE_LOG_PATH") or "").strip()
     if env_otl and "--options-trade-log" not in sys.argv:
@@ -333,6 +342,13 @@ def main() -> int:
             "(use --scanner-24h for continuous rescans).",
             flush=True,
         )
+
+    def _pipeline_soft_fail() -> bool:
+        if args.pipeline_soft_fail:
+            return True
+        return (os.environ.get("RLM_PIPELINE_SOFT_FAIL") or "").strip().lower() in ("1", "true", "yes")
+
+    pipeline_rescan_strict = bool(args.master) and not _pipeline_soft_fail()
 
     py = sys.executable
     plans = args.out
@@ -442,9 +458,26 @@ def main() -> int:
     if args.skip_monitor:
         return 0
 
+    monitor_proc: dict[str, subprocess.Popen | None] = {"p": None}
+
     if args.follow and args.rescan_interval > 0 and (not args.skip_pipeline or args.paper_trade):
         rescan_every = max(30.0, float(args.rescan_interval))
         rescan_lock = threading.Lock()
+
+        def _abort_after_pipeline_failure() -> None:
+            print(
+                "[CRITICAL] universe rescan pipeline failed — terminating process so systemd can restart "
+                "(disable with --pipeline-soft-fail or RLM_PIPELINE_SOFT_FAIL=1)",
+                flush=True,
+            )
+            proc = monitor_proc.get("p")
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            os._exit(1)
 
         def _rescan_loop() -> None:
             while True:
@@ -459,6 +492,8 @@ def main() -> int:
                     if not args.skip_pipeline:
                         print(f"[rescan] every {rescan_every:.0f}s: universe pipeline", flush=True)
                         if _run(pipeline_cmd()) != 0:
+                            if pipeline_rescan_strict:
+                                _abort_after_pipeline_failure()
                             print("[rescan] pipeline failed (continuing)", flush=True)
                     if args.paper_trade:
                         print("[rescan] paper-trade from plans", flush=True)
@@ -521,6 +556,13 @@ def main() -> int:
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
     mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    if args.follow:
+        proc = subprocess.Popen(mcmd, cwd=str(ROOT))
+        monitor_proc["p"] = proc
+        try:
+            return int(proc.wait())
+        finally:
+            monitor_proc["p"] = None
     return _run(mcmd)
 
 

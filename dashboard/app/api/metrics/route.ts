@@ -29,6 +29,14 @@ function resolveProcessedDir(): {
   const tried: string[] = [];
   const candidates: { label: string; abs: string }[] = [];
 
+  const rlmRoot = process.env.RLM_ROOT?.trim();
+  if (rlmRoot) {
+    candidates.push({
+      label: "RLM_ROOT/data/processed",
+      abs: path.resolve(path.join(rlmRoot, "data", "processed")),
+    });
+  }
+
   const envDir = process.env.RLM_DATA_DIR?.trim();
   if (envDir) {
     candidates.push({ label: "RLM_DATA_DIR", abs: path.resolve(envDir) });

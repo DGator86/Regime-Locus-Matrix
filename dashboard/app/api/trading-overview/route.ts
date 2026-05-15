@@ -21,6 +21,8 @@ export const dynamic = "force-dynamic";
 
 function resolveProcessedDir(): string {
   const candidates: { abs: string }[] = [];
+  const rlmRoot = process.env.RLM_ROOT?.trim();
+  if (rlmRoot) candidates.push({ abs: path.resolve(path.join(rlmRoot, "data", "processed")) });
   const envDir = process.env.RLM_DATA_DIR?.trim();
   if (envDir) candidates.push({ abs: path.resolve(envDir) });
   const dataRoot = process.env.RLM_DATA_ROOT?.trim();

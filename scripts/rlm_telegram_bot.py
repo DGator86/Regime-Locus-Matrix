@@ -23,9 +23,11 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+REPO = Path(__file__).resolve().parents[1]
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
+
+from rlm.data.paths import get_rlm_runtime_root  # noqa: E402
 
 
 def _load_env() -> None:
@@ -33,11 +35,10 @@ def _load_env() -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    p = ROOT / ".env"
-    if p.is_file():
-        # systemd EnvironmentFile= parses .env differently than bash/python-dotenv
-        # (quotes, duplicate keys, export). Override so the file on disk matches curl/source tests.
-        load_dotenv(p, override=True)
+    runtime = get_rlm_runtime_root()
+    for cand in (runtime / ".env", REPO / ".env"):
+        if cand.is_file():
+            load_dotenv(cand, override=True)
 
 
 def _env_first(*keys: str) -> str:
@@ -88,9 +89,10 @@ def _allowed() -> set[int] | None:
 
 def _resolve_state_path() -> Path:
     raw = (os.environ.get("TELEGRAM_STATE_PATH") or "").strip()
+    rt = get_rlm_runtime_root()
     if raw:
-        return Path(raw) if Path(raw).is_absolute() else ROOT / raw
-    return ROOT / "data" / "processed" / "telegram_notify_state.json"
+        return Path(raw) if Path(raw).is_absolute() else rt / raw
+    return rt / "data" / "processed" / "telegram_notify_state.json"
 
 
 def _api(token: str, method: str, **params: Any) -> dict[str, Any]:
@@ -138,6 +140,7 @@ def _handle_message(
     if allowed is not None and user_id not in allowed:
         _api(token, "sendMessage", chat_id=chat_id, text="Not authorized for this bot.")
         return
+    root = get_rlm_runtime_root()
     t = (text or "").strip()
     t_low = t.lower()
     if t.startswith("/start"):
@@ -168,17 +171,17 @@ def _handle_message(
             "Push alerts: new active universe plan_id; trade_log open / TP / exit; equity open/close."
         )
     elif t_low.startswith("/status"):
-        reply = build_status_brief(ROOT)
+        reply = build_status_brief(root)
     elif t_low.startswith("/pnl"):
-        reply = build_pnl_text(ROOT)
+        reply = build_pnl_text(root)
     elif t_low.startswith("/portfolio") or t_low.startswith("/positions"):
-        reply = build_universe_and_positions(ROOT, max_active=12, max_positions=20)
+        reply = build_universe_and_positions(root, max_active=12, max_positions=20)
     elif t_low.startswith("/universe") or t_low.startswith("/report"):
-        reply = build_universe_report(ROOT, max_active=12)
+        reply = build_universe_report(root, max_active=12)
     elif t_low.startswith("/balances") or t_low.startswith("/balance"):
-        reply = build_balances_text(ROOT)
+        reply = build_balances_text(root)
     elif t_low.startswith("/brief") or t_low.startswith("/session"):
-        reply = build_session_brief_text(ROOT)
+        reply = build_session_brief_text(root)
     else:
         reply = "Unknown command. Try /help"
     for chunk in _chunk_text(str(reply)[:12000], 4000):
@@ -217,6 +220,7 @@ def _notify_thread_main(token: str) -> None:
     from rlm.notify.telegram_rlm import load_notify_state, notification_cycle
 
     st_path = _resolve_state_path()
+    root = get_rlm_runtime_root()
 
     def send(msg: str) -> None:
         cid = _chat_for_push()
@@ -251,7 +255,7 @@ def _notify_thread_main(token: str) -> None:
             if _chat_for_push() is None:
                 _t.sleep(5.0)
                 continue
-            messages, new_blob = notification_cycle(ROOT, blob)
+            messages, new_blob = notification_cycle(root, blob)
             for m in messages:
                 send(m)
             if new_blob != blob:
@@ -264,6 +268,7 @@ def _notify_thread_main(token: str) -> None:
 
 def main() -> int:
     _load_env()
+    os.environ.setdefault("RLM_ROOT", str(REPO.resolve()))
     token = _token()
     allowed = _allowed()
     if allowed is not None:
