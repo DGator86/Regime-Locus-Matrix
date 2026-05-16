@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import namedtuple
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -32,6 +33,8 @@ from rlm.roee.exits import (
 from rlm.roee.regime_safety import attach_regime_safety_columns
 
 logger = logging.getLogger(__name__)
+
+BacktestResult = namedtuple("BacktestResult", ["equity", "trades", "metrics"])
 
 # Alias for tests and external monkeypatching (backtests call this once per bar).
 decide_trade_for_bar = select_trade_for_row
@@ -109,7 +112,7 @@ class BacktestEngine:
         option_chain_df: pd.DataFrame,
         *,
         mtf_config: MTFWeightConfig | None = None,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
+    ) -> "BacktestResult":
         equity_frame, trades_frame, summary, _ = self.run_with_robustness(
             feature_df,
             option_chain_df,
@@ -117,7 +120,7 @@ class BacktestEngine:
             monte_carlo=None,
             gap_risk=None,
         )
-        return equity_frame, trades_frame, summary
+        return BacktestResult(equity=equity_frame, trades=trades_frame, metrics=summary)
 
     def run_with_robustness(
         self,
