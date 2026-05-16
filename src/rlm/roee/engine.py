@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import pandas as pd
@@ -7,6 +8,8 @@ import pandas as pd
 from rlm.roee.decision import _finite_float, compute_regime_modulators
 from rlm.roee.policy import select_trade
 from rlm.roee.regime_safety import attach_regime_safety_columns, build_regime_safety_rationale
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,14 @@ def apply_roee_policy(
     current_week_key: str | None = None
     day_pnl = 0.0
     week_pnl = 0.0
+
+    _cb_needs_pnl = cfg.daily_loss_circuit_breaker_pct is not None or cfg.weekly_loss_circuit_breaker_pct is not None
+    if _cb_needs_pnl and "pnl_pct" not in df.columns:
+        logger.warning(
+            "apply_roee_policy: daily/weekly loss circuit breaker is configured but 'pnl_pct' "
+            "column is absent from the input DataFrame — circuit breaker will not fire. "
+            "Callers must inject realized per-bar PnL as 'pnl_pct' to enable this guard."
+        )
 
     for ts, row in out.iterrows():
         ts_obj = pd.Timestamp(ts)
