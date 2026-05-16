@@ -233,9 +233,7 @@ class BacktestEngine:
                 if _cb_day or _cb_week:
                     decision.action = "skip"
                     decision.rationale = (
-                        "Daily loss circuit breaker active"
-                        if _cb_day
-                        else "Weekly loss circuit breaker active"
+                        "Daily loss circuit breaker active" if _cb_day else "Weekly loss circuit breaker active"
                     )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
