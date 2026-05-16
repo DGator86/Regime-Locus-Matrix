@@ -447,7 +447,7 @@ class FullRLMPipeline:
             roee_config=cfg.roee_config,
             config=BacktestConfig(use_vp_gating=cfg.use_vp_gating or cfg.volume_profile.gating_enabled),
         )
-        trades_df, equity_df, metrics = engine.run(result.policy_df, option_chain_df)
+        equity_df, trades_df, metrics = engine.run(result.policy_df, option_chain_df)
         return PipelineResult(
             factors_df=result.factors_df,
             forecast_df=result.forecast_df,

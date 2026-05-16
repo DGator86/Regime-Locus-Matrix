@@ -72,11 +72,11 @@ class LiveROEEParameters(BaseModel):
     kronos_aleatoric_size_penalty: float = 0.5
     use_dynamic_sizing: bool = False
     vol_target: float = 0.15
-    max_kelly_fraction: float = 0.25
-    max_capital_fraction: float = 0.5
+    max_kelly_fraction: float = 0.05
+    max_capital_fraction: float = 0.15
     high_vol_kelly_multiplier: float = 0.5
     transition_kelly_multiplier: float = 0.75
-    calm_trend_kelly_multiplier: float = 1.25
+    calm_trend_kelly_multiplier: float = 1.0
 
     def to_roee_config(self) -> ROEEConfig:
         return ROEEConfig(
