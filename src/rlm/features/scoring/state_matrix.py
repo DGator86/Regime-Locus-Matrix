@@ -61,8 +61,11 @@ def regime_is_tradeable(
     dealer_flow_regime: str,
 ) -> bool:
     """
-    Conservative first-pass tradeability filter.
-    We do not trade ambiguous direction/volatility unknown states.
+    Coarse first-pass tradeability filter: blocks only "unknown" states.
+
+    Transition states are permitted here — confidence-based gating and
+    size reduction for transitions happen downstream in the ROEE layer
+    (compute_regime_modulators / select_trade_for_row).
     """
     banned = {"unknown"}
     if (
@@ -72,6 +75,4 @@ def regime_is_tradeable(
         or dealer_flow_regime in banned
     ):
         return False
-
-    # permit transition states, but later policy can decide smaller size / skip
     return True
