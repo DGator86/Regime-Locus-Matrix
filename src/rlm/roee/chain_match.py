@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from rlm.data.option_chain import select_nearest_expiry_slice
 from rlm.types.options import TradeDecision
 
 
@@ -62,6 +63,65 @@ def find_nearest_contract(
     return subset.iloc[0]
 
 
+def _leg_expiry_selector(expiry: str | None) -> str:
+    return str(expiry or "").strip().lower()
+
+
+def decision_needs_multi_expiry_chain(decision: TradeDecision) -> bool:
+    return any(_leg_expiry_selector(leg.expiry) in {"near", "front", "far", "back"} for leg in decision.legs)
+
+
+def select_chain_slice_for_decision(
+    chain: pd.DataFrame,
+    decision: TradeDecision,
+    *,
+    dte_min: int | None = None,
+    dte_max: int | None = None,
+) -> pd.DataFrame:
+    candidate = decision.candidate
+    if candidate is None:
+        return chain.copy()
+
+    dte_min = int(candidate.target_dte_min if dte_min is None else dte_min)
+    dte_max = int(candidate.target_dte_max if dte_max is None else dte_max)
+    if not decision_needs_multi_expiry_chain(decision):
+        return select_nearest_expiry_slice(chain, dte_min=dte_min, dte_max=dte_max)
+
+    if "dte" not in chain.columns:
+        return chain.copy()
+    eligible = chain[(chain["dte"] >= dte_min) & (chain["dte"] <= dte_max)].copy()
+    return eligible
+
+
+def _filter_chain_for_leg_expiry(chain_slice: pd.DataFrame, expiry: str | None) -> pd.DataFrame:
+    selector = _leg_expiry_selector(expiry)
+    if not selector:
+        return chain_slice
+
+    if "expiry" not in chain_slice.columns or chain_slice.empty:
+        return chain_slice.iloc[0:0].copy()
+
+    expiry_ts = pd.to_datetime(chain_slice["expiry"], errors="coerce")
+    if selector in {"near", "front"}:
+        valid = expiry_ts.dropna()
+        if valid.empty:
+            return chain_slice.iloc[0:0].copy()
+        target = valid.min().normalize()
+        return chain_slice[expiry_ts.dt.normalize() == target].copy()
+    if selector in {"far", "back"}:
+        valid = expiry_ts.dropna()
+        if valid.empty:
+            return chain_slice.iloc[0:0].copy()
+        target = valid.max().normalize()
+        return chain_slice[expiry_ts.dt.normalize() == target].copy()
+
+    try:
+        target = pd.Timestamp(selector).normalize()
+    except (TypeError, ValueError):
+        return chain_slice.iloc[0:0].copy()
+    return chain_slice[expiry_ts.dt.normalize() == target].copy()
+
+
 def match_legs_to_chain(
     *,
     decision: TradeDecision,
@@ -76,17 +136,19 @@ def match_legs_to_chain(
     matched_legs: list[MatchedLeg] = []
 
     for leg in decision.legs:
+        leg_chain = _filter_chain_for_leg_expiry(chain_slice, leg.expiry)
         row = find_nearest_contract(
-            chain_slice=chain_slice,
+            chain_slice=leg_chain,
             option_type=leg.option_type,
             target_strike=leg.strike,
         )
         if row is None:
+            expiry_hint = f" expiry={leg.expiry}" if leg.expiry else ""
             return TradeDecision(
                 action="skip",
                 strategy_name=decision.strategy_name,
                 regime_key=decision.regime_key,
-                rationale=f"Chain match failed for {leg.option_type} strike≈{leg.strike}.",
+                rationale=f"Chain match failed for {leg.option_type}{expiry_hint} strike≈{leg.strike}.",
                 candidate=decision.candidate,
                 metadata=decision.metadata,
             )

@@ -173,11 +173,10 @@ def build_legs_from_candidate(
             OptionLeg(side="short", option_type="call", strike=sell_call),
         ]
     elif name == "calendar_spread":
-        long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.0, strike_increment)
-        short_strike = target_strike_from_sigma(current_price, sigma, candidate.short_sigma or 0.5, strike_increment)
+        atm = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.0, strike_increment)
         legs = [
-            OptionLeg(side="short", option_type="call", strike=short_strike),
-            OptionLeg(side="long", option_type="call", strike=long_strike),
+            OptionLeg(side="short", option_type="call", strike=atm, expiry="near"),
+            OptionLeg(side="long", option_type="call", strike=atm, expiry="far"),
         ]
 
     # ------------------------------------------------------------------

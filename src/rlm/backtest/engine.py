@@ -18,9 +18,9 @@ from rlm.backtest.lifecycle import (
 )
 from rlm.backtest.portfolio import Portfolio
 from rlm.backtest.slippage import SlippageConfig
-from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
+from rlm.data.option_chain import normalize_option_chain
 from rlm.features.scoring.state_matrix import classify_state_matrix
-from rlm.roee.chain_match import match_legs_to_chain
+from rlm.roee.chain_match import match_legs_to_chain, select_chain_slice_for_decision
 from rlm.roee.decision import select_trade_for_row
 from rlm.roee.engine import ROEEConfig
 from rlm.roee.exits import (
@@ -255,9 +255,7 @@ class BacktestEngine:
                     decision.rationale = f"Portfolio cap reached: {total_pos_count}/{total_cap}"
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
-                dte_min = int(decision.candidate.target_dte_min) if decision.candidate else 20
-                dte_max = int(decision.candidate.target_dte_max) if decision.candidate else 45
-                chain_slice = select_nearest_expiry_slice(row_chain, dte_min=dte_min, dte_max=dte_max)
+                chain_slice = select_chain_slice_for_decision(row_chain, decision)
 
                 if not chain_slice.empty:
                     matched_decision = match_legs_to_chain(decision=decision, chain_slice=chain_slice)

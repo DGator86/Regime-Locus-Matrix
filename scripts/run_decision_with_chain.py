@@ -28,8 +28,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
-from rlm.roee.chain_match import estimate_entry_cost_from_matched_legs, match_legs_to_chain
+from rlm.data.option_chain import normalize_option_chain
+from rlm.roee.chain_match import (
+    estimate_entry_cost_from_matched_legs,
+    match_legs_to_chain,
+    select_chain_slice_for_decision,
+)
 from rlm.roee.policy import select_trade
 
 
@@ -111,7 +115,7 @@ def main() -> int:
     slice_df = chain
     if not args.no_expiry_slice:
         c = decision.candidate
-        slice_df = select_nearest_expiry_slice(chain, c.target_dte_min, c.target_dte_max)
+        slice_df = select_chain_slice_for_decision(chain, decision)
         if slice_df.empty:
             print(
                 "\n--- match_legs_to_chain ---\nSKIP: no contracts in DTE range "
