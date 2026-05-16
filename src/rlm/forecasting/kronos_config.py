@@ -28,7 +28,7 @@ class KronosConfig:
     stride: int = 1
     verbose: bool = False
     regime_confidence_weight: float = 0.4
-    hmm_confidence_weight: float = 0.6
+    kronos_vol_penalty_weight: float = 0.6
     finetuned_model_path: str | None = None
     cache_ttl_bars: int = 1
 
@@ -65,7 +65,7 @@ class KronosConfig:
             "stride",
             "verbose",
             "regime_confidence_weight",
-            "hmm_confidence_weight",
+            "kronos_vol_penalty_weight",
             "finetuned_model_path",
             "cache_ttl_bars",
         ):

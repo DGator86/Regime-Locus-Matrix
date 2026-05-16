@@ -93,10 +93,10 @@ class KronosRegimeConfidence:
             matches = sum(1 for k in per_key if k == current_regime_key)
             agreement = matches / max(len(per_key), 1)
             transition = pred_regime != current_regime_key
+            kronos_vol_penalty = self.config.kronos_vol_penalty_weight * (1.0 - min(fc_vol * 8.0, 1.0))
             confidence = float(
                 np.clip(
-                    self.config.regime_confidence_weight * agreement
-                    + self.config.hmm_confidence_weight * (1.0 - min(fc_vol * 8.0, 1.0)),
+                    self.config.regime_confidence_weight * agreement + kronos_vol_penalty,
                     0.0,
                     1.0,
                 )

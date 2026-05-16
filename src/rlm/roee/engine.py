@@ -16,12 +16,12 @@ class ROEEConfig:
     transition_penalty: float = 0.5
     use_dynamic_sizing: bool = False
     vol_target: float = 0.15
-    max_kelly_fraction: float = 0.25
-    max_capital_fraction: float = 0.5
+    max_kelly_fraction: float = 0.05
+    max_capital_fraction: float = 0.15
     regime_adjusted_kelly: bool = True
     high_vol_kelly_multiplier: float = 0.5
     transition_kelly_multiplier: float = 0.75
-    calm_trend_kelly_multiplier: float = 1.25
+    calm_trend_kelly_multiplier: float = 1.0
     vault_uncertainty_threshold: float | None = 0.03
     vault_size_multiplier: float = 0.5
     min_regime_train_samples: int = 0

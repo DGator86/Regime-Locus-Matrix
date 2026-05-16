@@ -168,7 +168,7 @@ class TestKronosConfig:
         assert cfg.model_name == "NeoQuasar/Kronos-mini"
         assert cfg.device == "cpu"
         assert cfg.sample_count == 10
-        assert cfg.regime_confidence_weight + cfg.hmm_confidence_weight == pytest.approx(1.0)
+        assert cfg.regime_confidence_weight + cfg.kronos_vol_penalty_weight == pytest.approx(1.0)
 
     def test_from_yaml(self):
         cfg = KronosConfig.from_yaml()
