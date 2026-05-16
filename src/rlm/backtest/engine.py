@@ -7,8 +7,6 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from rlm.backtest.fills import FillConfig
 from rlm.backtest.lifecycle import (
     ExpiryLiquidationPolicy,
@@ -32,6 +30,8 @@ from rlm.roee.exits import (
     should_exit_for_zone_breach,
 )
 from rlm.roee.regime_safety import attach_regime_safety_columns
+
+logger = logging.getLogger(__name__)
 
 # Alias for tests and external monkeypatching (backtests call this once per bar).
 decide_trade_for_bar = select_trade_for_row
@@ -233,15 +233,15 @@ class BacktestEngine:
 
         if chain_miss_count > 0:
             miss_pct = chain_miss_count / max(total_bars, 1) * 100
-            if miss_pct >= 20:
-                logger.warning(
-                    "BacktestEngine: option chain missing for %d/%d bars (%.1f%%). "
-                    "Entry decisions were skipped for those bars. Check that option_chain_df "
-                    "timestamps align with feature_df timestamps.",
-                    chain_miss_count,
-                    total_bars,
-                    miss_pct,
-                )
+            log = logger.warning if miss_pct >= 20 else logger.info
+            log(
+                "BacktestEngine: option chain missing for %d/%d bars (%.1f%%). "
+                "Entry decisions were skipped for those bars. Check that option_chain_df "
+                "timestamps align with feature_df timestamps.",
+                chain_miss_count,
+                total_bars,
+                miss_pct,
+            )
 
         equity_frame = self.portfolio.equity_frame()
         trades_frame = self.portfolio.closed_trades_frame()

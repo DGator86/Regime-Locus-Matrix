@@ -75,6 +75,7 @@ class VolumeProfileFactors(BaseFactorCalculator):
 
             session_indices = list(session_df.index)
             n_bars = len(session_indices)
+            last_profile: dict[str, object] | None = None
 
             for j, bar_idx in enumerate(session_indices):
                 # Use only bars up to and including the current one (causal).
@@ -100,6 +101,7 @@ class VolumeProfileFactors(BaseFactorCalculator):
                     )
                 else:
                     profile = calculate_volume_profile(profile_input, price_precision=self.price_precision)
+                last_profile = profile
                 nodes = identify_nodes(profile["volume_profile_series"])
                 effort_score = effort_result_divergence(partial_df, profile)
                 cum_wyckoff = cumulative_effort_result(
@@ -129,25 +131,10 @@ class VolumeProfileFactors(BaseFactorCalculator):
                 out.at[bar_idx, "cumulative_wyckoff_score"] = float(cum_wyckoff)
 
             # Append the completed session's final profile for historical migration tracking.
-            if n_bars > 0:
-                full_input = pd.DataFrame(
-                    {
-                        "timestamp": pd.to_datetime(
-                            session_df.get("timestamp", session_df.index), utc=True, errors="coerce"
-                        ),
-                        "price": pd.to_numeric(session_df["close"], errors="coerce"),
-                        "volume": pd.to_numeric(session_df["volume"], errors="coerce"),
-                    },
-                    index=session_df.index,
-                ).dropna(subset=["timestamp", "price", "volume"])
-                if not full_input.empty:
-                    if self.session_type == "fx":
-                        full_profile = get_fx_session_profile(
-                            full_input, "London", pd.Timestamp(session_date).to_pydatetime()
-                        )
-                    else:
-                        full_profile = calculate_volume_profile(full_input, price_precision=self.price_precision)
-                    profiles.append(full_profile)
+            # The last loop iteration (j == n_bars - 1) already computed profile from the
+            # full session, so reuse it directly instead of recomputing.
+            if last_profile is not None:
+                profiles.append(last_profile)
 
         return out[
             [

@@ -5,6 +5,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 
@@ -12,13 +13,12 @@ import pandas as pd
 def save_parquet(df: pd.DataFrame, path: Path, *, index: bool = False) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp.parquet")
+    tmp = path.parent / f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp"
     try:
         df.to_parquet(tmp, index=index)
         os.replace(tmp, path)
-    except BaseException:
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
 
 
 def save_parquet_versioned(
