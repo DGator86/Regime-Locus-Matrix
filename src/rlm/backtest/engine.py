@@ -148,10 +148,25 @@ class BacktestEngine:
 
         chain_miss_count = 0
         total_bars = len(features)
+        _day_key: str | None = None
+        _week_key: str | None = None
+        _day_start_equity: float = self.portfolio.equity()
+        _week_start_equity: float = self.portfolio.equity()
 
         for bar_index, (ts, row) in enumerate(features.iterrows()):
             traded_this_bar = False
             row_chain = chain_by_ts.get(pd.Timestamp(ts), pd.DataFrame()).copy()
+
+            # Track equity at the start of each calendar day and week for circuit breakers.
+            ts_obj = pd.Timestamp(ts)
+            day_key = ts_obj.strftime("%Y-%m-%d")
+            week_key = f"{ts_obj.isocalendar().year}-W{ts_obj.isocalendar().week:02d}"
+            if _day_key != day_key:
+                _day_key = day_key
+                _day_start_equity = self.portfolio.equity()
+            if _week_key != week_key:
+                _week_key = week_key
+                _week_start_equity = self.portfolio.equity()
 
             if not row_chain.empty:
                 self.portfolio.revalue_open_positions(
@@ -197,6 +212,28 @@ class BacktestEngine:
                 hybrid_strength_scaling=self.config.hybrid_strength_scaling,
                 gex_confluence_enabled=self.config.gex_confluence_enabled,
             )
+
+            if decision.action == "enter":
+                _current_equity = self.portfolio.equity()
+                _cb_day = (
+                    rc.daily_loss_circuit_breaker_pct is not None
+                    and _day_start_equity > 0
+                    and (_current_equity - _day_start_equity) / _day_start_equity
+                    <= float(rc.daily_loss_circuit_breaker_pct)
+                )
+                _cb_week = (
+                    rc.weekly_loss_circuit_breaker_pct is not None
+                    and _week_start_equity > 0
+                    and (_current_equity - _week_start_equity) / _week_start_equity
+                    <= float(rc.weekly_loss_circuit_breaker_pct)
+                )
+                if _cb_day or _cb_week:
+                    decision.action = "skip"
+                    decision.rationale = (
+                        "Daily loss circuit breaker active"
+                        if _cb_day
+                        else "Weekly loss circuit breaker active"
+                    )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
                 # --- Portfolio Manager Enforcement ---

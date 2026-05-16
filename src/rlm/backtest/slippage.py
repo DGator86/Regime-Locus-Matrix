@@ -37,10 +37,9 @@ def compute_leg_slippage(
     cfg = config or SlippageConfig()
     spread = max(ask - bid, 0.0)
     base_slip = max(cfg.min_slippage, spread * cfg.spread_fraction)
-    slip = base_slip + cfg.per_contract_flat
 
     if realized_vol is not None and realized_vol > 0.0 and cfg.vol_sensitivity > 0.0:
         vol_multiplier = 1.0 + cfg.vol_sensitivity * float(realized_vol)
-        slip *= vol_multiplier
+        base_slip *= vol_multiplier
 
-    return slip
+    return base_slip + cfg.per_contract_flat

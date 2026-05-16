@@ -128,7 +128,7 @@ def build_candidate_from_strategy_name(
             target_profit_pct=0.35,
             max_risk_pct=0.015,
             long_sigma=0.0,
-            short_sigma=0.0,
+            short_sigma=0.5,
             defined_risk=True,
         )
     if strategy_name == "no_trade":
