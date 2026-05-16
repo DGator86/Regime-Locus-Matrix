@@ -134,9 +134,10 @@ class IngestionService:
 
     @staticmethod
     def _write_lake(df: pd.DataFrame, raw_dir: Path, kind: str, symbol: str) -> Path:
+        from rlm.data.lake.writers import save_parquet
+
         out_path = raw_dir / "lake" / ("bars" if kind == "bars" else "chains") / f"{symbol}.parquet"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(out_path, index=False)
+        save_parquet(df, out_path, index=False)
         return out_path
 
     @staticmethod

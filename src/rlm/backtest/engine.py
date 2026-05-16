@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from rlm.backtest.fills import FillConfig
 from rlm.backtest.lifecycle import (
@@ -140,6 +143,9 @@ class BacktestEngine:
         for tkey, grp in ch.groupby("timestamp", sort=False):
             chain_by_ts[pd.Timestamp(tkey)] = grp.copy()
 
+        chain_miss_count = 0
+        total_bars = len(features)
+
         for bar_index, (ts, row) in enumerate(features.iterrows()):
             traded_this_bar = False
             row_chain = chain_by_ts.get(pd.Timestamp(ts), pd.DataFrame()).copy()
@@ -153,6 +159,7 @@ class BacktestEngine:
             self._process_exits(ts, row, bar_index)
 
             if row_chain.empty:
+                chain_miss_count += 1
                 self.portfolio.mark_equity(ts)
                 continue
 
@@ -223,6 +230,18 @@ class BacktestEngine:
                         traded_this_bar = opened_id is not None
 
             self.portfolio.mark_equity(ts)
+
+        if chain_miss_count > 0:
+            miss_pct = chain_miss_count / max(total_bars, 1) * 100
+            if miss_pct >= 20:
+                logger.warning(
+                    "BacktestEngine: option chain missing for %d/%d bars (%.1f%%). "
+                    "Entry decisions were skipped for those bars. Check that option_chain_df "
+                    "timestamps align with feature_df timestamps.",
+                    chain_miss_count,
+                    total_bars,
+                    miss_pct,
+                )
 
         equity_frame = self.portfolio.equity_frame()
         trades_frame = self.portfolio.closed_trades_frame()

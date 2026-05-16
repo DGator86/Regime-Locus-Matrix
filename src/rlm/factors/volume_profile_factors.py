@@ -72,53 +72,82 @@ class VolumeProfileFactors(BaseFactorCalculator):
         for session_date, session_df in work.groupby("__session_date"):
             if pd.isna(session_date):
                 continue
-            profile_input = pd.DataFrame(
-                {
-                    "timestamp": pd.to_datetime(
-                        session_df.get("timestamp", session_df.index), utc=True, errors="coerce"
-                    ),
-                    "price": pd.to_numeric(session_df["close"], errors="coerce"),
-                    "volume": pd.to_numeric(session_df["volume"], errors="coerce"),
-                },
-                index=session_df.index,
-            ).dropna(subset=["timestamp", "price", "volume"])
 
-            if profile_input.empty:
-                continue
+            session_indices = list(session_df.index)
+            n_bars = len(session_indices)
 
-            if self.session_type == "fx":
-                profile = get_fx_session_profile(profile_input, "London", pd.Timestamp(session_date).to_pydatetime())
-            else:
-                profile = calculate_volume_profile(profile_input, price_precision=self.price_precision)
-            nodes = identify_nodes(profile["volume_profile_series"])
-            effort_score = effort_result_divergence(session_df, profile)
-            cum_wyckoff = cumulative_effort_result(
-                pd.DataFrame(
+            for j, bar_idx in enumerate(session_indices):
+                # Use only bars up to and including the current one (causal).
+                partial_df = session_df.iloc[: j + 1]
+
+                profile_input = pd.DataFrame(
                     {
-                        "high": session_df.get("high", session_df["close"]),
-                        "low": session_df.get("low", session_df["close"]),
-                        "close": session_df["close"],
-                        "volume": session_df["volume"],
-                    }
+                        "timestamp": pd.to_datetime(
+                            partial_df.get("timestamp", partial_df.index), utc=True, errors="coerce"
+                        ),
+                        "price": pd.to_numeric(partial_df["close"], errors="coerce"),
+                        "volume": pd.to_numeric(partial_df["volume"], errors="coerce"),
+                    },
+                    index=partial_df.index,
+                ).dropna(subset=["timestamp", "price", "volume"])
+
+                if profile_input.empty:
+                    continue
+
+                if self.session_type == "fx":
+                    profile = get_fx_session_profile(
+                        profile_input, "London", pd.Timestamp(session_date).to_pydatetime()
+                    )
+                else:
+                    profile = calculate_volume_profile(profile_input, price_precision=self.price_precision)
+                nodes = identify_nodes(profile["volume_profile_series"])
+                effort_score = effort_result_divergence(partial_df, profile)
+                cum_wyckoff = cumulative_effort_result(
+                    pd.DataFrame(
+                        {
+                            "high": partial_df.get("high", partial_df["close"]),
+                            "low": partial_df.get("low", partial_df["close"]),
+                            "close": partial_df["close"],
+                            "volume": partial_df["volume"],
+                        }
+                    )
                 )
-            )
 
-            historical = profiles[-(self.rolling_window_days - 1) :] + [profile]
-            migration = value_area_migration(historical)
-            state = auction_state(profile, float(session_df["close"].iloc[-1]))
+                # Migration uses historical completed sessions + the current partial one.
+                historical = profiles[-(self.rolling_window_days - 1) :] + [profile]
+                migration = value_area_migration(historical)
+                state = auction_state(profile, float(partial_df["close"].iloc[-1]))
 
-            idx = session_df.index
-            out.loc[idx, "vp_poc"] = float(profile["poc"])
-            out.loc[idx, "vp_va_high"] = float(profile["value_area_high"])
-            out.loc[idx, "vp_va_low"] = float(profile["value_area_low"])
-            out.loc[idx, "vp_hvn_count"] = len(nodes["hvn_levels"])
-            out.loc[idx, "vp_lvn_count"] = len(nodes["lvn_levels"])
-            out.loc[idx, "vp_effort_result_score"] = float(effort_score)
-            out.loc[idx, "vp_auction_state"] = state
-            out.loc[idx, "vp_va_migration"] = migration
-            out.loc[idx, "cumulative_wyckoff_score"] = float(cum_wyckoff)
+                out.at[bar_idx, "vp_poc"] = float(profile["poc"])
+                out.at[bar_idx, "vp_va_high"] = float(profile["value_area_high"])
+                out.at[bar_idx, "vp_va_low"] = float(profile["value_area_low"])
+                out.at[bar_idx, "vp_hvn_count"] = len(nodes["hvn_levels"])
+                out.at[bar_idx, "vp_lvn_count"] = len(nodes["lvn_levels"])
+                out.at[bar_idx, "vp_effort_result_score"] = float(effort_score)
+                out.at[bar_idx, "vp_auction_state"] = state
+                out.at[bar_idx, "vp_va_migration"] = migration
+                out.at[bar_idx, "cumulative_wyckoff_score"] = float(cum_wyckoff)
 
-            profiles.append(profile)
+            # Append the completed session's final profile for historical migration tracking.
+            if n_bars > 0:
+                full_input = pd.DataFrame(
+                    {
+                        "timestamp": pd.to_datetime(
+                            session_df.get("timestamp", session_df.index), utc=True, errors="coerce"
+                        ),
+                        "price": pd.to_numeric(session_df["close"], errors="coerce"),
+                        "volume": pd.to_numeric(session_df["volume"], errors="coerce"),
+                    },
+                    index=session_df.index,
+                ).dropna(subset=["timestamp", "price", "volume"])
+                if not full_input.empty:
+                    if self.session_type == "fx":
+                        full_profile = get_fx_session_profile(
+                            full_input, "London", pd.Timestamp(session_date).to_pydatetime()
+                        )
+                    else:
+                        full_profile = calculate_volume_profile(full_input, price_precision=self.price_precision)
+                    profiles.append(full_profile)
 
         return out[
             [

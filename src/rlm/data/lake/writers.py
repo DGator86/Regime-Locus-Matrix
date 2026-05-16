@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,7 +12,13 @@ import pandas as pd
 def save_parquet(df: pd.DataFrame, path: Path, *, index: bool = False) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=index)
+    tmp = path.with_suffix(".tmp.parquet")
+    try:
+        df.to_parquet(tmp, index=index)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def save_parquet_versioned(
