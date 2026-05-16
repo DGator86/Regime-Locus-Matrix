@@ -12,6 +12,24 @@ def compute_max_drawdown(equity: pd.Series) -> float:
     return float(drawdown.min())
 
 
+def _infer_periods_per_year(index: pd.Index, fallback: int = 252) -> int:
+    """Estimate annualisation factor from median bar spacing."""
+    if not isinstance(index, pd.DatetimeIndex) or len(index) < 2:
+        return fallback
+    deltas = pd.Series(index).diff().dropna()
+    if deltas.empty:
+        return fallback
+    median_seconds = deltas.median().total_seconds()
+    if median_seconds <= 0:
+        return fallback
+    # Daily or lower-frequency bars: treat one bar as one trading day.
+    if median_seconds >= 86400:
+        return 252
+    # Intraday: scale from trading hours per year (252 days × 6.5 h × 3600 s).
+    trading_seconds_per_year = 252 * 6.5 * 3600
+    return max(1, round(trading_seconds_per_year / median_seconds))
+
+
 def compute_sharpe(returns: pd.Series, periods_per_year: int = 252) -> float:
     r = returns.dropna()
     if len(r) < 2:
@@ -64,11 +82,13 @@ def summarize_backtest(
     equity = equity_frame["equity"]
     returns = equity.pct_change().replace([np.inf, -np.inf], np.nan)
 
+    periods_per_year = _infer_periods_per_year(equity.index)
     out = {
         "final_equity": float(equity.iloc[-1]),
         "total_return_pct": (float(equity.iloc[-1] / equity.iloc[0] - 1.0) if equity.iloc[0] != 0 else np.nan),
         "max_drawdown": compute_max_drawdown(equity),
-        "sharpe": compute_sharpe(returns),
+        "sharpe": compute_sharpe(returns, periods_per_year=periods_per_year),
+        "periods_per_year": float(periods_per_year),
     }
 
     if not trades_frame.empty and "pnl" in trades_frame.columns:

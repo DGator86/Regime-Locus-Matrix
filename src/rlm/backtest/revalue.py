@@ -49,7 +49,7 @@ def _match_leg_snapshot(
     leg_exp = _expiry_date_key(leg["expiry"])
     subset = chain_snapshot[
         (chain_snapshot["option_type"] == leg["option_type"])
-        & (chain_snapshot["strike"] == float(leg["strike"]))
+        & ((chain_snapshot["strike"] - float(leg["strike"])).abs() < 0.01)
         & (pd.to_datetime(chain_snapshot["expiry"]).dt.date.astype(str) == leg_exp)
     ].copy()
 
