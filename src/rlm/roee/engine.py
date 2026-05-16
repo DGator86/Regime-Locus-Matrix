@@ -257,7 +257,9 @@ def apply_roee_policy(
             regime_key=str(row["regime_key"]),
             bid_ask_spread_pct=(
                 float(row["bid_ask_spread"] / row["close"])
-                if "bid_ask_spread" in out.columns and pd.notna(row.get("bid_ask_spread"))
+                if "bid_ask_spread" in out.columns
+                and pd.notna(row.get("bid_ask_spread"))
+                and float(row["close"]) > 0
                 else None
             ),
             has_major_event=(
