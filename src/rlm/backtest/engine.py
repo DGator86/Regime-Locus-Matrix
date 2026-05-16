@@ -203,10 +203,14 @@ class BacktestEngine:
                 symbol_cap = rc.max_positions_per_symbol
                 total_cap = rc.max_total_positions
 
-                has_symbol_pos = self.portfolio.has_position_for_symbol(self.underlying_symbol)
+                symbol_pos_count = sum(
+                    1
+                    for pos in self.portfolio.open_positions.values()
+                    if pos.underlying_symbol == self.underlying_symbol
+                )
                 total_pos_count = self.portfolio.total_position_count()
 
-                if has_symbol_pos and symbol_cap > 0:
+                if symbol_pos_count >= symbol_cap and symbol_cap > 0:
                     decision.action = "skip"
                     decision.rationale = f"Symbol cap reached: {self.underlying_symbol}"
                 elif total_pos_count >= total_cap and total_cap > 0:
@@ -438,10 +442,17 @@ class BacktestEngine:
                 to_close.append((position_id, "time_stop"))
                 continue
 
-            if pricing_ok and should_exit_for_zone_breach(
-                realized_price=float(row["close"]),
-                lower_1s=float(row["lower_1s"]),
-                upper_1s=float(row["upper_1s"]),
+            _lower_1s = row.get("lower_1s")
+            _upper_1s = row.get("upper_1s")
+            if (
+                pricing_ok
+                and _lower_1s is not None
+                and _upper_1s is not None
+                and should_exit_for_zone_breach(
+                    realized_price=float(row["close"]),
+                    lower_1s=float(_lower_1s),
+                    upper_1s=float(_upper_1s),
+                )
             ):
                 to_close.append((position_id, "zone_breach"))
                 continue
