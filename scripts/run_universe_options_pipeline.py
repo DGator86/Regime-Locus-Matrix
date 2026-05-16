@@ -54,15 +54,16 @@ import numpy as np
 import pandas as pd
 
 # ruff: noqa: E402
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.features.factors.pipeline import FactorPipeline
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
@@ -79,15 +80,14 @@ from rlm.roee.chain_match import (
     select_chain_slice_for_decision,
 )
 from rlm.roee.decision import select_trade_for_row
-from rlm.roee.system_gate import SystemGate
 from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.features.scoring.state_matrix import classify_state_matrix
+from rlm.roee.system_gate import SystemGate
+from rlm.monitoring.structured import build_pipeline_event
 from rlm.regimes.forecast_regime_snapshot import (
     build_regime_transition_snapshot,
     regime_direction_equity,
 )
 from rlm.types.options import TradeDecision
-from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
 
 # Statsmodels emits this repeatedly for our non-fixed-frequency trading calendar index.
