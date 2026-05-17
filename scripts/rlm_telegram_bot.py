@@ -29,7 +29,6 @@ if str(REPO / "src") not in sys.path:
 
 from rlm.data.paths import get_rlm_runtime_root  # noqa: E402
 
-
 _NOTIFY_STATE_LOCK = threading.Lock()
 _NOTIFY_CYCLE_MANAGED_STATE_KEYS = frozenset(
     {
