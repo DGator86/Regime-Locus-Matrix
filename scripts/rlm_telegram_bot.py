@@ -30,6 +30,23 @@ if str(REPO / "src") not in sys.path:
 from rlm.data.paths import get_rlm_runtime_root  # noqa: E402
 
 
+_NOTIFY_STATE_LOCK = threading.Lock()
+_NOTIFY_CYCLE_MANAGED_STATE_KEYS = frozenset(
+    {
+        "notify_seeded",
+        "announced_trade_open",
+        "last_opt_signal",
+        "announced_tp",
+        "announced_exit",
+        "last_equity_open",
+        "announced_equity_close",
+        "last_universe_active_ids",
+        "challenge_trade_n",
+        "challenge_open_ids",
+    }
+)
+
+
 def _load_env() -> None:
     try:
         from dotenv import load_dotenv
@@ -112,6 +129,35 @@ def _resolve_state_path() -> Path:
     return rt / "data" / "processed" / "telegram_notify_state.json"
 
 
+def _load_notify_state_blob(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_notify_state_blob(path: Path, blob: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(blob, indent=2, default=str), encoding="utf-8")
+
+
+def _persist_notify_cycle_state(path: Path, cycle_blob: dict[str, Any]) -> None:
+    """Persist notify de-dupe state without overwriting a concurrent /start chat binding."""
+    with _NOTIFY_STATE_LOCK:
+        latest = _load_notify_state_blob(path)
+        merged = dict(latest)
+        for key in _NOTIFY_CYCLE_MANAGED_STATE_KEYS:
+            if key in cycle_blob:
+                merged[key] = cycle_blob[key]
+            else:
+                merged.pop(key, None)
+        if merged != latest:
+            _write_notify_state_blob(path, merged)
+
+
 def _api(token: str, method: str, **params: Any) -> dict[str, Any]:
     url = f"https://api.telegram.org/bot{token}/{method}"
     body = urlencode({k: v for k, v in params.items() if v is not None}).encode("utf-8")
@@ -162,17 +208,10 @@ def _handle_message(
     t_low = t.lower()
     if t.startswith("/start"):
         st = _resolve_state_path()
-        blob: dict[str, Any]
-        if st.is_file():
-            try:
-                blob = json.loads(st.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                blob = {}
-        else:
-            blob = {}
-        blob["notify_chat_id"] = chat_id
-        st.parent.mkdir(parents=True, exist_ok=True)
-        st.write_text(json.dumps(blob, indent=2), encoding="utf-8")
+        with _NOTIFY_STATE_LOCK:
+            blob = _load_notify_state_blob(st)
+            blob["notify_chat_id"] = chat_id
+            _write_notify_state_blob(st, blob)
         reply = (
             "RLM bot online. Push alerts use this chat.\n"
             "Commands: /help /status /pnl /universe /portfolio /balances /brief"
@@ -223,20 +262,21 @@ def _chat_for_push(allowed: set[int] | None = None) -> int | None:
             pass
     st = _resolve_state_path()
     if st.is_file():
+        with _NOTIFY_STATE_LOCK:
+            d = _load_notify_state_blob(st)
         try:
-            d = json.loads(st.read_text(encoding="utf-8"))
             c = d.get("notify_chat_id")
             if c is not None:
                 cid = int(c)
                 if allowed is None or cid in allowed:
                     return cid
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (ValueError, TypeError):
             pass
     return None
 
 
 def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
-    from rlm.notify.telegram_rlm import load_notify_state, notification_cycle
+    from rlm.notify.telegram_rlm import notification_cycle
 
     st_path = _resolve_state_path()
     root = get_rlm_runtime_root()
@@ -269,7 +309,8 @@ def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
     import time as _t
 
     while True:
-        blob = load_notify_state(st_path)
+        with _NOTIFY_STATE_LOCK:
+            blob = _load_notify_state_blob(st_path)
         try:
             if _chat_for_push(allowed) is None:
                 _t.sleep(5.0)
@@ -278,8 +319,7 @@ def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
             for m in messages:
                 send(m)
             if new_blob != blob:
-                st_path.parent.mkdir(parents=True, exist_ok=True)
-                st_path.write_text(json.dumps(new_blob, indent=2, default=str), encoding="utf-8")
+                _persist_notify_cycle_state(st_path, new_blob)
         except Exception as e:  # noqa: BLE001
             print(f"[rlm-telegram] notify cycle error: {e}", flush=True)
         _t.sleep(max(5.0, interval))
