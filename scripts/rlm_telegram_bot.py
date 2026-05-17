@@ -262,7 +262,7 @@ def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
     except ValueError:
         interval = 20.0
     print(
-        f"[rlm-telegram] background notify every {interval}s → chat {_chat_for_push()}",
+        f"[rlm-telegram] background notify every {interval}s → chat {_chat_for_push(allowed)}",
         flush=True,
     )
     # Custom loop: reload chat id each cycle; merge state
@@ -271,7 +271,7 @@ def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
     while True:
         blob = load_notify_state(st_path)
         try:
-            if _chat_for_push() is None:
+            if _chat_for_push(allowed) is None:
                 _t.sleep(5.0)
                 continue
             messages, new_blob = notification_cycle(root, blob)
