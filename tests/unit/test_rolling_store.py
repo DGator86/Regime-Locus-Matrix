@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from rlm.data.rolling_store import RollingBarsStore, RollingUpdateResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_bars(start: str, periods: int, freq: str = "D") -> pd.DataFrame:
     idx = pd.date_range(start, periods=periods, freq=freq)
@@ -107,11 +106,11 @@ class TestAlreadyCurrent:
 class TestIncrementalAppend:
     def test_appends_only_new_bars(self, tmp_path):
         today = date(2026, 5, 17)
-        existing = _make_bars("2026-04-01", 20)   # ends 2026-04-20
+        existing = _make_bars("2026-04-01", 20)  # ends 2026-04-20
         _write_bars(tmp_path / "raw" / "bars_SPY.csv", existing)
 
         # Provider returns bars covering the overlap window + new dates
-        fresh = _make_bars("2026-04-16", 27)      # ends 2026-05-12 ish
+        fresh = _make_bars("2026-04-16", 27)  # ends 2026-05-12 ish
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
@@ -133,11 +132,11 @@ class TestIncrementalAppend:
 
         # fresh overlaps the last 5 rows exactly (overlap window)
         fresh = existing.tail(5).copy()
-        fresh["close"] = 999.0   # different value — keep_last should win
+        fresh["close"] = 999.0  # different value — keep_last should win
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
-            result = store.update(today=today)
+            store.update(today=today)
 
         loaded = store.load()
         assert loaded is not None
@@ -223,13 +222,13 @@ class TestMerge:
 
     def test_merge_sorts_by_timestamp(self):
         a = _make_bars("2026-01-01", 5)
-        b = _make_bars("2025-12-25", 5)   # older — should appear first
+        b = _make_bars("2025-12-25", 5)  # older — should appear first
         merged = RollingBarsStore._merge(a, b)
         assert merged["timestamp"].is_monotonic_increasing
 
     def test_merge_deduplicates_on_timestamp(self):
         a = _make_bars("2026-01-01", 10)
-        b = _make_bars("2026-01-08", 5)   # overlaps last 3 of a
+        b = _make_bars("2026-01-08", 5)  # overlaps last 3 of a
         merged = RollingBarsStore._merge(a, b)
         assert merged["timestamp"].duplicated().sum() == 0
 
