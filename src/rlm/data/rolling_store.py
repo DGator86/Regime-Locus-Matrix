@@ -100,19 +100,21 @@ class RollingBarsStore:
         """
         today = today or date.today()
         existing = self.load()
+        normalize_dates = self._uses_date_bars()
 
         if existing is not None and not existing.empty:
-            last_ts = pd.Timestamp(existing["timestamp"].max()).date()
-            if last_ts >= today:
+            last_timestamp = pd.Timestamp(existing["timestamp"].max())
+            last_date = last_timestamp.date()
+            if normalize_dates and last_date >= today:
                 return RollingUpdateResult(
                     symbol=self.symbol,
                     new_rows=0,
                     total_rows=len(existing),
-                    last_timestamp=pd.Timestamp(last_ts),
+                    last_timestamp=pd.Timestamp(last_date),
                     already_current=True,
                     bars_path=self._bars_path,
                 )
-            fetch_start = last_ts - timedelta(days=_OVERLAP_DAYS)
+            fetch_start = last_date - timedelta(days=_OVERLAP_DAYS)
         else:
             fetch_start = today - timedelta(days=self.lookback_days)
 
@@ -140,7 +142,7 @@ class RollingBarsStore:
                 bars_path=self._bars_path,
             )
 
-        merged = self._merge(existing, fresh)
+        merged = self._merge(existing, fresh, normalize_dates=normalize_dates)
         new_rows = len(merged) - (len(existing) if existing is not None else 0)
 
         self._raw_dir.mkdir(parents=True, exist_ok=True)
@@ -186,16 +188,37 @@ class RollingBarsStore:
         raw.index.name = "timestamp"
         raw.columns = [str(c).lower() for c in raw.columns]
         df = raw.reset_index()
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.normalize()
+        df["timestamp"] = self._coerce_timestamps(df["timestamp"], normalize_dates=self._uses_date_bars())
         return df
 
     @staticmethod
-    def _merge(existing: pd.DataFrame | None, fresh: pd.DataFrame) -> pd.DataFrame:
+    def _merge(
+        existing: pd.DataFrame | None,
+        fresh: pd.DataFrame,
+        *,
+        normalize_dates: bool = True,
+    ) -> pd.DataFrame:
         parts = [existing, fresh] if existing is not None and not existing.empty else [fresh]
         combined = pd.concat(parts, ignore_index=True)
-        combined["timestamp"] = pd.to_datetime(combined["timestamp"]).dt.normalize()
+        combined["timestamp"] = RollingBarsStore._coerce_timestamps(
+            combined["timestamp"],
+            normalize_dates=normalize_dates,
+        )
         combined = combined.drop_duplicates(subset=["timestamp"], keep="last")
         return combined.sort_values("timestamp").reset_index(drop=True)
+
+    def _uses_date_bars(self) -> bool:
+        interval = self.interval.lower().strip()
+        return not (interval.endswith("m") or interval.endswith("h"))
+
+    @staticmethod
+    def _coerce_timestamps(values: object, *, normalize_dates: bool) -> pd.Series:
+        ts = pd.to_datetime(values, errors="coerce")
+        if isinstance(ts.dtype, pd.DatetimeTZDtype):
+            ts = ts.dt.tz_localize(None)
+        if normalize_dates:
+            ts = ts.dt.normalize()
+        return ts
 
 
 # ---------------------------------------------------------------------------
