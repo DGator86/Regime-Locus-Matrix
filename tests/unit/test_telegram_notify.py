@@ -398,9 +398,7 @@ def test_telegram_bot_denies_commands_when_no_allowlist(monkeypatch, tmp_path: P
     assert allowed == set()
     bot._handle_message("token", chat_id=123, user_id=123, text="/start", allowed=allowed)
 
-    assert sent == [
-        {"token": "token", "method": "sendMessage", "chat_id": 123, "text": "Not authorized for this bot."}
-    ]
+    assert sent == [{"token": "token", "method": "sendMessage", "chat_id": 123, "text": "Not authorized for this bot."}]
     assert not (tmp_path / "data" / "processed" / "telegram_notify_state.json").exists()
 
 
