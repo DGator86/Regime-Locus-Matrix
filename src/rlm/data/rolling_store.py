@@ -100,19 +100,21 @@ class RollingBarsStore:
         """
         today = today or date.today()
         existing = self.load()
+        is_daily = self._is_daily_interval()
 
         if existing is not None and not existing.empty:
-            last_ts = pd.Timestamp(existing["timestamp"].max()).date()
-            if last_ts >= today:
+            last_stored_ts = _coerce_timestamp(existing["timestamp"].max())
+            last_stored_date = pd.Timestamp(last_stored_ts).date()
+            if is_daily and last_stored_date >= today:
                 return RollingUpdateResult(
                     symbol=self.symbol,
                     new_rows=0,
                     total_rows=len(existing),
-                    last_timestamp=pd.Timestamp(last_ts),
+                    last_timestamp=pd.Timestamp(last_stored_date),
                     already_current=True,
                     bars_path=self._bars_path,
                 )
-            fetch_start = last_ts - timedelta(days=_OVERLAP_DAYS)
+            fetch_start = last_stored_date - timedelta(days=_OVERLAP_DAYS)
         else:
             fetch_start = today - timedelta(days=self.lookback_days)
 
@@ -186,16 +188,36 @@ class RollingBarsStore:
         raw.index.name = "timestamp"
         raw.columns = [str(c).lower() for c in raw.columns]
         df = raw.reset_index()
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.normalize()
+        df["timestamp"] = _coerce_timestamp_series(df["timestamp"])
+        if self._is_daily_interval():
+            df["timestamp"] = df["timestamp"].dt.normalize()
         return df
+
+    def _is_daily_interval(self) -> bool:
+        return self.interval.lower().strip() in {"1d", "1day", "1 day"}
 
     @staticmethod
     def _merge(existing: pd.DataFrame | None, fresh: pd.DataFrame) -> pd.DataFrame:
         parts = [existing, fresh] if existing is not None and not existing.empty else [fresh]
         combined = pd.concat(parts, ignore_index=True)
-        combined["timestamp"] = pd.to_datetime(combined["timestamp"]).dt.normalize()
+        combined["timestamp"] = _coerce_timestamp_series(combined["timestamp"])
         combined = combined.drop_duplicates(subset=["timestamp"], keep="last")
         return combined.sort_values("timestamp").reset_index(drop=True)
+
+
+def _coerce_timestamp(value: object) -> pd.Timestamp:
+    if pd.isna(value):
+        return pd.NaT
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is not None:
+        # RLM CSV bars use local wall-clock timestamps; stripping provider timezones
+        # preserves intraday bar times while matching existing naive daily files.
+        ts = ts.tz_localize(None)
+    return ts
+
+
+def _coerce_timestamp_series(values: pd.Series) -> pd.Series:
+    return pd.to_datetime(values.map(_coerce_timestamp), errors="coerce")
 
 
 # ---------------------------------------------------------------------------
