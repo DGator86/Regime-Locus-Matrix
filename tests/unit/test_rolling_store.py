@@ -99,7 +99,7 @@ class TestIncrementalAppend:
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
-            store.update(today=today)
+            result = store.update(today=today)
 
         assert result.already_current is False
         # merged rows = union of existing + fresh (deduped)
@@ -121,7 +121,7 @@ class TestIncrementalAppend:
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
-            result = store.update(today=today)
+            store.update(today=today)
 
         loaded = store.load()
         assert loaded is not None
