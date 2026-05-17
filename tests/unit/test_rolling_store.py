@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from rlm.data.rolling_store import RollingBarsStore, RollingUpdateResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_bars(start: str, periods: int, freq: str = "D") -> pd.DataFrame:
     idx = pd.date_range(start, periods=periods, freq=freq)
@@ -81,6 +80,23 @@ class TestAlreadyCurrent:
         assert result.new_rows == 0
         assert result.total_rows == 5
 
+    def test_intraday_interval_fetches_when_last_bar_is_today(self, tmp_path):
+        today = date(2026, 5, 17)
+        existing = _make_bars("2026-05-17 09:30", 3, freq="5min")
+        _write_bars(tmp_path / "raw" / "bars_SPY.csv", existing)
+        fresh = _make_bars("2026-05-17 09:45", 2, freq="5min")
+        store = RollingBarsStore("SPY", data_root=tmp_path, interval="5m")
+
+        with _mock_fetch(fresh):
+            result = store.update(today=today)
+
+        loaded = store.load()
+        assert loaded is not None
+        assert result.already_current is False
+        assert result.new_rows == 2
+        assert len(loaded) == 5
+        assert loaded["timestamp"].max() == pd.Timestamp("2026-05-17 09:50")
+
 
 # ---------------------------------------------------------------------------
 # update() — incremental append
@@ -90,11 +106,11 @@ class TestAlreadyCurrent:
 class TestIncrementalAppend:
     def test_appends_only_new_bars(self, tmp_path):
         today = date(2026, 5, 17)
-        existing = _make_bars("2026-04-01", 20)   # ends 2026-04-20
+        existing = _make_bars("2026-04-01", 20)  # ends 2026-04-20
         _write_bars(tmp_path / "raw" / "bars_SPY.csv", existing)
 
         # Provider returns bars covering the overlap window + new dates
-        fresh = _make_bars("2026-04-16", 27)      # ends 2026-05-12 ish
+        fresh = _make_bars("2026-04-16", 27)  # ends 2026-05-12 ish
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
@@ -116,11 +132,11 @@ class TestIncrementalAppend:
 
         # fresh overlaps the last 5 rows exactly (overlap window)
         fresh = existing.tail(5).copy()
-        fresh["close"] = 999.0   # different value — keep_last should win
+        fresh["close"] = 999.0  # different value — keep_last should win
         store = RollingBarsStore("SPY", data_root=tmp_path)
 
         with _mock_fetch(fresh):
-            result = store.update(today=today)
+            store.update(today=today)
 
         loaded = store.load()
         assert loaded is not None
@@ -206,12 +222,39 @@ class TestMerge:
 
     def test_merge_sorts_by_timestamp(self):
         a = _make_bars("2026-01-01", 5)
-        b = _make_bars("2025-12-25", 5)   # older — should appear first
+        b = _make_bars("2025-12-25", 5)  # older — should appear first
         merged = RollingBarsStore._merge(a, b)
         assert merged["timestamp"].is_monotonic_increasing
 
     def test_merge_deduplicates_on_timestamp(self):
         a = _make_bars("2026-01-01", 10)
-        b = _make_bars("2026-01-08", 5)   # overlaps last 3 of a
+        b = _make_bars("2026-01-08", 5)  # overlaps last 3 of a
         merged = RollingBarsStore._merge(a, b)
         assert merged["timestamp"].duplicated().sum() == 0
+
+    def test_merge_preserves_intraday_timestamp_precision(self):
+        existing = _make_bars("2026-05-15 09:30", 3, freq="5min")
+        fresh = _make_bars("2026-05-15 09:45", 2, freq="5min")
+
+        merged = RollingBarsStore._merge(existing, fresh)
+
+        assert len(merged) == 5
+        assert list(merged["timestamp"]) == [
+            pd.Timestamp("2026-05-15 09:30"),
+            pd.Timestamp("2026-05-15 09:35"),
+            pd.Timestamp("2026-05-15 09:40"),
+            pd.Timestamp("2026-05-15 09:45"),
+            pd.Timestamp("2026-05-15 09:50"),
+        ]
+
+    def test_merge_matches_timezone_aware_provider_daily_bars_to_naive_csv_dates(self):
+        existing = _make_bars("2026-05-15", 1)
+        fresh = _make_bars("2026-05-15", 1)
+        fresh["timestamp"] = pd.to_datetime(fresh["timestamp"]).dt.tz_localize("America/New_York")
+        fresh["close"] = 999.0
+
+        merged = RollingBarsStore._merge(existing, fresh)
+
+        assert len(merged) == 1
+        assert merged.loc[0, "timestamp"] == pd.Timestamp("2026-05-15")
+        assert merged.loc[0, "close"] == 999.0
