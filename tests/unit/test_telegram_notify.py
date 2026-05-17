@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import io
 import json
 import sys
@@ -14,6 +15,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rlm.notify.telegram_rlm import build_universe_and_positions, notification_cycle  # noqa: E402
+
+
+def _load_telegram_bot_module():
+    spec = importlib.util.spec_from_file_location("rlm_telegram_bot_test", ROOT / "scripts" / "rlm_telegram_bot.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_notify_seed_silent(tmp_path: Path) -> None:
@@ -361,3 +370,81 @@ def test_large_options_uses_trade_log_legs_json_when_universe_has_no_legs(tmp_pa
     assert "META (Put debit spread" in text or "Put debit spread" in text
     assert "$600 Put" in text and "$590 Put" in text
     assert "plan_b" in text
+
+
+def test_telegram_bot_denies_commands_when_no_allowlist(monkeypatch, tmp_path: Path) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_ROOT", str(tmp_path))
+
+    sent: list[dict[str, object]] = []
+
+    def fake_api(token: str, method: str, **params: object) -> dict[str, object]:
+        sent.append({"token": token, "method": method, **params})
+        return {}
+
+    monkeypatch.setattr(bot, "_api", fake_api)
+
+    allowed = bot._allowed()
+    assert allowed == set()
+    bot._handle_message("token", chat_id=123, user_id=123, text="/start", allowed=allowed)
+
+    assert sent == [
+        {"token": "token", "method": "sendMessage", "chat_id": 123, "text": "Not authorized for this bot."}
+    ]
+    assert not (tmp_path / "data" / "processed" / "telegram_notify_state.json").exists()
+
+
+def test_telegram_bot_requires_explicit_allow_all(monkeypatch) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS", "1")
+
+    assert bot._allowed() is None
+
+
+def test_telegram_bot_uses_private_chat_id_as_default_allowlist(monkeypatch) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID", "456")
+
+    assert bot._allowed() == {456}
+
+
+def test_telegram_bot_filters_state_push_chat_by_allowlist(monkeypatch, tmp_path: Path) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_ROOT", str(tmp_path))
+    state = tmp_path / "data" / "processed" / "telegram_notify_state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"notify_chat_id": 222}), encoding="utf-8")
+
+    assert bot._chat_for_push({111}) is None
+    assert bot._chat_for_push({222}) == 222
+    assert bot._chat_for_push(None) == 222

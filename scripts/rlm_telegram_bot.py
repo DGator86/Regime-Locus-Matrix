@@ -73,18 +73,35 @@ def _long_poll_timeout_sec() -> int:
 
 
 def _allowed() -> set[int] | None:
+    allow_all = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ).lower()
+    if allow_all in {"1", "true", "yes", "on"}:
+        return None
+
     raw = _env_first(
         "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
         "TELEGRAM_ALLOWED_USER_IDS",
     )
-    if not raw:
-        return None
     out: set[int] = set()
     for part in raw.replace(";", ",").split(","):
         p = part.strip()
         if p.isdigit() or (p.startswith("-") and p[1:].isdigit()):
             out.add(int(p))
-    return out if out else None
+    if out:
+        return out
+
+    # In private chats Telegram uses the same integer for chat_id and user_id,
+    # so a configured push chat can safely double as the default single-user
+    # allow-list. Group chats must set explicit user IDs.
+    chat_raw = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+    )
+    if chat_raw.isdigit():
+        return {int(chat_raw)}
+    return set()
 
 
 def _resolve_state_path() -> Path:
@@ -194,7 +211,7 @@ def _chunk_text(s: str, max_len: int) -> list[str]:
     return [s[i : i + max_len] for i in range(0, len(s), max_len)]
 
 
-def _chat_for_push() -> int | None:
+def _chat_for_push(allowed: set[int] | None = None) -> int | None:
     raw = _env_first(
         "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
         "TELEGRAM_NOTIFY_CHAT_ID",
@@ -210,20 +227,22 @@ def _chat_for_push() -> int | None:
             d = json.loads(st.read_text(encoding="utf-8"))
             c = d.get("notify_chat_id")
             if c is not None:
-                return int(c)
+                cid = int(c)
+                if allowed is None or cid in allowed:
+                    return cid
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
     return None
 
 
-def _notify_thread_main(token: str) -> None:
+def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
     from rlm.notify.telegram_rlm import load_notify_state, notification_cycle
 
     st_path = _resolve_state_path()
     root = get_rlm_runtime_root()
 
     def send(msg: str) -> None:
-        cid = _chat_for_push()
+        cid = _chat_for_push(allowed)
         if cid is None:
             return
         for chunk in _chunk_text(msg, 4000):
@@ -236,7 +255,7 @@ def _notify_thread_main(token: str) -> None:
         print("[rlm-telegram] TELEGRAM_NOTIFY=0 — background pushes disabled", flush=True)
         return
     # Block until a chat is known (/start or env), then run forever
-    while _chat_for_push() is None:
+    while _chat_for_push(allowed) is None:
         time.sleep(2.0)
     try:
         interval = float((os.environ.get("TELEGRAM_NOTIFY_INTERVAL_SEC") or "20").strip())
@@ -272,16 +291,24 @@ def main() -> int:
     token = _token()
     allowed = _allowed()
     if allowed is not None:
-        print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
+        if allowed:
+            print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
+        else:
+            print(
+                "[rlm-telegram] no allowed user IDs configured — commands and state-based pushes are disabled. "
+                "Set RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS (preferred) or "
+                "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS=1 for an intentionally public/testing bot.",
+                flush=True,
+            )
     else:
         print(
-            "[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot",
+            "[rlm-telegram] allow-all Telegram mode enabled by explicit configuration",
             flush=True,
         )
     lp = _long_poll_timeout_sec()
     print(f"[rlm-telegram] long-poll timeout={lp}s", flush=True)
 
-    nt = threading.Thread(target=_notify_thread_main, args=(token,), name="rlm-telegram-notify", daemon=True)
+    nt = threading.Thread(target=_notify_thread_main, args=(token, allowed), name="rlm-telegram-notify", daemon=True)
     nt.start()
 
     last_offset: int | None = None
