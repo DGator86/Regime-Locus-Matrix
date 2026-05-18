@@ -24,6 +24,8 @@ CLI equivalent::
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -143,8 +145,7 @@ class RollingBarsStore:
         merged = self._merge(existing, fresh)
         new_rows = len(merged) - (len(existing) if existing is not None else 0)
 
-        self._raw_dir.mkdir(parents=True, exist_ok=True)
-        merged.to_csv(self._bars_path, index=False)
+        self._write_csv_atomic(merged)
 
         _log.info(
             "RollingBarsStore[%s]: +%d new rows → %d total, saved to %s",
@@ -191,11 +192,66 @@ class RollingBarsStore:
 
     @staticmethod
     def _merge(existing: pd.DataFrame | None, fresh: pd.DataFrame) -> pd.DataFrame:
-        parts = [existing, fresh] if existing is not None and not existing.empty else [fresh]
+        existing_norm = None
+        if existing is not None and not existing.empty:
+            existing_norm = existing.copy()
+            existing_norm["timestamp"] = pd.to_datetime(existing_norm["timestamp"]).dt.normalize()
+
+        fresh_norm = fresh.copy()
+        fresh_norm["timestamp"] = pd.to_datetime(fresh_norm["timestamp"]).dt.normalize()
+
+        parts = [existing_norm, fresh_norm] if existing_norm is not None else [fresh_norm]
         combined = pd.concat(parts, ignore_index=True)
-        combined["timestamp"] = pd.to_datetime(combined["timestamp"]).dt.normalize()
         combined = combined.drop_duplicates(subset=["timestamp"], keep="last")
+
+        if existing_norm is not None:
+            missing_fresh_cols = [
+                col
+                for col in existing_norm.columns
+                if col != "timestamp" and col not in fresh_norm.columns and col in combined.columns
+            ]
+            if missing_fresh_cols:
+                existing_by_timestamp = existing_norm.drop_duplicates(subset=["timestamp"], keep="last").set_index(
+                    "timestamp"
+                )
+                combined_by_timestamp = combined.set_index("timestamp")
+                for col in missing_fresh_cols:
+                    combined_by_timestamp[col] = combined_by_timestamp[col].fillna(existing_by_timestamp[col])
+                combined = combined_by_timestamp.reset_index()
+
         return combined.sort_values("timestamp").reset_index(drop=True)
+
+    def _write_csv_atomic(self, df: pd.DataFrame) -> None:
+        self._raw_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self._bars_path.name}.",
+            suffix=".tmp",
+            dir=self._raw_dir,
+        )
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", newline="") as handle:
+                df.to_csv(handle, index=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self._bars_path)
+            self._fsync_dir()
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+
+    def _fsync_dir(self) -> None:
+        try:
+            dir_fd = os.open(self._raw_dir, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 # ---------------------------------------------------------------------------
