@@ -64,7 +64,7 @@ export default function DataFeedsPanel() {
 
   const load = () => {
     setLoading(true);
-    fetch("/api/data-feeds")
+    fetch("/api/data-feeds", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => setData(j))
       .catch(() => setData(null))

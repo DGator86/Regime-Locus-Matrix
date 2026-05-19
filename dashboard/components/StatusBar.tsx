@@ -24,7 +24,7 @@ export default function StatusBar() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const res = await fetch("/api/metrics");
+        const res = await fetch("/api/metrics", { cache: "no-store" });
         const data = await res.json();
         setMetrics(data);
       } catch {

@@ -80,7 +80,7 @@ export default function Sidebar() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const res = await fetch("/api/metrics");
+        const res = await fetch("/api/metrics", { cache: "no-store" });
         const json = await res.json();
         setDataAge(json?.dataAge ?? null);
       } catch {

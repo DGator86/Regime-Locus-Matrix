@@ -20,7 +20,7 @@ from rlm.data.eodhd_stocks import (
     load_eodhd_api_key,
 )
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
-from rlm.data.stock_bars_provider import load_stock_1m_from_lake, merge_bars_into_lake
+from rlm.data.stock_bars_provider import export_chart_bars_csv, load_stock_1m_from_lake, merge_bars_into_lake
 
 logger = logging.getLogger(__name__)
 _EASTERN = ZoneInfo("America/New_York")
@@ -84,6 +84,7 @@ def refresh_symbol_intraday(
     if fresh.empty:
         return 0
     merged = merge_bars_into_lake(sym, fresh, root=root)
+    export_chart_bars_csv(sym, root=root)
     return len(merged)
 
 

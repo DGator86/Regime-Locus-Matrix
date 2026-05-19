@@ -50,6 +50,24 @@ def load_stock_1m_from_lake(
     return df.reset_index(drop=True)
 
 
+def export_chart_bars_csv(
+    symbol: str,
+    *,
+    root: Path,
+    tail_bars: int = 120,
+) -> Path | None:
+    """Write last N 1m bars for dashboard charts (``data/processed/chart_bars_{SYM}.csv``)."""
+    sym = str(symbol).strip().upper()
+    lake = load_stock_1m_from_lake(sym, root=root, lookback_days=5)
+    if lake.empty:
+        return None
+    cols = ["timestamp", "open", "high", "low", "close", "volume", "vwap"]
+    out_path = root / "data" / "processed" / f"chart_bars_{sym.lower()}.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    lake[cols].tail(int(tail_bars)).to_csv(out_path, index=False)
+    return out_path
+
+
 def merge_bars_into_lake(
     symbol: str,
     fresh: pd.DataFrame,

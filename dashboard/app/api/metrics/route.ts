@@ -227,8 +227,9 @@ function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
   const repoRoot = resolveRepoRootFromProcessed(dataDir);
   const eodhdState = fileMtimeIso(path.join(dataDir, "eodhd_collector_state.json"));
   const eodhdLake = buildEodhdLakeMtime(repoRoot);
+  const chartSpy = fileMtimeIso(path.join(dataDir, "chart_bars_spy.csv"));
   const eodhdLastUpdated = latestMtimeIso(
-    [eodhdState, eodhdLake].filter((x): x is string => Boolean(x))
+    [eodhdState, eodhdLake, chartSpy].filter((x): x is string => Boolean(x))
   );
 
   const massiveLastUpdated = latestMtimeIso(
@@ -466,7 +467,30 @@ function buildEquityTradeSummary(dataDir: string) {
   };
 }
 
+function mapOhlcvRowsToTimeseries(rows: Record<string, string>[]) {
+  return rows.slice(-60).map((r) => ({
+    timestamp: r.timestamp || r.date || r.Date || "",
+    close: num(r.close || r.Close),
+    S_D: num(r.S_D),
+    S_V: num(r.S_V),
+    S_L: num(r.S_L),
+    S_G: num(r.S_G),
+    sigma: optionalNum(r.sigma),
+    mean_price: r.mean_price ? num(r.mean_price) : null,
+    lower_1s: r.lower_1s ? num(r.lower_1s) : null,
+    upper_1s: r.upper_1s ? num(r.upper_1s) : null,
+    lower_2s: r.lower_2s ? num(r.lower_2s) : null,
+    upper_2s: r.upper_2s ? num(r.upper_2s) : null,
+    hmm_state: null as number | null,
+    hmm_confidence: null as number | null,
+    hmm_state_label: null as string | null,
+    forecast_return: null as number | null,
+    forecast_uncertainty: null as number | null,
+  }));
+}
+
 function buildForecastTimeseries(dataDir: string, symbol: string) {
+  const chartRows = readCsvFile(path.join(dataDir, `chart_bars_${symbol.toLowerCase()}.csv`));
   const rows = readCsvFile(path.join(dataDir, `forecast_features_${symbol}.csv`));
   const universeLatest = readCsvFile(path.join(dataDir, "universe_forecast_latest.csv"));
   const fallbackBarsRows = readCsvFile(
@@ -544,7 +568,15 @@ function buildForecastTimeseries(dataDir: string, symbol: string) {
     };
   });
 
+  const chartSeries = chartRows.length > 0 ? mapOhlcvRowsToTimeseries(chartRows) : [];
+  const chartLastTs = parseTimestampMs(chartSeries[chartSeries.length - 1]?.timestamp);
   const forecastLastTs = parseTimestampMs(fromForecast[fromForecast.length - 1]?.timestamp);
+
+  // Prefer live EODHD 1m chart export when it is newer than stale forecast_features CSV.
+  if (chartSeries.length > 0 && chartLastTs > forecastLastTs) {
+    return chartSeries;
+  }
+
   const barsLastTs = parseTimestampMs(fallbackSeries[fallbackSeries.length - 1]?.timestamp);
   const staleByMs = barsLastTs - forecastLastTs;
   const staleThresholdMs = 3 * 24 * 60 * 60 * 1000; // 3 days
