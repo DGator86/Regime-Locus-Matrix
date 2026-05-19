@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
+import time
 
 import pandas as pd
 
 from rlm.data.bar_timeframes import duration_to_calendar_days, is_intraday_bar_size
 from rlm.data.eodhd_stocks import fetch_intraday_lookback_days, load_eodhd_api_key
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
-from rlm.data.lake import stock_1m_parquet
+from rlm.data.lake import save_parquet, stock_1m_parquet
 from rlm.datasets.backtest_data import fetch_ibkr_intraday_bars_range
+
+try:  # pragma: no cover - exercised on POSIX hosts in integration.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback.
+    fcntl = None  # type: ignore[assignment]
+
+
+_STOCK_1M_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "vwap"]
 
 
 def stock_bars_source() -> str:
@@ -27,6 +37,37 @@ def _lake_path(symbol: str, *, root: Path) -> Path:
     return stock_1m_parquet(symbol, duration_slug="full", root=root)
 
 
+def _empty_1m_bars() -> pd.DataFrame:
+    return pd.DataFrame(columns=_STOCK_1M_COLUMNS)
+
+
+@contextmanager
+def _lake_update_lock(path: Path):
+    """Serialize read-merge-write updates for one lake parquet file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / f".{path.name}.lock"
+    if fcntl is not None:
+        with lock_path.open("a+b") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+
+    lock_fd: int | None = None
+    while lock_fd is None:
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        except FileExistsError:
+            time.sleep(0.1)
+    try:
+        yield
+    finally:
+        os.close(lock_fd)
+        lock_path.unlink(missing_ok=True)
+
+
 def load_stock_1m_from_lake(
     symbol: str,
     *,
@@ -35,12 +76,12 @@ def load_stock_1m_from_lake(
 ) -> pd.DataFrame:
     path = _lake_path(symbol, root=root)
     if not path.is_file():
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"])
+        return _empty_1m_bars()
     df = pd.read_parquet(path)
     if df.empty:
         return df
     if "timestamp" not in df.columns:
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "vwap"])
+        return _empty_1m_bars()
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
@@ -57,20 +98,19 @@ def merge_bars_into_lake(
     root: Path,
 ) -> pd.DataFrame:
     """Merge ``fresh`` bars into ``data/stocks/{SYM}/1m/*_full_1m.parquet``."""
-    cols = ["timestamp", "open", "high", "low", "close", "volume", "vwap"]
     path = _lake_path(symbol, root=root)
-    existing = load_stock_1m_from_lake(symbol, root=root, lookback_days=None)
-    ex = existing[cols].copy() if not existing.empty else pd.DataFrame(columns=cols)
-    fr = fresh[cols].copy() if not fresh.empty else pd.DataFrame(columns=cols)
-    merged = pd.concat([ex, fr], ignore_index=True)
-    if merged.empty:
+    with _lake_update_lock(path):
+        existing = load_stock_1m_from_lake(symbol, root=root, lookback_days=None)
+        ex = existing[_STOCK_1M_COLUMNS].copy() if not existing.empty else _empty_1m_bars()
+        fr = fresh[_STOCK_1M_COLUMNS].copy() if not fresh.empty else _empty_1m_bars()
+        merged = pd.concat([ex, fr], ignore_index=True)
+        if merged.empty:
+            return merged
+        merged["timestamp"] = pd.to_datetime(merged["timestamp"], errors="coerce")
+        merged = merged.dropna(subset=["timestamp"]).drop_duplicates(subset=["timestamp"], keep="last")
+        merged = merged.sort_values("timestamp").reset_index(drop=True)
+        save_parquet(merged, path, index=False)
         return merged
-    merged["timestamp"] = pd.to_datetime(merged["timestamp"], errors="coerce")
-    merged = merged.dropna(subset=["timestamp"]).drop_duplicates(subset=["timestamp"], keep="last")
-    merged = merged.sort_values("timestamp").reset_index(drop=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_parquet(path, index=False)
-    return merged
 
 
 def fetch_stock_bars(
@@ -93,16 +133,19 @@ def fetch_stock_bars(
             min_bars = int(os.environ.get("RLM_EODHD_MIN_LAKE_BARS", "500"))
             if len(lake) >= min_bars:
                 return lake
-            if source == "eodhd" and load_eodhd_api_key():
+            allow_ibkr = _env_truthy("RLM_ALLOW_IBKR_STOCK_BARS")
+            if load_eodhd_api_key():
                 try:
                     fresh = fetch_intraday_lookback_days(sym, lookback_days=days)
                     if not fresh.empty:
-                        return merge_bars_into_lake(sym, fresh, root=data_root)
+                        lake = merge_bars_into_lake(sym, fresh, root=data_root)
+                        if len(lake) >= min_bars:
+                            return lake
                 except Exception:
-                    if not _env_truthy("RLM_ALLOW_IBKR_STOCK_BARS"):
-                        return lake
-            if source == "auto" and not lake.empty:
-                return lake
+                    if source == "eodhd" and not allow_ibkr:
+                        return _empty_1m_bars()
+            if source == "eodhd" and not allow_ibkr:
+                return _empty_1m_bars()
 
         return _fetch_ibkr_intraday(sym, duration=duration, bar_size=bar_size, serialize=serialize_ibkr, lock=ibkr_lock)
 
