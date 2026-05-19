@@ -19,7 +19,14 @@ from typing import Any, Callable
 
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.exit_signals import EXIT_SIGNALS
-from rlm.notify.ledger_books import equity_book_snapshot, options_book_snapshot, write_trading_ledgers
+from rlm.notify.ledger_books import (
+    book_pnl_aggregates,
+    equity_book_snapshot,
+    load_equity_trade_log_rows,
+    load_options_trade_log_rows,
+    options_book_snapshot,
+    write_trading_ledgers,
+)
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
 from rlm.notify.options_plain_language import humanize_strategy_name as _strategy_entry_human
 from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
@@ -1083,70 +1090,6 @@ def _load_all_csv_rows(path: Path) -> list[dict[str, str]]:
         return []
 
 
-def _pnl_aggregates_from_log(
-    rows: list[dict[str, str]],
-) -> tuple[float, float, float, float]:
-    """Compute (daily, weekly, all_time, open_mtm) from a trade log CSV.
-
-    Closed trades: last row per plan_id with closed=1 → realized PnL.
-    Open positions: last row per plan_id with closed!=1 → unrealized MTM.
-    """
-    if not rows:
-        return 0.0, 0.0, 0.0, 0.0
-
-    now = datetime.now().astimezone()
-    today = now.date()
-    iso_now = today.isocalendar()
-
-    # Two passes: (1) collect all closed rows for realized PnL (one per
-    # plan_id — the *last* closed snapshot), (2) latest row per plan_id
-    # that is still open for unrealized MTM.
-    closed_by_pid: dict[str, dict[str, str]] = {}
-    latest_by_pid: dict[str, dict[str, str]] = {}
-    for row in rows:
-        pid = str(row.get("plan_id") or "")
-        if not pid:
-            continue
-        latest_by_pid[pid] = row
-        if (row.get("closed") or "0").strip() == "1":
-            closed_by_pid[pid] = row
-
-    daily = 0.0
-    weekly = 0.0
-    all_time = 0.0
-    open_mtm = 0.0
-
-    for pid, row in closed_by_pid.items():
-        try:
-            pnl = float(row.get("unrealized_pnl") or 0)
-        except (ValueError, TypeError):
-            pnl = 0.0
-        all_time += pnl
-        ts_raw = row.get("timestamp_utc", "")
-        try:
-            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            local_date = ts.astimezone().date()
-            if local_date == today:
-                daily += pnl
-            iso_ts = local_date.isocalendar()
-            if iso_ts.year == iso_now.year and iso_ts.week == iso_now.week:
-                weekly += pnl
-        except (ValueError, TypeError):
-            pass
-
-    for pid, row in latest_by_pid.items():
-        if (row.get("closed") or "0").strip() == "1":
-            continue
-        try:
-            open_mtm += float(row.get("unrealized_pnl") or 0)
-        except (ValueError, TypeError):
-            pass
-
-    return daily, weekly, all_time, open_mtm
-
-
 def _fmt_pnl(v: float) -> str:
     sign = "+" if v > 0 else ""
     return f"{sign}${v:,.2f}"
@@ -1243,7 +1186,7 @@ def _challenge_pnl_section(root: Path) -> str:
 def _ibkr_balance_section() -> str:
     """Compact IBKR account balances for the PnL report."""
     try:
-        from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot
+        from rlm.data.ibkr_snapshot import fetch_ibkr_account_snapshot, format_account_summary_money
     except ImportError:
         return "--- IBKR ACCOUNT ---\n  (ibapi not installed)"
     try:
@@ -1251,25 +1194,25 @@ def _ibkr_balance_section() -> str:
     except Exception:  # noqa: BLE001
         return "--- IBKR ACCOUNT ---\n  (Gateway unavailable)"
 
-    def _tag(t: str) -> str:
-        for row in snap.account_summary:
-            if str(row.tag) == t and row.value:
-                try:
-                    return f"${float(row.value):,.2f}"
-                except (ValueError, TypeError):
-                    return f"{row.value} {row.currency or ''}".strip()
-        return "—"
+    summary = snap.account_summary
+    unreal = format_account_summary_money(summary, "UnrealizedPnL")
+    real = format_account_summary_money(summary, "RealizedPnL")
+    if unreal == "—" and real == "—":
+        note = "  (Gateway did not return PnL tags — normal on some paper accounts)"
+    else:
+        note = ""
 
     return "\n".join(
         [
             "--- IBKR ACCOUNT ---",
-            f"Net liq:    {_tag('NetLiquidation')}",
-            f"Cash:       {_tag('TotalCashValue')}",
-            f"Buying pwr: {_tag('BuyingPower')}",
-            f"Unreal PnL: {_tag('UnrealizedPnL')}",
-            f"Real PnL:   {_tag('RealizedPnL')}",
+            f"Net liq:    {format_account_summary_money(summary, 'NetLiquidation')}",
+            f"Cash:       {format_account_summary_money(summary, 'TotalCashValue')}",
+            f"Buying pwr: {format_account_summary_money(summary, 'BuyingPower')}",
+            f"Unreal PnL: {unreal}",
+            f"Real PnL:   {real}",
+            note,
         ]
-    )
+    ).rstrip()
 
 
 def build_pnl_text(root: Path) -> str:
@@ -1286,11 +1229,10 @@ def build_pnl_text(root: Path) -> str:
     except Exception as exc:  # noqa: BLE001
         ledger_note = f"\n(ledgers sync error: {exc})\n"
 
-    p = default_paths(root)
     sections: list[str] = ["=== P&L REPORT ==="]
 
-    eq_rows = _load_all_csv_rows(p["equity_trade_log"])
-    eq_d, eq_w, eq_a, eq_mtm = _pnl_aggregates_from_log(eq_rows)
+    eq_rows = load_equity_trade_log_rows(root)
+    eq_d, eq_w, _, _ = book_pnl_aggregates(eq_rows, book="equity")
     eq_snap = equity_book_snapshot(root)
     eq_net = eq_snap.book_value - eq_snap.seed
     sections.append(
@@ -1303,14 +1245,14 @@ def build_pnl_text(root: Path) -> str:
                 f"(realized on closes {_fmt_pnl(eq_snap.closed_realized)} + open MTM {_fmt_pnl(eq_snap.open_mtm)})",
                 f"Today (realized, exit date):     {_fmt_pnl(eq_d)}",
                 f"This week (realized, exit date): {_fmt_pnl(eq_w)}",
-                f"Realized all-time (closed only): {_fmt_pnl(eq_a)}",
-                f"Open MTM (unrealized):           {_fmt_pnl(eq_mtm)}",
+                f"Realized all-time (closed only): {_fmt_pnl(eq_snap.closed_realized)}",
+                f"Open MTM (unrealized):           {_fmt_pnl(eq_snap.open_mtm)}",
             ]
         )
     )
 
-    opt_rows = _load_all_csv_rows(p["trade_log"])
-    opt_d, opt_w, opt_a, opt_mtm = _pnl_aggregates_from_log(opt_rows)
+    opt_rows = load_options_trade_log_rows(root)
+    opt_d, opt_w, _, _ = book_pnl_aggregates(opt_rows, book="options")
     opt_snap = options_book_snapshot(root)
     opt_net = opt_snap.book_value - opt_snap.seed
     sections.append(
@@ -1323,8 +1265,8 @@ def build_pnl_text(root: Path) -> str:
                 f"(realized on closes {_fmt_pnl(opt_snap.closed_realized)} + open MTM {_fmt_pnl(opt_snap.open_mtm)})",
                 f"Today (realized, exit date):     {_fmt_pnl(opt_d)}",
                 f"This week (realized, exit date): {_fmt_pnl(opt_w)}",
-                f"Realized all-time (closed only): {_fmt_pnl(opt_a)}",
-                f"Open MTM (unrealized):           {_fmt_pnl(opt_mtm)}",
+                f"Realized all-time (closed only): {_fmt_pnl(opt_snap.closed_realized)}",
+                f"Open MTM (unrealized):           {_fmt_pnl(opt_snap.open_mtm)}",
             ]
         )
     )
@@ -1341,7 +1283,12 @@ def build_pnl_text(root: Path) -> str:
 def build_balances_text(root: Path) -> str:
     """IBKR one-shot snapshot; one paper account — split by STK vs OPT position rows."""
     try:
-        from rlm.data.ibkr_snapshot import IbkrPositionRow, fetch_ibkr_account_snapshot
+        from rlm.data.ibkr_snapshot import (
+            IbkrPositionRow,
+            account_summary_tag_float,
+            fetch_ibkr_account_snapshot,
+            format_account_summary_money,
+        )
     except ImportError as e:
         return f"IBKR not available: {e}"
     try:
@@ -1349,16 +1296,18 @@ def build_balances_text(root: Path) -> str:
     except Exception as e:
         return f"Could not read IBKR balances: {e}\n(Confirm Gateway is up and .env has IBKR_HOST/PORT.)"
 
-    def _tag(t: str) -> str:
-        for row in snap.account_summary:
-            if str(row.tag) == t and row.value:
-                return f"{row.value} {row.currency or ''}".strip()
-        return "—"
+    summary = snap.account_summary
 
-    nlv = _tag("NetLiquidation")
-    cash = _tag("TotalCashValue")
-    bp = _tag("BuyingPower")
-    u_pnl = _tag("UnrealizedPnL")
+    def _tag_raw(t: str) -> str:
+        val = account_summary_tag_float(summary, t)
+        if val is None:
+            return "—"
+        return f"{val:,.2f}"
+
+    nlv = _tag_raw("NetLiquidation")
+    cash = _tag_raw("TotalCashValue")
+    bp = _tag_raw("BuyingPower")
+    u_pnl = format_account_summary_money(summary, "UnrealizedPnL")
 
     stk: list[IbkrPositionRow] = [x for x in snap.positions if str(x.sec_type).upper() == "STK" and abs(x.position) > 0]
     opt: list[IbkrPositionRow] = [

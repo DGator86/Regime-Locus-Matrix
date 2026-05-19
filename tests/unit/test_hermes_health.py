@@ -120,6 +120,43 @@ def test_auto_restart_skips_inactive_master_when_sibling_is_active(
     assert actions == ["[auto] skip restart regime-locus-master.service (active mutually-exclusive sibling)"]
 
 
+def test_staleness_ignores_old_trade_log_when_equity_book_only(tmp_path: Path, monkeypatch) -> None:
+    """Open equities without options rows must not require fresh options monitor CSV mtime."""
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    eq_state = {"plan-a": {"status": "open", "symbol": "SPY"}}
+    (processed / "equity_positions_state.json").write_text(json.dumps(eq_state), encoding="utf-8")
+    tlog = processed / "trade_log.csv"
+    # Header-only / tiny file: options collector skips → open_opts == 0
+    tlog.write_text("timestamp_utc,plan_id,symbol\n", encoding="utf-8")
+    old = os.path.getmtime(tlog) - 3 * 3600
+    os.utime(tlog, (old, old))
+
+    monkeypatch.setattr(health, "_STALE_HOURS", {"trade_log.csv": 0.1})
+    stale = health._check_staleness(tmp_path)
+    assert stale == []
+
+
+def test_staleness_flags_old_trade_log_when_options_open(tmp_path: Path, monkeypatch) -> None:
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    rows = (
+        "timestamp_utc,plan_id,symbol,closed\n"
+        + "\n".join(
+            f"2020-01-01T00:00:0{i}Z,p{i},SPY,0" for i in range(12)
+        )
+        + "\n"
+    )
+    (processed / "trade_log.csv").write_text(rows, encoding="utf-8")
+    tlog = processed / "trade_log.csv"
+    old = os.path.getmtime(tlog) - 3 * 3600
+    os.utime(tlog, (old, old))
+
+    monkeypatch.setattr(health, "_STALE_HOURS", {"trade_log.csv": 0.1})
+    stale = health._check_staleness(tmp_path)
+    assert stale and any("options monitor log" in s for s in stale)
+
+
 def test_staleness_ignores_trade_log_when_no_active_plans(tmp_path: Path, monkeypatch) -> None:
     processed = tmp_path / "data" / "processed"
     processed.mkdir(parents=True, exist_ok=True)
