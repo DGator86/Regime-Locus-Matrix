@@ -448,6 +448,68 @@ def test_telegram_bot_filters_state_push_chat_by_allowlist(monkeypatch, tmp_path
     assert bot._chat_for_push(None) == 222
 
 
+def test_telegram_crew_rejects_state_chat_without_allowlist(monkeypatch, tmp_path: Path) -> None:
+    from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id
+
+    for key in (
+        "RLM_HERMES_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+        "RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    state = tmp_path / "data" / "processed" / "telegram_notify_state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"notify_chat_id": 222}), encoding="utf-8")
+
+    assert resolve_telegram_chat_id(tmp_path) == ""
+
+
+def test_telegram_crew_filters_state_chat_by_allowlist(monkeypatch, tmp_path: Path) -> None:
+    from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id
+
+    for key in (
+        "RLM_HERMES_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+        "RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    state = tmp_path / "data" / "processed" / "telegram_notify_state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"notify_chat_id": 222}), encoding="utf-8")
+
+    monkeypatch.setenv("RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS", "111")
+    assert resolve_telegram_chat_id(tmp_path) == ""
+
+    monkeypatch.setenv("RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS", "111,222")
+    assert resolve_telegram_chat_id(tmp_path) == "222"
+
+
+def test_telegram_crew_trusts_explicit_chat_env(monkeypatch, tmp_path: Path) -> None:
+    from rlm.utils.telegram_crew_notify import resolve_telegram_chat_id
+
+    for key in (
+        "RLM_HERMES_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_HERMES_TELEGRAM_CHAT_ID", "-100123")
+
+    assert resolve_telegram_chat_id(tmp_path) == "-100123"
+
+
 def test_telegram_bot_notify_cycle_preserves_concurrent_start_chat(monkeypatch, tmp_path: Path) -> None:
     bot = _load_telegram_bot_module()
     for key in (
