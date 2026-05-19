@@ -22,7 +22,7 @@ from rlm.notify.options_paths import (
     count_open_option_monitor_positions,
     options_trade_log_mtime_paths,
 )
-from rlm.utils.market_hours import is_rth_now, is_scanner_window_open, session_label
+from rlm.utils.market_hours import is_scanner_window_open, session_label
 
 _DEFAULT_SERVICES = [
     "regime-locus-master",
@@ -63,6 +63,8 @@ _BENIGN_LOG_PATTERNS = (
     "failed to kill control group",
     "recent log errors (",
     "unknown api key",
+    "continuous mode — fatal errors will log",
+    "continuous mode - fatal errors will log",
     "apply_kronos_blend: kronos inference failed; returning base forecast unchanged. reason: 'datetimeindex' object has no attribute 'dt'",
     "convergencewarning: maximum likelihood optimization failed to converge",
     'warnings.warn("maximum likelihood optimization failed to ',
@@ -260,9 +262,10 @@ def _check_staleness(root: Path) -> list[str]:
     for fname, max_hours in _STALE_HOURS.items():
         if fname == "trade_log.csv":
             log_paths = [p for p in options_trade_log_mtime_paths(root) if p.is_file()]
-            if not log_paths or not has_book:
+            if not log_paths:
                 continue
-            if not is_rth_now() and open_opts == 0 and open_eq == 0:
+            # Equity-only or plans-only books do not imply the options monitor is appending rows.
+            if open_opts == 0:
                 continue
             newest = max(p.stat().st_mtime for p in log_paths)
             age_hours = (now - newest) / 3600
@@ -272,6 +275,10 @@ def _check_staleness(root: Path) -> list[str]:
             continue
         fpath = processed / fname
         if not fpath.exists():
+            continue
+        if fname == "universe_trade_plans.json" and active_plans_count == 0:
+            continue
+        if fname == "equity_positions_state.json" and open_eq == 0:
             continue
         age_hours = (now - fpath.stat().st_mtime) / 3600
         if fname in {"universe_trade_plans.json", "equity_positions_state.json"} and not has_book:

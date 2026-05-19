@@ -66,8 +66,9 @@ def _iter_csv_rows(path: Path) -> Iterator[dict[str, str]]:
 
 def _is_equity_log_row(r: dict[str, str]) -> bool:
     """``ibkr_equity_paper_trade`` log rows (see ``show_pnl.py``)."""
-    c = set(r.keys())
-    return "action" in c and "quantity" in c
+    action = (r.get("action") or "").strip()
+    qty = (r.get("quantity") or "").strip()
+    return bool(action and qty)
 
 
 def _rows_for_session_day(

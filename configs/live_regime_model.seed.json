@@ -56,8 +56,8 @@
     "weight": 0.35
   },
   "timeframe_hierarchy": {
-    "primary_bar_size": "1 day",
-    "primary_duration": "180 D",
+    "primary_bar_size": "1 min",
+    "primary_duration": "30 D",
     "confirmation_bar_sizes": [],
     "confirmation_duration": "10 D",
     "confirmation_mode": "direction",

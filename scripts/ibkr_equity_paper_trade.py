@@ -1055,6 +1055,16 @@ def evaluate_equity_positions(
         if app is not None:
             current_price = app.get_last_price(pos.symbol)
         if current_price is None or current_price <= 0:
+            from rlm.data.alphavantage_quotes import fetch_cached_global_quote
+
+            av_px = fetch_cached_global_quote(DATA_ROOT, pos.symbol)
+            if av_px is not None and av_px > 0:
+                current_price = av_px
+                print(
+                    f"  [equity] {pos.symbol}: mark from Alpha Vantage (${av_px:.2f})",
+                    flush=True,
+                )
+        if current_price is None or current_price <= 0:
             current_price = pos.entry_price  # fallback — no change
 
         # P&L calculation

@@ -4,7 +4,9 @@
 
 For each symbol (default: ``LIQUID_TEN_STOCKS_PLUS_CORE_ETFS`` = ten liquid single-names + SPY + QQQ):
 
-1. IBKR bars at ``--bar-size`` / duration (overridable via ``live_regime_model.json`` → ``timeframe_hierarchy.primary_*``).
+1. Stock bars at ``--bar-size`` / duration — **EODHD 1m lake** primary (``RLM_STOCK_BARS_SOURCE=eodhd``),
+   IBKR fallback when ``RLM_STOCK_BARS_SOURCE=auto`` or ``RLM_ALLOW_IBKR_STOCK_BARS=1``.
+   Overridable via ``live_regime_model.json`` → ``timeframe_hierarchy.primary_*``.
 2. **Massive option snapshot** (broad chain) joined in ``prepare_bars_for_factors`` so GEX, volume/OI,
    and surface features feed factors before the regime/forecast stack (unless ``--no-chain-for-factors``).
 3. Factors → state matrix → forecast/regime (``live_regime_model.model``: forecast | hmm | markov).
@@ -55,7 +57,8 @@ import pandas as pd
 
 # ruff: noqa: E402
 from rlm.data.event_calendar import has_major_event_today
-from rlm.data.ibkr_stocks import fetch_historical_stock_bars
+from rlm.data.bar_timeframes import apply_intraday_primary_defaults, clamp_intraday_duration
+from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
@@ -151,22 +154,22 @@ def _ensure_trade_log_with_header(path: Path) -> None:
         csv.writer(f).writerow(_TRADE_LOG_COLUMNS)
 
 
-def _fetch_ibkr_bars(
+def _fetch_stock_bars(
     sym: str,
     *,
     duration: str,
     bar_size: str,
     serialize_ibkr: bool,
 ) -> pd.DataFrame:
-    fetch_kw: dict[str, object] = {
-        "duration": duration,
-        "bar_size": bar_size,
-        "timeout_sec": 120.0,
-    }
-    if serialize_ibkr:
-        with _IBKR_HIST_LOCK:
-            return fetch_historical_stock_bars(sym, **fetch_kw)
-    return fetch_historical_stock_bars(sym, **fetch_kw)
+    """EODHD lake primary (``RLM_STOCK_BARS_SOURCE=eodhd``); IBKR optional fallback."""
+    return fetch_stock_bars(
+        sym,
+        duration=duration,
+        bar_size=bar_size,
+        data_root=DATA_ROOT,
+        serialize_ibkr=serialize_ibkr,
+        ibkr_lock=_IBKR_HIST_LOCK if serialize_ibkr else None,
+    )
 
 
 def _factor_snapshot_params(massive_limit: int) -> dict[str, object]:
@@ -234,7 +237,7 @@ def _forecast_final_row(
     factor_option_chain: pd.DataFrame | None = None,
 ) -> pd.Series | None:
     """Run bars → factors → regime/forecast stack; return latest row (for TF confirmation)."""
-    bars = _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
+    bars = _fetch_stock_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
     if bars.empty:
         return None
     df = bars.sort_values("timestamp").set_index("timestamp")
@@ -321,9 +324,9 @@ def _prepare_symbol(
         base["skip_reason"] = f"outside_entry_window ({session_label()})"
         return base, None, None
 
-    raw_bars = bars if bars is not None else _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
+    raw_bars = bars if bars is not None else _fetch_stock_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
     if raw_bars.empty:
-        base["skip_reason"] = "no_ibkr_bars"
+        base["skip_reason"] = "no_stock_bars"
         return base, None, None
 
     df = raw_bars.sort_values("timestamp").set_index("timestamp")
@@ -384,7 +387,7 @@ def _prepare_symbol(
             )
             if cf_last is None:
                 layer_ok.append(False)
-                detail_map[cfbs] = {"ok": False, "reason": "no_ibkr_bars"}
+                detail_map[cfbs] = {"ok": False, "reason": "no_stock_bars"}
                 continue
             ok = _tf_confirmation_layers_agree(last, cf_last, mode=hier.confirmation_mode)
             layer_ok.append(ok)
@@ -819,11 +822,15 @@ def main() -> int:
         default=",".join(LIQUID_TEN_STOCKS_PLUS_CORE_ETFS),
         help="Comma-separated tickers (default: LIQUID_TEN_STOCKS_PLUS_CORE_ETFS)",
     )
-    p.add_argument("--duration", default="180 D", help="IBKR history window")
+    p.add_argument(
+        "--duration",
+        default="30 D",
+        help="IBKR history window (intraday primary defaults to 30 D minimum)",
+    )
     p.add_argument(
         "--bar-size",
-        default="1 day",
-        help='IBKR bar size (e.g. "1 day", "1 hour")',
+        default="1 min",
+        help='IBKR bar size for factors/MTF (default "1 min"; set RLM_ALLOW_DAILY_PRIMARY=1 for daily)',
     )
     p.add_argument(
         "--market-hours-only",
@@ -1068,13 +1075,16 @@ def main() -> int:
             pbs = str(th.primary_bar_size).strip()
             if pbs:
                 bar_size = pbs
-    if bar_size != "1 day" and duration.endswith(" D"):
-        try:
-            days = int(duration.split()[0])
-            if days < 30:
-                duration = "30 D"
-        except (ValueError, IndexError):
-            pass
+    prior_bar, prior_dur = bar_size, duration
+    bar_size, duration = apply_intraday_primary_defaults(bar_size, duration)
+    if (prior_bar, prior_dur) != (bar_size, duration):
+        print(
+            f"[bars] upgraded daily primary -> bar_size={bar_size!r} duration={duration!r} "
+            "(set RLM_ALLOW_DAILY_PRIMARY=1 to keep daily)",
+            flush=True,
+        )
+    if is_intraday_bar_size(bar_size):
+        duration = clamp_intraday_duration(duration)
 
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     # When Hermes (or manual edits) sets STAND-DOWN, ROEE returns system_gate_block for every symbol.
@@ -1119,13 +1129,13 @@ def main() -> int:
         if i:
             time.sleep(max(0.0, args.ibkr_delay))
         try:
-            bdf = _fetch_ibkr_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=bool(args.serialize_ibkr))
+            bdf = _fetch_stock_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=bool(args.serialize_ibkr))
             if bdf.empty:
                 results[i] = {
                     "symbol": sym,
                     "run_at_utc": datetime.now(timezone.utc).isoformat(),
                     "status": "skipped",
-                    "skip_reason": "no_ibkr_bars",
+                    "skip_reason": "no_stock_bars",
                 }
                 continue
             bars_by_index[i] = bdf

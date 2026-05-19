@@ -83,6 +83,47 @@ class IbkrSnapshot:
     client_id: int
 
 
+_PREFERRED_SUMMARY_CCY = frozenset({"USD", "BASE", ""})
+
+
+def account_summary_tag_float(
+    summary: tuple[IbkrAccountSummaryRow, ...],
+    tag: str,
+) -> float | None:
+    """Parse a numeric account-summary tag, preferring USD/BASE rows when IB sends many currencies."""
+    by_priority: dict[int, list[float]] = {}
+    for row in summary:
+        if str(row.tag) != tag:
+            continue
+        raw = str(row.value or "").strip()
+        if not raw:
+            continue
+        try:
+            val = float(raw)
+        except (ValueError, TypeError):
+            continue
+        ccy = (row.currency or "").upper()
+        pri = 0 if ccy in _PREFERRED_SUMMARY_CCY else 1
+        by_priority.setdefault(pri, []).append(val)
+    if not by_priority:
+        return None
+    best_pri = min(by_priority)
+    return sum(by_priority[best_pri])
+
+
+def format_account_summary_money(
+    summary: tuple[IbkrAccountSummaryRow, ...],
+    tag: str,
+    *,
+    missing: str = "—",
+) -> str:
+    """Format a summary tag as ``$1,234.56``; zero is shown, not treated as missing."""
+    val = account_summary_tag_float(summary, tag)
+    if val is None:
+        return missing
+    return f"${val:,.2f}"
+
+
 _ibkr_types: tuple[Type[Any], Any] | None = None
 
 

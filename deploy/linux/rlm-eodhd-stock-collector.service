@@ -1,0 +1,29 @@
+# EODHD 1m stock lake collector (09:00–16:30 ET, 5s round-robin per symbol).
+# Install: sed @INSTALL_ROOT@ in path, copy to /etc/systemd/system/, daemon-reload.
+# Started by rlm-market-hours-start.sh; stopped by rlm-market-hours-stop.sh.
+
+[Unit]
+Description=RLM EODHD intraday stock bar collector (1m lake)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=@INSTALL_ROOT@
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-@INSTALL_ROOT@/.env
+Environment=RLM_STOCK_BARS_SOURCE=eodhd
+ExecStart=@INSTALL_ROOT@/scripts/systemd_exec_python.sh scripts/run_eodhd_stock_collector.py
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rlm-eodhd-collector
+
+[Install]
+WantedBy=multi-user.target
