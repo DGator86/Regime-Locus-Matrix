@@ -76,6 +76,7 @@ The registry in `src/rlm_hermes_tools/register_rlm_tools.py` wires these skills 
 - `rlm_get_system_gate_state`
 - `rlm_check_portfolio_limits`
 - `rlm_get_trading_agents_analysis`
+- `rlm_get_regime_strategy_matrix`
 
 ## 7) Strengths and direct correlation quality
 
