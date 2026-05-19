@@ -3,8 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from rlm.data.lake import stock_1m_parquet
-from rlm.data.stock_bars_provider import fetch_stock_bars, load_stock_1m_from_lake, merge_bars_into_lake
+from rlm.data import stock_bars_provider as provider
 
 
 def _bars(start: str, periods: int) -> pd.DataFrame:
@@ -22,23 +21,27 @@ def _bars(start: str, periods: int) -> pd.DataFrame:
     )
 
 
-def test_merge_write_failure_leaves_existing_lake_intact(tmp_path, monkeypatch):
+def test_merge_uses_atomic_save_after_read_merge(tmp_path, monkeypatch):
     existing = _bars("2026-05-19 09:30", 3)
-    merge_bars_into_lake("SPY", existing, root=tmp_path)
-    before = load_stock_1m_from_lake("SPY", root=tmp_path, lookback_days=None)
+    fresh = _bars("2026-05-19 09:32", 3)
+    saved: dict[str, object] = {}
 
-    def fail_to_parquet(*args, **kwargs):
-        raise RuntimeError("simulated parquet failure")
+    monkeypatch.setattr(provider, "load_stock_1m_from_lake", lambda *args, **kwargs: existing)
 
-    monkeypatch.setattr(pd.DataFrame, "to_parquet", fail_to_parquet)
+    def save(df: pd.DataFrame, path, *, index: bool) -> None:
+        saved["df"] = df.copy()
+        saved["path"] = path
+        saved["index"] = index
 
-    with pytest.raises(RuntimeError, match="simulated parquet failure"):
-        merge_bars_into_lake("SPY", _bars("2026-05-19 09:33", 2), root=tmp_path)
+    monkeypatch.setattr(provider, "save_parquet", save)
 
-    after = load_stock_1m_from_lake("SPY", root=tmp_path, lookback_days=None)
-    pd.testing.assert_frame_equal(after, before)
-    lake_path = stock_1m_parquet("SPY", duration_slug="full", root=tmp_path)
-    assert list(lake_path.parent.glob(f"{lake_path.name}.*.tmp")) == []
+    out = provider.merge_bars_into_lake("SPY", fresh, root=tmp_path)
+
+    assert saved["path"] == provider._lake_path("SPY", root=tmp_path)
+    assert saved["index"] is False
+    assert out["timestamp"].duplicated().sum() == 0
+    assert len(out) == 5
+    pd.testing.assert_frame_equal(saved["df"], out)
 
 
 def test_eodhd_source_does_not_return_partial_lake_after_backfill_error(tmp_path, monkeypatch):
@@ -46,18 +49,19 @@ def test_eodhd_source_does_not_return_partial_lake_after_backfill_error(tmp_path
     monkeypatch.setenv("RLM_EODHD_MIN_LAKE_BARS", "10")
     monkeypatch.setenv("EODHD_API_KEY", "token")
     monkeypatch.delenv("RLM_ALLOW_IBKR_STOCK_BARS", raising=False)
-    merge_bars_into_lake("SPY", _bars("2026-05-19 09:30", 2), root=tmp_path)
+    monkeypatch.setattr(provider, "load_stock_1m_from_lake", lambda *args, **kwargs: _bars("2026-05-19 09:30", 2))
 
     def fail_backfill(*args, **kwargs):
         raise RuntimeError("rate limited")
 
-    monkeypatch.setattr("rlm.data.stock_bars_provider.fetch_intraday_lookback_days", fail_backfill)
+    monkeypatch.setattr(provider, "fetch_intraday_lookback_days", fail_backfill)
     monkeypatch.setattr(
-        "rlm.data.stock_bars_provider._fetch_ibkr_intraday",
+        provider,
+        "_fetch_ibkr_intraday",
         lambda *args, **kwargs: pytest.fail("IBKR fallback should be disabled"),
     )
 
-    out = fetch_stock_bars(
+    out = provider.fetch_stock_bars(
         "SPY",
         duration="30 D",
         bar_size="1 min",
@@ -74,13 +78,15 @@ def test_eodhd_source_without_key_does_not_fall_through_to_ibkr(tmp_path, monkey
     monkeypatch.delenv("EOD_HISTORICAL_API_KEY", raising=False)
     monkeypatch.delenv("EODHD_API_TOKEN", raising=False)
     monkeypatch.delenv("RLM_ALLOW_IBKR_STOCK_BARS", raising=False)
+    monkeypatch.setattr(provider, "load_stock_1m_from_lake", lambda *args, **kwargs: pd.DataFrame())
 
     monkeypatch.setattr(
-        "rlm.data.stock_bars_provider._fetch_ibkr_intraday",
+        provider,
+        "_fetch_ibkr_intraday",
         lambda *args, **kwargs: pytest.fail("IBKR fallback should be disabled"),
     )
 
-    out = fetch_stock_bars(
+    out = provider.fetch_stock_bars(
         "SPY",
         duration="30 D",
         bar_size="1 min",
@@ -94,12 +100,12 @@ def test_auto_source_uses_ibkr_instead_of_partial_lake(tmp_path, monkeypatch):
     monkeypatch.setenv("RLM_STOCK_BARS_SOURCE", "auto")
     monkeypatch.setenv("RLM_EODHD_MIN_LAKE_BARS", "10")
     monkeypatch.delenv("EODHD_API_KEY", raising=False)
-    merge_bars_into_lake("SPY", _bars("2026-05-19 09:30", 2), root=tmp_path)
+    monkeypatch.setattr(provider, "load_stock_1m_from_lake", lambda *args, **kwargs: _bars("2026-05-19 09:30", 2))
     ibkr = _bars("2026-05-19 10:00", 10)
 
-    monkeypatch.setattr("rlm.data.stock_bars_provider._fetch_ibkr_intraday", lambda *args, **kwargs: ibkr)
+    monkeypatch.setattr(provider, "_fetch_ibkr_intraday", lambda *args, **kwargs: ibkr)
 
-    out = fetch_stock_bars(
+    out = provider.fetch_stock_bars(
         "SPY",
         duration="30 D",
         bar_size="1 min",
