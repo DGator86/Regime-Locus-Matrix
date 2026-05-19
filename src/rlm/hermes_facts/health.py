@@ -44,6 +44,14 @@ _MUTUALLY_EXCLUSIVE_SERVICE_GROUPS = (
     ),
 )
 
+_SCANNER_WINDOW_SERVICE_NAMES = frozenset(
+    {
+        "regime-locus-master",
+        "rlm-master-telegram",
+        "rlm-master-trader",
+    }
+)
+
 _restart_last_mono: dict[str, float] = {}
 
 _STALE_HOURS = {
@@ -141,6 +149,10 @@ def _has_ambiguous_mutually_exclusive_restart(name: str, statuses: list[ServiceS
         return False
     loaded_members = [s for s in statuses if s.name in group and s.load_state == "loaded"]
     return len(loaded_members) > 1
+
+
+def _scanner_window_controls_service(name: str) -> bool:
+    return name in _SCANNER_WINDOW_SERVICE_NAMES
 
 
 def _check_services(root: Path, services: list[str]) -> list[ServiceStatus]:
@@ -385,7 +397,7 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
         if not s.active:
             if _has_active_mutually_exclusive_sibling(s.name, report.services):
                 continue
-            if s.name == "regime-locus-master" and not scanner_open:
+            if _scanner_window_controls_service(s.name) and not scanner_open:
                 continue
             service_issues.append(s.name)
     degraded = (
@@ -432,7 +444,7 @@ def _try_restart_inactive_services(root: Path, report: HealthReport, services: l
         if _has_ambiguous_mutually_exclusive_restart(s.name, report.services):
             actions.append(f"[auto] skip restart {key}.service (ambiguous mutually-exclusive master group)")
             continue
-        if s.name == "regime-locus-master" and not is_scanner_window_open():
+        if _scanner_window_controls_service(s.name) and not is_scanner_window_open():
             continue
         if key == "regime-locus-crew" and skip_crew and not allow_crew:
             actions.append(f"[auto] skip restart {key}.service (would stop this crew process)")
