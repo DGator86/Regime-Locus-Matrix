@@ -42,6 +42,38 @@ def _single_leg_decision(
     )
 
 
+def _multi_expiry_calendar_decision() -> TradeDecision:
+    return TradeDecision(
+        action="enter",
+        strategy_name="calendar_spread",
+        regime_key="transition",
+        target_profit_pct=10.0,
+        max_risk_pct=0.05,
+        metadata={
+            "matched_legs": [
+                {
+                    "side": "long",
+                    "option_type": "call",
+                    "strike": 100.0,
+                    "expiry": "2025-01-26",
+                    "bid": 5.0,
+                    "ask": 5.2,
+                    "mid": 5.1,
+                },
+                {
+                    "side": "short",
+                    "option_type": "call",
+                    "strike": 100.0,
+                    "expiry": "2025-01-12",
+                    "bid": 1.0,
+                    "ask": 1.2,
+                    "mid": 1.1,
+                },
+            ]
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Portfolio.expiry_settle_position
 # ---------------------------------------------------------------------------
@@ -226,8 +258,8 @@ class TestEngineExpiryLiquidationPolicy:
             lambda decision, chain_slice: decision,
         )
         monkeypatch.setattr(
-            "rlm.backtest.engine.select_nearest_expiry_slice",
-            lambda row_chain, dte_min, dte_max: row_chain,
+            "rlm.backtest.engine.select_chain_slice_for_decision",
+            lambda row_chain, decision: row_chain,
         )
 
         engine = BacktestEngine(
@@ -260,8 +292,8 @@ class TestEngineExpiryLiquidationPolicy:
             lambda decision, chain_slice: decision,
         )
         monkeypatch.setattr(
-            "rlm.backtest.engine.select_nearest_expiry_slice",
-            lambda row_chain, dte_min, dte_max: row_chain,
+            "rlm.backtest.engine.select_chain_slice_for_decision",
+            lambda row_chain, decision: row_chain,
         )
 
         engine = BacktestEngine(
@@ -279,6 +311,40 @@ class TestEngineExpiryLiquidationPolicy:
         # Should be forced_pre_expiry, not expiry_settlement
         assert "expiry_settlement" not in set(trades["exit_reason"])
         assert "forced_pre_expiry" in set(trades["exit_reason"])
+
+    def test_settle_at_expiry_closes_multi_expiry_position_instead_of_settling_far_leg(self, monkeypatch) -> None:
+        timestamps = pd.to_datetime(["2025-01-10", "2025-01-12"])
+        features = _make_feature_df(timestamps, close_prices=[100.0, 100.0])
+        chain = pd.concat(
+            [
+                _make_chain_df(timestamps, expiry="2025-01-12", strike=100.0),
+                _make_chain_df(timestamps, expiry="2025-01-26", strike=100.0),
+            ],
+            ignore_index=True,
+        )
+
+        decision = _multi_expiry_calendar_decision()
+        monkeypatch.setattr("rlm.backtest.engine.decide_trade_for_bar", lambda row, **_: decision)
+        monkeypatch.setattr("rlm.backtest.engine.match_legs_to_chain", lambda decision, chain_slice: decision)
+        monkeypatch.setattr(
+            "rlm.backtest.engine.select_chain_slice_for_decision",
+            lambda row_chain, decision: row_chain,
+        )
+
+        engine = BacktestEngine(
+            lifecycle_config=LifecycleConfig(
+                expiry_liquidation_policy=ExpiryLiquidationPolicy.SETTLE_AT_EXPIRY,
+                close_at_expiry_if_open=True,
+                force_close_dte=1,
+                one_trade_per_bar=True,
+            )
+        )
+
+        _, trades, _ = engine.run(features, chain)
+
+        assert not trades.empty
+        assert "expiry_settlement" not in set(trades["exit_reason"])
+        assert "multi_expiry_expiry_close" in set(trades["exit_reason"])
 
     def test_commission_config_applied_on_open_and_close(self) -> None:
         """Hybrid commission model is applied correctly at entry and exit."""

@@ -40,6 +40,19 @@ BacktestResult = namedtuple("BacktestResult", ["equity", "trades", "metrics"])
 decide_trade_for_bar = select_trade_for_row
 
 
+def _matched_leg_expiry_count(matched_legs: list[dict]) -> int:
+    expiries: set[str] = set()
+    for leg in matched_legs:
+        expiry = leg.get("expiry")
+        if expiry is None:
+            continue
+        try:
+            expiries.add(str(pd.Timestamp(expiry).date()))
+        except (TypeError, ValueError):
+            continue
+    return len(expiries)
+
+
 @dataclass(frozen=True)
 class MTFWeightConfig:
     fast_weight: float = 0.6
@@ -230,9 +243,7 @@ class BacktestEngine:
                 if _cb_day or _cb_week:
                     decision.action = "skip"
                     decision.rationale = (
-                        "Daily loss circuit breaker active"
-                        if _cb_day
-                        else "Weekly loss circuit breaker active"
+                        "Daily loss circuit breaker active" if _cb_day else "Weekly loss circuit breaker active"
                     )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
@@ -435,7 +446,10 @@ class BacktestEngine:
 
             if policy == ExpiryLiquidationPolicy.SETTLE_AT_EXPIRY:
                 if at_expiry:
-                    to_settle.append(position_id)
+                    if _matched_leg_expiry_count(pos.matched_legs) > 1:
+                        to_close.append((position_id, "multi_expiry_expiry_close"))
+                    else:
+                        to_settle.append(position_id)
                     continue
             else:
                 if should_force_close_before_expiry(
