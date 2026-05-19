@@ -204,17 +204,36 @@ function buildMarketState(dataDir: string) {
   };
 }
 
+function buildEodhdLakeMtime(repoRoot: string): string | null {
+  const stocksRoot = path.join(repoRoot, "data", "stocks");
+  const paths: string[] = [];
+  try {
+    for (const sym of fs.readdirSync(stocksRoot)) {
+      const p = path.join(stocksRoot, sym, "1m", `${sym.toLowerCase()}_full_1m.parquet`);
+      if (fs.existsSync(p)) paths.push(p);
+    }
+  } catch {
+    return null;
+  }
+  return latestMtimeIso(paths);
+}
+
 function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
   const ibkrLastUpdated =
     marketStateLastUpdated && String(marketStateLastUpdated).trim().length > 0
       ? String(marketStateLastUpdated)
       : fileMtimeIso(path.join(dataDir, "gate_state.json"));
 
+  const repoRoot = resolveRepoRootFromProcessed(dataDir);
+  const eodhdState = fileMtimeIso(path.join(dataDir, "eodhd_collector_state.json"));
+  const eodhdLake = buildEodhdLakeMtime(repoRoot);
+  const eodhdLastUpdated = latestMtimeIso(
+    [eodhdState, eodhdLake].filter((x): x is string => Boolean(x))
+  );
+
   const massiveLastUpdated = latestMtimeIso(
     listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath)
   );
-
-  const repoRoot = resolveRepoRootFromProcessed(dataDir);
   const optionsLogPath = resolveOptionsTradeLogPath(repoRoot, dataDir);
   const lakeLastUpdated = latestMtimeIso([
     ...listSymbolFiles(dataDir, "forecast_features_").map((f) => f.filePath),
@@ -232,6 +251,7 @@ function buildDataAge(dataDir: string, marketStateLastUpdated?: string) {
 
   return {
     ibkrLastUpdated,
+    eodhdLastUpdated,
     massiveLastUpdated,
     lakeLastUpdated,
     doctorLastUpdated,

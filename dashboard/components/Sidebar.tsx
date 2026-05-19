@@ -48,6 +48,7 @@ const secondaryNav: {
 
 type DataAgePayload = {
   ibkrLastUpdated?: string | null;
+  eodhdLastUpdated?: string | null;
   massiveLastUpdated?: string | null;
   lakeLastUpdated?: string | null;
   doctorLastUpdated?: string | null;
@@ -94,7 +95,7 @@ export default function Sidebar() {
 
   const dataRows = useMemo(
     () => [
-      { label: "IBKR", value: formatAge(dataAge?.ibkrLastUpdated) },
+      { label: "EODHD", value: formatAge(dataAge?.eodhdLastUpdated) },
       { label: "Massive", value: formatAge(dataAge?.massiveLastUpdated) },
       { label: "Lake", value: formatAge(dataAge?.lakeLastUpdated) },
       { label: "Doctor", value: formatAge(dataAge?.doctorLastUpdated) },

@@ -58,7 +58,11 @@ import pandas as pd
 # ruff: noqa: E402
 from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.data.event_calendar import has_major_event_today
-from rlm.data.bar_timeframes import apply_intraday_primary_defaults, clamp_intraday_duration
+from rlm.data.bar_timeframes import (
+    apply_intraday_primary_defaults,
+    clamp_intraday_duration,
+    is_intraday_bar_size,
+)
 from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
