@@ -66,6 +66,7 @@ def reprice_matched_legs_detailed(
     chain_snapshot: pd.DataFrame,
     contract_multiplier: int = 100,
     fill_config: FillConfig | None = None,
+    realized_vol: float | None = None,
 ) -> RepriceResult:
     """
     Reprices each previously matched leg using current chain snapshot.
@@ -88,7 +89,13 @@ def reprice_matched_legs_detailed(
         signed_mid = mid if side == "long" else -mid
         mark_value = signed_mid * contract_multiplier
 
-        executable_exit = exit_fill_price(side=side, bid=bid, ask=ask, config=cfg)
+        executable_exit = exit_fill_price(
+            side=side,
+            bid=bid,
+            ask=ask,
+            config=cfg,
+            realized_vol=realized_vol,
+        )
         signed_exit = executable_exit if side == "long" else -executable_exit
         exit_value = signed_exit * contract_multiplier
 
@@ -120,12 +127,14 @@ def reprice_matched_legs(
     chain_snapshot: pd.DataFrame,
     contract_multiplier: int = 100,
     fill_config: FillConfig | None = None,
+    realized_vol: float | None = None,
 ) -> list[RepricedLeg]:
     return reprice_matched_legs_detailed(
         matched_legs=matched_legs,
         chain_snapshot=chain_snapshot,
         contract_multiplier=contract_multiplier,
         fill_config=fill_config,
+        realized_vol=realized_vol,
     ).legs
 
 

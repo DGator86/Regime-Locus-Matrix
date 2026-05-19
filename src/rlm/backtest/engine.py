@@ -168,10 +168,13 @@ class BacktestEngine:
                 _week_key = week_key
                 _week_start_equity = self.portfolio.equity()
 
+            realized_vol = self._realized_vol_from_row(row)
+
             if not row_chain.empty:
                 self.portfolio.revalue_open_positions(
                     chain_snapshot=row_chain,
                     fill_config=self.fill_config,
+                    realized_vol=realized_vol,
                 )
 
             self._process_exits(ts, row, bar_index)
@@ -230,9 +233,7 @@ class BacktestEngine:
                 if _cb_day or _cb_week:
                     decision.action = "skip"
                     decision.rationale = (
-                        "Daily loss circuit breaker active"
-                        if _cb_day
-                        else "Weekly loss circuit breaker active"
+                        "Daily loss circuit breaker active" if _cb_day else "Weekly loss circuit breaker active"
                     )
 
             if decision.action == "enter" and not (self.lifecycle_config.one_trade_per_bar and traded_this_bar):
@@ -268,6 +269,7 @@ class BacktestEngine:
                             quantity=self.quantity_per_trade,
                             fill_config=self.fill_config,
                             bar_index=bar_index,
+                            realized_vol=realized_vol,
                         )
                         traded_this_bar = opened_id is not None
 
@@ -317,6 +319,13 @@ class BacktestEngine:
             slow = fast.rolling(max(int(mtf_config.slow_window), 1), min_periods=1).mean()
             out[col] = (w_fast * fast + w_med * med + w_slow * slow) / denom
         return out
+
+    @staticmethod
+    def _realized_vol_from_row(row: pd.Series) -> float | None:
+        if "realized_vol" not in row.index or pd.isna(row.get("realized_vol")):
+            return None
+        value = float(row["realized_vol"])
+        return value if np.isfinite(value) and value > 0.0 else None
 
     def _build_robustness_diagnostics(
         self,

@@ -129,6 +129,7 @@ class Portfolio:
         matched_legs: list[dict],
         fill_config: FillConfig | None = None,
         quantity: int = 1,
+        realized_vol: float | None = None,
     ) -> float:
         cfg = fill_config or FillConfig(contract_multiplier=self.contract_multiplier)
 
@@ -139,6 +140,7 @@ class Portfolio:
                 bid=float(leg["bid"]),
                 ask=float(leg["ask"]),
                 config=cfg,
+                realized_vol=realized_vol,
                 quantity=quantity,
                 quote_size=float(leg.get("ask_size") or leg.get("bid_size") or 0.0) or None,
             )
@@ -188,6 +190,7 @@ class Portfolio:
         *,
         matched_legs: list[dict],
         fill_config: FillConfig,
+        realized_vol: float | None = None,
     ) -> tuple[float, float]:
         """Mid mark and executable exit value (per unit, × multiplier) right after entry fills."""
         mark_total = 0.0
@@ -204,6 +207,7 @@ class Portfolio:
                 bid=bid,
                 ask=ask,
                 config=fill_config,
+                realized_vol=realized_vol,
                 quote_size=float(leg.get("bid_size") or leg.get("ask_size") or 0.0) or None,
             )
             signed_ex = exe if side == "long" else -exe
@@ -218,6 +222,7 @@ class Portfolio:
         underlying_price: float,
         base_quantity: int,
         fill_config: FillConfig,
+        realized_vol: float | None = None,
     ) -> int:
         min_quantity = max(int(base_quantity), 1)
         if decision.size_fraction is None:
@@ -226,7 +231,12 @@ class Portfolio:
         if size_fraction <= 0.0:
             return 0
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched_legs, fill_config=fill_config, quantity=1)
+        entry_cost = self._compute_entry_cost(
+            matched_legs=matched_legs,
+            fill_config=fill_config,
+            quantity=1,
+            realized_vol=realized_vol,
+        )
         entry_friction_per_unit = (
             calculate_commission(
                 config=self.lifecycle_config.commission_config,
@@ -266,6 +276,7 @@ class Portfolio:
         quantity: int = 1,
         fill_config: FillConfig | None = None,
         bar_index: int | None = None,
+        realized_vol: float | None = None,
     ) -> str | None:
         if decision.action != "enter":
             return None
@@ -281,11 +292,17 @@ class Portfolio:
             underlying_price=underlying_price,
             base_quantity=quantity,
             fill_config=cfg,
+            realized_vol=realized_vol,
         )
         if actual_quantity <= 0:
             return None
 
-        entry_cost = self._compute_entry_cost(matched_legs=matched, fill_config=cfg, quantity=1)
+        entry_cost = self._compute_entry_cost(
+            matched_legs=matched,
+            fill_config=cfg,
+            quantity=1,
+            realized_vol=realized_vol,
+        )
         leg_count = max(len(matched), 1)
         entry_commission = calculate_commission(
             config=self.lifecycle_config.commission_config,
@@ -323,7 +340,11 @@ class Portfolio:
 
         expiry = matched[0]["expiry"] if matched else None
         position_id = str(uuid.uuid4())
-        init_mark, init_exit = self._initial_marks_from_matched_legs(matched_legs=matched, fill_config=cfg)
+        init_mark, init_exit = self._initial_marks_from_matched_legs(
+            matched_legs=matched,
+            fill_config=cfg,
+            realized_vol=realized_vol,
+        )
         meta = dict(decision.metadata)
         meta["reprice_ok"] = True
         meta["last_reprice"] = {"full": True, "missing_leg_count": 0, "stale": False}
@@ -364,6 +385,7 @@ class Portfolio:
         *,
         chain_snapshot: pd.DataFrame,
         fill_config: FillConfig | None = None,
+        realized_vol: float | None = None,
     ) -> None:
         for pos in self.open_positions.values():
             result = reprice_matched_legs_detailed(
@@ -371,6 +393,7 @@ class Portfolio:
                 chain_snapshot=chain_snapshot,
                 contract_multiplier=self.contract_multiplier,
                 fill_config=fill_config,
+                realized_vol=realized_vol,
             )
             if result.is_full:
                 pos.current_mark_value_cache = aggregate_repriced_mark_value(result.legs)
