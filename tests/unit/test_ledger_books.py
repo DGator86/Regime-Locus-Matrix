@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from rlm.notify.ledger_books import (
+    book_pnl_aggregates,
     equity_book_snapshot,
     ledger_dir,
     options_book_snapshot,
@@ -69,6 +70,32 @@ def test_write_trading_ledgers_creates_files(monkeypatch: pytest.MonkeyPatch, tm
     eq_snap = equity_book_snapshot(tmp_path)
     assert opt_snap.book_value == pytest.approx(100_050.0 + 0.0)  # seed + closed + no open
     assert eq_snap.book_value == pytest.approx(100_000.0 + 0.0 + 5.0)
+
+
+def test_book_pnl_aggregates_matches_options_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RLM_LARGE_OPTIONS_BOOK_SEED", "250000")
+    proc = tmp_path / "data" / "processed"
+    proc.mkdir(parents=True)
+    (proc / "trade_log.csv").write_text(
+        "plan_id,symbol,timestamp_utc,closed,unrealized_pnl,action,quantity,note\n"
+        "eq1,SPY,2026-01-02T15:00:00+00:00,0,59,BUY,1,stock leg\n"
+        "p1,QQQ,2026-01-02T16:00:00+00:00,0,-2506,,,\n"
+        "p2,TSLA,2026-01-01T10:00:00+00:00,1,-100,,,\n",
+        encoding="utf-8",
+    )
+    rows = (proc / "trade_log.csv").read_text(encoding="utf-8")
+    assert rows
+    from rlm.notify.ledger_books import _load_options_rows
+
+    loaded = _load_options_rows(tmp_path)
+    snap = options_book_snapshot(tmp_path)
+    _d, _w, all_time, open_mtm = book_pnl_aggregates(loaded, book="options")
+    assert open_mtm == snap.open_mtm
+    assert all_time == snap.closed_realized
+    assert open_mtm == pytest.approx(-2506.0)
+    assert all_time == pytest.approx(-100.0)
 
 
 def test_equity_book_ignores_options_rows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

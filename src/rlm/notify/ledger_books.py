@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from rlm.notify.options_paths import options_trade_log_read_paths
 
@@ -57,7 +57,10 @@ def _iter_csv(path: Path) -> Iterator[dict[str, str]]:
 
 
 def _is_equity_row(r: dict[str, str]) -> bool:
-    return "action" in r and "quantity" in r
+    """True for IBKR equity-leg rows embedded in a shared CSV (non-empty action + quantity)."""
+    action = (r.get("action") or "").strip()
+    qty = (r.get("quantity") or "").strip()
+    return bool(action and qty)
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -135,6 +138,16 @@ class BookSnapshot:
         return self.seed + self.closed_realized + self.open_mtm
 
 
+def load_options_trade_log_rows(root: Path) -> list[dict[str, str]]:
+    """All rows from the options monitor log (respects ``RLM_OPTIONS_TRADE_LOG_PATH`` fallbacks)."""
+    return _load_options_rows(root)
+
+
+def load_equity_trade_log_rows(root: Path) -> list[dict[str, str]]:
+    """All rows from the equity trade log (respects ``RLM_EQUITY_TRADE_LOG_PATH``)."""
+    return _load_equity_rows(root)
+
+
 def _load_options_rows(root: Path) -> list[dict[str, str]]:
     for cand in options_trade_log_read_paths(root):
         if cand.is_file():
@@ -178,6 +191,46 @@ def equity_book_snapshot(root: Path) -> BookSnapshot:
             continue
         open_mtm += _float_cell(row, "unrealized_pnl")
     return BookSnapshot(seed=seed, closed_realized=realized, open_mtm=open_mtm)
+
+
+def book_pnl_aggregates(
+    rows: list[dict[str, str]],
+    *,
+    book: Literal["options", "equity"],
+) -> tuple[float, float, float, float]:
+    """(daily, weekly, all_time_closed, open_mtm) using the same row filters as :class:`BookSnapshot`."""
+    if book == "options":
+        closed_by, latest_by = _options_closed_open_maps(rows)
+    else:
+        closed_by, latest_by = _equity_closed_open_maps(rows)
+
+    now = datetime.now().astimezone()
+    today = now.date()
+    iso_now = today.isocalendar()
+
+    daily = 0.0
+    weekly = 0.0
+    all_time = 0.0
+    for row in closed_by.values():
+        pnl = _float_cell(row, "unrealized_pnl")
+        all_time += pnl
+        ts = _parse_ts(str(row.get("timestamp_utc") or ""))
+        if ts is None:
+            continue
+        local_date = ts.astimezone().date()
+        if local_date == today:
+            daily += pnl
+        iso_ts = local_date.isocalendar()
+        if iso_ts.year == iso_now.year and iso_ts.week == iso_now.week:
+            weekly += pnl
+
+    open_mtm = 0.0
+    for pid, row in latest_by.items():
+        if pid in closed_by:
+            continue
+        open_mtm += _float_cell(row, "unrealized_pnl")
+
+    return daily, weekly, all_time, open_mtm
 
 
 def write_trading_ledgers(root: Path) -> dict[str, Path]:

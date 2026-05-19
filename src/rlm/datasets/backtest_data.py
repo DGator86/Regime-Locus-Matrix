@@ -361,19 +361,21 @@ def synthetic_5m_bars_range(
     return df
 
 
-def fetch_ibkr_5m_bars_range(
+def fetch_ibkr_intraday_bars_range(
     symbol: str,
     start: pd.Timestamp,
     end: pd.Timestamp | None = None,
     *,
-    chunk_days: int = 20,
+    bar_size: str = "5 mins",
+    chunk_days: int | None = None,
     timeout_sec: float = 180.0,
 ) -> pd.DataFrame:
-    """Pull **5-minute RTH** bars from IBKR from ``start`` through ``end`` (chunked requests).
+    """Pull **RTH intraday** bars from IBKR from ``start`` through ``end`` (chunked requests).
 
     Requires TWS/Gateway and ``pip install '.[ibkr]'``. IBKR limits how much intraday history
     each request returns; we walk backward in ``chunk_days`` windows and merge.
     """
+    from rlm.data.bar_timeframes import bar_size_step_minutes, ibkr_chunk_days_for_bar_size
     from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 
     start_ts = pd.Timestamp(start)
@@ -388,33 +390,36 @@ def fetch_ibkr_5m_bars_range(
     if end_ts < start_ts:
         raise ValueError("end must be >= start")
 
+    step_min = bar_size_step_minutes(bar_size)
+    chunk = int(chunk_days) if chunk_days is not None else ibkr_chunk_days_for_bar_size(bar_size)
+
     parts: list[pd.DataFrame] = []
     cursor_end = end_ts + pd.Timedelta(days=1)
     iterations = 0
     max_iterations = 400
-    duration = f"{int(chunk_days)} D"
+    duration = f"{chunk} D"
 
     while cursor_end > start_ts and iterations < max_iterations:
         iterations += 1
         end_str = cursor_end.strftime("%Y%m%d 16:00:00 US/Eastern")
-        chunk = fetch_historical_stock_bars(
+        chunk_df = fetch_historical_stock_bars(
             symbol,
             duration=duration,
-            bar_size="5 mins",
+            bar_size=bar_size,
             what_to_show="TRADES",
             use_rth=1,
             end_datetime=end_str,
             timeout_sec=timeout_sec,
         )
-        if chunk.empty:
+        if chunk_df.empty:
             break
-        chunk = chunk.copy()
-        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"])
-        parts.append(chunk)
-        earliest = pd.Timestamp(chunk["timestamp"].min())
+        chunk_df = chunk_df.copy()
+        chunk_df["timestamp"] = pd.to_datetime(chunk_df["timestamp"])
+        parts.append(chunk_df)
+        earliest = pd.Timestamp(chunk_df["timestamp"].min())
         if earliest <= start_ts:
             break
-        cursor_end = earliest - pd.Timedelta(minutes=5)
+        cursor_end = earliest - pd.Timedelta(minutes=step_min)
 
     if not parts:
         return pd.DataFrame()
@@ -426,3 +431,22 @@ def fetch_ibkr_5m_bars_range(
     out = out.set_index("timestamp").sort_index()
     out.index.name = "timestamp"
     return out
+
+
+def fetch_ibkr_5m_bars_range(
+    symbol: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp | None = None,
+    *,
+    chunk_days: int = 20,
+    timeout_sec: float = 180.0,
+) -> pd.DataFrame:
+    """Pull **5-minute RTH** bars (wrapper around :func:`fetch_ibkr_intraday_bars_range`)."""
+    return fetch_ibkr_intraday_bars_range(
+        symbol,
+        start,
+        end,
+        bar_size="5 mins",
+        chunk_days=chunk_days,
+        timeout_sec=timeout_sec,
+    )

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${RLM_ROOT:-/opt/Regime-Locus-Matrix}"
 PY="${RLM_PYTHON:-/opt/rlm-venv/bin/python}"
-SYNC_SYMBOLS="${RLM_SYNC_SYMBOLS:-AAPL,AMZN,GOOGL,META,MSFT,NVDA,TSLA,SPY,QQQ}"
+SYNC_SYMBOLS="${RLM_SYNC_SYMBOLS:-AAPL,AMZN,GOOGL,META,MSFT,NVDA,TSLA,AMD,AVGO,JPM,SPY,QQQ}"
 ET_TIME="$(python3 -c "from datetime import datetime; from zoneinfo import ZoneInfo; print(datetime.now(ZoneInfo('America/New_York')).strftime('%H:%M %Z'))")"
 echo "[market-start] Current Eastern time: ${ET_TIME}"
 echo "[market-start] Running startup sync (bar refresh/enrichment + preopen brief)"
@@ -11,8 +11,10 @@ echo "[market-start] Running startup sync (bar refresh/enrichment + preopen brie
 if [[ -x "${PY}" && -d "${ROOT}" ]]; then
   echo "[market-start] decision-tree health (offline snapshot)"
   "${PY}" "${ROOT}/scripts/run_startup_decision_tree_health.py" || echo "[market-start] WARN: startup decision-tree health failed (non-fatal)"
-  "${PY}" "${ROOT}/scripts/append_ibkr_stock_history.py" --symbols "${SYNC_SYMBOLS}" --duration "30 D" --bar-size "1 day" || true
-  "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" --out "data/processed/universe_trade_plans.json" --no-vix || true
+  echo "[market-start] EODHD 1m backfill (if key set) + collector"
+  systemctl start rlm-eodhd-stock-collector.service || true
+  "${PY}" "${ROOT}/scripts/run_eodhd_stock_collector.py" --backfill --once || true
+  "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" --out "data/processed/universe_trade_plans.json" --bar-size "1 min" --duration "30 D" --no-vix || true
   "${PY}" "${ROOT}/scripts/run_session_brief.py" --phase preopen --top 8 --out "data/processed/session_brief.json" || true
 else
   echo "[market-start] WARN: missing ROOT/PY (${ROOT}, ${PY}); skipping startup sync"

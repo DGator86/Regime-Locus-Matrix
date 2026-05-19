@@ -7,6 +7,7 @@ echo "[market-stop] Stopping NYSE-hours services at ET ${ET_TIME}"
 systemctl stop rlm-forecast.timer || true
 systemctl stop rlm-master-trader.service || true
 systemctl stop rlm-challenge-loop.service || true
+systemctl stop rlm-eodhd-stock-collector.service || true
 
 # Keep bot + crew online for alerts and operations by default.
 # systemctl stop rlm-telegram.service || true

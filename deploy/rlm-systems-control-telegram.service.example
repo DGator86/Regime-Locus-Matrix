@@ -4,9 +4,12 @@
 #
 # Required in /opt/Regime-Locus-Matrix/.env:
 #   RLM_SYSTEMS_CONTROL_TELEGRAM_BOT_TOKEN=...
-# Optional:
+# Required for command access in production:
 #   RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS=123456789
+# Optional push chat (a positive private chat ID also acts as a single-user allow-list):
 #   RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID=123456789
+# Testing only:
+#   RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS=1
 
 [Unit]
 Description=RLM Systems Control Telegram bot (long-poll)
