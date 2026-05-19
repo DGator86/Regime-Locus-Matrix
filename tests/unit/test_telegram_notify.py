@@ -448,6 +448,39 @@ def test_telegram_bot_filters_state_push_chat_by_allowlist(monkeypatch, tmp_path
     assert bot._chat_for_push(None) == 222
 
 
+def test_telegram_bot_allows_group_push_bound_by_authorized_start(monkeypatch, tmp_path: Path) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_ROOT", str(tmp_path))
+    monkeypatch.setenv("RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS", "123")
+
+    sent: list[dict[str, object]] = []
+
+    def fake_api(token: str, method: str, **params: object) -> dict[str, object]:
+        sent.append({"token": token, "method": method, **params})
+        return {}
+
+    monkeypatch.setattr(bot, "_api", fake_api)
+
+    allowed = bot._allowed()
+    assert allowed == {123}
+    bot._handle_message("token", chat_id=-456, user_id=123, text="/start", allowed=allowed)
+
+    state = tmp_path / "data" / "processed" / "telegram_notify_state.json"
+    saved = json.loads(state.read_text(encoding="utf-8"))
+    assert saved["notify_chat_id"] == -456
+    assert saved["notify_chat_authorized_user_id"] == 123
+    assert bot._chat_for_push(allowed) == -456
+    assert sent[-1]["chat_id"] == -456
+
+
 def test_telegram_bot_notify_cycle_preserves_concurrent_start_chat(monkeypatch, tmp_path: Path) -> None:
     bot = _load_telegram_bot_module()
     for key in (
@@ -479,5 +512,6 @@ def test_telegram_bot_notify_cycle_preserves_concurrent_start_chat(monkeypatch, 
 
     saved = json.loads(state.read_text(encoding="utf-8"))
     assert saved["notify_chat_id"] == 222
+    assert saved["notify_chat_authorized_user_id"] == 222
     assert saved["announced_trade_open"] == ["p1"]
     assert sent[-1]["chat_id"] == 222
