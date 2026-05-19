@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 import pandas as pd
 
