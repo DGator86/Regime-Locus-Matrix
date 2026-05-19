@@ -29,6 +29,22 @@ if str(REPO / "src") not in sys.path:
 
 from rlm.data.paths import get_rlm_runtime_root  # noqa: E402
 
+_NOTIFY_STATE_LOCK = threading.Lock()
+_NOTIFY_CYCLE_MANAGED_STATE_KEYS = frozenset(
+    {
+        "notify_seeded",
+        "announced_trade_open",
+        "last_opt_signal",
+        "announced_tp",
+        "announced_exit",
+        "last_equity_open",
+        "announced_equity_close",
+        "last_universe_active_ids",
+        "challenge_trade_n",
+        "challenge_open_ids",
+    }
+)
+
 
 def _load_env() -> None:
     try:
@@ -73,18 +89,35 @@ def _long_poll_timeout_sec() -> int:
 
 
 def _allowed() -> set[int] | None:
+    allow_all = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ).lower()
+    if allow_all in {"1", "true", "yes", "on"}:
+        return None
+
     raw = _env_first(
         "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
         "TELEGRAM_ALLOWED_USER_IDS",
     )
-    if not raw:
-        return None
     out: set[int] = set()
     for part in raw.replace(";", ",").split(","):
         p = part.strip()
         if p.isdigit() or (p.startswith("-") and p[1:].isdigit()):
             out.add(int(p))
-    return out if out else None
+    if out:
+        return out
+
+    # In private chats Telegram uses the same integer for chat_id and user_id,
+    # so a configured push chat can safely double as the default single-user
+    # allow-list. Group chats must set explicit user IDs.
+    chat_raw = _env_first(
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+    )
+    if chat_raw.isdigit():
+        return {int(chat_raw)}
+    return set()
 
 
 def _resolve_state_path() -> Path:
@@ -93,6 +126,35 @@ def _resolve_state_path() -> Path:
     if raw:
         return Path(raw) if Path(raw).is_absolute() else rt / raw
     return rt / "data" / "processed" / "telegram_notify_state.json"
+
+
+def _load_notify_state_blob(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_notify_state_blob(path: Path, blob: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(blob, indent=2, default=str), encoding="utf-8")
+
+
+def _persist_notify_cycle_state(path: Path, cycle_blob: dict[str, Any]) -> None:
+    """Persist notify de-dupe state without overwriting a concurrent /start chat binding."""
+    with _NOTIFY_STATE_LOCK:
+        latest = _load_notify_state_blob(path)
+        merged = dict(latest)
+        for key in _NOTIFY_CYCLE_MANAGED_STATE_KEYS:
+            if key in cycle_blob:
+                merged[key] = cycle_blob[key]
+            else:
+                merged.pop(key, None)
+        if merged != latest:
+            _write_notify_state_blob(path, merged)
 
 
 def _api(token: str, method: str, **params: Any) -> dict[str, Any]:
@@ -145,17 +207,10 @@ def _handle_message(
     t_low = t.lower()
     if t.startswith("/start"):
         st = _resolve_state_path()
-        blob: dict[str, Any]
-        if st.is_file():
-            try:
-                blob = json.loads(st.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                blob = {}
-        else:
-            blob = {}
-        blob["notify_chat_id"] = chat_id
-        st.parent.mkdir(parents=True, exist_ok=True)
-        st.write_text(json.dumps(blob, indent=2), encoding="utf-8")
+        with _NOTIFY_STATE_LOCK:
+            blob = _load_notify_state_blob(st)
+            blob["notify_chat_id"] = chat_id
+            _write_notify_state_blob(st, blob)
         reply = (
             "RLM bot online. Push alerts use this chat.\n"
             "Commands: /help /status /pnl /universe /portfolio /balances /brief"
@@ -194,7 +249,7 @@ def _chunk_text(s: str, max_len: int) -> list[str]:
     return [s[i : i + max_len] for i in range(0, len(s), max_len)]
 
 
-def _chat_for_push() -> int | None:
+def _chat_for_push(allowed: set[int] | None = None) -> int | None:
     raw = _env_first(
         "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
         "TELEGRAM_NOTIFY_CHAT_ID",
@@ -206,24 +261,27 @@ def _chat_for_push() -> int | None:
             pass
     st = _resolve_state_path()
     if st.is_file():
+        with _NOTIFY_STATE_LOCK:
+            d = _load_notify_state_blob(st)
         try:
-            d = json.loads(st.read_text(encoding="utf-8"))
             c = d.get("notify_chat_id")
             if c is not None:
-                return int(c)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                cid = int(c)
+                if allowed is None or cid in allowed:
+                    return cid
+        except (ValueError, TypeError):
             pass
     return None
 
 
-def _notify_thread_main(token: str) -> None:
-    from rlm.notify.telegram_rlm import load_notify_state, notification_cycle
+def _notify_thread_main(token: str, allowed: set[int] | None) -> None:
+    from rlm.notify.telegram_rlm import notification_cycle
 
     st_path = _resolve_state_path()
     root = get_rlm_runtime_root()
 
     def send(msg: str) -> None:
-        cid = _chat_for_push()
+        cid = _chat_for_push(allowed)
         if cid is None:
             return
         for chunk in _chunk_text(msg, 4000):
@@ -236,31 +294,31 @@ def _notify_thread_main(token: str) -> None:
         print("[rlm-telegram] TELEGRAM_NOTIFY=0 — background pushes disabled", flush=True)
         return
     # Block until a chat is known (/start or env), then run forever
-    while _chat_for_push() is None:
+    while _chat_for_push(allowed) is None:
         time.sleep(2.0)
     try:
         interval = float((os.environ.get("TELEGRAM_NOTIFY_INTERVAL_SEC") or "20").strip())
     except ValueError:
         interval = 20.0
     print(
-        f"[rlm-telegram] background notify every {interval}s → chat {_chat_for_push()}",
+        f"[rlm-telegram] background notify every {interval}s → chat {_chat_for_push(allowed)}",
         flush=True,
     )
     # Custom loop: reload chat id each cycle; merge state
     import time as _t
 
     while True:
-        blob = load_notify_state(st_path)
+        with _NOTIFY_STATE_LOCK:
+            blob = _load_notify_state_blob(st_path)
         try:
-            if _chat_for_push() is None:
+            if _chat_for_push(allowed) is None:
                 _t.sleep(5.0)
                 continue
             messages, new_blob = notification_cycle(root, blob)
             for m in messages:
                 send(m)
             if new_blob != blob:
-                st_path.parent.mkdir(parents=True, exist_ok=True)
-                st_path.write_text(json.dumps(new_blob, indent=2, default=str), encoding="utf-8")
+                _persist_notify_cycle_state(st_path, new_blob)
         except Exception as e:  # noqa: BLE001
             print(f"[rlm-telegram] notify cycle error: {e}", flush=True)
         _t.sleep(max(5.0, interval))
@@ -272,16 +330,24 @@ def main() -> int:
     token = _token()
     allowed = _allowed()
     if allowed is not None:
-        print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
+        if allowed:
+            print(f"[rlm-telegram] allowed user IDs: {sorted(allowed)}", flush=True)
+        else:
+            print(
+                "[rlm-telegram] no allowed user IDs configured — commands and state-based pushes are disabled. "
+                "Set RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS (preferred) or "
+                "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS=1 for an intentionally public/testing bot.",
+                flush=True,
+            )
     else:
         print(
-            "[rlm-telegram] TELEGRAM_ALLOWED_USER_IDS not set — any user can talk to the bot",
+            "[rlm-telegram] allow-all Telegram mode enabled by explicit configuration",
             flush=True,
         )
     lp = _long_poll_timeout_sec()
     print(f"[rlm-telegram] long-poll timeout={lp}s", flush=True)
 
-    nt = threading.Thread(target=_notify_thread_main, args=(token,), name="rlm-telegram-notify", daemon=True)
+    nt = threading.Thread(target=_notify_thread_main, args=(token, allowed), name="rlm-telegram-notify", daemon=True)
     nt.start()
 
     last_offset: int | None = None
