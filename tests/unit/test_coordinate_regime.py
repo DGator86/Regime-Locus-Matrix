@@ -136,6 +136,8 @@ def test_coordinate_router_calendar_spread_builds_calendar_candidate() -> None:
     assert d.candidate is not None
     assert d.candidate.strategy_name == "calendar_spread"
     assert len(d.legs) == 2
+    assert {leg.strike for leg in d.legs} == {5000.0}
+    assert [leg.expiry for leg in d.legs] == ["near", "far"]
     assert d.metadata["strategy_source"] == "coordinate_router"
 
 

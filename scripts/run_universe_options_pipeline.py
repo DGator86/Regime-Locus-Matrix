@@ -56,17 +56,17 @@ import numpy as np
 import pandas as pd
 
 # ruff: noqa: E402
+from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.bar_timeframes import apply_intraday_primary_defaults, clamp_intraday_duration
 from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.data.option_chain import select_nearest_expiry_slice
-from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.features.factors.pipeline import FactorPipeline
+from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
     LiveKronosParameters,
@@ -76,21 +76,21 @@ from rlm.forecasting.live_model import (
     load_live_regime_model,
     save_live_regime_model,
 )
-from rlm.roee.chain_match import (
-    estimate_entry_cost_from_matched_legs,
-    estimate_mark_value_from_matched_legs,
-    match_legs_to_chain,
-)
-from rlm.roee.decision import select_trade_for_row
-from rlm.roee.system_gate import SystemGate
-from rlm.roee.regime_safety import attach_regime_safety_columns
-from rlm.features.scoring.state_matrix import classify_state_matrix
+from rlm.monitoring.structured import build_pipeline_event
 from rlm.regimes.forecast_regime_snapshot import (
     build_regime_transition_snapshot,
     regime_direction_equity,
 )
+from rlm.roee.chain_match import (
+    estimate_entry_cost_from_matched_legs,
+    estimate_mark_value_from_matched_legs,
+    match_legs_to_chain,
+    select_chain_slice_for_decision,
+)
+from rlm.roee.decision import select_trade_for_row
+from rlm.roee.regime_safety import attach_regime_safety_columns
+from rlm.roee.system_gate import SystemGate
 from rlm.types.options import TradeDecision
-from rlm.monitoring.structured import build_pipeline_event
 from rlm.utils.market_hours import entry_window_open, session_label
 
 # Statsmodels emits this repeatedly for our non-fixed-frequency trading calendar index.
@@ -546,7 +546,7 @@ def _finalize_symbol(
 
     dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
     dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
-    expiry_slice = select_nearest_expiry_slice(chain, dte_min, dte_max)
+    expiry_slice = select_chain_slice_for_decision(chain, decision, dte_min=dte_min, dte_max=dte_max)
     if expiry_slice.empty:
         base["skip_reason"] = "no_contracts_in_dte_window"
         base["dte_window"] = [dte_min, dte_max]
