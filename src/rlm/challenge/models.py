@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from rlm.challenge.symbols import CHALLENGE_ALLOWED_UNDERLYINGS
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -36,7 +38,7 @@ class ChallengePipelineConfig:
     # SPY and QQQ give tight spreads, 0DTE availability, deep options liquidity, and
     # well-behaved regime signals.  Single-name equities are excluded: their earnings /
     # gap risk is incompatible with the small-account risk budget.
-    allowed_universe: list[str] = field(default_factory=lambda: ["SPY", "QQQ"])
+    allowed_universe: list[str] = field(default_factory=lambda: list(CHALLENGE_ALLOWED_UNDERLYINGS))
 
     # Setup quality gates
     min_setup_score: float = 0.55  # below this → no_trade

@@ -30,9 +30,11 @@ Examples::
 Positions are written to ``equity_positions_state.json`` and logged to ``equity_trade_log.csv``.
 
 **PDT challenge** (``--with-challenge``, **on by default with** ``--master`` unless ``--skip-challenge``):
-runs ``rlm challenge --run`` at startup, then on a background tick matching ``--interval`` (override with
-``--challenge-interval`` or ``RLM_CHALLENGE_INTERVAL_SEC``). Use ``--challenge-interval 0`` to run only at
-startup and each universe rescan. Ticks respect the same ET scanner window as rescans when enabled.
+runs ``rlm challenge --run`` for **SPY and QQQ only** at startup, then on a background tick matching ``--interval``
+(override with ``--challenge-interval`` or ``RLM_CHALLENGE_INTERVAL_SEC``). Override tickers with
+``RLM_CHALLENGE_SYMBOLS`` (comma-separated) or a single ``RLM_CHALLENGE_SYMBOL``; any other symbol is rejected
+by the CLI. Use ``--challenge-interval 0`` to run only at startup and each universe rescan. Ticks respect the
+same ET scanner window as rescans when enabled.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from rlm.challenge.symbols import resolve_challenge_underlyings_from_environ  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 
 
@@ -399,8 +402,7 @@ def main() -> int:
             ecmd.append("--dry-run")
         return ecmd
 
-    def challenge_cmd() -> list[str]:
-        sym = (os.environ.get("RLM_CHALLENGE_SYMBOL") or "SPY").strip() or "SPY"
+    def challenge_cmd(sym: str) -> list[str]:
         extra = shlex.split((os.environ.get("RLM_CHALLENGE_RUN_ARGS") or "").strip())
         return [py, "-m", "rlm.cli.main", "challenge", "--run", "--symbol", sym, *extra]
 
@@ -411,9 +413,10 @@ def main() -> int:
         challenge_join_sec = 600.0
 
     def run_challenge_blocking(where: str) -> None:
-        rc = _run(challenge_cmd())
-        if rc != 0:
-            print(f"[warn] challenge ({where}) exited with code {rc}", flush=True)
+        for sym in resolve_challenge_underlyings_from_environ():
+            rc = _run(challenge_cmd(sym))
+            if rc != 0:
+                print(f"[warn] challenge ({where}) {sym} exited with code {rc}", flush=True)
 
     def run_challenge_step(where: str) -> None:
         def _inner() -> None:

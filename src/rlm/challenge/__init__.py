@@ -5,7 +5,7 @@ Separate from IBKR equities and the standard options universe.
 
 Quick start::
 
-    # Reset (first time)
+    # Reset (first time) — underlyings are SPY and QQQ only
     rlm challenge --reset --symbol SPY
 
     # Run a session (fetches live data + persona interpretation)
@@ -50,9 +50,15 @@ from rlm.challenge.engine import ChallengeEngine, SessionSummary
 from rlm.challenge.models import ChallengePipelineConfig
 from rlm.challenge.pipeline import ChallengeDecisionPipeline
 from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
+from rlm.challenge.symbols import (
+    CHALLENGE_ALLOWED_UNDERLYINGS,
+    normalize_challenge_underlying,
+    resolve_challenge_underlyings_from_environ,
+)
 from rlm.challenge.tracker import ChallengeTracker
 
 __all__ = [
+    "CHALLENGE_ALLOWED_UNDERLYINGS",
     "ChallengeConfig",
     "ChallengeDecisionPipeline",
     "ChallengeMilestone",
@@ -69,4 +75,6 @@ __all__ = [
     "get_challenge_strategy",
     "get_iv_rank",
     "is_great_daytrade_setup",
+    "normalize_challenge_underlying",
+    "resolve_challenge_underlyings_from_environ",
 ]

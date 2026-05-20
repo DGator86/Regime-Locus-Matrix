@@ -24,6 +24,7 @@ import sys
 
 from rlm.challenge.config import MILESTONES, ChallengeConfig, apply_challenge_profile_env
 from rlm.challenge.engine import ChallengeEngine
+from rlm.challenge.symbols import CHALLENGE_ALLOWED_UNDERLYINGS, normalize_challenge_underlying
 from rlm.challenge.tracker import ChallengeTracker
 from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
 
@@ -40,7 +41,11 @@ def _parse_args() -> argparse.Namespace:
             "  rlm challenge --status\n"
         ),
     )
-    p.add_argument("--symbol", default="SPY", help="Underlying ticker (default: SPY)")
+    p.add_argument(
+        "--symbol",
+        default="SPY",
+        help="Underlying ticker — PDT challenge allows SPY or QQQ only (default: SPY)",
+    )
     p.add_argument("--reset", action="store_true", help="Reset challenge state to seed capital")
     p.add_argument("--run", action="store_true", help="Run one session (loads data + persona)")
     p.add_argument("--status", action="store_true", help="Print challenge dashboard")
@@ -78,6 +83,15 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:  # noqa: C901
     args = _parse_args()
     symbol = normalize_symbol(args.symbol)
+    allowed_sym = normalize_challenge_underlying(symbol)
+    if allowed_sym is None:
+        allowed = ", ".join(CHALLENGE_ALLOWED_UNDERLYINGS)
+        print(
+            f"PDT challenge allows only {allowed}.  Refusing --symbol {symbol!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    symbol = allowed_sym
 
     cfg = apply_challenge_profile_env(
         ChallengeConfig(

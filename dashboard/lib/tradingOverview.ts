@@ -233,13 +233,19 @@ export function resolveOptionsTradeLogPath(repoRoot: string, processedDir: strin
   return primary;
 }
 
+const CHALLENGE_ALLOWED_UNDERLYINGS = new Set(["SPY", "QQQ"]);
+
 export function challengeSymbolSet(): Set<string> {
   const raw = process.env.RLM_CHALLENGE_SYMBOLS?.trim();
   const parts = (raw || "SPY,QQQ")
     .split(/[,\s]+/)
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
-  return new Set(parts);
+  const filtered = parts.filter((s) => CHALLENGE_ALLOWED_UNDERLYINGS.has(s));
+  if (filtered.length === 0) {
+    return new Set(["SPY", "QQQ"]);
+  }
+  return new Set(filtered);
 }
 
 export function formatLegs(legs: unknown): string {
