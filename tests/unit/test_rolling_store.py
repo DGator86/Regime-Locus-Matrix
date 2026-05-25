@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -156,6 +158,22 @@ class TestIncrementalAppend:
         assert loaded is not None
         assert len(loaded) == 50
 
+    def test_intraday_update_preserves_multiple_bars_on_same_day(self, tmp_path):
+        today = date(2026, 5, 17)
+        existing = _make_bars("2026-05-17 09:30", 2, freq="5min")
+        _write_bars(tmp_path / "raw" / "bars_SPY.csv", existing)
+        fresh = _make_bars("2026-05-17 09:35", 2, freq="5min")
+        store = RollingBarsStore("SPY", data_root=tmp_path, interval="5m")
+
+        with _mock_fetch(fresh) as fetch:
+            result = store.update(today=today)
+
+        loaded = store.load()
+        assert loaded is not None
+        assert fetch.call_count == 1
+        assert result.already_current is False
+        assert loaded["timestamp"].dt.strftime("%H:%M").tolist() == ["09:30", "09:35", "09:40"]
+
     def test_failed_write_leaves_existing_file_intact(self, tmp_path, monkeypatch):
         today = date(2026, 5, 17)
         bars_path = tmp_path / "raw" / "bars_SPY.csv"
@@ -236,6 +254,13 @@ class TestMerge:
         merged = RollingBarsStore._merge(a, b)
         assert merged["timestamp"].duplicated().sum() == 0
 
+    def test_merge_preserves_intraday_timestamps_when_requested(self):
+        fresh = _make_bars("2026-05-17 09:30", 3, freq="5min")
+        merged = RollingBarsStore._merge(None, fresh, normalize_dates=False)
+
+        assert len(merged) == 3
+        assert merged["timestamp"].dt.strftime("%H:%M").tolist() == ["09:30", "09:35", "09:40"]
+
     def test_merge_preserves_existing_columns_missing_from_fresh_overlap(self):
         existing = _make_bars("2026-01-01", 5)
         existing["vwap"] = [500.5, 501.5, 502.5, 503.5, 504.5]
@@ -248,3 +273,32 @@ class TestMerge:
 
         assert (overlap["close"] == 999.0).all()
         assert overlap["vwap"].tolist() == [503.5, 504.5]
+
+
+class TestFetch:
+    def test_fetch_preserves_intraday_timestamps(self, monkeypatch, tmp_path):
+        idx = pd.date_range("2026-05-17 09:30", periods=2, freq="5min")
+        raw = pd.DataFrame(
+            {
+                "Open": [500.0, 501.0],
+                "High": [502.0, 503.0],
+                "Low": [499.0, 500.0],
+                "Close": [501.0, 502.0],
+                "Volume": [1_000_000, 1_100_000],
+            },
+            index=idx,
+        )
+
+        class FakeTicker:
+            def __init__(self, symbol: str) -> None:
+                self.symbol = symbol
+
+            def history(self, **kwargs):
+                return raw
+
+        monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=FakeTicker))
+        store = RollingBarsStore("SPY", data_root=tmp_path, interval="5m")
+
+        fetched = store._fetch(date(2026, 5, 17), date(2026, 5, 18))
+
+        assert fetched["timestamp"].dt.strftime("%H:%M").tolist() == ["09:30", "09:35"]

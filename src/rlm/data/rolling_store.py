@@ -102,19 +102,21 @@ class RollingBarsStore:
         """
         today = today or date.today()
         existing = self.load()
+        normalize_dates = self._uses_date_bars()
 
         if existing is not None and not existing.empty:
-            last_ts = pd.Timestamp(existing["timestamp"].max()).date()
-            if last_ts >= today:
+            last_timestamp = pd.Timestamp(existing["timestamp"].max())
+            last_date = last_timestamp.date()
+            if normalize_dates and last_date >= today:
                 return RollingUpdateResult(
                     symbol=self.symbol,
                     new_rows=0,
                     total_rows=len(existing),
-                    last_timestamp=pd.Timestamp(last_ts),
+                    last_timestamp=pd.Timestamp(last_date),
                     already_current=True,
                     bars_path=self._bars_path,
                 )
-            fetch_start = last_ts - timedelta(days=_OVERLAP_DAYS)
+            fetch_start = last_date - timedelta(days=_OVERLAP_DAYS)
         else:
             fetch_start = today - timedelta(days=self.lookback_days)
 
@@ -142,7 +144,7 @@ class RollingBarsStore:
                 bars_path=self._bars_path,
             )
 
-        merged = self._merge(existing, fresh)
+        merged = self._merge(existing, fresh, normalize_dates=normalize_dates)
         new_rows = len(merged) - (len(existing) if existing is not None else 0)
 
         self._write_csv_atomic(merged)
@@ -187,18 +189,29 @@ class RollingBarsStore:
         raw.index.name = "timestamp"
         raw.columns = [str(c).lower() for c in raw.columns]
         df = raw.reset_index()
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.normalize()
+        df["timestamp"] = self._coerce_timestamps(df["timestamp"], normalize_dates=self._uses_date_bars())
         return df
 
     @staticmethod
-    def _merge(existing: pd.DataFrame | None, fresh: pd.DataFrame) -> pd.DataFrame:
+    def _merge(
+        existing: pd.DataFrame | None,
+        fresh: pd.DataFrame,
+        *,
+        normalize_dates: bool = True,
+    ) -> pd.DataFrame:
         existing_norm = None
         if existing is not None and not existing.empty:
             existing_norm = existing.copy()
-            existing_norm["timestamp"] = pd.to_datetime(existing_norm["timestamp"]).dt.normalize()
+            existing_norm["timestamp"] = RollingBarsStore._coerce_timestamps(
+                existing_norm["timestamp"],
+                normalize_dates=normalize_dates,
+            )
 
         fresh_norm = fresh.copy()
-        fresh_norm["timestamp"] = pd.to_datetime(fresh_norm["timestamp"]).dt.normalize()
+        fresh_norm["timestamp"] = RollingBarsStore._coerce_timestamps(
+            fresh_norm["timestamp"],
+            normalize_dates=normalize_dates,
+        )
 
         parts = [existing_norm, fresh_norm] if existing_norm is not None else [fresh_norm]
         combined = pd.concat(parts, ignore_index=True)
@@ -220,6 +233,19 @@ class RollingBarsStore:
                 combined = combined_by_timestamp.reset_index()
 
         return combined.sort_values("timestamp").reset_index(drop=True)
+
+    def _uses_date_bars(self) -> bool:
+        interval = self.interval.lower().strip()
+        return not (interval.endswith("m") or interval.endswith("h"))
+
+    @staticmethod
+    def _coerce_timestamps(values: object, *, normalize_dates: bool) -> pd.Series:
+        ts = pd.to_datetime(values, errors="coerce")
+        if isinstance(ts.dtype, pd.DatetimeTZDtype):
+            ts = ts.dt.tz_localize(None)
+        if normalize_dates:
+            ts = ts.dt.normalize()
+        return ts
 
     def _write_csv_atomic(self, df: pd.DataFrame) -> None:
         self._raw_dir.mkdir(parents=True, exist_ok=True)
