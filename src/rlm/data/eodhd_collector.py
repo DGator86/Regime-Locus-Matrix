@@ -74,15 +74,17 @@ def refresh_symbol_intraday(
     root: Path,
     api_key: str | None = None,
 ) -> int:
-    """Fetch incremental 1m bars and merge into the lake. Returns bar count merged."""
+    """Fetch incremental 1m bars and merge into the lake. Returns lake row count."""
     sym = str(symbol).strip().upper()
     from_ts = _incremental_from_ts(sym, root=root)
     to_ts = int(datetime.now(tz=_EASTERN).timestamp())
     if to_ts <= from_ts:
-        return 0
+        export_chart_bars_csv(sym, root=root)
+        return len(load_stock_1m_from_lake(sym, root=root))
     fresh = fetch_intraday_1m(sym, from_ts=from_ts, to_ts=to_ts, api_key=api_key)
     if fresh.empty:
-        return 0
+        export_chart_bars_csv(sym, root=root)
+        return len(load_stock_1m_from_lake(sym, root=root))
     merged = merge_bars_into_lake(sym, fresh, root=root)
     export_chart_bars_csv(sym, root=root)
     return len(merged)

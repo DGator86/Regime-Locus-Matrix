@@ -308,6 +308,75 @@ def test_large_options_uses_trade_plan_snapshots_when_missing_from_universe(tmp_
     assert "Current PnL - $5.00" in text
 
 
+def test_large_equities_thesis_regime_from_state_and_symbol_universe(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    plans = {
+        "active_ranked": [],
+        "results": [
+            {
+                "plan_id": "options_spy_plan",
+                "symbol": "SPY",
+                "status": "skipped",
+                "regime_key": "bear|hmm_6",
+                "decision": {"strategy_name": "debit_spread_put"},
+            }
+        ],
+    }
+    (dproc / "universe_trade_plans.json").write_text(json.dumps(plans), encoding="utf-8")
+    eq_state = {
+        "SPY_20260513_1419": {
+            "status": "open",
+            "symbol": "SPY",
+            "side": "sell",
+            "quantity": 27,
+            "entry_price": 736.87,
+            "direction": "bear",
+            "entry_regime_key": "bear|hmm_6|v1",
+        }
+    }
+    (dproc / "equity_positions_state.json").write_text(json.dumps(eq_state), encoding="utf-8")
+    (dproc / "equity_trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,action,entry_price,current_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed\n"
+        "2026-05-13T14:19:00Z,SPY_20260513_1419,SPY,bear,open,736.87,738.65,-48.06,-0.24,hold,0\n",
+        encoding="utf-8",
+    )
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n",
+        encoding="utf-8",
+    )
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "SPY_20260513_1419" in text
+    assert "thesis=debit_spread_put" in text
+    assert "regime=bear" in text
+
+
+def test_large_equities_thesis_regime_from_entry_state_when_no_universe_row(tmp_path: Path) -> None:
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    (dproc / "universe_trade_plans.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+    eq_state = {
+        "TSLA_20260519_1541": {
+            "status": "open",
+            "symbol": "TSLA",
+            "side": "sell",
+            "quantity": 40,
+            "entry_price": 397.74,
+            "direction": "bear",
+            "entry_regime_key": "bear|hmm_6",
+        }
+    }
+    (dproc / "equity_positions_state.json").write_text(json.dumps(eq_state), encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n",
+        encoding="utf-8",
+    )
+    text = build_universe_and_positions(tmp_path, max_positions=10)
+    assert "TSLA_20260519_1541" in text
+    assert "thesis=bear" in text
+    assert "regime=bear" in text
+
+
 def test_large_options_uses_trade_log_legs_json_when_universe_has_no_legs(tmp_path: Path) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)

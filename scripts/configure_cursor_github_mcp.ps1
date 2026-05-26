@@ -44,8 +44,9 @@ $json = Get-Content $McpPath -Raw | ConvertFrom-Json
 if (-not $json.PSObject.Properties['mcpServers']) {
     $json | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{})
 }
+# Official remote URL uses a trailing slash: https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md
 $github = [pscustomobject]@{
-    url     = "https://api.githubcopilot.com/mcp"
+    url     = "https://api.githubcopilot.com/mcp/"
     headers = [pscustomobject]@{ Authorization = "Bearer $Pat" }
 }
 $json.mcpServers | Add-Member -NotePropertyName github -NotePropertyValue $github -Force

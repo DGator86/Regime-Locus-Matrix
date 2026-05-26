@@ -135,6 +135,69 @@ def _plan_by_pid(plans_data: dict) -> dict[str, dict]:
     return result
 
 
+def _plan_row_rank_key(row: dict[str, Any]) -> tuple[int, int, float]:
+    active = 1 if str(row.get("status") or "").strip().lower() == "active" else 0
+    d = row.get("decision") if isinstance(row.get("decision"), dict) else {}
+    rk = str(row.get("regime_key") or d.get("regime_key") or "").strip()
+    has_regime = 1 if rk else 0
+    try:
+        rs = float(row.get("rank_score") or 0.0)
+    except (TypeError, ValueError):
+        rs = 0.0
+    return (active, has_regime, rs)
+
+
+def _plan_by_symbol(plans_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Symbol -> best universe row (active + regime preferred; equity plan_ids differ from options)."""
+    out: dict[str, dict[str, Any]] = {}
+    for row in (plans_data.get("active_ranked") or []) + (plans_data.get("results") or []):
+        if not isinstance(row, dict):
+            continue
+        sym = str(row.get("symbol") or "").strip().upper()
+        if not sym:
+            continue
+        prev = out.get(sym)
+        if prev is None or _plan_row_rank_key(row) > _plan_row_rank_key(prev):
+            out[sym] = row
+    return out
+
+
+def _equity_display_thesis(eq_plan: dict[str, Any], pdat: dict[str, Any], eq_log_row: dict[str, str]) -> str:
+    thesis = _universe_row_strategy(eq_plan)
+    if thesis != "—":
+        return thesis
+    direction = str(pdat.get("direction") or eq_log_row.get("strategy") or "").strip()
+    if direction:
+        return direction
+    return "—"
+
+
+def _equity_display_regime(eq_plan: dict[str, Any], pdat: dict[str, Any]) -> str:
+    reg = _universe_row_regime_head(eq_plan)
+    if reg != "—":
+        return reg
+    rk = str(pdat.get("entry_regime_key") or "").strip()
+    if rk:
+        return rk.split("|", 1)[0].strip() or "—"
+    return "—"
+
+
+def _resolved_equity_plan(
+    plans_data: dict[str, Any],
+    plan_lookup: dict[str, dict],
+    plan_by_sym: dict[str, dict[str, Any]],
+    plan_id: str,
+    symbol: str,
+) -> dict[str, Any]:
+    pid = str(plan_id or "").strip()
+    if pid and pid in plan_lookup:
+        return plan_lookup[pid]
+    sym = str(symbol or "").strip().upper()
+    if sym and sym in plan_by_sym:
+        return plan_by_sym[sym]
+    return {}
+
+
 def _load_trade_plan_snapshots(path: Path) -> dict[str, dict]:
     if not path.is_file():
         return {}
@@ -837,6 +900,7 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
     p = default_paths(root)
     plans_data = _read_plans(p["plans"]) or {}
     plan_lookup = _plan_by_pid(plans_data)
+    plan_by_sym = _plan_by_symbol(plans_data)
     univ_text = (
         build_universe_report_from_data(plans_data, max_active=max_active)
         if plans_data
@@ -919,11 +983,11 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             usd_raw = lr.get("unrealized_pnl", "") if lr else ""
             upct_raw = lr.get("unrealized_pnl_pct", "") if lr else ""
             sig = lr.get("signal", "") if lr else ""
-            eq_plan = plan_lookup.get(pid, {})
-            thesis = _universe_row_strategy(eq_plan)
+            eq_plan = _resolved_equity_plan(plans_data, plan_lookup, plan_by_sym, pid, str(sym))
+            thesis = _equity_display_thesis(eq_plan, d, lr)
             if len(thesis) > 36:
                 thesis = thesis[:33] + "…"
-            reg_h = _universe_row_regime_head(eq_plan)
+            reg_h = _equity_display_regime(eq_plan, d)
             pnl_usd_try = ""
             try:
                 if str(usd_raw).strip():
@@ -1440,6 +1504,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
     # Load plans data once up front so all alert builders can use it
     plans_data = _read_plans(p["plans"])
     plan_lookup = _plan_by_pid(plans_data)
+    plan_by_sym = _plan_by_symbol(plans_data)
 
     if not st.notify_seeded:
         for pid, row in latest.items():
@@ -1549,7 +1614,13 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         st_eq = str(pdat.get("status") or "")
         if st_eq == "open":
             if pkey not in prev_eq and pkey not in st.announced_equity_close:
-                eq_plan = plan_lookup.get(pkey, {})
+                eq_plan = _resolved_equity_plan(
+                    plans_data,
+                    plan_lookup,
+                    plan_by_sym,
+                    pkey,
+                    str(pdat.get("symbol") or ""),
+                )
                 out.append(_build_new_equity_message(root, pkey, pdat, eq_plan))
         elif st_eq == "closed" and pkey in prev_eq and pkey not in st.announced_equity_close:
             st.announced_equity_close.add(pkey)
