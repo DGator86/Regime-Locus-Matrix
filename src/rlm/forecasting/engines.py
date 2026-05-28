@@ -24,6 +24,20 @@ def _resample_for_regime(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return df.resample(rule).last().dropna(how="all")
 
 
+def _markov_regime_frame(df: pd.DataFrame, *, max_bars: int = 3000) -> pd.DataFrame:
+    """Downsample intraday frames so statsmodels Markov MLE avoids SVD failures on 1m×30D."""
+    if df.empty:
+        return df
+    if not _is_datetime_index(df) or len(df) <= max_bars:
+        return df
+    for rule in ("5min", "15min", "30min", "1h", "1D"):
+        sampled = _resample_for_regime(df, rule)
+        if 80 <= len(sampled) <= max_bars:
+            return sampled
+    step = max(1, len(df) // max_bars)
+    return df.iloc[::step].copy()
+
+
 def _maybe_apply_transition_calibrations(df: pd.DataFrame, family: str) -> None:
     """Apply ``regime_transition_calibration.json`` top-1 isotonic map when family matches."""
     from rlm.data.paths import get_data_root
@@ -363,9 +377,17 @@ class HybridMarkovForecastPipeline:
 
     def run(self, df_features: pd.DataFrame, train_mask: pd.Series | None = None) -> pd.DataFrame:
         df = self.forecast.run(df_features)
-        self.markov.fit(df.loc[train_mask] if train_mask is not None else df, verbose=False)
-        base_probs_df = self.markov.filter(df)
-        probs = base_probs_df.to_numpy(dtype=float)
+        train = df.loc[train_mask] if train_mask is not None else df
+        fit_frame = _markov_regime_frame(train)
+        self.markov.fit(fit_frame, verbose=False)
+        eval_frame = _markov_regime_frame(df)
+        base_probs_df = self.markov.filter(eval_frame)
+        probs = _align_probs_to_index(
+            base_probs_df.to_numpy(dtype=float),
+            eval_frame.index,
+            df.index,
+            shift_for_safety=False,
+        )
         micro_probs = probs.copy()
 
         if self.hierarchical and _is_datetime_index(df):

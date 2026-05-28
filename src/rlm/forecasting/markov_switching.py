@@ -11,6 +11,10 @@ from pydantic import BaseModel, Field
 from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
 
+def _is_datetime_index(df: pd.DataFrame) -> bool:
+    return isinstance(df.index, pd.DatetimeIndex)
+
+
 class MarkovSwitchingConfig(BaseModel):
     n_states: int = Field(
         3,
@@ -133,6 +137,25 @@ class RLMMarkovSwitching:
             except Exception:
                 fit_result = None
                 continue
+        if fit_result is None and _is_datetime_index(df_train.index) and len(df_train) > 4000:
+            for rule in ("5min", "15min", "1h", "1D"):
+                sampled = df_train.resample(rule).last().dropna(how="all")
+                if len(sampled) < 80:
+                    continue
+                try:
+                    endog_s = self.prepare_endog(sampled)
+                    exog_s = self._prepare_features(sampled)
+                    model_s = MarkovRegression(
+                        endog=endog_s,
+                        exog=exog_s,
+                        k_regimes=self.config.n_states,
+                        trend=self.config.trend,
+                        switching_variance=self.config.switching_variance,
+                    )
+                    fit_result = model_s.fit(disp=False, maxiter=2000, method="nm")
+                    break
+                except Exception:
+                    continue
         if fit_result is None:
             fit_result = model.fit(disp=False, maxiter=2000, method="bfgs")
         self.fit_result = fit_result

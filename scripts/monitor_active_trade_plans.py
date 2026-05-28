@@ -137,16 +137,32 @@ def _legs_json_for_trade_log(updated: list[dict] | None) -> str:
 
 
 def _append_trade_log(log_path: Path, row: dict) -> None:
-    """Append one row to the trade log CSV, creating headers on first write."""
-    is_new = not log_path.is_file() or log_path.stat().st_size == 0
+    """Upsert one row per ``plan_id`` (latest state) to avoid multi-GB poll append logs."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    if not is_new:
+    if log_path.is_file() and log_path.stat().st_size > 0:
         _migrate_trade_log_add_columns(log_path, _TRADE_LOG_COLUMNS)
-    with log_path.open("a", newline="", encoding="utf-8") as f:
+    rows: dict[str, dict[str, str]] = {}
+    if log_path.is_file() and log_path.stat().st_size > 0:
+        try:
+            with log_path.open("r", encoding="utf-8", newline="") as f:
+                for existing in csv.DictReader(f):
+                    pid = str(existing.get("plan_id") or "").strip()
+                    if pid:
+                        rows[pid] = {k: str(existing.get(k, "")) for k in _TRADE_LOG_COLUMNS}
+        except OSError:
+            rows = {}
+    pid = str(row.get("plan_id") or "").strip()
+    if pid:
+        merged = rows.get(pid, {})
+        for col in _TRADE_LOG_COLUMNS:
+            if col in row and row[col] is not None:
+                merged[col] = str(row[col])
+        rows[pid] = merged
+    with log_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
-        if is_new:
-            writer.writeheader()
-        writer.writerow(row)
+        writer.writeheader()
+        for r in rows.values():
+            writer.writerow(r)
 
 
 def _contract_key(leg: dict) -> str:

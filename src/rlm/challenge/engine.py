@@ -111,6 +111,7 @@ class ChallengeEngine:
 
         # 2. Consider new entry (if slots available and challenge not yet complete)
         new_position: ChallengePosition | None = None
+        entry_skip_reason: str | None = None
         if state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
             play = self._strategy.select(
                 directive,
@@ -123,6 +124,11 @@ class ChallengeEngine:
             )
             if play is not None:
                 qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
+                if qty <= 0 or spend > state.balance:
+                    cost = float(play.estimated_premium) * 100.0
+                    entry_skip_reason = (
+                        f"insufficient cash for 1 contract (need ~${cost:,.0f}, balance ${state.balance:,.2f})"
+                    )
                 if qty > 0 and spend <= state.balance:
                     pos = ChallengePosition.new(
                         symbol=self.cfg.symbol,
@@ -164,7 +170,13 @@ class ChallengeEngine:
             new_position=new_position,
             milestone_cleared=milestone_cleared,
             challenge_complete=challenge_complete,
-            message=_compose_message(state, closed_trades, new_position, challenge_complete),
+            message=_compose_message(
+                state,
+                closed_trades,
+                new_position,
+                challenge_complete,
+                entry_skip_reason=entry_skip_reason,
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -260,6 +272,8 @@ def _compose_message(
     closed: list,
     new_pos: ChallengePosition | None,
     complete: bool,
+    *,
+    entry_skip_reason: str | None = None,
 ) -> str:
     parts: list[str] = []
     for t in closed:
@@ -274,7 +288,14 @@ def _compose_message(
             f"×{new_pos.qty} @ ${new_pos.premium_per_share:.2f} (${new_pos.total_cost:.2f} spend)"
         )
     if not parts:
-        parts.append("No action this session.")
+        if entry_skip_reason:
+            parts.append(f"No entry: {entry_skip_reason}")
+        elif state.open_positions:
+            parts.append(
+                f"Holding {len(state.open_positions)} open leg(s); cash ${state.balance:,.2f}"
+            )
+        else:
+            parts.append("No action this session.")
     if complete:
         parts.append("🏁 CHALLENGE COMPLETE — $25,000 target reached!")
     return "  ".join(parts)

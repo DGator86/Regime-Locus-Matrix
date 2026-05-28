@@ -58,7 +58,7 @@ def export_chart_bars_csv(
 ) -> Path | None:
     """Write last N 1m bars for dashboard charts (``data/processed/chart_bars_{SYM}.csv``)."""
     sym = str(symbol).strip().upper()
-    lake = load_stock_1m_from_lake(sym, root=root, lookback_days=5)
+    lake = load_stock_1m_from_lake(sym, root=root, lookback_days=30)
     if lake.empty:
         return None
     cols = ["timestamp", "open", "high", "low", "close", "volume", "vwap"]

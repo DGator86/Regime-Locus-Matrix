@@ -45,3 +45,29 @@ def test_hybrid_markov_pipeline_adds_columns() -> None:
     assert "markov_state" in out.columns
     assert "markov_state_label" in out.columns
     assert len(out["markov_probs"].iloc[-1]) == 3
+
+
+def test_hybrid_markov_pipeline_on_dense_1min_bars() -> None:
+    """Regression: 30D of 1m bars must not raise SVD did not converge."""
+    n = 3900
+    rng = np.random.default_rng(7)
+    idx = pd.date_range("2025-01-02 09:30", periods=n, freq="1min")
+    close = 500.0 + np.cumsum(rng.normal(0.0, 0.02, size=n))
+    raw = pd.DataFrame(
+        {
+            "close": close,
+            "S_D": rng.normal(0, 0.2, size=n),
+            "S_V": rng.normal(0, 0.2, size=n),
+            "S_L": rng.normal(0, 0.2, size=n),
+            "S_G": rng.normal(0, 0.2, size=n),
+        },
+        index=idx,
+    )
+    df = classify_state_matrix(raw)
+    train_mask = pd.Series(df.index < df.index[int(n * 0.7)], index=df.index)
+    out = HybridMarkovForecastPipeline(
+        markov_config=MarkovSwitchingConfig(n_states=3, switching_variance=True),
+        hierarchical=True,
+    ).run(df, train_mask=train_mask)
+    assert "markov_probs" in out.columns
+    assert len(out) == len(df)
