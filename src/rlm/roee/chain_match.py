@@ -215,6 +215,41 @@ def estimate_entry_cost_from_matched_legs(
     return total
 
 
+def leg_contract_key(leg: dict) -> str:
+    return str(leg.get("symbol") or leg.get("contract_symbol") or "")
+
+
+def refresh_matched_leg_mids(
+    chain: pd.DataFrame,
+    matched_legs: list[dict],
+) -> list[dict] | None:
+    """Attach fresh bid/ask/mid from a normalized option chain snapshot."""
+    if chain.empty or not matched_legs:
+        return None
+    sym_col = "contract_symbol" if "contract_symbol" in chain.columns else None
+    if sym_col is None:
+        return None
+
+    updated: list[dict] = []
+    for m in matched_legs:
+        key = leg_contract_key(m)
+        if not key:
+            return None
+        sub = chain[chain[sym_col].astype(str) == key]
+        if sub.empty:
+            return None
+        r = sub.iloc[0]
+        bid = float(r["bid"])
+        ask = float(r["ask"])
+        mid = float(r["mid"]) if "mid" in r and pd.notna(r["mid"]) else (bid + ask) / 2.0
+        u = dict(m)
+        u["bid"] = bid
+        u["ask"] = ask
+        u["mid"] = mid
+        updated.append(u)
+    return updated
+
+
 def estimate_mark_value_from_matched_legs(
     matched_legs: list[dict],
     contract_multiplier: int = 100,

@@ -57,7 +57,7 @@ from rlm.execution.combo_spec import (
     reverse_combo_legs,
 )
 from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
-from rlm.roee.chain_match import estimate_mark_value_from_matched_legs
+from rlm.roee.chain_match import estimate_mark_value_from_matched_legs, refresh_matched_leg_mids
 from rlm.utils.market_hours import is_rth_now, session_label
 
 
@@ -208,33 +208,6 @@ def _build_incremental_snapshot_params(plans: list[dict], *, massive_limit: int)
     return params
 
 
-def _refresh_matched_mids(chain: pd.DataFrame, matched_legs: list[dict]) -> list[dict] | None:
-    if chain.empty or not matched_legs:
-        return None
-    sym_col = "contract_symbol" if "contract_symbol" in chain.columns else None
-    if sym_col is None:
-        return None
-
-    updated: list[dict] = []
-    for m in matched_legs:
-        key = _contract_key(m)
-        if not key:
-            return None
-        sub = chain[chain[sym_col].astype(str) == key]
-        if sub.empty:
-            return None
-        r = sub.iloc[0]
-        bid = float(r["bid"])
-        ask = float(r["ask"])
-        mid = float(r["mid"]) if "mid" in r and pd.notna(r["mid"]) else (bid + ask) / 2.0
-        u = dict(m)
-        u["bid"] = bid
-        u["ask"] = ask
-        u["mid"] = mid
-        updated.append(u)
-    return updated
-
-
 def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) -> None:
     """Remember leg structure + risk marks for open rows after the plan leaves universe JSON."""
     pid = str(plan.get("plan_id") or "").strip()
@@ -329,7 +302,7 @@ def _evaluate_plan(
     if plan_snapshots is not None:
         _persist_trade_plan_snapshot(plan_snapshots, plan)
 
-    updated = _refresh_matched_mids(chain, mlegs)
+    updated = refresh_matched_leg_mids(chain, mlegs)
     if updated is None:
         print(f"[{sym}] {pid} SKIP refresh (contracts missing from snapshot)")
         return

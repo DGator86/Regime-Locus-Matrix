@@ -217,7 +217,7 @@ def test_challenge_positions_show_occ_and_state_freshness(tmp_path: Path) -> Non
     assert "Current PnL - $20.00" in text
     assert "last_updated=2026-05-13T16:00:00Z" in text
     assert "state.json mtime" in text
-    assert "challenge session runs" in text
+    assert "Live marks" in text or "last saved state" in text
 
 
 def test_portfolio_report_flags_risk_warnings(tmp_path: Path) -> None:

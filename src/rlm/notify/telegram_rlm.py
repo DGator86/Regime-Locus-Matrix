@@ -730,7 +730,12 @@ def _challenge_expiry_from_entry(entry_date: str, dte_at_entry: Any) -> date | N
         return None
 
 
-def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]:
+def _positions_challenge_section(
+    root: Path,
+    *,
+    max_positions: int,
+    live_asof: str | None = None,
+) -> list[str]:
     """Open PDT challenge positions + balance (``data/challenge/state.json``)."""
     ch_path = default_paths(root)["challenge_state"]
     lines: list[str] = [
@@ -748,7 +753,12 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
     bal = float(raw.get("balance", 0))
     seed = float(raw.get("seed", 1000))
     opens = [x for x in (raw.get("open_positions") or []) if isinstance(x, dict)]
-    lines.append(f"    Cash: {_fmt_dollar(bal)}  seed {_fmt_dollar(seed)}  ·  {len(opens)} open contract leg(s)")
+    open_val = sum(float(p.get("current_value") or 0) for p in opens)
+    equity = bal + open_val
+    lines.append(
+        f"    Cash: {_fmt_dollar(bal)}  ·  equity {_fmt_dollar(equity)}  seed {_fmt_dollar(seed)}"
+        f"  ·  {len(opens)} open contract leg(s)"
+    )
     lu = str(raw.get("last_updated") or "").strip() or "?"
     mtime_s = (
         datetime.fromtimestamp(ch_path.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -756,10 +766,10 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
         else "?"
     )
     lines.append(f"    State: last_updated={lu}  ·  state.json mtime {mtime_s}")
-    lines.append(
-        "    Note: contract marks & MTM refresh when a challenge session runs "
-        "(`rlm challenge --run` or your master/everything loop), not on every Telegram poll."
-    )
+    if live_asof:
+        lines.append(f"    Live marks as of {live_asof[:19].replace('T', ' ')} UTC (this request)")
+    else:
+        lines.append("    Live marks unavailable — showing last saved state.")
     if not opens:
         lines.append("    (no open challenge positions)")
         return lines
@@ -777,11 +787,23 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
         cost = pos.get("total_cost", "")
         prem_e = pos.get("premium_per_share", "")
         prem_c = pos.get("current_premium", prem_e)
+        und_e = pos.get("underlying_entry", "")
         exp_d = _challenge_expiry_from_entry(str(entry), dte_ent)
         exp_disp = _expiry_mmddyy(str(exp_d.isoformat()) if exp_d is not None else "")
         sk = _fmt_strike_money(strike)
         ot = _option_type_call_put(str(opt))
         lines.append(f"  • {sym} {sk} {ot} - Exp. {exp_disp}")
+        if und_e not in ("", None):
+            try:
+                from rlm.market.live_quotes import fetch_equity_quote
+
+                q = fetch_equity_quote(sym) if live_asof else None
+                if q is not None:
+                    lines.append(
+                        f"    {sym} last {_fmt_dollar(q.price)}  (entry underlying {_fmt_dollar(und_e)})"
+                    )
+            except Exception:  # noqa: BLE001
+                pass
         cur_val = pos.get("current_value", "")
         try:
             cur_val_f = float(cur_val)
@@ -796,7 +818,7 @@ def _positions_challenge_section(root: Path, *, max_positions: int) -> list[str]
         lines.append(f"    Current PnL - {_fmt_dollar(upnl)}")
         lines.append(
             f"    challenge_id={pid}  opened {entry}  DTE_now={dte}  "
-            f"mark {_fmt_dollar(prem_c)}/sh (entry {_fmt_dollar(prem_e)}/sh)"
+            f"option mark {_fmt_dollar(prem_c)}/sh (entry {_fmt_dollar(prem_e)}/sh)"
         )
     if len(opens) > max_positions:
         lines.append(f"    … {len(opens) - max_positions} more")
@@ -840,6 +862,7 @@ def _large_options_position_lines(
     pid: str,
     *,
     warn_suffix: str,
+    live: Any | None = None,
 ) -> list[str]:
     """Large-options book: human option line(s) + cost / value / PnL (trade_log dollars)."""
     sym = str(row.get("symbol") or "?")
@@ -881,6 +904,16 @@ def _large_options_position_lines(
     except (TypeError, ValueError):
         upnl = None
 
+    if live is not None:
+        if getattr(live, "underlying_last", None) is not None:
+            lines.append(f"{indent}{sym} last {_fmt_dollar(live.underlying_last)}")
+        if getattr(live, "current_mark", None) is not None:
+            cur = float(live.current_mark)
+        if getattr(live, "unrealized_pnl", None) is not None:
+            upnl = float(live.unrealized_pnl)
+        for leg_line in getattr(live, "leg_lines", None) or []:
+            lines.append(leg_line)
+
     if cost is not None:
         lines.append(f"{indent}Cost - {_fmt_dollar(cost)}")
     if cur is not None:
@@ -897,6 +930,11 @@ def _large_options_position_lines(
 
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
     """Positions grouped by trading account (large options, large equities, PDT); then active universe."""
+    from rlm.notify.position_marks import refresh_all_position_marks
+
+    live_bundle = refresh_all_position_marks(root)
+    live_asof = live_bundle.challenge_asof or live_bundle.asof_utc
+
     p = default_paths(root)
     plans_data = _read_plans(p["plans"]) or {}
     plan_lookup = _plan_by_pid(plans_data)
@@ -952,7 +990,15 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
                 _resolved_options_plan(plans_data, pid, plan_snapshots),
                 row,
             )
-            lines.extend(_large_options_position_lines(plan, row, pid, warn_suffix=warn_suffix))
+            lines.extend(
+                _large_options_position_lines(
+                    plan,
+                    row,
+                    pid,
+                    warn_suffix=warn_suffix,
+                    live=live_bundle.options.get(pid),
+                )
+            )
 
         if len(opts) > max_positions:
             lines.append(f"  … {len(opts) - max_positions} more")
@@ -979,9 +1025,15 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             side = str(d.get("side", "?"))
             qty = d.get("quantity", "")
             ep = d.get("entry_price", "")
+            live_eq = live_bundle.equities.get(pid)
             mark = lr.get("current_mark", "") if lr else ""
+            if live_eq is not None and live_eq.mark_price is not None:
+                mark = f"{live_eq.mark_price:.2f}"
             usd_raw = lr.get("unrealized_pnl", "") if lr else ""
             upct_raw = lr.get("unrealized_pnl_pct", "") if lr else ""
+            if live_eq is not None and live_eq.unrealized_pnl is not None:
+                usd_raw = live_eq.unrealized_pnl
+                upct_raw = live_eq.unrealized_pnl_pct if live_eq.unrealized_pnl_pct is not None else upct_raw
             sig = lr.get("signal", "") if lr else ""
             eq_plan = _resolved_equity_plan(plans_data, plan_lookup, plan_by_sym, pid, str(sym))
             thesis = _equity_display_thesis(eq_plan, d, lr)
@@ -1013,7 +1065,7 @@ def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positi
             lines.append(f"  … {len(eq_open) - max_positions} more")
 
     lines.append("")
-    lines.extend(_positions_challenge_section(root, max_positions=max_positions))
+    lines.extend(_positions_challenge_section(root, max_positions=max_positions, live_asof=live_asof))
 
     lines.extend(
         [

@@ -100,6 +100,14 @@ def main() -> None:  # noqa: C901
         if not tracker.exists():
             print("No active challenge.  Run `rlm challenge --reset` to start.", file=sys.stderr)
             sys.exit(1)
+        from pathlib import Path
+
+        from rlm.challenge.live_marks import refresh_challenge_at_root
+
+        repo_root = Path(args.data_root).resolve()
+        if repo_root.name == "data":
+            repo_root = repo_root.parent
+        refresh_challenge_at_root(repo_root)
         _print_dashboard(tracker)
         return
 
@@ -235,6 +243,9 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print("\n  $1K→$25K OPTIONS CHALLENGE  ")
     print("=" * 46)
     print(f"  Balance   : ${state.balance:>12,.2f}")
+    if state.open_positions:
+        print(f"  Open marks: ${state.open_market_value:>12,.2f}")
+        print(f"  Equity    : ${state.equity_value:>12,.2f}")
     print(f"  Seed      : ${state.seed:>12,.2f}")
     print(f"  Target    : ${state.target:>12,.2f}")
     print(f"  Return    : {state.total_return_pct:>+.1f}%")

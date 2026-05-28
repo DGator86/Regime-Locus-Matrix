@@ -130,18 +130,27 @@ class ChallengeState:
     # ---- Derived properties -------------------------------------------------
 
     @property
+    def open_market_value(self) -> float:
+        return sum(p.current_value for p in self.open_positions)
+
+    @property
+    def equity_value(self) -> float:
+        """Cash plus marked value of open option legs."""
+        return self.balance + self.open_market_value
+
+    @property
     def progress_pct(self) -> float:
         """Fraction of the journey from seed to target completed (0–1)."""
         span = self.target - self.seed
         if span <= 0:
             return 1.0
-        return min(1.0, max(0.0, (self.balance - self.seed) / span))
+        return min(1.0, max(0.0, (self.equity_value - self.seed) / span))
 
     @property
     def current_milestone_idx(self) -> int:
         """Index of the next un-cleared milestone (0-based)."""
         for i, m in enumerate(MILESTONES):
-            if self.balance < m.target:
+            if self.equity_value < m.target:
                 return i
         return len(MILESTONES) - 1
 
@@ -164,7 +173,7 @@ class ChallengeState:
 
     @property
     def total_return_pct(self) -> float:
-        return (self.balance - self.seed) / self.seed * 100.0
+        return (self.equity_value - self.seed) / self.seed * 100.0
 
     # ---- Serialisation ------------------------------------------------------
 

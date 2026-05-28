@@ -38,6 +38,28 @@ class TestChallengeConfig:
         assert cfg.profit_target_for(1_000.0) < cfg.stage3_profit_target_mult
         assert cfg.trail_activate_for(1_000.0) == cfg.stage1_trail_activate_mult
 
+    def test_equity_value_includes_open_marks(self, cfg: ChallengeConfig) -> None:
+        from rlm.challenge.state import ChallengePosition, ChallengeState
+
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        pos.current_premium = 2.5
+        pos.current_value = 250.0
+        state = ChallengeState(balance=750.0, seed=1_000.0, target=25_000.0, open_positions=[pos])
+        assert state.equity_value == 1_000.0
+        assert state.total_return_pct == 0.0
+
 
 @pytest.fixture()
 def cfg_enter(cfg: ChallengeConfig) -> ChallengeConfig:
