@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,12 @@ from rlm.challenge.tracker import ChallengeTracker
 @pytest.fixture()
 def cfg() -> ChallengeConfig:
     return ChallengeConfig(seed_capital=1_000.0, target_capital=25_000.0)
+
+
+@pytest.fixture()
+def cfg_enter(cfg: ChallengeConfig) -> ChallengeConfig:
+    """Larger stage-1 fraction so engine tests can open affordable synthetic plays."""
+    return replace(cfg, stage1_size_frac=0.85)
 
 
 @pytest.fixture()
@@ -167,11 +174,17 @@ class TestAggressiveSizer:
         assert qty == 0
         assert spend == 0.0
 
-    def test_stage1_can_buy_one_spy_when_fraction_allows(self, cfg: ChallengeConfig) -> None:
+    def test_stage1_50pct_blocks_full_spy_premium(self, cfg: ChallengeConfig) -> None:
         sizer = AggressiveSizer()
         qty, spend = sizer.compute(balance=1_000.0, premium_per_share=8.0, cfg=cfg)
+        assert qty == 0
+        assert spend == 0.0
+
+    def test_stage1_can_buy_when_premium_within_half_balance(self, cfg: ChallengeConfig) -> None:
+        sizer = AggressiveSizer()
+        qty, spend = sizer.compute(balance=1_000.0, premium_per_share=4.0, cfg=cfg)
         assert qty == 1
-        assert spend == 800.0
+        assert spend == 400.0
 
     def test_spend_never_exceeds_balance(self, cfg: ChallengeConfig) -> None:
         sizer = AggressiveSizer()
@@ -327,9 +340,41 @@ class TestChallengeEngine:
         assert isinstance(summary.balance_after, float)
         assert summary.balance_after > 0
 
-    def test_stop_hit_closes_position(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
-        tmp_tracker.reset(cfg)
-        engine = ChallengeEngine(cfg, tmp_tracker)
+    def test_trail_exit_respects_breakeven_floor(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        pos.peak_premium_mult = 1.30
+        pos.trail_armed = True
+        state.open_positions = [pos]
+        state.balance = 600.0
+        tmp_tracker.save(state)
+        loose = replace(cfg, stop_loss_mult=0.40)
+        engine = ChallengeEngine(loose, tmp_tracker)
+        summary = engine.run_session("no_trade", 500.0, session_date="2026-01-02")
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "trail"
+
+    def test_stop_hit_closes_position(
+        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        tmp_tracker.reset(cfg_enter)
+        engine = ChallengeEngine(cfg_enter, tmp_tracker)
         # Open a long call
         engine.run_session("long", 500.0, session_date="2026-01-01")
         # Big adverse move — underlying falls -5%
@@ -339,18 +384,21 @@ class TestChallengeEngine:
         total_trades = len(state.trade_history)
         assert total_trades >= 1
 
-    def test_balance_deducted_on_entry(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
-        state = tmp_tracker.reset(cfg)
+    def test_balance_deducted_on_entry(
+        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        state = tmp_tracker.reset(cfg_enter)
         initial = state.balance
-        engine = ChallengeEngine(cfg, tmp_tracker)
+        engine = ChallengeEngine(cfg_enter, tmp_tracker)
         engine.run_session("long", 500.0)
         state = tmp_tracker.load()
         assert state.balance < initial  # cash spent on the position
 
-    def test_max_concurrent_positions_respected(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
-        tmp_tracker.reset(cfg)
-        engine = ChallengeEngine(cfg, tmp_tracker)
-        # Fill both slots
+    def test_max_concurrent_positions_respected(
+        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        tmp_tracker.reset(cfg_enter)
+        engine = ChallengeEngine(cfg_enter, tmp_tracker)
         engine.run_session("long", 500.0, session_date="2026-01-01")
         engine.run_session("long", 501.0, session_date="2026-01-01")
         # Third session should not open a new position (at capacity)

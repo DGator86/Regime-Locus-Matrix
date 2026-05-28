@@ -216,12 +216,24 @@ class ChallengeEngine:
 
         # Determine exit condition
         mult = new_premium / pos.premium_per_share
-        exit_reason: Literal["target", "stop", "expiry", "manual"] | None = None
+        if mult > pos.peak_premium_mult:
+            pos.peak_premium_mult = mult
+        if mult >= self.cfg.trail_activate_mult:
+            pos.trail_armed = True
+
+        exit_reason: Literal["target", "stop", "trail", "expiry", "manual"] | None = None
 
         if mult >= self.cfg.profit_target_mult:
             exit_reason = "target"
         elif mult <= self.cfg.stop_loss_mult:
             exit_reason = "stop"
+        elif pos.trail_armed:
+            trail_floor = max(
+                self.cfg.min_trail_exit_mult,
+                pos.peak_premium_mult * (1.0 - self.cfg.trail_retrace_frac),
+            )
+            if mult < trail_floor:
+                exit_reason = "trail"
         elif new_dte <= self.cfg.min_dte_exit:
             exit_reason = "expiry"
 

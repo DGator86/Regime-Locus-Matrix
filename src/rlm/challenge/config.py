@@ -40,8 +40,8 @@ class ChallengeConfig:
     """Never hold more than this many open option positions simultaneously."""
 
     # ---- Sizing by account stage (fraction of balance per trade) ------------
-    stage1_size_frac: float = 0.85
-    """$1K – $3K: up to 85% of balance in premium (one contract when affordable)."""
+    stage1_size_frac: float = 0.50
+    """$1K – $3K: up to 50% of balance in premium per entry (keeps cash reserve)."""
     stage2_size_frac: float = 0.20
     """$3K – $10K: 20% of balance in premium per trade."""
     stage3_size_frac: float = 0.15
@@ -50,8 +50,14 @@ class ChallengeConfig:
     # ---- Exit rules ---------------------------------------------------------
     profit_target_mult: float = 2.0
     """Close position when option value reaches this multiple of entry premium."""
-    stop_loss_mult: float = 0.50
-    """Close position when option value falls to this fraction of entry premium."""
+    stop_loss_mult: float = 0.72
+    """Hard stop: close when premium mult falls to this (0.72 ≈ −28% on premium paid)."""
+    trail_activate_mult: float = 1.25
+    """Arm trailing give-back after premium reaches this multiple of entry."""
+    trail_retrace_frac: float = 0.10
+    """Exit trail when mult falls this fraction below session peak (after armed)."""
+    min_trail_exit_mult: float = 1.0
+    """Never trail-exit below this multiple of entry premium (1.0 = breakeven)."""
     min_dte_exit: int = 2
     """Force-exit when fewer than this many days remain to expiry."""
 

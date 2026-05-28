@@ -36,6 +36,9 @@ class ChallengePosition:
     current_value: float = 0.0
     unrealised_pnl: float = 0.0
     status: Literal["open", "closed"] = "open"
+    peak_premium_mult: float = 1.0
+    """High-water mark of current_premium / premium_per_share this leg."""
+    trail_armed: bool = False
 
     @classmethod
     def new(
@@ -79,7 +82,10 @@ class ChallengePosition:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ChallengePosition":
-        return cls(**d)
+        data = dict(d)
+        data.setdefault("peak_premium_mult", 1.0)
+        data.setdefault("trail_armed", False)
+        return cls(**data)
 
 
 @dataclass
@@ -100,7 +106,7 @@ class ChallengeTradeRecord:
     """Total cash received at exit."""
     pnl: float
     pnl_pct: float
-    exit_reason: Literal["target", "stop", "expiry", "manual"]
+    exit_reason: Literal["target", "stop", "trail", "expiry", "manual"]
     balance_before: float
     balance_after: float
 

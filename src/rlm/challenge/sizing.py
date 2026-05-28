@@ -1,7 +1,7 @@
 """AggressiveSizer — position sizing for rapid small-account growth.
 
 Sizing is stage-aware:
-  Stage 1 ($1K–$3K)  : up to 85% of balance in premium (one contract when affordable)
+  Stage 1 ($1K–$3K)  : up to 50% of balance in premium per entry
   Stage 2 ($3K–$10K) : 20% of balance in premium → controlled aggression
   Stage 3 ($10K–$25K): 15% of balance in premium → momentum with discipline
 """
