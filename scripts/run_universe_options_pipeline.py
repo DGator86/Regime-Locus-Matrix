@@ -534,6 +534,7 @@ def _finalize_symbol(
     stop_loss_frac: float,
     trail_activate_frac: float,
     trail_retrace_frac: float,
+    min_trail_profit_frac: float = 0.08,
     dte_min_override: int | None = None,
     dte_max_override: int | None = None,
 ) -> dict[str, object]:
@@ -581,6 +582,7 @@ def _finalize_symbol(
         stop_loss_frac_of_debit=stop_loss_frac,
         trail_activate_frac_of_debit=trail_activate_frac,
         trail_retrace_frac_from_peak=trail_retrace_frac,
+        min_trail_profit_frac_of_debit=min_trail_profit_frac,
     )
 
     credit_style = float(entry_debit) < 0
@@ -625,6 +627,7 @@ def _finalize_symbol(
                 "v_hard_stop": thresholds.v_hard_stop,
                 "v_trail_activate": thresholds.v_trail_activate,
                 "trail_retrace_frac": thresholds.trail_retrace_frac,
+                "min_trail_exit_v": thresholds.min_trail_exit_v,
             },
             "candidate": {
                 "target_dte_min": candidate.target_dte_min,
@@ -929,14 +932,20 @@ def main() -> int:
     p.add_argument(
         "--trail-activate-frac",
         type=float,
-        default=0.15,
-        help="Start trailing after V0 + frac * D",
+        default=0.30,
+        help="Start trailing after V0 + frac * D (default 0.30)",
     )
     p.add_argument(
         "--trail-retrace-frac",
         type=float,
-        default=0.25,
-        help="Trail stop = peak * (1 - this)",
+        default=0.20,
+        help="Trail stop = peak * (1 - this) (default 0.20)",
+    )
+    p.add_argument(
+        "--min-trail-profit-frac",
+        type=float,
+        default=0.08,
+        help="Never trail-exit below V0 + this fraction × debit (profit floor, default 0.08)",
     )
     p.add_argument(
         "--top",
@@ -1266,6 +1275,7 @@ def main() -> int:
                     stop_loss_frac=args.stop_loss_frac,
                     trail_activate_frac=args.trail_activate_frac,
                     trail_retrace_frac=args.trail_retrace_frac,
+                    min_trail_profit_frac=float(args.min_trail_profit_frac),
                     dte_min_override=args.dte_min,
                     dte_max_override=args.dte_max,
                 )
@@ -1304,6 +1314,7 @@ def main() -> int:
                     stop_loss_frac=args.stop_loss_frac,
                     trail_activate_frac=args.trail_activate_frac,
                     trail_retrace_frac=args.trail_retrace_frac,
+                    min_trail_profit_frac=float(args.min_trail_profit_frac),
                     dte_min_override=args.dte_min,
                     dte_max_override=args.dte_max,
                 )

@@ -298,7 +298,21 @@ def main() -> int:
             flush=True,
         )
 
-    run_challenge = bool(args.with_challenge) and not bool(args.skip_challenge)
+    skip_master_challenge = (os.environ.get("RLM_SKIP_MASTER_CHALLENGE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    run_challenge = (
+        bool(args.with_challenge) and not bool(args.skip_challenge) and not skip_master_challenge
+    )
+    if skip_master_challenge and bool(args.with_challenge) and not bool(args.skip_challenge):
+        print(
+            "[info] PDT challenge skipped in master (RLM_SKIP_MASTER_CHALLENGE=1); "
+            "use rlm-challenge-loop or ``rlm challenge --run`` separately.",
+            flush=True,
+        )
     if run_challenge:
         print(
             "[info] PDT challenge sleeve: ``rlm challenge --run`` at startup; periodic ticks match monitor "
@@ -397,6 +411,7 @@ def main() -> int:
             ecmd.extend(["--use-account-scale", "--max-account-pct", str(args.equity_max_account_pct)])
         if args.equity_dry_run:
             ecmd.append("--dry-run")
+        ecmd.append("--exit-on-plan-absent")
         return ecmd
 
     def challenge_cmd() -> list[str]:

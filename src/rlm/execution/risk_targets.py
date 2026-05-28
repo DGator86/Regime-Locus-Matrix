@@ -22,6 +22,7 @@ class SpreadExitThresholds:
     v_hard_stop: float
     v_trail_activate: float
     trail_retrace_frac: float
+    min_trail_exit_v: float
 
 
 def build_spread_exit_thresholds(
@@ -30,8 +31,9 @@ def build_spread_exit_thresholds(
     entry_debit: float,
     target_profit_pct: float,
     stop_loss_frac_of_debit: float = 0.5,
-    trail_activate_frac_of_debit: float = 0.15,
-    trail_retrace_frac_from_peak: float = 0.25,
+    trail_activate_frac_of_debit: float = 0.30,
+    trail_retrace_frac_from_peak: float = 0.20,
+    min_trail_profit_frac_of_debit: float = 0.08,
 ) -> SpreadExitThresholds:
     """
     ``target_profit_pct`` follows :class:`~rlm.types.options.TradeCandidate` (e.g. 0.50 → +50% of ``D`` vs ``V0``).
@@ -42,13 +44,27 @@ def build_spread_exit_thresholds(
     if d < 0:
         d = abs(d)
     tp = float(target_profit_pct)
+    min_trail = float(v0) + float(min_trail_profit_frac_of_debit) * d
     return SpreadExitThresholds(
         v_take_profit=float(v0) + tp * d,
         v_hard_stop=float(v0) - float(stop_loss_frac_of_debit) * d,
         v_trail_activate=float(v0) + float(trail_activate_frac_of_debit) * d,
         trail_retrace_frac=float(trail_retrace_frac_from_peak),
+        min_trail_exit_v=min_trail,
     )
 
 
 def trailing_stop_from_peak(peak_v: float, retrace_frac: float) -> float:
     return float(peak_v) * (1.0 - float(retrace_frac))
+
+
+def should_trailing_stop_exit(
+    *,
+    v: float,
+    peak_v: float,
+    retrace_frac: float,
+    min_exit_v: float,
+) -> bool:
+    """True only when mark fell through the trail **and** is still at/above the profit floor."""
+    tstop = trailing_stop_from_peak(peak_v, retrace_frac)
+    return float(v) < tstop and float(v) >= float(min_exit_v)

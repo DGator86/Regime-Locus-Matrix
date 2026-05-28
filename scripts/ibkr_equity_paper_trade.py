@@ -263,7 +263,7 @@ def _plan_missing_grace_sec(cli_value: float | None) -> float:
 
 
 def _exit_on_plan_absent(cli_flag: bool | None) -> bool:
-    """Exit when plan_id leaves the active universe (legacy). Default off — price manages the book."""
+    """Exit when plan_id leaves the active universe after grace. Default on."""
     if cli_flag is True:
         return True
     if cli_flag is False:
@@ -273,7 +273,7 @@ def _exit_on_plan_absent(cli_flag: bool | None) -> bool:
         return True
     if raw in {"0", "false", "no", "off"}:
         return False
-    return False
+    return True
 
 
 def _min_hold_thesis_sec(cli_value: float | None) -> float:
@@ -297,7 +297,7 @@ def _trail_activate_pct(cli_value: float | None) -> float | None:
         return None if v <= 0.0 else v
     if (os.environ.get("RLM_EQUITY_TRAIL_DISABLE") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return None
-    return 4.0
+    return 8.0
 
 
 def _trail_retrace_frac(cli_value: float | None) -> float | None:
@@ -309,7 +309,17 @@ def _trail_retrace_frac(cli_value: float | None) -> float | None:
     if raw:
         v = float(raw)
         return None if v <= 0.0 else min(1.0, v)
-    return 0.35
+    return 0.25
+
+
+def _min_trail_exit_pnl_pct(cli_value: float | None) -> float:
+    """Do not trail-exit unless unrealized PnL%% is still at/above this floor (default 0 = breakeven)."""
+    if cli_value is not None:
+        return float(cli_value)
+    raw = (os.environ.get("RLM_EQUITY_MIN_TRAIL_EXIT_PCT") or "").strip()
+    if raw:
+        return float(raw)
+    return 0.0
 
 
 def _dynamic_horizon_enabled(cli_flag: bool | None) -> bool:
@@ -1044,6 +1054,7 @@ def evaluate_equity_positions(
     min_hold_sec: float = 0.0,
     trail_activate_pct: float | None = None,
     trail_retrace_frac: float | None = None,
+    min_trail_exit_pnl_pct: float = 0.0,
 ) -> None:
     now = utc_now if utc_now is not None else datetime.now(tz=timezone.utc)
     for plan_id, pos in list(positions.items()):
@@ -1152,14 +1163,14 @@ def evaluate_equity_positions(
                     pos.trail_peak_price = tp_peak
                     if tp_peak > ep:
                         give = tp_peak - rf * (tp_peak - ep)
-                        if cr <= give:
+                        if cr <= give and pnl_pct >= float(min_trail_exit_pnl_pct):
                             exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
                 else:
                     tp_peak = min(tp_peak, cr)
                     pos.trail_peak_price = tp_peak
                     if tp_peak < ep:
                         give = tp_peak + rf * (ep - tp_peak)
-                        if cr >= give:
+                        if cr >= give and pnl_pct >= float(min_trail_exit_pnl_pct):
                             exit_reason = f"trailing_giveback_{int(rf * 100)}pct_mfe"
 
         if exit_reason is None and pnl_pct >= tp:
@@ -1333,8 +1344,13 @@ def main() -> None:
         action="store_true",
         help=(
             "Close stock when plan_id is not in the active universe (after grace). "
-            "Default off — positions are managed on price and thesis, not JSON churn."
+            "Default on (disable with --no-exit-on-plan-absent or RLM_EQUITY_EXIT_ON_PLAN_ABSENT=0)."
         ),
+    )
+    parser.add_argument(
+        "--no-exit-on-plan-absent",
+        action="store_true",
+        help="Keep equities when universe JSON drops the plan (legacy hold behavior).",
     )
     parser.add_argument(
         "--min-hold-thesis-sec",
@@ -1351,7 +1367,7 @@ def main() -> None:
         default=None,
         help=(
             "Arm MFE trailing give-back once unrealized PnL%% reaches this "
-            "(default: env RLM_EQUITY_TRAIL_ACTIVATE_PCT or 4; 0 or negative disables)."
+            "(default: env RLM_EQUITY_TRAIL_ACTIVATE_PCT or 8; 0 or negative disables)."
         ),
     )
     parser.add_argument(
@@ -1360,7 +1376,15 @@ def main() -> None:
         default=None,
         help=(
             "Fraction of peak favorable excursion from entry to give back before trail exit "
-            "(default: env RLM_EQUITY_TRAIL_RETRACE_FRAC or 0.35)."
+            "(default: env RLM_EQUITY_TRAIL_RETRACE_FRAC or 0.25)."
+        ),
+    )
+    parser.add_argument(
+        "--min-trail-exit-pct",
+        type=float,
+        default=None,
+        help=(
+            "Trail exit only if unrealized PnL%% is still at/above this (default 0 = breakeven)."
         ),
     )
     dhg = parser.add_mutually_exclusive_group()
@@ -1406,10 +1430,13 @@ def main() -> None:
     grace_sec = _plan_missing_grace_sec(args.plan_missing_grace_sec)
     min_np = _min_most_likely_next_prob(args.min_most_likely_next_prob)
     min_lm = _min_next_label_aligned_mass(args.min_next_label_aligned_mass)
-    exit_on_plan_absent = _exit_on_plan_absent(True if args.exit_on_plan_absent else None)
+    exit_on_plan_absent = _exit_on_plan_absent(
+        False if args.no_exit_on_plan_absent else (True if args.exit_on_plan_absent else None)
+    )
     min_hold_main = _min_hold_thesis_sec(args.min_hold_thesis_sec)
     trail_act = _trail_activate_pct(args.trail_activate_pct)
     trail_rf = _trail_retrace_frac(args.trail_retrace_frac)
+    min_trail_exit = _min_trail_exit_pnl_pct(args.min_trail_exit_pct)
     print(f"  stop / target : -{args.stop_pct}% / +{args.target_pct}% (baseline when dynamic off)", flush=True)
     print(f"  dynamic horizon: {dynamic_h}", flush=True)
     print(f"  exit on plan absent: {exit_on_plan_absent}", flush=True)
@@ -1487,6 +1514,7 @@ def main() -> None:
             min_hold_sec=min_hold_main,
             trail_activate_pct=trail_act,
             trail_retrace_frac=trail_rf,
+            min_trail_exit_pnl_pct=min_trail_exit,
         )
         _save_state(positions, state_path)
         print("\n[equity] dry-run complete.", flush=True)
@@ -1522,6 +1550,7 @@ def main() -> None:
             min_hold_sec=min_hold_main,
             trail_activate_pct=trail_act,
             trail_retrace_frac=trail_rf,
+            min_trail_exit_pnl_pct=min_trail_exit,
         )
 
     _save_state(positions, state_path)

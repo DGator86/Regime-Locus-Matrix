@@ -29,7 +29,8 @@ def _sample_plan() -> dict:
             "v_take_profit": 130.0,
             "v_hard_stop": 10.0,
             "v_trail_activate": 120.0,
-            "trail_retrace_frac": 0.25,
+            "trail_retrace_frac": 0.20,
+            "min_trail_exit_v": 108.0,
         },
         "matched_legs": [
             {
@@ -72,6 +73,7 @@ def test_monitor_max_loss_stop_closes_trade(tmp_path: Path, monkeypatch) -> None
         soft_time_stop_dte=21.0,
         min_profit_pct_for_soft_hold=20.0,
         max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
         trade_log_path=log_path,
     )
     row = pd.read_csv(log_path).iloc[-1]
@@ -96,6 +98,7 @@ def test_monitor_time_stop_and_force_close(tmp_path: Path, monkeypatch) -> None:
         soft_time_stop_dte=21.0,
         min_profit_pct_for_soft_hold=20.0,
         max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
         trade_log_path=log_path,
     )
     first = pd.read_csv(log_path).iloc[-1]
@@ -114,11 +117,35 @@ def test_monitor_time_stop_and_force_close(tmp_path: Path, monkeypatch) -> None:
         soft_time_stop_dte=21.0,
         min_profit_pct_for_soft_hold=20.0,
         max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
         trade_log_path=log_path,
     )
     second = pd.read_csv(log_path).iloc[-1]
     assert second["signal"] == "expiry_force_close"
     assert str(second["closed"]) == "1"
+
+
+def test_monitor_trailing_stop_holds_when_below_profit_floor(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "trade_log.csv"
+    plan = _sample_plan()
+    state = {"plan_1": {"peak_v": 130.0, "trail_on": True}}
+    monkeypatch.setattr("scripts.monitor_active_trade_plans.dte_from_plan", lambda _: 30.0)
+    _evaluate_plan(
+        plan,
+        chain=_sample_chain(mid=0.9),  # mark=90 < trail stop from peak but < min_trail_exit_v 108
+        state=state,
+        paper_close=False,
+        paper_close_dry_run=False,
+        force_close_dte=0.0,
+        soft_time_stop_dte=0.0,
+        min_profit_pct_for_soft_hold=20.0,
+        max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
+        trade_log_path=log_path,
+    )
+    row = pd.read_csv(log_path).iloc[-1]
+    assert row["signal"] == "hold"
+    assert str(row["closed"]) == "0"
 
 
 def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path, monkeypatch) -> None:
@@ -137,6 +164,7 @@ def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path
         soft_time_stop_dte=0.0,
         min_profit_pct_for_soft_hold=20.0,
         max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
         trade_log_path=log_path,
     )
 

@@ -57,8 +57,8 @@ class ChallengePipelineConfig:
 
     # Stop / trailing stop
     hard_stop_pct: float = 0.28  # -28% of premium paid
-    trail_activate_pct: float = 0.18  # activate trail after +18% gain
-    trail_drawdown_pct: float = 0.12  # trail permits -12% from peak
+    trail_activate_pct: float = 0.25  # activate trail after +25% gain
+    trail_drawdown_pct: float = 0.10  # trail permits -10% from peak (still >= breakeven when armed late)
     profit_target_pct: float = 0.22  # first profit target
     partial_take_pct: float = 0.50  # take 50% at first target
 

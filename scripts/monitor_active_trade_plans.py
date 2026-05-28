@@ -56,7 +56,7 @@ from rlm.execution.combo_spec import (
     plan_combo_spec,
     reverse_combo_legs,
 )
-from rlm.execution.risk_targets import trailing_stop_from_peak
+from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs
 from rlm.utils.market_hours import is_rth_now, session_label
 
@@ -283,6 +283,7 @@ def _evaluate_plan(
     soft_time_stop_dte: float,
     min_profit_pct_for_soft_hold: float,
     max_loss_pct: float,
+    min_trail_profit_frac: float,
     trade_log_path: Path | None = None,
     plan_snapshots: dict[str, dict] | None = None,
 ) -> None:
@@ -303,7 +304,11 @@ def _evaluate_plan(
     v_tp = float(thr.get("v_take_profit", float("nan")))
     v_sl = float(thr.get("v_hard_stop", float("nan")))
     v_tr_act = float(thr.get("v_trail_activate", float("nan")))
-    tr_r = float(thr.get("trail_retrace_frac", 0.25))
+    tr_r = float(thr.get("trail_retrace_frac", 0.20))
+    min_exit_v = float(thr.get("min_trail_exit_v", float("nan")))
+    if min_exit_v != min_exit_v:  # NaN
+        v0_anchor = float(plan.get("entry_mid_mark_dollars") or entry_mid or v)
+        min_exit_v = v0_anchor + float(min_trail_profit_frac) * abs(entry_debit)
 
     st = state.setdefault(pid, {"peak_v": v, "trail_on": False})
 
@@ -342,8 +347,12 @@ def _evaluate_plan(
         signal = "hard_stop"
     elif st.get("trail_on"):
         peak = float(st["peak_v"])
-        tstop = trailing_stop_from_peak(peak, tr_r)
-        if v < tstop:
+        if should_trailing_stop_exit(
+            v=v,
+            peak_v=peak,
+            retrace_frac=tr_r,
+            min_exit_v=min_exit_v,
+        ):
             signal = "trailing_stop"
     if pnl_pct == pnl_pct and pnl_pct <= float(max_loss_pct):
         signal = "max_loss_stop"
@@ -509,6 +518,15 @@ def main() -> int:
         help="Max-loss kill-switch in percent; <= this unrealized PnL%% forces max_loss_stop.",
     )
     p.add_argument(
+        "--min-trail-profit-frac",
+        type=float,
+        default=0.08,
+        help=(
+            "Trailing stop never exits below V0 + this fraction × entry debit "
+            "(legacy plans without min_trail_exit_v in thresholds JSON)."
+        ),
+    )
+    p.add_argument(
         "--rth-only-poll",
         action="store_true",
         help="Outside NYSE RTH, skip Massive polling and sleep for --interval (saves API quota)",
@@ -576,7 +594,13 @@ def main() -> int:
                 plan_snapshots = {}
 
         # Re-evaluate open trade_log rows that fell out of universe JSON (use snapshots).
-        if trade_log_path is not None:
+        monitor_ghosts = (os.environ.get("RLM_MONITOR_GHOST_PLANS") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if trade_log_path is not None and monitor_ghosts:
             for oid in sorted(_open_trade_log_plan_ids(trade_log_path)):
                 if oid in seen:
                     continue
@@ -646,6 +670,7 @@ def main() -> int:
                     soft_time_stop_dte=args.soft_time_stop_dte,
                     min_profit_pct_for_soft_hold=args.min_profit_pct_for_soft_hold,
                     max_loss_pct=args.max_loss_pct,
+                    min_trail_profit_frac=float(args.min_trail_profit_frac),
                     trade_log_path=trade_log_path,
                     plan_snapshots=plan_snapshots,
                 )
