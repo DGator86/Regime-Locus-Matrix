@@ -112,7 +112,12 @@ class ChallengeEngine:
         # 2. Consider new entry (if slots available and challenge not yet complete)
         new_position: ChallengePosition | None = None
         entry_skip_reason: str | None = None
-        if state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
+        if len(state.open_positions) >= self.cfg.max_concurrent_positions:
+            entry_skip_reason = (
+                f"Holding {len(state.open_positions)} open leg(s); "
+                f"cash ${state.balance:,.2f}"
+            )
+        elif state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
             play = self._strategy.select(
                 directive,
                 underlying_price,

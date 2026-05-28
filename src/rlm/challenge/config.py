@@ -36,12 +36,12 @@ class ChallengeConfig:
     symbol: str = "SPY"
 
     # ---- Position management ------------------------------------------------
-    max_concurrent_positions: int = 2
+    max_concurrent_positions: int = 1
     """Never hold more than this many open option positions simultaneously."""
 
     # ---- Sizing by account stage (fraction of balance per trade) ------------
-    stage1_size_frac: float = 0.25
-    """$1K – $3K: 25% of balance in premium per trade."""
+    stage1_size_frac: float = 0.85
+    """$1K – $3K: up to 85% of balance in premium (one contract when affordable)."""
     stage2_size_frac: float = 0.20
     """$3K – $10K: 20% of balance in premium per trade."""
     stage3_size_frac: float = 0.15
@@ -114,7 +114,7 @@ def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
     if prof == "robinhood_elite":
         return replace(
             cfg,
-            max_concurrent_positions=2,
+            max_concurrent_positions=1,
             stage1_size_frac=0.12,
             stage2_size_frac=0.10,
             stage3_size_frac=0.08,

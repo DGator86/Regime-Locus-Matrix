@@ -155,6 +155,24 @@ class TestAggressiveSizer:
         assert qty == 0
         assert spend == 0.0
 
+    def test_does_not_force_contract_above_stage_fraction(self, cfg: ChallengeConfig) -> None:
+        """Regression: max(1, …) used to buy ~$800 SPY on $1k when only 25% budget allowed."""
+        tight = ChallengeConfig(
+            seed_capital=cfg.seed_capital,
+            target_capital=cfg.target_capital,
+            stage1_size_frac=0.25,
+        )
+        sizer = AggressiveSizer()
+        qty, spend = sizer.compute(balance=1_000.0, premium_per_share=8.0, cfg=tight)
+        assert qty == 0
+        assert spend == 0.0
+
+    def test_stage1_can_buy_one_spy_when_fraction_allows(self, cfg: ChallengeConfig) -> None:
+        sizer = AggressiveSizer()
+        qty, spend = sizer.compute(balance=1_000.0, premium_per_share=8.0, cfg=cfg)
+        assert qty == 1
+        assert spend == 800.0
+
     def test_spend_never_exceeds_balance(self, cfg: ChallengeConfig) -> None:
         sizer = AggressiveSizer()
         for balance in (800.0, 1_000.0, 3_500.0, 12_000.0):

@@ -272,6 +272,40 @@ def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
     return {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
 
 
+def _close_stale_open_trade_log_rows(log_path: Path, active_plan_ids: set[str]) -> int:
+    """Mark open log rows closed when plan_id is not in the active universe."""
+    if not log_path.is_file():
+        return 0
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest[pid] = {k: str(row.get(k, "")) for k in _TRADE_LOG_COLUMNS}
+    except OSError:
+        return 0
+    closed_n = 0
+    for pid, row in latest.items():
+        if (row.get("closed") or "0").strip() == "1":
+            continue
+        if pid in active_plan_ids:
+            continue
+        row = dict(row)
+        row["closed"] = "1"
+        row["signal"] = row.get("signal") or "stale_not_in_universe"
+        latest[pid] = row
+        closed_n += 1
+        print(f"[monitor] closed stale log row: {pid} ({row.get('symbol', '')})", flush=True)
+    if closed_n:
+        with log_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
+            writer.writeheader()
+            for r in latest.values():
+                writer.writerow(r)
+    return closed_n
+
+
 def _evaluate_plan(
     plan: dict,
     *,
@@ -581,6 +615,14 @@ def main() -> int:
                 continue
             seen.add(pid)
             uniq.append(r)
+
+        active_plan_ids = {
+            str(r.get("plan_id") or "").strip()
+            for r in active
+            if str(r.get("plan_id") or "").strip()
+        }
+        if trade_log_path is not None:
+            _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
 
         state = _load_state(state_path)
         snap_path = state_path.with_name("trade_plan_snapshots.json")
