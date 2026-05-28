@@ -1,8 +1,7 @@
 """ChallengeStrategy — translate a persona directive into a specific option play.
 
-This module selects *what* to buy (call vs put, OTM level, DTE) based on
-the persona pipeline directive and the current account stage.  It does not
-execute or size the trade — those responsibilities belong to ChallengeEngine.
+Selects **affordable** weeklies (5–7 DTE) on $1K–$3K books, with optional high-vol
+1DTE scalps when conviction is strong.  Sizing is handled by ``ChallengeEngine``.
 """
 
 from __future__ import annotations
@@ -41,52 +40,52 @@ class ChallengeStrategy:
         signal_alignment: float = 0.7,
         confidence: float = 0.7,
     ) -> PlaySpec | None:
-        """Return a ``PlaySpec`` or ``None`` (no trade).
-
-        Extra-high confidence/alignment unlocks tighter DTE (more leverage);
-        borderline signals get standard DTE.
-        """
+        """Return the best affordable ``PlaySpec`` or ``None``."""
         if directive == "no_trade":
             return None
 
         option_type: Literal["call", "put"] = "call" if directive == "long" else "put"
         direction: Literal["long", "short"] = directive  # type: ignore[assignment]
 
-        base_dte = cfg.dte(balance)
-        base_otm = cfg.otm_pct(balance)
+        max_pps = _max_premium_per_share(balance, cfg)
+        if max_pps <= 0:
+            return None
 
-        # High conviction: use scalp_dte (default 1DTE) + ATM for maximum intraday gamma
-        # ATM options have delta ~0.50, giving the most dollar sensitivity per underlying move.
-        # Requires signal_alignment >= 0.75 and confidence >= 0.70 (consistent with pipeline
-        # elite_setup_score threshold).
-        if balance < 3_000 and signal_alignment >= 0.75 and confidence >= 0.70:
-            dte = cfg.scalp_dte
-            otm_pct = 0.0  # ATM for maximum delta on short-dated plays
-            rationale = f"high-conviction scalp: {dte}DTE ATM for max intraday leverage"
-        else:
-            dte = base_dte
-            otm_pct = base_otm
-            rationale = f"stage {_stage_label(balance, cfg)} directional: {option_type} {dte}DTE"
-
-        # Compute strike
-        if option_type == "call":
-            strike = _round_strike(underlying_price * (1.0 + otm_pct))
-        else:
-            strike = _round_strike(underlying_price * (1.0 - otm_pct))
-
-        premium = estimate_premium(underlying_price, iv, dte, strike)
-        delta = estimate_delta(underlying_price, strike, iv, dte, option_type)
-
-        return PlaySpec(
-            option_type=option_type,
-            direction=direction,
-            strike=strike,
-            dte=dte,
-            estimated_premium=premium,
-            estimated_delta=delta,
-            otm_pct=otm_pct,
-            rationale=rationale,
+        high_vol_scalp = (
+            balance < 3_000.0
+            and signal_alignment >= cfg.scalp_min_alignment
+            and confidence >= cfg.scalp_min_confidence
         )
+
+        candidates: list[tuple[int, float, str]] = []
+
+        weekly_dte = max(5, int(cfg.dte(balance)))
+        base_otm = cfg.otm_pct(balance)
+        candidates.append((weekly_dte, base_otm, f"weekly-{weekly_dte}DTE"))
+        for otm in cfg.weekly_otm_ladder:
+            if otm > base_otm:
+                candidates.append((weekly_dte, otm, f"weekly-{weekly_dte}DTE-{otm * 100:.0f}otm"))
+
+        if high_vol_scalp:
+            candidates.insert(0, (int(cfg.scalp_dte), 0.0, f"hv-scalp-{cfg.scalp_dte}DTE-ATM"))
+            candidates.insert(1, (int(cfg.scalp_dte), 0.01, f"hv-scalp-{cfg.scalp_dte}DTE-1otm"))
+            tight_weekly = max(5, weekly_dte - 2)
+            candidates.insert(2, (tight_weekly, base_otm, f"weekly-tight-{tight_weekly}DTE"))
+
+        for dte, otm_pct, tag in candidates:
+            spec = _build_spec(
+                option_type=option_type,
+                direction=direction,
+                underlying_price=underlying_price,
+                iv=iv,
+                dte=dte,
+                otm_pct=otm_pct,
+                rationale=tag,
+            )
+            if spec.estimated_premium <= max_pps:
+                return spec
+
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -94,14 +93,40 @@ class ChallengeStrategy:
 # ---------------------------------------------------------------------------
 
 
+def _max_premium_per_share(balance: float, cfg: ChallengeConfig) -> float:
+    return balance * cfg.size_fraction(balance) / 100.0
+
+
+def _build_spec(
+    *,
+    option_type: Literal["call", "put"],
+    direction: Literal["long", "short"],
+    underlying_price: float,
+    iv: float,
+    dte: int,
+    otm_pct: float,
+    rationale: str,
+) -> PlaySpec:
+    if option_type == "call":
+        strike = _round_strike(underlying_price * (1.0 + otm_pct))
+    else:
+        strike = _round_strike(underlying_price * (1.0 - otm_pct))
+
+    premium = estimate_premium(underlying_price, iv, dte, strike)
+    delta = estimate_delta(underlying_price, strike, iv, dte, option_type)
+
+    return PlaySpec(
+        option_type=option_type,
+        direction=direction,
+        strike=strike,
+        dte=dte,
+        estimated_premium=premium,
+        estimated_delta=delta,
+        otm_pct=otm_pct,
+        rationale=rationale,
+    )
+
+
 def _round_strike(price: float) -> float:
     """Round to nearest dollar — standard equity option increment."""
     return round(price)
-
-
-def _stage_label(balance: float, cfg: ChallengeConfig) -> str:
-    if balance < 3_000:
-        return "1"
-    if balance < 10_000:
-        return "2"
-    return "3"

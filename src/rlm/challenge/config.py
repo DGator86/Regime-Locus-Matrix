@@ -48,8 +48,13 @@ class ChallengeConfig:
     """$10K – $25K: 15% of balance in premium per trade."""
 
     # ---- Exit rules ---------------------------------------------------------
-    profit_target_mult: float = 2.0
-    """Close position when option value reaches this multiple of entry premium."""
+    stage3_profit_target_mult: float = 2.0
+    """Stage 3 ($10K+): full take-profit multiple."""
+    stage1_profit_target_mult: float = 1.38
+    """Stage 1 ($1K–$3K): take profit sooner — compound toward $25K."""
+    stage2_profit_target_mult: float = 1.65
+    stage1_trail_activate_mult: float = 1.18
+    """Stage 1: arm trail after +18% on premium."""
     stop_loss_mult: float = 0.72
     """Hard stop: close when premium mult falls to this (0.72 ≈ −28% on premium paid)."""
     trail_activate_mult: float = 1.25
@@ -72,6 +77,9 @@ class ChallengeConfig:
     scalp_dte: int = 1
     """DTE for high-conviction intraday scalp plays. 1 = 1DTE (max gamma leverage).
     Set to 0 for true 0DTE lottery plays (extreme risk, use only with live chain data)."""
+    scalp_min_alignment: float = 0.75
+    scalp_min_confidence: float = 0.70
+    weekly_otm_ladder: tuple[float, ...] = (0.02, 0.03, 0.04, 0.05, 0.06)
 
     stage1_otm_pct: float = 0.010
     """1% OTM for Stage 1 — lottery-style leverage."""
@@ -107,6 +115,18 @@ class ChallengeConfig:
             return self.stage2_otm_pct
         return self.stage3_otm_pct
 
+    def profit_target_for(self, balance: float) -> float:
+        if balance < 3_000.0:
+            return self.stage1_profit_target_mult
+        if balance < 10_000.0:
+            return self.stage2_profit_target_mult
+        return self.stage3_profit_target_mult
+
+    def trail_activate_for(self, balance: float) -> float:
+        if balance < 3_000.0:
+            return self.stage1_trail_activate_mult
+        return self.trail_activate_mult
+
 
 def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
     """Tune challenge risk from env without changing seed/target.
@@ -115,7 +135,7 @@ def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
     smaller % of balance per entry, slightly wider OTM, wider min-DTE exit buffer.
     """
     prof = (os.environ.get("RLM_CHALLENGE_PROFILE") or "").strip().lower()
-    if prof in ("", "default", "aggressive"):
+    if prof in ("", "default", "aggressive", "weekly"):
         return cfg
     if prof == "robinhood_elite":
         return replace(
@@ -131,7 +151,9 @@ def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
             stage1_otm_pct=0.015,
             stage2_otm_pct=0.010,
             stage3_otm_pct=0.003,
-            profit_target_mult=2.2,
+            stage3_profit_target_mult=2.2,
+            stage1_profit_target_mult=1.55,
+            stage2_profit_target_mult=1.75,
             stop_loss_mult=0.55,
             min_dte_exit=5,
         )

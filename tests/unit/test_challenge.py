@@ -32,6 +32,13 @@ def cfg() -> ChallengeConfig:
     return ChallengeConfig(seed_capital=1_000.0, target_capital=25_000.0)
 
 
+class TestChallengeConfig:
+    def test_stage1_tighter_profit_and_trail(self, cfg: ChallengeConfig) -> None:
+        assert cfg.profit_target_for(1_000.0) == cfg.stage1_profit_target_mult
+        assert cfg.profit_target_for(1_000.0) < cfg.stage3_profit_target_mult
+        assert cfg.trail_activate_for(1_000.0) == cfg.stage1_trail_activate_mult
+
+
 @pytest.fixture()
 def cfg_enter(cfg: ChallengeConfig) -> ChallengeConfig:
     """Larger stage-1 fraction so engine tests can open affordable synthetic plays."""
@@ -240,6 +247,35 @@ class TestChallengeStrategy:
         assert play.otm_pct == 0.0
         assert play.strike == 500.0
 
+    def test_spy_1k_selects_affordable_weekly(self, cfg: ChallengeConfig) -> None:
+        """~$711 SPY @ 50% budget must not pick ~$800 ATM weeklies."""
+        play = ChallengeStrategy().select(
+            "long",
+            711.0,
+            1_000.0,
+            0.18,
+            cfg,
+            signal_alignment=0.72,
+            confidence=0.68,
+        )
+        assert play is not None
+        assert play.estimated_premium * 100 <= 1_000.0 * cfg.stage1_size_frac + 1.0
+        assert play.dte >= 5
+
+    def test_high_vol_scalp_when_conviction_strong(self, cfg: ChallengeConfig) -> None:
+        play = ChallengeStrategy().select(
+            "long",
+            711.0,
+            1_000.0,
+            0.18,
+            cfg,
+            signal_alignment=0.80,
+            confidence=0.75,
+        )
+        assert play is not None
+        assert play.dte == cfg.scalp_dte
+        assert "scalp" in play.rationale
+
 
 # ---------------------------------------------------------------------------
 # State / persistence tests
@@ -397,8 +433,9 @@ class TestChallengeEngine:
     def test_max_concurrent_positions_respected(
         self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
     ) -> None:
-        tmp_tracker.reset(cfg_enter)
-        engine = ChallengeEngine(cfg_enter, tmp_tracker)
+        wide_target = replace(cfg_enter, stage1_profit_target_mult=2.5)
+        tmp_tracker.reset(wide_target)
+        engine = ChallengeEngine(wide_target, tmp_tracker)
         engine.run_session("long", 500.0, session_date="2026-01-01")
         engine.run_session("long", 501.0, session_date="2026-01-01")
         # Third session should not open a new position (at capacity)

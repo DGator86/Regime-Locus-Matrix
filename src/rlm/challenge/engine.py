@@ -127,7 +127,11 @@ class ChallengeEngine:
                 signal_alignment=signal_alignment,
                 confidence=confidence,
             )
-            if play is not None:
+            if play is None:
+                entry_skip_reason = (
+                    f"No affordable weekly/scalp under ${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
+                )
+            elif play is not None:
                 qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
                 if qty <= 0 or spend > state.balance:
                     cost = float(play.estimated_premium) * 100.0
@@ -218,12 +222,14 @@ class ChallengeEngine:
         mult = new_premium / pos.premium_per_share
         if mult > pos.peak_premium_mult:
             pos.peak_premium_mult = mult
-        if mult >= self.cfg.trail_activate_mult:
+        trail_arm = self.cfg.trail_activate_for(state.balance)
+        profit_target = self.cfg.profit_target_for(state.balance)
+        if mult >= trail_arm:
             pos.trail_armed = True
 
         exit_reason: Literal["target", "stop", "trail", "expiry", "manual"] | None = None
 
-        if mult >= self.cfg.profit_target_mult:
+        if mult >= profit_target:
             exit_reason = "target"
         elif mult <= self.cfg.stop_loss_mult:
             exit_reason = "stop"
