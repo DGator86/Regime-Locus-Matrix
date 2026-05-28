@@ -43,9 +43,35 @@ def _latest_by_plan(path: Path) -> dict[str, dict[str, str]]:
     return rows
 
 
-def compact(path: Path) -> tuple[int, int]:
+def _dedupe_open_per_symbol(rows: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    """Keep one newest open row per symbol; mark older duplicates closed."""
+    open_rows = [
+        (pid, row)
+        for pid, row in rows.items()
+        if (row.get("closed") or "0").strip() != "1"
+    ]
+    by_sym: dict[str, list[tuple[str, dict[str, str]]]] = {}
+    for pid, row in open_rows:
+        sym = str(row.get("symbol") or "").strip().upper()
+        if sym:
+            by_sym.setdefault(sym, []).append((pid, row))
+    for sym, items in by_sym.items():
+        if len(items) <= 1:
+            continue
+        items.sort(key=lambda t: str(t[1].get("timestamp_utc") or ""), reverse=True)
+        for pid, row in items[1:]:
+            row = dict(row)
+            row["closed"] = "1"
+            row["signal"] = row.get("signal") or "dedupe_closed"
+            rows[pid] = row
+    return rows
+
+
+def compact(path: Path, *, one_open_per_symbol: bool = False) -> tuple[int, int]:
     before = path.stat().st_size if path.is_file() else 0
     latest = _latest_by_plan(path)
+    if one_open_per_symbol:
+        latest = _dedupe_open_per_symbol(latest)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
@@ -59,13 +85,26 @@ def compact(path: Path) -> tuple[int, int]:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, default=Path(os.environ.get("RLM_ROOT", str(REPO_ROOT))))
+    p.add_argument(
+        "--one-open-per-symbol",
+        action="store_true",
+        help="Mark duplicate open rows per symbol as closed (keeps newest timestamp only)",
+    )
     args = p.parse_args()
     root = args.root.expanduser().resolve()
     for cand in options_trade_log_read_paths(root):
         if not cand.is_file():
             continue
-        before, after = compact(cand)
-        print(f"Compacted {cand}: {before:,} bytes -> {after:,} bytes ({len(_latest_by_plan(cand))} plans)")
+        before, after = compact(cand, one_open_per_symbol=bool(args.one_open_per_symbol))
+        open_n = sum(
+            1
+            for row in _latest_by_plan(cand).values()
+            if (row.get("closed") or "0").strip() != "1"
+        )
+        print(
+            f"Compacted {cand}: {before:,} bytes -> {after:,} bytes "
+            f"({len(_latest_by_plan(cand))} plans, {open_n} open)"
+        )
     return 0
 
 
