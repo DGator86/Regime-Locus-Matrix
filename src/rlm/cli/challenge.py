@@ -208,13 +208,29 @@ def _get_signals(
                 conf = max(conf, floor_c)
                 print(f"[challenge] {fb_note} — using {fb} for dry-run session", file=sys.stderr)
 
-        # Underlying price: last close from bars
-        price = underlying_price_override
-        if price is None and not result.factors_df.empty:
+        # Underlying price: live quote first; pipeline close only as offline fallback
+        from rlm.challenge.underlying import resolve_session_underlying
+
+        pipeline_close: float | None = None
+        pipeline_bar_date: str | None = None
+        if not result.factors_df.empty:
             last = result.factors_df.iloc[-1]
-            price = float(last.get("close", last.get("Close", 0)) or 0)
-        if not price:
-            price = underlying_price_override or 500.0
+            pipeline_close = float(last.get("close", last.get("Close", 0)) or 0) or None
+            ts = last.get("timestamp", result.factors_df.index[-1])
+            if ts is not None:
+                pipeline_bar_date = str(ts)[:10]
+
+        price, price_source = resolve_session_underlying(
+            symbol,
+            pipeline_close,
+            pipeline_bar_date=pipeline_bar_date,
+            override=underlying_price_override,
+        )
+        if price_source == "pipeline":
+            print(
+                f"[challenge] using pipeline close ${price:.2f} (live quote unavailable)",
+                file=sys.stderr,
+            )
 
         # IV: try to pull from pipeline, else fall back
         iv = default_iv
@@ -227,7 +243,13 @@ def _get_signals(
 
     except Exception as exc:
         print(f"[challenge] Pipeline unavailable ({exc}); using neutral fallback.", file=sys.stderr)
-        price = underlying_price_override or 500.0
+        from rlm.challenge.underlying import resolve_session_underlying
+
+        price, _ = resolve_session_underlying(
+            symbol,
+            None,
+            override=underlying_price_override,
+        )
         return "no_trade", price, 0.5, 0.5, default_iv
 
 
@@ -257,6 +279,10 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print()
     print(f"  Sessions  : {state.session_count}")
     print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
+    if not state.pdt_cleared:
+        print(f"  PDT slots : {state.pdt_slots_remaining} day-trade(s) left (5d rolling)")
+    else:
+        print("  PDT       : cleared (equity at/above target)")
     print()
 
     # Milestones

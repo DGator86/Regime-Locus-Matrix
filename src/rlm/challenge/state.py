@@ -126,8 +126,20 @@ class ChallengeState:
     session_count: int = 0
     created_at: str = ""
     last_updated: str = ""
+    pdt_day_trade_counts: list[int] = field(default_factory=list)
+    """Rolling same-day round-trip counts (last five session dates)."""
+    pdt_last_session_date: str = ""
 
     # ---- Derived properties -------------------------------------------------
+
+    @property
+    def pdt_slots_remaining(self) -> int:
+        used = sum(self.pdt_day_trade_counts[-5:])
+        return max(0, 3 - used)
+
+    @property
+    def pdt_cleared(self) -> bool:
+        return self.balance >= self.target
 
     @property
     def open_market_value(self) -> float:
@@ -185,6 +197,8 @@ class ChallengeState:
             "session_count": self.session_count,
             "created_at": self.created_at,
             "last_updated": self.last_updated,
+            "pdt_day_trade_counts": list(self.pdt_day_trade_counts),
+            "pdt_last_session_date": self.pdt_last_session_date,
             "open_positions": [p.to_dict() for p in self.open_positions],
             "trade_history": [t.to_dict() for t in self.trade_history],
         }
@@ -202,6 +216,8 @@ class ChallengeState:
             session_count=int(d.get("session_count", 0)),
             created_at=str(d.get("created_at", "")),
             last_updated=str(d.get("last_updated", "")),
+            pdt_day_trade_counts=[int(x) for x in d.get("pdt_day_trade_counts", [])],
+            pdt_last_session_date=str(d.get("pdt_last_session_date", "")),
         )
 
     @classmethod

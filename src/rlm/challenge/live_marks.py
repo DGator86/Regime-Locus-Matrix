@@ -41,10 +41,9 @@ def mark_open_position_premium(
     underlying = pipeline_underlying
     new_premium: float
 
-    if live_marks_enabled():
-        quote = fetch_equity_quote(pos.symbol)
-        if quote is not None:
-            underlying = quote.price
+    quote = fetch_equity_quote(pos.symbol) if live_marks_enabled() else None
+    if quote is not None and quote.price > 0:
+        underlying = quote.price
         exp = option_expiry_date(pos.entry_date, pos.dte_at_entry)
         live_mid = fetch_option_mid_per_share(
             pos.symbol,

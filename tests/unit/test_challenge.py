@@ -466,7 +466,87 @@ class TestChallengeEngine:
 
         assert len(summary.closed_trades) == 1
         assert summary.closed_trades[0].exit_reason == "target"
-        assert summary.balance_after > 638.0
+        expected_proceeds = 3.62 * cfg.stage1_profit_target_mult * 100
+        assert summary.closed_trades[0].proceeds == pytest.approx(expected_proceeds, rel=1e-4)
+        assert summary.balance_after == pytest.approx(638.0 + expected_proceeds, rel=1e-4)
+
+    def test_pdt_blocks_same_day_exit_when_slots_exhausted(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-05-29",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        state.open_positions = [pos]
+        state.balance = 800.0
+        state.pdt_day_trade_counts = [3]
+        state.pdt_last_session_date = "2026-05-29"
+        tmp_tracker.save(state)
+
+        with (
+            patch("rlm.challenge.engine.mark_open_position_premium", return_value=(3.0, 500.0, 5)),
+            patch("rlm.challenge.live_marks.live_marks_enabled", return_value=False),
+        ):
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 500.0, session_date="2026-05-29")
+
+        assert summary.closed_trades == []
+        loaded = tmp_tracker.load()
+        assert len(loaded.open_positions) == 1
+
+    def test_target_exit_capped_at_limit_not_live_mark(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        state.open_positions = [pos]
+        state.balance = 600.0
+        tmp_tracker.save(state)
+
+        with (
+            patch("rlm.challenge.live_marks.live_marks_enabled", return_value=True),
+            patch("rlm.challenge.live_marks.fetch_equity_quote") as eq,
+            patch("rlm.challenge.live_marks.fetch_option_mid_per_share", return_value=9.0),
+        ):
+            from rlm.market.live_quotes import EquityQuote
+
+            eq.return_value = EquityQuote("SPY", 520.0, "2026-01-02T12:00:00+00:00", "test")
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 520.0, session_date="2026-01-02")
+
+        assert len(summary.closed_trades) == 1
+        cap = 2.0 * cfg.stage1_profit_target_mult * 100
+        assert summary.closed_trades[0].proceeds == pytest.approx(cap, rel=1e-4)
 
     def test_stop_hit_closes_position(
         self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker

@@ -101,6 +101,8 @@ class ChallengeEngine:
         balance_before = state.balance
         prev_milestone_idx = state.current_milestone_idx
 
+        self._advance_pdt_calendar(state, session_date)
+
         closed_trades: list[ChallengeTradeRecord] = []
 
         # 1. Evaluate open positions
@@ -242,13 +244,20 @@ class ChallengeEngine:
         if exit_reason is None:
             return None  # hold
 
-        # Close the position
-        proceeds = pos.current_value
+        if self._same_day_exit_blocked(state, pos, session_date):
+            return None  # PDT: hold overnight
+
+        fill_mult = self._exit_fill_mult(pos, exit_reason, state, mult)
+        fill_premium = pos.premium_per_share * fill_mult
+        proceeds = fill_premium * pos.qty * 100
         pnl = proceeds - pos.total_cost
         balance_before = state.balance
         state.balance = state.balance + proceeds
         state.open_positions.remove(pos)
         pos.status = "closed"
+
+        if pos.entry_date == session_date and not state.pdt_cleared:
+            self._record_day_trade(state)
 
         record = ChallengeTradeRecord(
             trade_id=str(uuid.uuid4())[:8],
@@ -270,6 +279,54 @@ class ChallengeEngine:
         state.trade_history.append(record)
         self.tracker.append_trade(record)
         return record
+
+    def _advance_pdt_calendar(self, state: ChallengeState, session_date: str) -> None:
+        if state.pdt_last_session_date == session_date:
+            return
+        state.pdt_day_trade_counts.append(0)
+        if len(state.pdt_day_trade_counts) > 5:
+            state.pdt_day_trade_counts = state.pdt_day_trade_counts[-5:]
+        state.pdt_last_session_date = session_date
+
+    def _pdt_slots_remaining(self, state: ChallengeState) -> int:
+        return max(0, 3 - sum(state.pdt_day_trade_counts[-5:]))
+
+    def _same_day_exit_blocked(
+        self,
+        state: ChallengeState,
+        pos: ChallengePosition,
+        session_date: str,
+    ) -> bool:
+        if state.pdt_cleared:
+            return False
+        if pos.entry_date != session_date:
+            return False
+        return self._pdt_slots_remaining(state) <= 0
+
+    def _record_day_trade(self, state: ChallengeState) -> None:
+        if state.pdt_day_trade_counts:
+            state.pdt_day_trade_counts[-1] += 1
+        else:
+            state.pdt_day_trade_counts.append(1)
+
+    def _exit_fill_mult(
+        self,
+        pos: ChallengePosition,
+        exit_reason: Literal["target", "stop", "trail", "expiry", "manual"],
+        state: ChallengeState,
+        mark_mult: float,
+    ) -> float:
+        """Limit-fill multiple — exits credit the rule price, not the full live mark."""
+        if exit_reason == "target":
+            return self.cfg.profit_target_for(state.balance)
+        if exit_reason == "stop":
+            return self.cfg.stop_loss_mult
+        if exit_reason == "trail":
+            return max(
+                self.cfg.min_trail_exit_mult,
+                pos.peak_premium_mult * (1.0 - self.cfg.trail_retrace_frac),
+            )
+        return mark_mult
 
 
 # ---------------------------------------------------------------------------
