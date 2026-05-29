@@ -15,13 +15,13 @@ from datetime import date, datetime, timezone
 from typing import Literal
 
 from rlm.challenge.config import ChallengeConfig
-from rlm.challenge.pricing import updated_premium
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import (
     ChallengePosition,
     ChallengeState,
     ChallengeTradeRecord,
 )
+from rlm.challenge.live_marks import mark_open_position_premium
 from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
 
@@ -201,15 +201,11 @@ class ChallengeEngine:
         state: ChallengeState,
     ) -> ChallengeTradeRecord | None:
         """Update position value; close and record if an exit condition is met."""
-        days_elapsed = _days_between(pos.entry_date, session_date)
-        new_dte = max(0, pos.dte_at_entry - days_elapsed)
-        new_premium = updated_premium(
-            entry_premium=pos.premium_per_share,
-            delta=pos.delta_at_entry,
-            underlying_entry=pos.underlying_entry,
-            underlying_now=underlying_now,
-            days_elapsed=days_elapsed,
-            dte_remaining=new_dte,
+        new_premium, _, new_dte = mark_open_position_premium(
+            pos,
+            self.cfg,
+            session_date=session_date,
+            pipeline_underlying=underlying_now,
             iv=iv,
         )
 

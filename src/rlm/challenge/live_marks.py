@@ -6,16 +6,65 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from rlm.challenge.config import ChallengeConfig, apply_challenge_profile_env
-from rlm.challenge.engine import _days_between
 from rlm.challenge.pricing import updated_premium
-from rlm.challenge.state import ChallengeState
+from rlm.challenge.state import ChallengePosition, ChallengeState
 from rlm.challenge.tracker import ChallengeTracker
-from rlm.market.live_quotes import fetch_equity_quote, fetch_option_mid_per_share
+from rlm.market.live_quotes import fetch_equity_quote, fetch_option_mid_per_share, live_marks_enabled
+
+
+def _days_between(start: str, end: str) -> int:
+    try:
+        d1 = date.fromisoformat(start)
+        d2 = date.fromisoformat(end)
+        return max(0, (d2 - d1).days)
+    except ValueError:
+        return 1
 
 
 def option_expiry_date(entry_date: str, dte_at_entry: int) -> date:
     start = date.fromisoformat(str(entry_date)[:10])
     return start + timedelta(days=int(dte_at_entry))
+
+
+def mark_open_position_premium(
+    pos: ChallengePosition,
+    cfg: ChallengeConfig,
+    *,
+    session_date: str,
+    pipeline_underlying: float,
+    iv: float | None = None,
+) -> tuple[float, float, int]:
+    """Mark one leg for exit checks. Returns (premium/sh, underlying used, dte remaining)."""
+    days_elapsed = _days_between(pos.entry_date, session_date)
+    new_dte = max(0, pos.dte_at_entry - days_elapsed)
+    iv_use = iv if iv is not None else pos.iv_at_entry
+    underlying = pipeline_underlying
+    new_premium: float
+
+    if live_marks_enabled():
+        quote = fetch_equity_quote(pos.symbol)
+        if quote is not None:
+            underlying = quote.price
+        exp = option_expiry_date(pos.entry_date, pos.dte_at_entry)
+        live_mid = fetch_option_mid_per_share(
+            pos.symbol,
+            strike=float(pos.strike),
+            expiry=exp,
+            option_type=pos.option_type,
+        )
+        if live_mid is not None and live_mid > 0:
+            return live_mid, underlying, new_dte
+
+    new_premium = updated_premium(
+        entry_premium=pos.premium_per_share,
+        delta=pos.delta_at_entry,
+        underlying_entry=pos.underlying_entry,
+        underlying_now=underlying,
+        days_elapsed=days_elapsed,
+        dte_remaining=new_dte,
+        iv=iv_use,
+    )
+    return new_premium, underlying, new_dte
 
 
 def refresh_challenge_state(
@@ -30,34 +79,16 @@ def refresh_challenge_state(
 
     session_date = session_date or date.today().isoformat()
     quote = fetch_equity_quote(cfg.symbol)
-    if quote is None:
-        return None
+    asof = quote.asof_utc if quote is not None else datetime.now(tz=timezone.utc).isoformat()
+    pipe_px = quote.price if quote is not None else 0.0
 
-    asof = quote.asof_utc
     for pos in state.open_positions:
-        days_elapsed = _days_between(pos.entry_date, session_date)
-        new_dte = max(0, pos.dte_at_entry - days_elapsed)
-        exp = option_expiry_date(pos.entry_date, pos.dte_at_entry)
-
-        live_mid = fetch_option_mid_per_share(
-            pos.symbol,
-            strike=float(pos.strike),
-            expiry=exp,
-            option_type=pos.option_type,
+        new_premium, _, new_dte = mark_open_position_premium(
+            pos,
+            cfg,
+            session_date=session_date,
+            pipeline_underlying=pipe_px,
         )
-        if live_mid is not None and live_mid > 0:
-            new_premium = live_mid
-        else:
-            new_premium = updated_premium(
-                entry_premium=pos.premium_per_share,
-                delta=pos.delta_at_entry,
-                underlying_entry=pos.underlying_entry,
-                underlying_now=quote.price,
-                days_elapsed=days_elapsed,
-                dte_remaining=new_dte,
-                iv=pos.iv_at_entry,
-            )
-
         pos.dte_remaining = new_dte
         pos.current_premium = new_premium
         pos.current_value = new_premium * pos.qty * 100
@@ -67,7 +98,7 @@ def refresh_challenge_state(
             pos.peak_premium_mult = mult
 
     state.last_updated = datetime.now(tz=timezone.utc).isoformat()
-    return asof
+    return asof if quote is not None else None
 
 
 def refresh_challenge_at_root(root: Path) -> str | None:

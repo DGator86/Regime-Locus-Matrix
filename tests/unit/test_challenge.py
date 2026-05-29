@@ -428,6 +428,46 @@ class TestChallengeEngine:
         assert len(summary.closed_trades) == 1
         assert summary.closed_trades[0].exit_reason == "trail"
 
+    def test_live_mark_triggers_target_exit(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=711.0,
+            strike=740.0,
+            dte=7,
+            entry_date="2026-05-28",
+            premium_per_share=3.62,
+            qty=1,
+            delta=0.45,
+            iv=0.18,
+        )
+        state.open_positions = [pos]
+        state.balance = 638.0
+        tmp_tracker.save(state)
+
+        with (
+            patch("rlm.challenge.live_marks.live_marks_enabled", return_value=True),
+            patch("rlm.challenge.live_marks.fetch_equity_quote") as eq,
+            patch("rlm.challenge.live_marks.fetch_option_mid_per_share", return_value=17.5),
+        ):
+            from rlm.market.live_quotes import EquityQuote
+
+            eq.return_value = EquityQuote("SPY", 757.0, "2026-05-29T12:00:00+00:00", "test")
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 711.0, session_date="2026-05-29")
+
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "target"
+        assert summary.balance_after > 638.0
+
     def test_stop_hit_closes_position(
         self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
     ) -> None:

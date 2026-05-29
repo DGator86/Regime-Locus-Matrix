@@ -31,6 +31,7 @@ class TestLiveQuotes:
 
         quote = EquityQuote("SPY", 710.0, "2026-05-28T12:00:00+00:00", "test")
         with (
+            patch("rlm.challenge.live_marks.live_marks_enabled", return_value=True),
             patch("rlm.challenge.live_marks.fetch_equity_quote", return_value=quote),
             patch("rlm.challenge.live_marks.fetch_option_mid_per_share", return_value=3.5),
         ):
