@@ -104,9 +104,12 @@ def main() -> None:  # noqa: C901
 
         from rlm.challenge.live_marks import refresh_challenge_at_root
 
-        repo_root = Path(args.data_root).resolve()
-        if repo_root.name == "data":
-            repo_root = repo_root.parent
+        if args.data_root:
+            repo_root = Path(args.data_root).resolve()
+            if repo_root.name == "data":
+                repo_root = repo_root.parent
+        else:
+            repo_root = tracker.state_path().resolve().parents[2]
         refresh_challenge_at_root(repo_root)
         _print_dashboard(tracker)
         return
