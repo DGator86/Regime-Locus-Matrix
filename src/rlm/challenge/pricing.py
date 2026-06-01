@@ -80,7 +80,11 @@ def updated_premium(
 ) -> float:
     """Approximate new per-share option premium after an underlying move + time decay.
 
-    Uses delta P&L + gamma convexity + linear theta approximation.
+    Uses delta P&L + gamma convexity + sqrt-time accelerated theta.  Theta is
+    proportional to 1/√t so decay is slow early in the option's life and
+    accelerates near expiry, matching the shape of real options theta.  The
+    normalization ensures total decay from entry to expiry integrates to
+    ``entry_premium`` (i.e. the option fully decays if the underlying doesn't move).
     """
     move = underlying_now - underlying_entry
 
@@ -100,7 +104,9 @@ def updated_premium(
     dte_at_entry = dte_remaining + days_elapsed
     t_entry = max(dte_at_entry, 1) / 252.0
     t_prev = max(dte_remaining + days_elapsed, 1) / 252.0
-    t_now = max(dte_remaining, 0.5) / 252.0  # 0.5-day floor avoids explosion at 0 DTE
+    # sqrt(0) = 0 is well-defined; no floor needed.  When dte_remaining=0 the
+    # full remaining premium correctly decays to zero (intrinsic value aside).
+    t_now = max(dte_remaining, 0) / 252.0
     theta_pnl = -entry_premium * (math.sqrt(t_prev) - math.sqrt(t_now)) / math.sqrt(t_entry)
 
     new_price = entry_premium + delta_pnl + gamma_pnl + theta_pnl

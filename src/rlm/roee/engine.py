@@ -45,15 +45,20 @@ class ROEEConfig:
     gex_confluence_enabled: bool = True
     # --- Risk & Portfolio Limits ---
     hard_stop_loss_pct: float = -0.25
-    """Tightened from -0.50 — close all positions if portfolio drops 25% in a session."""
+    """Per-position hard stop: exit an individual position when its PnL falls to
+    this fraction of cost (e.g. -0.25 = exit when the position is down 25%).
+    Tightened from -0.50.  Applied per-leg by the backtest/execution layer."""
     force_exit_dte: int = 1
     """Force-exit at 1 DTE instead of 2 — mirrors challenge engine min_dte_exit."""
     max_total_positions: int = 10
     max_positions_per_symbol: int = 1
     daily_loss_circuit_breaker_pct: float | None = -0.06
-    """Halt new entries after a 6% daily portfolio loss.  Was None (disabled)."""
+    """Halt new entries after cumulative daily PnL reaches this fraction.
+    Requires callers to inject realized PnL as a ``pnl_pct`` column in the input
+    DataFrame; without it the guard emits a warning but does not fire."""
     weekly_loss_circuit_breaker_pct: float | None = -0.12
-    """Halt new entries after a 12% weekly portfolio loss.  Was None (disabled)."""
+    """Halt new entries after cumulative weekly PnL reaches this fraction.
+    Same ``pnl_pct`` column requirement as ``daily_loss_circuit_breaker_pct``."""
     correlation_exposure_threshold: float | None = None
     correlation_exposure_haircut: float = 0.5
 

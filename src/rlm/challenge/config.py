@@ -42,8 +42,8 @@ class ChallengeConfig:
     # ---- Sizing by account stage (fraction of balance per trade) ------------
     stage1_size_frac: float = 0.30
     """$1K – $3K: up to 30% of balance in premium per entry.  Reduced from 50% —
-    at $1K a 50% allocation means one -28% stop wipes 14% of the account; 30% keeps
-    single-trade drawdown under 6% even on a full stop."""
+    at $1K a 50% allocation means one -18% stop wipes ~5.4% of the account; 30% keeps
+    single-trade drawdown manageable even on a full stop."""
     stage2_size_frac: float = 0.20
     """$3K – $10K: 20% of balance in premium per trade."""
     stage3_size_frac: float = 0.15
