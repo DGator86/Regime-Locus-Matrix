@@ -14,12 +14,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ROEEConfig:
-    hmm_confidence_threshold: float = 0.6
+    hmm_confidence_threshold: float = 0.70
+    """Raised from 0.60 — only enter trades when the regime signal is strong."""
     sizing_multiplier: float = 1.0
     transition_penalty: float = 0.5
-    use_dynamic_sizing: bool = False
+    use_dynamic_sizing: bool = True
+    """Enabled by default so Kelly vol-targeting adjusts size with realized volatility."""
     vol_target: float = 0.15
-    max_kelly_fraction: float = 0.05
+    max_kelly_fraction: float = 0.08
+    """Raised from 0.05 — allows Kelly to take slightly larger bites on high-edge setups."""
     max_capital_fraction: float = 0.15
     regime_adjusted_kelly: bool = True
     high_vol_kelly_multiplier: float = 0.5
@@ -41,12 +44,16 @@ class ROEEConfig:
     hybrid_strength_scaling: bool = True
     gex_confluence_enabled: bool = True
     # --- Risk & Portfolio Limits ---
-    hard_stop_loss_pct: float = -0.50
-    force_exit_dte: int = 2
+    hard_stop_loss_pct: float = -0.25
+    """Tightened from -0.50 — close all positions if portfolio drops 25% in a session."""
+    force_exit_dte: int = 1
+    """Force-exit at 1 DTE instead of 2 — mirrors challenge engine min_dte_exit."""
     max_total_positions: int = 10
     max_positions_per_symbol: int = 1
-    daily_loss_circuit_breaker_pct: float | None = None
-    weekly_loss_circuit_breaker_pct: float | None = None
+    daily_loss_circuit_breaker_pct: float | None = -0.06
+    """Halt new entries after a 6% daily portfolio loss.  Was None (disabled)."""
+    weekly_loss_circuit_breaker_pct: float | None = -0.12
+    """Halt new entries after a 12% weekly portfolio loss.  Was None (disabled)."""
     correlation_exposure_threshold: float | None = None
     correlation_exposure_haircut: float = 0.5
 

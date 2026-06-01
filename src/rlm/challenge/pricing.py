@@ -94,10 +94,14 @@ def updated_premium(
     gamma = math.exp(-0.5 * d1**2) / (math.sqrt(2 * math.pi) * underlying_now * sigma_sqrt_t)
     gamma_pnl = 0.5 * gamma * move**2
 
-    # Theta: −entry_premium / (dte_at_entry × 1.4)  per day
+    # Theta with sqrt-time acceleration: theta ∝ 1/√t so decay accelerates near expiry.
+    # Normalization: integral of 1/√t from 0 to T is 2√T, so total decay = entry_premium.
+    # theta_pnl = -entry_premium × (√t_prev − √t_now) / √t_entry
     dte_at_entry = dte_remaining + days_elapsed
-    theta_per_day = -entry_premium / (max(dte_at_entry, 1) * 1.4)
-    theta_pnl = theta_per_day * days_elapsed
+    t_entry = max(dte_at_entry, 1) / 252.0
+    t_prev = max(dte_remaining + days_elapsed, 1) / 252.0
+    t_now = max(dte_remaining, 0.5) / 252.0  # 0.5-day floor avoids explosion at 0 DTE
+    theta_pnl = -entry_premium * (math.sqrt(t_prev) - math.sqrt(t_now)) / math.sqrt(t_entry)
 
     new_price = entry_premium + delta_pnl + gamma_pnl + theta_pnl
     return max(new_price, 0.01)
