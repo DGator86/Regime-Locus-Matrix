@@ -104,6 +104,49 @@ class ChallengeConfig:
     assumed_daily_move_pct: float = 0.008
     """Assumed underlying daily move in a trending regime (0.8% per day)."""
 
+    # ---- Friction / execution cost model ------------------------------------
+    spread_half_width_frac: float = 0.08
+    """Half-spread as a fraction of premium (8%).  Entry + exit cost = 2×half-spread."""
+    commission_per_contract: float = 0.65
+    """Per-leg, per-contract commission in dollars (Tastytrade / IBKR typical rate)."""
+    use_spread_model: bool = True
+    """When True, apply spread and commission friction to every entry and exit."""
+
+    # ---- IV proxy parameters ------------------------------------------------
+    iv_vol_premium: float = 0.15
+    """Fractional markup applied to realized_vol when used as an IV proxy.
+    E.g. realized_vol=0.15 → effective IV = 0.15 × 1.15 = 0.1725."""
+
+    # ---- Event calendar gate ------------------------------------------------
+    block_hours_before_event: int = 24
+    """No new entries within this many hours of a known macro event."""
+    major_event_dates: tuple[str, ...] = ()
+    """ISO date strings (YYYY-MM-DD) of major events: FOMC, CPI, NFP, etc."""
+
+    # ---- Win-rate filter per regime key -------------------------------------
+    regime_win_rate_min: float = 0.40
+    """Minimum rolling win-rate required to enter a trade in a given regime."""
+    regime_win_rate_min_samples: int = 5
+    """Only apply the win-rate gate once this many samples exist for a regime."""
+
+    # ---- Correlation / basket risk gate -------------------------------------
+    max_same_direction_premium_frac: float = 0.50
+    """Max fraction of balance committed to same-direction positions before blocking entry."""
+
+    # ---- Per-stage daily loss limit -----------------------------------------
+    stage1_max_daily_loss_frac: float = 0.075
+    """Halt Stage 1 entries if daily realized loss exceeds 7.5% of balance."""
+    stage2_max_daily_loss_frac: float = 0.050
+    """Halt Stage 2 entries if daily realized loss exceeds 5% of balance."""
+    stage3_max_daily_loss_frac: float = 0.035
+    """Halt Stage 3 entries if daily realized loss exceeds 3.5% of balance."""
+
+    # ---- Theta/IV surface strike selection ----------------------------------
+    use_surface_strike_selection: bool = True
+    """When True, pick strike with highest delta/theta ratio from the OTM range."""
+    strike_search_otm_range: tuple[float, ...] = (0.000, 0.010, 0.020, 0.030, 0.040, 0.050)
+    """OTM fractions to evaluate when use_surface_strike_selection is True."""
+
     def size_fraction(self, balance: float) -> float:
         if balance < 3_000.0:
             return self.stage1_size_frac

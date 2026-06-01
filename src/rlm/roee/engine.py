@@ -62,6 +62,12 @@ class ROEEConfig:
     correlation_exposure_threshold: float | None = None
     correlation_exposure_haircut: float = 0.5
 
+    # ---- Regime persistence cooldown ----------------------------------------
+    regime_min_duration_bars: int = 3
+    """Require this many consecutive same-regime bars before a new entry is allowed."""
+    regime_cooldown_bars: int = 2
+    """Bars to wait after a regime switch before allowing a new entry."""
+
 
 def _hmm_modulators_for_config(row: pd.Series, config: ROEEConfig) -> dict[str, float | bool | str]:
     """
@@ -149,6 +155,14 @@ def apply_roee_policy(
     day_pnl = 0.0
     week_pnl = 0.0
 
+    # Regime persistence cooldown state
+    _prev_regime_key: str | None = None
+    _regime_streak: int = 0
+    _bars_since_switch: int = 0
+
+    regime_streaks: list[int] = []
+    bars_since_regime_switches: list[int] = []
+
     _cb_needs_pnl = cfg.daily_loss_circuit_breaker_pct is not None or cfg.weekly_loss_circuit_breaker_pct is not None
     if _cb_needs_pnl and "pnl_pct" not in df.columns:
         logger.warning(
@@ -171,6 +185,18 @@ def apply_roee_policy(
             pnl_val = float(row.get("pnl_pct") or 0.0)
             day_pnl += pnl_val
             week_pnl += pnl_val
+
+        # Update regime persistence streak counters
+        current_regime_key = str(row.get("regime_key", "") or "")
+        if current_regime_key != _prev_regime_key:
+            _regime_streak = 1
+            _bars_since_switch = 0
+            _prev_regime_key = current_regime_key
+        else:
+            _regime_streak += 1
+            _bars_since_switch += 1
+        regime_streaks.append(_regime_streak)
+        bars_since_regime_switches.append(_bars_since_switch)
 
         mod = _hmm_modulators_for_config(row, cfg)
         day_blocked = cfg.daily_loss_circuit_breaker_pct is not None and day_pnl <= float(
@@ -239,6 +265,31 @@ def apply_roee_policy(
                 float(cfg.vault_uncertainty_threshold) if cfg.vault_uncertainty_threshold is not None else float("nan")
             )
             continue
+        regime_cooldown_blocked = (
+            _regime_streak < cfg.regime_min_duration_bars
+            or _bars_since_switch < cfg.regime_cooldown_bars
+        )
+        if regime_cooldown_blocked:
+            actions.append("hold")
+            strategy_names.append("regime_cooldown")
+            rationales.append("regime_cooldown")
+            size_fractions.append(0.0)
+            target_profit_pcts.append(0.0)
+            max_risk_pcts.append(0.0)
+            leg_counts.append(0)
+            hmm_confidences.append(mod["confidence"])
+            hmm_size_multipliers.append(mod["size_mult"])
+            hmm_trade_flags.append(False)
+            regime_models.append(str(mod["model"]))
+            regime_confidences.append(mod["confidence"])
+            regime_size_multipliers.append(mod["size_mult"])
+            regime_trade_flags.append(False)
+            vault_triggers.append(False)
+            vault_size_multipliers.append(float(cfg.vault_size_multiplier))
+            vault_uncertainties.append(float("nan"))
+            vault_uncertainty_thresholds.append(float("nan"))
+            continue
+
         if not bool(mod["trade"]):
             actions.append("hold")
             strategy_names.append("hmm_gate")
@@ -401,6 +452,8 @@ def apply_roee_policy(
             else float("nan")
         )
 
+    out["regime_streak"] = regime_streaks
+    out["bars_since_regime_switch"] = bars_since_regime_switches
     out["roee_action"] = actions
     out["roee_strategy"] = strategy_names
     out["roee_rationale"] = rationales
