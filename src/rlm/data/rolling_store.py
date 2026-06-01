@@ -95,6 +95,13 @@ class RollingBarsStore:
         df = df.sort_values("timestamp").reset_index(drop=True)
         return df
 
+    def save(self, df: pd.DataFrame) -> None:
+        """Replace stored bars with ``df`` (sorted, deduped by timestamp)."""
+        out = df.copy()
+        out["timestamp"] = pd.to_datetime(out["timestamp"]).dt.normalize()
+        out = out.drop_duplicates(subset=["timestamp"], keep="last").sort_values("timestamp")
+        self._write_csv_atomic(out.reset_index(drop=True))
+
     def update(self, *, today: date | None = None) -> RollingUpdateResult:
         """Fetch any bars newer than the last stored timestamp and append them.
 

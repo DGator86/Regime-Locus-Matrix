@@ -33,8 +33,16 @@ def load_bars(
 
     if selected == DataBackend.LAKE:
         return load_lake_bars(symbol, data_root=data_root, interval=interval)
-    if selected == DataBackend.AUTO and lake_has_bars(symbol, data_root=data_root, interval=interval):
-        return load_lake_bars(symbol, data_root=data_root, interval=interval)
+
+    if selected == DataBackend.AUTO and interval in (None, "", "1d"):
+        from rlm.data.daily_bars_sync import load_best_daily_bars
+
+        try:
+            return load_best_daily_bars(symbol, data_root=data_root)
+        except FileNotFoundError:
+            pass
+        if lake_has_bars(symbol, data_root=data_root, interval=interval):
+            return load_lake_bars(symbol, data_root=data_root, interval=interval)
 
     csv_path = _resolve_bars_csv_path(symbol, data_root)
     if selected in (DataBackend.AUTO, DataBackend.CSV):

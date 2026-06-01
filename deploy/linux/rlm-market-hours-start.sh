@@ -11,6 +11,8 @@ echo "[market-start] Running startup sync (bar refresh/enrichment + preopen brie
 if [[ -x "${PY}" && -d "${ROOT}" ]]; then
   echo "[market-start] decision-tree health (offline snapshot)"
   "${PY}" "${ROOT}/scripts/run_startup_decision_tree_health.py" || echo "[market-start] WARN: startup decision-tree health failed (non-fatal)"
+  echo "[market-start] refresh daily bars CSV (yfinance + 1m lake)"
+  "${PY}" "${ROOT}/scripts/refresh_universe_daily_bars.py" || echo "[market-start] WARN: daily bars refresh failed (non-fatal)"
   echo "[market-start] EODHD 1m backfill (if key set) + collector"
   systemctl start rlm-eodhd-stock-collector.service || true
   "${PY}" "${ROOT}/scripts/run_eodhd_stock_collector.py" --backfill --once || true
