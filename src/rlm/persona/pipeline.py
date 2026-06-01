@@ -93,11 +93,15 @@ class PersonaDecisionPipeline:
                 return None if pd.isna(val) else val
             return default
 
-        # Factor scores from factors_df
-        s_d = float(_last(factors_df, "S_D") or 0.0)
-        s_v = float(_last(factors_df, "S_V") or 0.0)
-        s_l = float(_last(factors_df, "S_L") or 0.0)
-        s_g = float(_last(factors_df, "S_G") or 0.0)
+        # Factor scores from factors_df.  Use explicit None-check so a genuine 0.0
+        # signal (neutral) is preserved rather than being replaced by the fallback.
+        def _float_or(val: object, fallback: float) -> float:
+            return fallback if val is None else float(val)
+
+        s_d = _float_or(_last(factors_df, "S_D"), 0.0)
+        s_v = _float_or(_last(factors_df, "S_V"), 0.0)
+        s_l = _float_or(_last(factors_df, "S_L"), 0.0)
+        s_g = _float_or(_last(factors_df, "S_G"), 0.0)
 
         # Regime labels from policy_df (populated by classify_state_matrix + apply_roee_policy)
         direction_regime = str(_last(policy_df, "direction_regime") or "neutral")

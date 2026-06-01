@@ -40,8 +40,10 @@ class ChallengeConfig:
     """Never hold more than this many open option positions simultaneously."""
 
     # ---- Sizing by account stage (fraction of balance per trade) ------------
-    stage1_size_frac: float = 0.50
-    """$1K – $3K: up to 50% of balance in premium per entry (keeps cash reserve)."""
+    stage1_size_frac: float = 0.30
+    """$1K – $3K: up to 30% of balance in premium per entry.  Reduced from 50% —
+    at $1K a 50% allocation means one -18% stop wipes ~5.4% of the account; 30% keeps
+    single-trade drawdown manageable even on a full stop."""
     stage2_size_frac: float = 0.20
     """$3K – $10K: 20% of balance in premium per trade."""
     stage3_size_frac: float = 0.15
@@ -53,18 +55,22 @@ class ChallengeConfig:
     stage1_profit_target_mult: float = 1.38
     """Stage 1 ($1K–$3K): take profit sooner — compound toward $25K."""
     stage2_profit_target_mult: float = 1.65
-    stage1_trail_activate_mult: float = 1.18
-    """Stage 1: arm trail after +18% on premium."""
-    stop_loss_mult: float = 0.72
-    """Hard stop: close when premium mult falls to this (0.72 ≈ −28% on premium paid)."""
+    stage1_trail_activate_mult: float = 1.22
+    """Stage 1: arm trail after +22% on premium.  Raised from 1.18 to keep the trail
+    floor above breakeven-after-fees when trail_retrace_frac fires."""
+    stop_loss_mult: float = 0.82
+    """Hard stop: close when premium mult falls to this (0.82 ≈ −18% on premium paid).
+    Tightened from 0.72 (−28%) — small accounts cannot absorb large per-trade losses."""
     trail_activate_mult: float = 1.25
     """Arm trailing give-back after premium reaches this multiple of entry."""
     trail_retrace_frac: float = 0.10
     """Exit trail when mult falls this fraction below session peak (after armed)."""
-    min_trail_exit_mult: float = 1.0
-    """Never trail-exit below this multiple of entry premium (1.0 = breakeven)."""
-    min_dte_exit: int = 2
-    """Force-exit when fewer than this many days remain to expiry."""
+    min_trail_exit_mult: float = 1.08
+    """Never trail-exit below this multiple of entry premium.  1.08 ensures at least
+    +8% gain on exit, covering typical bid/ask spread and commissions."""
+    min_dte_exit: int = 1
+    """Force-exit when fewer than this many days remain to expiry.  1 day instead of 2
+    gives positions one extra day of potential movement before forced close."""
 
     # ---- Option parameters --------------------------------------------------
     stage1_dte: int = 7
@@ -81,16 +87,20 @@ class ChallengeConfig:
     scalp_min_confidence: float = 0.70
     weekly_otm_ladder: tuple[float, ...] = (0.02, 0.03, 0.04, 0.05, 0.06)
 
-    stage1_otm_pct: float = 0.010
-    """1% OTM for Stage 1 — lottery-style leverage."""
-    stage2_otm_pct: float = 0.005
-    """0.5% OTM for Stage 2 — near-ATM directional."""
+    stage1_otm_pct: float = 0.020
+    """2% OTM for Stage 1.  Raised from 1% — 1% OTM options have lottery-level win
+    rates; 2% OTM still provides leverage while meaningfully improving delta and the
+    probability of expiring in the money."""
+    stage2_otm_pct: float = 0.010
+    """1% OTM for Stage 2 — near-ATM directional."""
     stage3_otm_pct: float = 0.000
     """ATM for Stage 3 — defined-risk as account approaches PDT threshold."""
 
     # ---- Market parameters (fallbacks when no chain data available) ---------
-    default_iv: float = 0.18
-    """Fallback implied volatility (18% annualised) when no chain data is present."""
+    default_iv: float = 0.20
+    """Fallback implied volatility (20% annualised) when no chain data is present.
+    Slightly higher than historical SPY average to err on the side of conservative
+    premium estimates.  Always prefer a live IV surface over this fallback."""
     assumed_daily_move_pct: float = 0.008
     """Assumed underlying daily move in a trending regime (0.8% per day)."""
 
