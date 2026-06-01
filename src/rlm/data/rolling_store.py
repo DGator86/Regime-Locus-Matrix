@@ -92,6 +92,7 @@ class RollingBarsStore:
         if not self._bars_path.is_file():
             return None
         df = pd.read_csv(self._bars_path, parse_dates=["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
         df = df.sort_values("timestamp").reset_index(drop=True)
         return df
 
@@ -194,7 +195,7 @@ class RollingBarsStore:
         raw.index.name = "timestamp"
         raw.columns = [str(c).lower() for c in raw.columns]
         df = raw.reset_index()
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.normalize()
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None).dt.normalize()
         return df
 
     @staticmethod

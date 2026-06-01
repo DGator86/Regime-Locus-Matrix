@@ -93,7 +93,11 @@ def refresh_symbol_daily_bars(
     if not lake_daily.empty:
         lake_last = _last_bar_date(lake_daily)
         csv_last = _last_bar_date(existing) if existing is not None else None
-        if lake_last is not None and (csv_last is None or lake_last > csv_last):
+        if lake_last is not None and (
+            csv_last is None
+            or lake_last > csv_last
+            or (lake_last == csv_last and len(lake_daily) > len(existing))
+        ):
             parts = [existing, lake_daily] if existing is not None and not existing.empty else [lake_daily]
             combined = pd.concat(parts, ignore_index=True)
             combined["timestamp"] = pd.to_datetime(combined["timestamp"]).dt.normalize()
@@ -140,23 +144,24 @@ def load_best_daily_bars(
     data = get_data_root(data_root)
     csv_path = get_raw_data_dir(data) / f"bars_{sym}.csv"
 
-    candidates: list[tuple[date, pd.DataFrame]] = []
+    candidates: list[tuple[date, int, pd.DataFrame]] = []
 
     if csv_path.is_file():
         df = pd.read_csv(csv_path, parse_dates=["timestamp"]).sort_values("timestamp")
         if not df.empty:
             last = _last_bar_date(df)
             if last is not None:
-                candidates.append((last, df))
+                candidates.append((last, len(df), df))
 
     lake_daily = daily_from_1m_lake(sym, data_root=data)
     if not lake_daily.empty:
         last = _last_bar_date(lake_daily)
         if last is not None:
-            candidates.append((last, lake_daily))
+            candidates.append((last, len(lake_daily), lake_daily))
 
     if not candidates:
         raise FileNotFoundError(f"No daily bars for {sym} (checked {csv_path} and 1m lake)")
 
-    candidates.sort(key=lambda item: item[0])
-    return candidates[-1][1].reset_index(drop=True)
+    # Newest date wins; on a tie prefer the longer history (full CSV over short 1m tail).
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[-1][2].reset_index(drop=True)
