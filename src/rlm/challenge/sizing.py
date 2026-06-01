@@ -19,6 +19,7 @@ class AggressiveSizer:
         balance: float,
         premium_per_share: float,
         cfg: ChallengeConfig,
+        commission_per_contract: float | None = None,
     ) -> tuple[int, float]:
         """Return ``(qty_contracts, actual_spend)``.
 
@@ -27,10 +28,31 @@ class AggressiveSizer:
         when contract rounding leaves a remainder).
 
         Returns ``(0, 0.0)`` when the account cannot afford even one contract.
+
+        Parameters
+        ----------
+        commission_per_contract:
+            Per-leg, per-contract commission in dollars.  When ``None`` the value
+            is taken from ``cfg.commission_per_contract`` (if present) and only
+            applied when ``cfg.use_spread_model`` is True.  Pass ``0.0`` to
+            disable commission adjustment explicitly.
         """
         frac = cfg.size_fraction(balance)
         max_spend = balance * frac
-        cost_per_contract = premium_per_share * 100.0  # 1 contract = 100 shares
+
+        # Determine the per-contract commission to factor into affordability.
+        if commission_per_contract is None:
+            _comm = (
+                cfg.commission_per_contract
+                if getattr(cfg, "use_spread_model", False)
+                else 0.0
+            )
+        else:
+            _comm = commission_per_contract
+
+        # Full cost per contract at entry: premium notional + entry commission.
+        option_notional = premium_per_share * 100.0  # 1 contract = 100 shares
+        cost_per_contract = option_notional + _comm
 
         if cost_per_contract <= 0 or cost_per_contract > balance:
             return 0, 0.0
