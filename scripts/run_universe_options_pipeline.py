@@ -1105,6 +1105,15 @@ def _main_locked() -> int:
             "(set RLM_ALLOW_DAILY_PRIMARY=1 to keep daily)",
             flush=True,
         )
+    if _env_truthy("RLM_ALLOW_DAILY_PRIMARY"):
+        env_bar = (os.environ.get("RLM_PRIMARY_BAR_SIZE") or "1 day").strip() or "1 day"
+        env_dur = (os.environ.get("RLM_PRIMARY_DURATION") or "30 D").strip() or "30 D"
+        if (bar_size, duration) != (env_bar, env_dur):
+            bar_size, duration = env_bar, env_dur
+            print(
+                f"[bars] RLM_ALLOW_DAILY_PRIMARY=1 -> bar_size={bar_size!r} duration={duration!r}",
+                flush=True,
+            )
     if is_intraday_bar_size(bar_size):
         duration = clamp_intraday_duration(duration)
 
