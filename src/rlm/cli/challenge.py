@@ -279,10 +279,6 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print()
     print(f"  Sessions  : {state.session_count}")
     print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
-    if not state.pdt_cleared:
-        print(f"  PDT slots : {state.pdt_slots_remaining} day-trade(s) left (5d rolling)")
-    else:
-        print("  PDT       : cleared (equity at/above target)")
     print()
 
     # Milestones
