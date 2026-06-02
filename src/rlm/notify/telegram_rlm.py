@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -321,6 +322,12 @@ _SEP = "─" * 30
 ACCOUNT_LARGE_OPTIONS = "Account: LARGE OPTIONS (local paper book · not IBKR)"
 ACCOUNT_LARGE_EQUITIES = "Account: LARGE EQUITIES (IBKR paper · stocks only)"
 ACCOUNT_PDT_CHALLENGE = "Account: RLM CHALLENGE ($1K→$100K · cash account · local paper)"
+ACCOUNT_ROBINHOOD = "Account: ROBINHOOD (manual buy · not auto-executed)"
+
+
+def _notify_flag(name: str, *, default: str = "1") -> bool:
+    raw = (os.environ.get(name) or default).strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def _large_options_book_status(root: Path) -> str:
@@ -407,6 +414,58 @@ def _challenge_exit_reason_human(reason: str) -> str:
         "expiry": "expiry / DTE",
         "manual": "manual / engine",
     }.get(reason, reason)
+
+
+def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
+    """Actionable manual-buy alert when a symbol first becomes active in the universe."""
+    sym = str(plan.get("symbol") or "?")
+    pid = str(plan.get("plan_id") or "?")
+    decis = plan.get("decision") or {}
+    regime_key = str(plan.get("regime_key") or decis.get("regime_key") or "")
+    rationale = str(decis.get("rationale") or "")
+    strat_human, structure, combo_qty = _plan_option_structure_lines(plan, None)
+    candidate = plan.get("candidate") or {}
+    thresholds = plan.get("thresholds") or {}
+    target_pct = candidate.get("target_profit_pct")
+    max_risk_pct = candidate.get("max_risk_pct")
+    dte_min = candidate.get("target_dte_min")
+    dte_max = candidate.get("target_dte_max")
+    try:
+        rs = float(plan.get("rank_score") or 0.0)
+        rs_fmt = f"{rs:.4f}"
+    except (TypeError, ValueError):
+        rs_fmt = str(plan.get("rank_score") or "?")
+
+    lines = [
+        f"🟢 ROBINHOOD — BUY IDEA — {sym}",
+        ACCOUNT_ROBINHOOD,
+        _SEP,
+        f"Id:        {pid}",
+        f"Strategy:  {strat_human}",
+        f"Structure: {structure}",
+        f"Combo qty: ×{combo_qty}",
+        f"Rank:      {rs_fmt}",
+    ]
+    if regime_key:
+        lines.append(f"Regime:    {_regime_human(regime_key)}")
+    if rationale and rationale not in (strat_human, structure):
+        lines.append(f"Logic:     {rationale}")
+    if dte_min is not None and dte_max is not None:
+        lines.append(f"DTE window: {dte_min}–{dte_max} days")
+    if target_pct is not None:
+        lines.append(f"Profit aim: +{float(target_pct) * 100:.0f}% on debit")
+    if max_risk_pct is not None:
+        lines.append(f"Risk cap:   {float(max_risk_pct) * 100:.1f}% of book")
+    v_tp = thresholds.get("v_take_profit")
+    v_stop = thresholds.get("v_hard_stop")
+    if v_tp is not None or v_stop is not None:
+        lines.append(_SEP)
+        if v_tp is not None:
+            lines.append(f"Take profit: mark ≥ {_fmt_dollar(v_tp)}")
+        if v_stop is not None:
+            lines.append(f"Hard stop:   mark ≤ {_fmt_dollar(v_stop)}")
+    lines.extend([_SEP, "▶ Open Robinhood and enter this structure manually."])
+    return "\n".join(lines)
 
 
 def _build_challenge_entry_message(pos: dict[str, Any], state: dict[str, Any]) -> str:
@@ -1651,12 +1710,11 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             st.announced_trade_open.discard(pid)
 
     cur_u = _active_plan_ids_from_plans(plans_data)
-    # Disabling universe idea alerts to reduce chatter per user request
-    # for pid in sorted(cur_u - st.last_universe_active_ids):
-    #     out.append(
-    #         f"Alert: New active universe idea — {sym_by_u.get(pid, '?')}  plan={pid} "
-    #         "(universe_trade_plans.json)"
-    #     )
+    if _notify_flag("TELEGRAM_NOTIFY_UNIVERSE", default="1"):
+        for pid in sorted(cur_u - st.last_universe_active_ids):
+            plan = plan_lookup.get(pid)
+            if isinstance(plan, dict) and plan:
+                out.append(_build_robinhood_universe_message(plan))
     st.last_universe_active_ids = cur_u
 
     prev_eq = st.last_equity_open
@@ -1680,7 +1738,8 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             out.append(_build_exit_equity_message(root, pkey, pdat, str(ex)))
 
     st.last_equity_open = now_open
-    out.extend(_challenge_notification_messages(root, st))
+    if _notify_flag("TELEGRAM_NOTIFY_CHALLENGE", default="0"):
+        out.extend(_challenge_notification_messages(root, st))
     return out, {**state_blob, **st.to_json()}
 
 
