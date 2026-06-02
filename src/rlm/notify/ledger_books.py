@@ -3,7 +3,7 @@
 Three sleeves:
 - **Large equities** (IBKR prop-style log) — notional seed via ``RLM_LARGE_EQUITY_BOOK_SEED``.
 - **Large options** (universe monitor CSV) — notional seed via ``RLM_LARGE_OPTIONS_BOOK_SEED``.
-- **PDT / Robinhood challenge** — seed from ``data/challenge/state.json`` (default $1k→$25k).
+- **RLM options challenge** — seed from ``data/challenge/state.json`` (default $1k→$100k, FINRA Rule 4210 compliant).
 
 Ledgers are UTF-8 CSV files under ``data/processed/ledgers/`` for Excel / Google Sheets import.
 """
@@ -349,7 +349,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
     _write_ledger(eq_path, eq_rows)
     paths["large_equities"] = eq_path
 
-    # --- PDT challenge (Robinhood narrative; still RLM dry-run state) ---
+    # --- RLM options challenge ($1K→$100K, FINRA Rule 4210 compliant) ---
     ch_path_state = root / "data" / "challenge" / "state.json"
     pdt_rows: list[list[Any]] = []
     if ch_path_state.is_file():
@@ -361,7 +361,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
         seed = float(data.get("seed", 1000.0))
         pdt_rows.append(
             [
-                "pdt_robinhood",
+                "rlm_challenge",
                 "SEED",
                 "",
                 "",
@@ -369,7 +369,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
                 0.0,
                 seed,
                 seed,
-                "Robinhood-style $1K→$25K challenge (RLM paper state)",
+                "RLM $1K→$100K options challenge (cash account, FINRA Rule 4210 compliant)",
             ]
         )
         th_raw = data.get("trade_history") or []
@@ -388,7 +388,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
             run += pnl
             pdt_rows.append(
                 [
-                    "pdt_robinhood",
+                    "rlm_challenge",
                     "ROUND_TRIP",
                     str(t.get("trade_id", "")),
                     str(t.get("symbol", "")),
@@ -410,7 +410,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
                         pass
         pdt_rows.append(
             [
-                "pdt_robinhood",
+                "rlm_challenge",
                 "OPEN_MTM_SUM",
                 "",
                 "",
@@ -424,7 +424,7 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
     else:
         pdt_rows.append(
             [
-                "pdt_robinhood",
+                "rlm_challenge",
                 "UNINITIALIZED",
                 "",
                 "",
@@ -435,8 +435,8 @@ def write_trading_ledgers(root: Path) -> dict[str, Path]:
                 "Run: rlm challenge --reset",
             ]
         )
-    pdt_path = out_dir / "pdt_robinhood_challenge_book.csv"
+    pdt_path = out_dir / "rlm_challenge_book.csv"
     _write_ledger(pdt_path, pdt_rows)
-    paths["pdt_robinhood"] = pdt_path
+    paths["rlm_challenge"] = pdt_path
 
     return paths

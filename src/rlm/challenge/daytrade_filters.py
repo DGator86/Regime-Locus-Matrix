@@ -1,4 +1,4 @@
-"""Aggressive day-trader sniper filter for the $1K→$25K PDT Challenge.
+"""Aggressive day-trader sniper filter for the $1K→$25K Challenge.
 
 Returns True only for A+ intraday setups that meet the full confluence gate:
 VWAP position, relative volume, pre-market level break, and IV rank.

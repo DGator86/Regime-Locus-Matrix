@@ -30,7 +30,7 @@ class ChallengePipelineConfig:
 
     # Account targets
     starting_equity: float = 1_000.0
-    target_equity: float = 25_000.0
+    target_equity: float = 100_000.0
 
     # Universe — challenge only; restricted to the most liquid intraday/overnight instruments.
     # SPY and QQQ give tight spreads, 0DTE availability, deep options liquidity, and
@@ -43,15 +43,12 @@ class ChallengePipelineConfig:
     elite_setup_score: float = 0.70  # above this → scalp eligible (was 0.78 — too restrictive)
     top_setups_per_session: int = 2  # max entries per session
 
-    # PDT
-    max_day_trades_per_5d: int = 3  # conservative PDT ceiling
-
     # Stage sizing tiers
     stage_sizing: list[StageSizingRule] = field(
         default_factory=lambda: [
             StageSizingRule(1_000, 2_500, premium_outlay_pct=0.12, max_loss_pct=0.025),
             StageSizingRule(2_500, 7_500, premium_outlay_pct=0.15, max_loss_pct=0.030),
-            StageSizingRule(7_500, 25_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
+            StageSizingRule(7_500, 100_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
         ]
     )
 
@@ -114,45 +111,6 @@ class ChallengeAccountState:
 
 
 # ---------------------------------------------------------------------------
-# PDT tracker
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PDTTracker:
-    """Track intraday round-trips for PDT compliance simulation."""
-
-    day_trades_used_last_5d: list[int] = field(default_factory=list)
-    # Each element = count of day-trades used on that calendar date (last 5)
-
-    @property
-    def day_trades_remaining(self) -> int:
-        used = sum(self.day_trades_used_last_5d[-5:])
-        return max(0, 3 - used)
-
-    @property
-    def same_day_exit_allowed(self) -> bool:
-        return self.day_trades_remaining > 0
-
-    @property
-    def must_hold_overnight_if_entered(self) -> bool:
-        return not self.same_day_exit_allowed
-
-    def record_day_trade(self) -> None:
-        """Record one round-trip intraday."""
-        if self.day_trades_used_last_5d:
-            self.day_trades_used_last_5d[-1] += 1
-        else:
-            self.day_trades_used_last_5d.append(1)
-
-    def new_session(self) -> None:
-        """Call at start of each trading day."""
-        self.day_trades_used_last_5d.append(0)
-        if len(self.day_trades_used_last_5d) > 5:
-            self.day_trades_used_last_5d = self.day_trades_used_last_5d[-5:]
-
-
-# ---------------------------------------------------------------------------
 # Derived decision types
 # ---------------------------------------------------------------------------
 
@@ -173,7 +131,7 @@ class TradeModeDecision:
 
     trade_mode: Literal["scalp", "swing_candidate", "no_trade"]
     same_day_exit_allowed: bool
-    pdt_reason: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -214,7 +172,6 @@ class ChallengeDirective:
     directive: Literal["long", "short", "no_trade"]
     trade_mode: Literal["scalp", "swing_candidate", "no_trade"]
     same_day_exit_allowed: bool
-    pdt_slots_remaining: int
     contract_profile: ContractProfileRecommendation
     risk_plan: RiskPlan
     reason_summary: str

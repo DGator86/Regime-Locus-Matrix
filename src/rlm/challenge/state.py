@@ -22,25 +22,19 @@ class ChallengePosition:
     dte_at_entry: int
     entry_date: str
     premium_per_share: float
-    """Option price per share at entry (contracts × 100 = total notional per contract)."""
     qty: int
-    """Number of option contracts held."""
     total_cost: float
-    """Actual cash spent: premium_per_share × qty × 100."""
     delta_at_entry: float
     iv_at_entry: float
 
-    # Updated each session
     dte_remaining: int = 0
     current_premium: float = 0.0
     current_value: float = 0.0
     unrealised_pnl: float = 0.0
     status: Literal["open", "closed"] = "open"
     peak_premium_mult: float = 1.0
-    """High-water mark of current_premium / premium_per_share this leg."""
     trail_armed: bool = False
     regime_key: str = ""
-    """Regime identifier at entry; used for per-regime win-rate tracking."""
 
     @classmethod
     def new(
@@ -106,9 +100,7 @@ class ChallengeTradeRecord:
     entry_date: str
     exit_date: str
     premium_paid: float
-    """Total cash spent at entry."""
     proceeds: float
-    """Total cash received at exit."""
     pnl: float
     pnl_pct: float
     exit_reason: Literal["target", "stop", "trail", "expiry", "manual"]
@@ -131,30 +123,22 @@ class ChallengeState:
     session_count: int = 0
     created_at: str = ""
     last_updated: str = ""
-    pdt_day_trade_counts: list[int] = field(default_factory=list)
-    """Rolling same-day round-trip counts (last five session dates)."""
-    pdt_last_session_date: str = ""
-
-    # ---- Per-regime win-rate history ----------------------------------------
     regime_win_rates: dict[str, list[bool]] = field(default_factory=dict)
-    """Rolling list (last 20) of trade outcomes per regime_key. True=profit."""
-
-    # ---- Daily P&L tracking -------------------------------------------------
     daily_realized_pnl: float = 0.0
-    """Sum of closed-trade P&L for the current calendar day."""
     daily_pnl_date: str = ""
-    """ISO date string of the day to which daily_realized_pnl belongs."""
+    start_date: str = ""
+    elapsed_days: int = 0
 
-    # ---- Derived properties -------------------------------------------------
+    # ---- Intraday exposure tracking (FINRA Rule 4210 amended) ---------------
+    intraday_exposure: float = 0.0
+    """Total premium exposure of all open positions (sum of current_value).
+    For a cash account, this equals total premium at risk intraday."""
 
-    @property
-    def pdt_slots_remaining(self) -> int:
-        used = sum(self.pdt_day_trade_counts[-5:])
-        return max(0, 3 - used)
+    intraday_exposure_peak: float = 0.0
+    """Session high-water mark for intraday exposure."""
 
-    @property
-    def pdt_cleared(self) -> bool:
-        return self.balance >= self.target
+    intraday_margin_calls: int = 0
+    """Count of simulated end-of-day margin calls triggered (for analytics)."""
 
     @property
     def open_market_value(self) -> float:
@@ -162,12 +146,10 @@ class ChallengeState:
 
     @property
     def equity_value(self) -> float:
-        """Cash plus marked value of open option legs."""
         return self.balance + self.open_market_value
 
     @property
     def progress_pct(self) -> float:
-        """Fraction of the journey from seed to target completed (0–1)."""
         span = self.target - self.seed
         if span <= 0:
             return 1.0
@@ -175,7 +157,6 @@ class ChallengeState:
 
     @property
     def current_milestone_idx(self) -> int:
-        """Index of the next un-cleared milestone (0-based)."""
         for i, m in enumerate(MILESTONES):
             if self.equity_value < m.target:
                 return i
@@ -202,8 +183,6 @@ class ChallengeState:
     def total_return_pct(self) -> float:
         return (self.equity_value - self.seed) / self.seed * 100.0
 
-    # ---- Serialisation ------------------------------------------------------
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "balance": self.balance,
@@ -212,13 +191,16 @@ class ChallengeState:
             "session_count": self.session_count,
             "created_at": self.created_at,
             "last_updated": self.last_updated,
-            "pdt_day_trade_counts": list(self.pdt_day_trade_counts),
-            "pdt_last_session_date": self.pdt_last_session_date,
             "open_positions": [p.to_dict() for p in self.open_positions],
             "trade_history": [t.to_dict() for t in self.trade_history],
             "regime_win_rates": {k: list(v) for k, v in self.regime_win_rates.items()},
             "daily_realized_pnl": self.daily_realized_pnl,
             "daily_pnl_date": self.daily_pnl_date,
+            "start_date": self.start_date,
+            "elapsed_days": self.elapsed_days,
+            "intraday_exposure": self.intraday_exposure,
+            "intraday_exposure_peak": self.intraday_exposure_peak,
+            "intraday_margin_calls": self.intraday_margin_calls,
         }
 
     @classmethod
@@ -238,11 +220,14 @@ class ChallengeState:
             session_count=int(d.get("session_count", 0)),
             created_at=str(d.get("created_at", "")),
             last_updated=str(d.get("last_updated", "")),
-            pdt_day_trade_counts=[int(x) for x in d.get("pdt_day_trade_counts", [])],
-            pdt_last_session_date=str(d.get("pdt_last_session_date", "")),
             regime_win_rates=regime_win_rates,
             daily_realized_pnl=float(d.get("daily_realized_pnl", 0.0)),
             daily_pnl_date=str(d.get("daily_pnl_date", "")),
+            start_date=str(d.get("start_date", "")),
+            elapsed_days=int(d.get("elapsed_days", 0)),
+            intraday_exposure=float(d.get("intraday_exposure", 0.0)),
+            intraday_exposure_peak=float(d.get("intraday_exposure_peak", 0.0)),
+            intraday_margin_calls=int(d.get("intraday_margin_calls", 0)),
         )
 
     @classmethod
