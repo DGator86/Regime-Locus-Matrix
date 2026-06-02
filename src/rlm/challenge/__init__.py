@@ -1,4 +1,4 @@
-"""rlm.challenge — $1K→$25K aggressive options dry-run challenge.
+"""rlm.challenge — $1K→$100K aggressive options dry-run challenge.
 
 A self-contained simulation that runs on top of the persona pipeline.
 Separate from IBKR equities and the standard options universe.
@@ -29,7 +29,7 @@ Python API::
 
     from rlm.challenge import ChallengeConfig, ChallengeEngine, ChallengeTracker
 
-    cfg = ChallengeConfig(seed_capital=1_000.0, target_capital=25_000.0)
+    cfg = ChallengeConfig(seed_capital=1_000.0, target_capital=100_000.0)
     tracker = ChallengeTracker(data_root="data")
     engine = ChallengeEngine(cfg, tracker)
 

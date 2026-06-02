@@ -101,9 +101,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--challenge-target",
         type=float,
-        default=25_000.0,
+        default=100_000.0,
         metavar="USD",
-        help="Target for --with-challenge (default: 25000)",
+        help="Target for --with-challenge (default: 100000)",
     )
     add_data_root_arg(p)
     return p.parse_args()

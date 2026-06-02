@@ -1,4 +1,11 @@
-"""ChallengeConfig — parameters for the $1K→$100K dry-run options challenge."""
+"""ChallengeConfig — parameters for the $1K→$100K options challenge.
+
+Compliant with FINRA Rule 4210 (amended), effective June 4, 2026.
+The Pattern Day Trader rule and $25,000 minimum equity requirement have been
+eliminated.  Day trading is now unrestricted for cash accounts and margin
+accounts with ≥$2,000 equity.  The challenge uses a cash account (long options,
+fully paid) — no intraday margin constraint applies beyond not exceeding balance.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +26,16 @@ MILESTONES: tuple[ChallengeMilestone, ...] = (
     ChallengeMilestone(20_000.0,  "Stage II — Momentum",   "4x from Stage I; compound the gains"),
     ChallengeMilestone(50_000.0,  "Stage III — Scale",     "2.5x from Stage II; disciplined sizing"),
     ChallengeMilestone(100_000.0, "Stage IV — Arrival",    "2x from Stage III; $100K target reached"),
+)
+
+
+COMPLIANCE_NOTE = (
+    "This simulator is designed for compliance with FINRA Rule 4210 (amended), "
+    "effective June 4, 2026 (SR-FINRA-2025-017). The Pattern Day Trader designation "
+    "and $25,000 minimum equity requirement have been eliminated. "
+    "Unlimited day trades are permitted. Cash accounts (long options, fully paid) "
+    "have no intraday margin requirement. Margin accounts require $2,000 minimum "
+    "and are subject to real-time intraday exposure monitoring."
 )
 
 
@@ -173,6 +190,26 @@ class ChallengeConfig:
     """Boost kicks in when progress_ratio < this."""
     pace_reduce_threshold: float = 1.30
     """Reduce kicks in when progress_ratio > this."""
+
+    # ---- FINRA Rule 4210 compliance (effective June 4, 2026) ----------------
+    account_type: str = "cash"
+    """Account type: 'cash' (options buying, no margin) or 'margin' (margin account, $2K min).
+    Cash accounts are fully FINRA-compliant for buying long options with any balance.
+    Margin accounts require minimum $2,000 and are subject to intraday exposure monitoring."""
+
+    margin_account_minimum: float = 2_000.0
+    """FINRA minimum equity for margin accounts under amended Rule 4210.
+    Not applicable to cash accounts."""
+
+    intraday_exposure_limit_frac: float = 1.0
+    """Maximum total open option premium exposure as a fraction of current balance.
+    1.0 = exposure limited to full account equity (cash account behavior — always compliant).
+    For margin accounts, brokers may allow > 1.0 based on real-time margin excess."""
+
+    end_of_day_margin_call_enabled: bool = False
+    """When True, simulate end-of-day margin call: force-reduce positions if
+    total open exposure exceeds balance × intraday_exposure_limit_frac at session end.
+    Mirrors the broker 'Path B' (end-of-day calculation) compliance option."""
 
     # ---- Stage-aware helpers ------------------------------------------------
 

@@ -9,7 +9,7 @@ master-stack override). Same columns: per-poll ``unrealized_pnl`` = mark minus e
 **Equities (regime stock leg)** — ``data/processed/equity_trade_log.csv`` (override with
 ``RLM_EQUITY_TRADE_LOG_PATH``): same shape idea (``action``/``quantity`` present); one section when the file exists.
 
-**$1K → $25K PDT options challenge (dry-run)** — ``data/challenge/state.json`` (and
+**$1K → $100K options challenge (dry-run, FINRA Rule 4210 compliant)** — ``data/challenge/state.json`` (and
 optional ``data/challenge/trade_log.csv`` for history): session closed P&L
 from ``trade_history`` with ``exit_date`` on the report day, plus open
 ``unrealised_pnl`` from the state file.
@@ -31,7 +31,7 @@ from rlm.notify.options_paths import options_trade_log_primary, options_trade_lo
 
 _ET = ZoneInfo("America/New_York")
 
-_CH_TITLE = "PDT — Robinhood $1K→$25K (elite paper / dry-run)"
+_CH_TITLE = "RLM Challenge — $1K→$100K (elite paper / dry-run)"
 _EQUITY_TITLE = "Large equities — IBKR prop-style log"
 _OPT_TITLE = "Large options — advanced book ($250k seed default)"
 
@@ -206,7 +206,7 @@ def _format_challenge_eod(root: Path, session_date: date_type) -> str | None:
         return f"<b>{_CH_TITLE}</b>\n  (state.json present but not readable)\n"
     bal = float(data.get("balance", 0.0))
     seed = float(data.get("seed", 1_000.0))
-    target = float(data.get("target", 25_000.0))
+    target = float(data.get("target", 100_000.0))
     progress = 0.0
     if target > seed:
         progress = min(1.0, max(0.0, (bal - seed) / (target - seed)))
@@ -267,7 +267,7 @@ def calculate_daily_pnl(root: Path) -> str:
     try:
         blocks: list[str] = [
             f"<b>[EOD Report] {session_date} (ET)</b>\n"
-            f"<i>Large options book · Large equities (IBKR) · PDT Robinhood elite paper</i>\n"
+            f"<i>Large options book · Large equities (IBKR) · RLM Challenge ($1K→$100K paper)</i>\n"
             f"<i>Ledgers:</i> <code>data/processed/ledgers/*.csv</code>\n"
             f"<i>Options open P&amp;L = latest mark vs plan entry (paper monitor); not realized until exits. "
             f"Big red days are often mark noise, not a closed-book loss.</i>\n",

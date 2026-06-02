@@ -30,7 +30,7 @@ class ChallengePipelineConfig:
 
     # Account targets
     starting_equity: float = 1_000.0
-    target_equity: float = 25_000.0
+    target_equity: float = 100_000.0
 
     # Universe — challenge only; restricted to the most liquid intraday/overnight instruments.
     # SPY and QQQ give tight spreads, 0DTE availability, deep options liquidity, and
@@ -48,7 +48,7 @@ class ChallengePipelineConfig:
         default_factory=lambda: [
             StageSizingRule(1_000, 2_500, premium_outlay_pct=0.12, max_loss_pct=0.025),
             StageSizingRule(2_500, 7_500, premium_outlay_pct=0.15, max_loss_pct=0.030),
-            StageSizingRule(7_500, 25_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
+            StageSizingRule(7_500, 100_000, premium_outlay_pct=0.18, max_loss_pct=0.035),
         ]
     )
 

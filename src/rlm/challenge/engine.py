@@ -5,6 +5,11 @@ Each call to ``run_session`` does two things in order:
   2. Evaluate a new entry: if a slot is available and the persona agrees, open one.
 
 State is loaded from / saved to ``ChallengeTracker`` at the boundaries.
+
+Compliant with FINRA Rule 4210 (amended), effective June 4, 2026.  The challenge
+uses a cash account (long options, fully paid).  Intraday exposure is tracked on
+every open/close; new entries are blocked when proposed exposure would exceed
+balance × intraday_exposure_limit_frac (default 1.0 for cash accounts).
 """
 
 from __future__ import annotations
@@ -97,6 +102,11 @@ class ChallengeEngine:
                 closed_trades.append(record)
                 state.daily_realized_pnl += record.pnl
 
+        # Recalculate intraday exposure after close evaluations
+        state.intraday_exposure = sum(p.current_value for p in state.open_positions)
+        if state.intraday_exposure > state.intraday_exposure_peak:
+            state.intraday_exposure_peak = state.intraday_exposure
+
         # 2. Consider new entry
         new_position: ChallengePosition | None = None
         entry_skip_reason: str | None = None
@@ -131,12 +141,20 @@ class ChallengeEngine:
                         f"${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
                     )
                 else:
+                    proposed_exposure = state.intraday_exposure + (play.estimated_premium * 1 * 100)
+                    exposure_limit = state.balance * self.cfg.intraday_exposure_limit_frac
+                    if proposed_exposure > exposure_limit:
+                        entry_skip_reason = (
+                            f"intraday_exposure_limit: proposed ${proposed_exposure:,.0f} "
+                            f"would exceed limit ${exposure_limit:,.0f} "
+                            f"({self.cfg.intraday_exposure_limit_frac:.0%} of ${state.balance:,.0f})"
+                        )
                     same_dir_spend = sum(
                         p.total_cost for p in state.open_positions if p.direction == play.direction
                     )
-                    if same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
+                    if not entry_skip_reason and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
                         entry_skip_reason = "correlation_exposure_limit"
-                    else:
+                    if not entry_skip_reason:
                         pace_mult = self._compute_pace_size_multiplier(state, session_date)
                         budget_override = state.balance * self.cfg.size_fraction(state.balance) * pace_mult
                         qty, spend = self._sizer.compute(
@@ -176,6 +194,23 @@ class ChallengeEngine:
                             state.open_positions.append(pos)
                             state.balance -= total_entry_cost
                             new_position = pos
+                            # Update intraday exposure after entry
+                            state.intraday_exposure = sum(p.current_value for p in state.open_positions)
+                            if state.intraday_exposure > state.intraday_exposure_peak:
+                                state.intraday_exposure_peak = state.intraday_exposure
+
+        # End-of-day margin call simulation (FINRA Rule 4210 Path B compliance)
+        if self.cfg.end_of_day_margin_call_enabled:
+            eod_exposure = sum(p.current_value for p in state.open_positions)
+            eod_limit = state.balance * self.cfg.intraday_exposure_limit_frac
+            if eod_exposure > eod_limit:
+                state.intraday_margin_calls += 1
+                # Force-close the most expensive position to bring exposure under limit
+                if state.open_positions:
+                    worst = max(state.open_positions, key=lambda p: p.current_value)
+                    record = self._evaluate_position(worst, underlying_price, iv, session_date, state)
+                    if record:
+                        closed_trades.append(record)
 
         state.session_count += 1
         state.last_updated = now_iso
@@ -425,6 +460,6 @@ def _compose_message(
             parts.append("No action this session.")
     if complete:
         parts.append(
-            f"CHALLENGE COMPLETE -- $100,000 target reached in {state.elapsed_days} trading sessions!"
+            f"CHALLENGE COMPLETE -- $100,000 growth target reached in {state.elapsed_days} trading sessions!"
         )
     return "  ".join(parts)

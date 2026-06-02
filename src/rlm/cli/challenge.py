@@ -53,8 +53,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--target",
         type=float,
-        default=25_000.0,
-        help="Target capital (default: $25,000)",
+        default=100_000.0,
+        help="Target capital (default: $100,000)",
     )
     p.add_argument(
         "--underlying-price",
@@ -321,7 +321,7 @@ def _print_summary(summary: object, symbol: str) -> None:
     if s.milestone_cleared:
         print(f"\n  *** MILESTONE CLEARED: {s.milestone_cleared} ***")
     if s.challenge_complete:
-        print("\n  *** CHALLENGE COMPLETE — $25,000 reached! ***")
+        print("\n  *** CHALLENGE COMPLETE — $100,000 growth target reached! ***")
     print()
 
 

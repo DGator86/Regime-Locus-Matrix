@@ -129,6 +129,17 @@ class ChallengeState:
     start_date: str = ""
     elapsed_days: int = 0
 
+    # ---- Intraday exposure tracking (FINRA Rule 4210 amended) ---------------
+    intraday_exposure: float = 0.0
+    """Total premium exposure of all open positions (sum of current_value).
+    For a cash account, this equals total premium at risk intraday."""
+
+    intraday_exposure_peak: float = 0.0
+    """Session high-water mark for intraday exposure."""
+
+    intraday_margin_calls: int = 0
+    """Count of simulated end-of-day margin calls triggered (for analytics)."""
+
     @property
     def open_market_value(self) -> float:
         return sum(p.current_value for p in self.open_positions)
@@ -187,6 +198,9 @@ class ChallengeState:
             "daily_pnl_date": self.daily_pnl_date,
             "start_date": self.start_date,
             "elapsed_days": self.elapsed_days,
+            "intraday_exposure": self.intraday_exposure,
+            "intraday_exposure_peak": self.intraday_exposure_peak,
+            "intraday_margin_calls": self.intraday_margin_calls,
         }
 
     @classmethod
@@ -211,6 +225,9 @@ class ChallengeState:
             daily_pnl_date=str(d.get("daily_pnl_date", "")),
             start_date=str(d.get("start_date", "")),
             elapsed_days=int(d.get("elapsed_days", 0)),
+            intraday_exposure=float(d.get("intraday_exposure", 0.0)),
+            intraday_exposure_peak=float(d.get("intraday_exposure_peak", 0.0)),
+            intraday_margin_calls=int(d.get("intraday_margin_calls", 0)),
         )
 
     @classmethod
