@@ -1,5 +1,5 @@
 """
-ChallengeDecisionPipeline — orchestrates setup ranking, PDT gating,
+ChallengeDecisionPipeline — orchestrates setup ranking,
 trade-mode selection, contract profiling, and risk plan generation.
 """
 
@@ -12,7 +12,6 @@ from rlm.challenge.models import (
     ChallengeDirective,
     ChallengePipelineConfig,
     ContractProfileRecommendation,
-    PDTTracker,
     RiskPlan,
     SetupScoreResult,
     StageSizingRule,
@@ -35,9 +34,9 @@ class ChallengeDecisionPipeline:
         from rlm.challenge.state import ChallengeStateManager
 
         mgr = ChallengeStateManager()
-        state, pdt = mgr.load()
+        state = mgr.load()
         pipeline = ChallengeDecisionPipeline()
-        directive = pipeline.run("SPY", persona_result, state, pdt)
+        directive = pipeline.run("SPY", persona_result, state)
     """
 
     def __init__(self, config: ChallengePipelineConfig | None = None) -> None:
@@ -52,7 +51,6 @@ class ChallengeDecisionPipeline:
         symbol: str,
         persona: PersonaPipelineResult,
         state: ChallengeAccountState,
-        pdt: PDTTracker,
         *,
         current_bar: object | None = None,
         intraday_df: object | None = None,
@@ -77,44 +75,40 @@ class ChallengeDecisionPipeline:
 
         # 0. Universe gate
         if symbol.upper() not in [u.upper() for u in cfg.allowed_universe]:
-            return self._no_trade(symbol, pdt, "symbol not in challenge universe")
+            return self._no_trade(symbol, "symbol not in challenge universe")
 
         # 1. Persona veto passthrough
         if persona.sisko.directive == "no_trade":
-            return self._no_trade(symbol, pdt, f"persona no_trade: {persona.sisko.entry_policy}")
+            return self._no_trade(symbol, f"persona no_trade: {persona.sisko.entry_policy}")
 
         # 1a. Aggressive sniper gate (optional; only active when intraday data is supplied)
         sniper_strategy: str | None = None
         if current_bar is not None and intraday_df is not None and regime is not None:
             if not is_great_daytrade_setup(symbol, regime, current_bar, intraday_df):
-                return self._no_trade(symbol, pdt, "failed aggressive sniper filter")
+                return self._no_trade(symbol, "failed aggressive sniper filter")
             sniper_strategy = get_challenge_strategy(regime)
             if sniper_strategy == "no_trade":
-                return self._no_trade(symbol, pdt, "no aggressive strategy mapped for this regime")
+                return self._no_trade(symbol, "no aggressive strategy mapped for this regime")
             if sniper_strategy not in _SNIPER_DIRECTIONAL_DIRECTIVES:
                 return self._no_trade(
                     symbol,
-                    pdt,
                     f"aggressive sniper strategy {sniper_strategy} requires multi-leg execution",
                 )
             sniper_directive = _SNIPER_DIRECTIONAL_DIRECTIVES[sniper_strategy]
             if persona.sisko.directive != sniper_directive:
                 return self._no_trade(
                     symbol,
-                    pdt,
                     f"aggressive sniper strategy {sniper_strategy} conflicts with persona directive "
                     f"{persona.sisko.directive}",
                 )
-            if not pdt.same_day_exit_allowed:
-                return self._no_trade(symbol, pdt, "aggressive sniper strategy requires an available PDT slot")
 
         # 2. Setup scoring
         score_result = self._score_setup(persona)
         if not score_result.passed_threshold:
-            return self._no_trade(symbol, pdt, f"setup score {score_result.setup_score:.2f} below min")
+            return self._no_trade(symbol, f"setup score {score_result.setup_score:.2f} below min")
 
         # 3. Trade mode (scalp vs swing)
-        mode_decision = self._decide_mode(score_result, pdt)
+        mode_decision = self._decide_mode(score_result)
 
         # 4. Contract profile
         contract_profile = self._contract_profile(mode_decision)
@@ -139,7 +133,7 @@ class ChallengeDecisionPipeline:
         sniper_tag = f" sniper={sniper_strategy}" if sniper_strategy else ""
         reason = (
             f"score={score_result.setup_score:.2f} conviction={score_result.conviction} "
-            f"mode={mode_decision.trade_mode} pdt_remain={pdt.day_trades_remaining}{sniper_tag}"
+            f"mode={mode_decision.trade_mode}{sniper_tag}"
         )
 
         return ChallengeDirective(
@@ -149,7 +143,6 @@ class ChallengeDecisionPipeline:
             directive=directive_val,  # type: ignore[arg-type]
             trade_mode=mode_decision.trade_mode,
             same_day_exit_allowed=mode_decision.same_day_exit_allowed,
-            pdt_slots_remaining=pdt.day_trades_remaining,
             contract_profile=contract_profile,
             risk_plan=risk_plan,
             reason_summary=reason,
@@ -202,26 +195,19 @@ class ChallengeDecisionPipeline:
     # Trade mode
     # ------------------------------------------------------------------
 
-    def _decide_mode(self, score: SetupScoreResult, pdt: PDTTracker) -> TradeModeDecision:
+    def _decide_mode(self, score: SetupScoreResult) -> TradeModeDecision:
 
-        if score.conviction == "elite" and pdt.same_day_exit_allowed:
+        if score.conviction == "elite":
             return TradeModeDecision(
                 trade_mode="scalp",
                 same_day_exit_allowed=True,
-                pdt_reason=f"elite conviction + {pdt.day_trades_remaining} PDT slots",
-            )
-        elif pdt.same_day_exit_allowed:
-            # Strong but not elite → swing; can still take same-day profit
-            return TradeModeDecision(
-                trade_mode="swing_candidate",
-                same_day_exit_allowed=True,
-                pdt_reason="swing — same-day profit allowed if target hit",
+                reason="elite conviction — scalp mode",
             )
         else:
             return TradeModeDecision(
                 trade_mode="swing_candidate",
-                same_day_exit_allowed=False,
-                pdt_reason="no PDT slots — must be willing to hold overnight",
+                same_day_exit_allowed=True,
+                reason="swing — same-day profit allowed if target hit",
             )
 
     # ------------------------------------------------------------------
@@ -265,7 +251,7 @@ class ChallengeDecisionPipeline:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _no_trade(self, symbol: str, pdt: PDTTracker, reason: str) -> ChallengeDirective:
+    def _no_trade(self, symbol: str, reason: str) -> ChallengeDirective:
         cfg = self._cfg
         empty_profile = ContractProfileRecommendation(
             target_delta_min=0.0,
@@ -293,8 +279,7 @@ class ChallengeDecisionPipeline:
             conviction="low",
             directive="no_trade",
             trade_mode="no_trade",
-            same_day_exit_allowed=pdt.same_day_exit_allowed,
-            pdt_slots_remaining=pdt.day_trades_remaining,
+            same_day_exit_allowed=True,
             contract_profile=empty_profile,
             risk_plan=empty_risk,
             reason_summary=reason,

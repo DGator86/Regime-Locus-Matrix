@@ -24,13 +24,18 @@ from rlm.challenge.config import ChallengeConfig
 # ---------------------------------------------------------------------------
 
 CHALLENGE_PARAM_SPACE: dict[str, list[Any]] = {
-    "stop_loss_mult": [0.78, 0.82, 0.86],
+    "stage1_stop_loss_mult": [0.75, 0.80, 0.85],
+    "stage2_stop_loss_mult": [0.78, 0.82, 0.86],
+    "stage3_stop_loss_mult": [0.82, 0.85, 0.88],
+    "stage4_stop_loss_mult": [0.85, 0.88, 0.91],
     "stage1_size_frac": [0.25, 0.30, 0.35],
     "stage2_size_frac": [0.15, 0.20, 0.25],
-    "stage3_size_frac": [0.10, 0.15, 0.20],
-    "stage1_profit_target_mult": [1.25, 1.38, 1.50],
-    "stage2_profit_target_mult": [1.50, 1.65, 1.80],
+    "stage3_size_frac": [0.12, 0.15, 0.18],
+    "stage4_size_frac": [0.08, 0.10, 0.12],
+    "stage1_profit_target_mult": [1.38, 1.50, 1.65],
+    "stage2_profit_target_mult": [1.50, 1.75, 2.00],
     "stage3_profit_target_mult": [1.75, 2.00, 2.25],
+    "stage4_profit_target_mult": [1.50, 1.75, 2.00],
     "trail_retrace_frac": [0.08, 0.10, 0.12],
     "regime_win_rate_min": [0.35, 0.40, 0.45],
     "spread_half_width_frac": [0.06, 0.08, 0.10],
@@ -98,7 +103,7 @@ def _score_config(cfg: ChallengeConfig, splits: list[tuple[pd.DataFrame, pd.Data
 
         # Apply stop-loss / profit-target clamp per period
         clipped = scaled.clip(
-            lower=(cfg.stop_loss_mult - 1.0) * size_frac,
+            lower=(cfg.stop_loss_for(cfg.seed_capital) - 1.0) * size_frac,
             upper=(cfg.profit_target_for(cfg.seed_capital) - 1.0) * size_frac,
         )
         # Deduct round-trip friction estimate

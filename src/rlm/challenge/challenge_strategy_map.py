@@ -1,4 +1,4 @@
-"""Regime-to-strategy map for the $1K→$25K PDT Challenge aggressive sniper.
+"""Regime-to-strategy map for the $1K→$25K Challenge aggressive sniper.
 
 ``STRATEGY_MAP_CHALLENGE`` maps a four-element regime tuple
     (direction, vol, liquidity, dealer_flow)

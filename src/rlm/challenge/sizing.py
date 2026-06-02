@@ -20,6 +20,7 @@ class AggressiveSizer:
         premium_per_share: float,
         cfg: ChallengeConfig,
         commission_per_contract: float | None = None,
+        budget_override: float | None = None,
     ) -> tuple[int, float]:
         """Return ``(qty_contracts, actual_spend)``.
 
@@ -38,7 +39,7 @@ class AggressiveSizer:
             disable commission adjustment explicitly.
         """
         frac = cfg.size_fraction(balance)
-        max_spend = balance * frac
+        max_spend = budget_override if budget_override is not None else balance * frac
 
         # Determine the per-contract commission to factor into affordability.
         if commission_per_contract is None:

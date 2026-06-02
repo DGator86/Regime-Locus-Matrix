@@ -320,7 +320,7 @@ _SEP = "─" * 30
 # User-facing labels for the three parallel paper sleeves.
 ACCOUNT_LARGE_OPTIONS = "Account: LARGE OPTIONS (local paper book · not IBKR)"
 ACCOUNT_LARGE_EQUITIES = "Account: LARGE EQUITIES (IBKR paper · stocks only)"
-ACCOUNT_PDT_CHALLENGE = "Account: PDT CHALLENGE ($1K→$25K · local paper)"
+ACCOUNT_PDT_CHALLENGE = "Account: RLM CHALLENGE ($1K→$100K · cash account · local paper)"
 
 
 def _large_options_book_status(root: Path) -> str:
@@ -412,7 +412,7 @@ def _challenge_exit_reason_human(reason: str) -> str:
 def _build_challenge_entry_message(pos: dict[str, Any], state: dict[str, Any]) -> str:
     bal = state.get("balance")
     lines = [
-        f"🟢 PDT CHALLENGE — NEW POSITION — {pos.get('symbol', '?')}",
+        f"🟢 RLM CHALLENGE — NEW POSITION — {pos.get('symbol', '?')}",
         ACCOUNT_PDT_CHALLENGE,
         _SEP,
         f"Id:        {pos.get('position_id', '?')}",
@@ -433,7 +433,7 @@ def _build_challenge_exit_message(trade: dict[str, Any]) -> str:
     ba = trade.get("balance_after")
     reason = _challenge_exit_reason_human(str(trade.get("exit_reason", "")))
     lines = [
-        f"✅ PDT CHALLENGE — CLOSED — {trade.get('symbol', '?')}",
+        f"✅ RLM CHALLENGE — CLOSED — {trade.get('symbol', '?')}",
         ACCOUNT_PDT_CHALLENGE,
         _SEP,
         f"Trade P&L:      {_fmt_pnl_row({'unrealized_pnl': pnl, 'unrealized_pnl_pct': trade.get('pnl_pct', '')})}",
@@ -736,10 +736,10 @@ def _positions_challenge_section(
     max_positions: int,
     live_asof: str | None = None,
 ) -> list[str]:
-    """Open PDT challenge positions + balance (``data/challenge/state.json``)."""
+    """Open RLM challenge positions + balance (``data/challenge/state.json``)."""
     ch_path = default_paths(root)["challenge_state"]
     lines: list[str] = [
-        "─── PDT CHALLENGE ($1K→$25K · local paper) ───",
+        "─── RLM CHALLENGE ($1K→$100K · cash account · local paper) ───",
         f"    {ACCOUNT_PDT_CHALLENGE}",
     ]
     if not ch_path.is_file():
@@ -929,7 +929,7 @@ def _large_options_position_lines(
 
 
 def build_universe_and_positions(root: Path, *, max_active: int = 12, max_positions: int = 20) -> str:
-    """Positions grouped by trading account (large options, large equities, PDT); then active universe."""
+    """Positions grouped by trading account (large options, large equities, RLM challenge); then active universe."""
     from rlm.notify.position_marks import refresh_all_position_marks
 
     live_bundle = refresh_all_position_marks(root)
@@ -1212,20 +1212,20 @@ def _fmt_pnl(v: float) -> str:
 
 
 def _challenge_pnl_section(root: Path) -> str:
-    """Build the PDT Challenge section of the PnL report."""
+    """Build the RLM Challenge section of the PnL report."""
     p = default_paths(root)
     state_path = p["challenge_state"]
     if not state_path.is_file():
-        return "--- PDT (Robinhood $1K → $25K · elite paper track) ---\n  (no challenge state — run `rlm challenge --reset`)"
+        return "--- RLM Challenge ($1K → $100K · cash account · paper) ---\n  (no challenge state — run `rlm challenge --reset`)"
 
     try:
         raw = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return "--- PDT (Robinhood $1K → $25K · elite paper track) ---\n  (unreadable state file)"
+        return "--- RLM Challenge ($1K → $100K · cash account · paper) ---\n  (unreadable state file)"
 
     balance = float(raw.get("balance", 0))
     seed = float(raw.get("seed", 1000))
-    target = float(raw.get("target", 25000))
+    target = float(raw.get("target", 100_000))
     span = target - seed
     progress = min(100.0, max(0.0, (balance - seed) / span * 100.0)) if span > 0 else 100.0
 
@@ -1275,7 +1275,7 @@ def _challenge_pnl_section(root: Path) -> str:
             pass
 
     lines = [
-        "--- PDT (Robinhood $1K → $25K · elite paper track) ---",
+        "--- RLM Challenge ($1K → $100K · cash account · paper) ---",
         f"Balance:   ${balance:,.2f}",
         f"Seed:      ${seed:,.2f}",
         f"Progress:  {progress:.1f}% ({milestone_label})",
@@ -1283,7 +1283,7 @@ def _challenge_pnl_section(root: Path) -> str:
         f"This week (realized, exit date): {_fmt_pnl(weekly)}",
         f"Net vs seed (cash):              {_fmt_pnl(all_time)}",
         f"Open MTM (unrealized):           {_fmt_pnl(open_mtm)}",
-        "Ledger:    data/processed/ledgers/pdt_robinhood_challenge_book.csv",
+        "Ledger:    data/processed/ledgers/rlm_challenge_book.csv",
     ]
     n_trades = len(trade_history)
     if n_trades:
@@ -1332,7 +1332,7 @@ def _ibkr_balance_section() -> str:
 
 
 def build_pnl_text(root: Path) -> str:
-    """Full P&L report across all three systems: equities, options, PDT challenge + IBKR balances."""
+    """Full P&L report across all three systems: equities, options, RLM challenge + IBKR balances."""
     ledger_note = ""
     try:
         write_trading_ledgers(root)
@@ -1340,7 +1340,7 @@ def build_pnl_text(root: Path) -> str:
             "\n--- LEDGERS (CSV for Sheets/Excel) ---\n"
             "  data/processed/ledgers/large_equities_book.csv\n"
             "  data/processed/ledgers/large_options_book.csv\n"
-            "  data/processed/ledgers/pdt_robinhood_challenge_book.csv\n"
+            "  data/processed/ledgers/rlm_challenge_book.csv\n"
         )
     except Exception as exc:  # noqa: BLE001
         ledger_note = f"\n(ledgers sync error: {exc})\n"
