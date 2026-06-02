@@ -10,7 +10,12 @@ import pytest
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="fcntl pipeline lock is Linux-only")
 
-from rlm.utils.pipeline_lock import PipelineLockError, universe_pipeline_lock
+from rlm.utils.pipeline_lock import (
+    PipelineLockError,
+    universe_pipeline_lock,
+    universe_pipeline_lock_age_sec,
+    universe_pipeline_lock_recent,
+)
 
 
 def test_universe_pipeline_lock_blocks_second_holder(tmp_path: Path) -> None:
@@ -18,6 +23,14 @@ def test_universe_pipeline_lock_blocks_second_holder(tmp_path: Path) -> None:
         with pytest.raises(PipelineLockError):
             with universe_pipeline_lock(tmp_path):
                 pass
+
+
+def test_universe_pipeline_lock_recent_when_lock_file_fresh(tmp_path: Path) -> None:
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    (processed / ".universe_pipeline.lock").write_text("pid=1\n", encoding="utf-8")
+    assert universe_pipeline_lock_age_sec(tmp_path) is not None
+    assert universe_pipeline_lock_recent(tmp_path, max_age_sec=3600.0) is True
 
 
 def test_universe_pipeline_lock_released_after_context(tmp_path: Path) -> None:

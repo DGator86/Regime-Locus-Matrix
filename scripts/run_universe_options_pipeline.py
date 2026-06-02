@@ -308,6 +308,7 @@ def _prepare_symbol(
     serialize_ibkr: bool,
     short_dte: bool,
     processed_dir: Path | None,
+    write_feature_csv: bool = True,
     gate: SystemGate | None = None,
     bars: pd.DataFrame | None = None,
     factor_option_chain: pd.DataFrame | None = None,
@@ -358,7 +359,7 @@ def _prepare_symbol(
         purge_bars=purge_bars,
     )
 
-    if processed_dir is not None:
+    if processed_dir is not None and write_feature_csv:
         processed_dir.mkdir(parents=True, exist_ok=True)
         feats.to_csv(processed_dir / f"features_{sym}.csv")
         out.to_csv(processed_dir / f"forecast_features_{sym}.csv")
@@ -1017,6 +1018,11 @@ def _main_locked() -> int:
     p.add_argument("--kronos-model", default="NeoQuasar/Kronos-small")
     p.add_argument("--kronos-stride", type=int, default=1)
     p.add_argument("--kronos-samples", type=int, default=5)
+    p.add_argument(
+        "--no-feature-csv",
+        action="store_true",
+        help="Skip writing features_{SYM}.csv and forecast_features_{SYM}.csv (or set RLM_SKIP_FEATURE_CSV=1).",
+    )
     args = p.parse_args()
 
     try:
@@ -1027,6 +1033,9 @@ def _main_locked() -> int:
 
     syms = _parse_symbols(args.symbols)
     processed_dir = (DATA_ROOT / "data" / "processed").resolve()
+    write_feature_csv = not bool(args.no_feature_csv) and not _env_truthy("RLM_SKIP_FEATURE_CSV")
+    if not write_feature_csv:
+        print("[universe] skipping per-symbol feature CSV dumps (--no-feature-csv or RLM_SKIP_FEATURE_CSV)", flush=True)
     live_model: LiveRegimeModelConfig | None = None
     live_model_bootstrapped = False
     live_model_path: Path | None = None
@@ -1128,8 +1137,13 @@ def _main_locked() -> int:
             return None
         return f"outside_entry_window ({session_label()})"
 
-    bars_by_index: list[pd.DataFrame | None] = [None] * len(syms)
+    n_syms = len(syms)
+    bars_by_index: list[pd.DataFrame | None] = [None] * n_syms
     for i, sym in enumerate(syms):
+        print(
+            f"[universe] {i + 1}/{n_syms} {sym} fetch bars bar_size={bar_size!r} duration={duration!r}",
+            flush=True,
+        )
         orsn = _outside_reason()
         if orsn is not None:
             results[i] = {
@@ -1172,6 +1186,11 @@ def _main_locked() -> int:
             prefetch_syms.append(sym)
             ts_map[sym] = df_ix.index[-1]
         if prefetch_syms:
+            print(
+                f"[universe] Massive factor chains for {len(prefetch_syms)} symbols "
+                f"(workers={max(1, int(args.massive_workers))})",
+                flush=True,
+            )
             fp = _factor_snapshot_params(args.massive_limit)
             batch_fc = massive_option_chains_from_client(
                 client,
@@ -1191,6 +1210,12 @@ def _main_locked() -> int:
         bdf = bars_by_index[i]
         if bdf is None:
             continue
+        fc = factor_chains.get(sym)
+        print(
+            f"[universe] {i + 1}/{n_syms} {sym} prepare n_bars={len(bdf)} "
+            f"factor_chain={'yes' if fc is not None and not fc.empty else 'no'}",
+            flush=True,
+        )
         try:
             base, decision, ts = _prepare_symbol(
                 sym,
@@ -1211,9 +1236,10 @@ def _main_locked() -> int:
                 serialize_ibkr=bool(args.serialize_ibkr),
                 short_dte=bool(args.short_dte),
                 processed_dir=processed_dir,
+                write_feature_csv=write_feature_csv,
                 gate=gate,
                 bars=bdf,
-                factor_option_chain=factor_chains.get(sym),
+                factor_option_chain=fc,
             )
         except Exception as e:
             results[i] = {

@@ -55,6 +55,13 @@ When you change this codebase in a session, **commit** the intended files, then 
 
 **Exception:** If SSH or MCP auth fails or the user has no deploy path, say so once and state what is blocked — still avoid generic “run these steps” without attempting them from the environment you have.
 
+### Universe scan performance (VPS)
+
+- **Stock bars:** `RLM_STOCK_BARS_SOURCE=eodhd` reads `data/stocks/{SYM}/1m/*.parquet` (lake). Bar load is fast; scan time is dominated by **Massive option chains**, **Markov/HMM fit**, and optional **per-symbol CSV dumps**.
+- **Fast routine rescans:** `RLM_ALLOW_DAILY_PRIMARY=1` (daily bars, not auto-upgraded to 1m/30D), `RLM_SKIP_FEATURE_CSV=1`, `RLM_MASSIVE_WORKERS=4` (or in `RLM_PIPELINE_ARGS`). Apply on VPS: `python3 scripts/migrate_vps_fast_universe_env.py`.
+- **Alerts:** `TELEGRAM_NOTIFY_UNIVERSE=1`, `TELEGRAM_NOTIFY_CHALLENGE=0`. Health checks suppress stale `universe_trade_plans.json` while `.universe_pipeline.lock` is held.
+- **Do not** pass `--no-kronos` to `run_universe_options_pipeline.py` (unsupported); Kronos is controlled via `live_regime_model.json`.
+
 ### Gotchas
 
 - Use `python3` (not `python`); the VM has Python 3.12 but no `python` symlink.

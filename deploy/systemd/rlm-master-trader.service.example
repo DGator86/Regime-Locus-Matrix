@@ -1,8 +1,11 @@
 # Copy to /etc/systemd/system/rlm-master-trader.service, adjust paths if needed.
 # First-time PDT challenge: cd repo && rlm challenge --reset --symbol SPY
-# ``scripts/run_master.py`` → ``run_everything.py --master --with-equity --with-challenge``; ``--master``
-# enables the PDT sleeve by default (disable with ``--skip-challenge`` on the command line).
-# Periodic ``rlm challenge --run`` ticks match ``--interval`` (60s default); see ``--challenge-interval``.
+# ``scripts/run_master.py`` → ``run_everything.py --master --with-equity``; challenge is usually
+# ``rlm-challenge-loop.service`` with ``RLM_SKIP_MASTER_CHALLENGE=1`` in .env (see migrate script).
+# Fast universe profile in .env (``python3 scripts/migrate_vps_fast_universe_env.py``):
+#   RLM_ALLOW_DAILY_PRIMARY=1  RLM_SKIP_FEATURE_CSV=1  RLM_STOCK_BARS_SOURCE=eodhd
+#   RLM_PIPELINE_ARGS=--ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4
+#   TELEGRAM_NOTIFY_UNIVERSE=1  TELEGRAM_NOTIFY_CHALLENGE=0
 # Then: systemctl daemon-reload && systemctl enable --now rlm-master-trader
 #
 # Enable exactly ONE master trading loop: this unit OR regime-locus-master.service OR

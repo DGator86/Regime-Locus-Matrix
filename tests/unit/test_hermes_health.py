@@ -173,6 +173,41 @@ def test_staleness_ignores_trade_log_when_no_active_plans(tmp_path: Path, monkey
     assert stale == []
 
 
+def test_staleness_suppresses_plans_while_pipeline_lock_recent(tmp_path: Path, monkeypatch) -> None:
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    plans = {"results": [{"symbol": "SPY", "status": "active", "plan_id": "p1"}]}
+    plans_path = processed / "universe_trade_plans.json"
+    plans_path.write_text(json.dumps(plans), encoding="utf-8")
+    old = os.path.getmtime(plans_path) - 3 * 3600
+    os.utime(plans_path, (old, old))
+    (processed / ".universe_pipeline.lock").write_text("pid=99999\n", encoding="utf-8")
+
+    monkeypatch.setattr(health, "_STALE_HOURS", {"universe_trade_plans.json": 0.1})
+    monkeypatch.setattr(health, "universe_pipeline_lock_recent", lambda root: True)
+
+    stale = health._check_staleness(tmp_path)
+    assert stale == []
+
+
+def test_gather_health_sets_pipeline_in_progress(tmp_path: Path, monkeypatch) -> None:
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    (processed / ".universe_pipeline.lock").write_text("pid=1\n", encoding="utf-8")
+
+    monkeypatch.setattr(health, "_check_services", lambda root, services: [])
+    monkeypatch.setattr(health, "_check_disk", lambda root: [])
+    monkeypatch.setattr(health, "_check_staleness", lambda root: [])
+    monkeypatch.setattr(health, "_check_logs", lambda root, services: [])
+    monkeypatch.setattr(health, "_run_doctor", lambda root: "")
+    monkeypatch.setattr(health, "session_label", lambda: "rth")
+    monkeypatch.setattr(health, "is_scanner_window_open", lambda: True)
+    monkeypatch.setattr(health, "universe_pipeline_lock_recent", lambda root: True)
+
+    report = health._gather_report(tmp_path, ["rlm-master-trader"])
+    assert report.pipeline_in_progress is True
+
+
 def test_health_degrades_on_recent_errors(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         health,

@@ -23,6 +23,7 @@ from rlm.notify.options_paths import (
     options_trade_log_mtime_paths,
 )
 from rlm.utils.market_hours import is_scanner_window_open, session_label
+from rlm.utils.pipeline_lock import universe_pipeline_lock_recent
 
 _DEFAULT_SERVICES = [
     "regime-locus-master",
@@ -96,6 +97,7 @@ class HealthReport:
     recent_errors: list[str] = field(default_factory=list)
     doctor_output: str = ""
     session: str = "unknown"
+    pipeline_in_progress: bool = False
     overall_ok: bool = True
 
     def to_text(self) -> str:
@@ -113,6 +115,8 @@ class HealthReport:
                 lines.append(f"    {e}")
         if self.doctor_output:
             lines.append(f"  rlm doctor: {self.doctor_output[:300]}")
+        if self.pipeline_in_progress:
+            lines.append("  Universe pipeline: in progress (lock held)")
         lines.append(f"  Overall: {'OK' if self.overall_ok else 'DEGRADED'}")
         return "\n".join(lines)
 
@@ -234,6 +238,7 @@ def _check_staleness(root: Path) -> list[str]:
     processed = root / "data" / "processed"
     stale: list[str] = []
     now = time.time()
+    pipeline_busy = universe_pipeline_lock_recent(root)
     active_plans_count = 0
     open_opts = count_open_option_monitor_positions(root)
     open_eq = _count_open_equity_positions(root)
@@ -263,6 +268,8 @@ def _check_staleness(root: Path) -> list[str]:
             continue
         fpath = processed / fname
         if not fpath.exists():
+            continue
+        if fname == "universe_trade_plans.json" and pipeline_busy:
             continue
         if fname == "universe_trade_plans.json" and active_plans_count == 0:
             continue
@@ -381,6 +388,7 @@ def _gather_report(root: Path, services: list[str]) -> HealthReport:
     report.services = _check_services(root, services)
     report.disk = _check_disk(root)
     report.stale_files = _check_staleness(root)
+    report.pipeline_in_progress = universe_pipeline_lock_recent(root)
     report.recent_errors = _check_logs(root, services)
     report.doctor_output = _run_doctor(root)
     report.session = session_label()

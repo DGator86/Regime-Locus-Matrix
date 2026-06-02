@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -50,6 +51,37 @@ def universe_pipeline_lock(root: Path, *, name: str = "universe_pipeline") -> It
         except OSError:
             pass
         fh.close()
+
+
+def universe_pipeline_lock_path(root: Path, *, name: str = "universe_pipeline") -> Path:
+    """Lock file path under ``data/processed/.{name}.lock``."""
+    return root / "data" / "processed" / f".{name}.lock"
+
+
+def universe_pipeline_lock_age_sec(root: Path, *, name: str = "universe_pipeline") -> float | None:
+    """Seconds since lock file mtime, or ``None`` if missing."""
+    path = universe_pipeline_lock_path(root, name=name)
+    if not path.is_file():
+        return None
+    return max(0.0, time.time() - path.stat().st_mtime)
+
+
+def universe_pipeline_lock_recent(
+    root: Path,
+    *,
+    name: str = "universe_pipeline",
+    max_age_sec: float | None = None,
+) -> bool:
+    """True when a lock file exists and is younger than ``max_age_sec`` (default: pipeline timeout env)."""
+    age = universe_pipeline_lock_age_sec(root, name=name)
+    if age is None:
+        return False
+    if max_age_sec is None:
+        try:
+            max_age_sec = float((os.environ.get("RLM_PIPELINE_TIMEOUT_SEC") or "2700").strip())
+        except ValueError:
+            max_age_sec = 2700.0
+    return age <= max(60.0, float(max_age_sec))
 
 
 def exit_if_universe_pipeline_busy(root: Path, *, name: str = "universe_pipeline") -> None:

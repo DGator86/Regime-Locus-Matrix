@@ -81,6 +81,10 @@ def _pipeline_cmd_has_flag(cmd: list[str], flag: str) -> bool:
     return any(str(a).startswith(prefix) for a in cmd)
 
 
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
     """Append pipeline sizing flags from env when not already present (CLI or RLM_PIPELINE_ARGS)."""
     if not _pipeline_cmd_has_flag(cmd, "--max-active-per-symbol"):
@@ -91,6 +95,12 @@ def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
         top = (os.environ.get("RLM_UNIVERSE_TOP") or "").strip()
         if top:
             cmd.extend(["--top", top])
+    if not _pipeline_cmd_has_flag(cmd, "--massive-workers"):
+        mw = (os.environ.get("RLM_MASSIVE_WORKERS") or "").strip()
+        if mw:
+            cmd.extend(["--massive-workers", mw])
+    if not _pipeline_cmd_has_flag(cmd, "--no-feature-csv") and _env_truthy("RLM_SKIP_FEATURE_CSV"):
+        cmd.append("--no-feature-csv")
 
 
 def main() -> int:
