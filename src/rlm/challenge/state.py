@@ -22,11 +22,11 @@ class ChallengePosition:
     dte_at_entry: int
     entry_date: str
     premium_per_share: float
-    """Option price per share at entry (contracts × 100 = total notional per contract)."""
+    """Option price per share at entry (contracts x 100 = total notional per contract)."""
     qty: int
     """Number of option contracts held."""
     total_cost: float
-    """Actual cash spent: premium_per_share × qty × 100."""
+    """Actual cash spent: premium_per_share x qty x 100."""
     delta_at_entry: float
     iv_at_entry: float
 
@@ -131,9 +131,6 @@ class ChallengeState:
     session_count: int = 0
     created_at: str = ""
     last_updated: str = ""
-    pdt_day_trade_counts: list[int] = field(default_factory=list)
-    """Rolling same-day round-trip counts (last five session dates)."""
-    pdt_last_session_date: str = ""
 
     # ---- Per-regime win-rate history ----------------------------------------
     regime_win_rates: dict[str, list[bool]] = field(default_factory=dict)
@@ -145,16 +142,13 @@ class ChallengeState:
     daily_pnl_date: str = ""
     """ISO date string of the day to which daily_realized_pnl belongs."""
 
+    # ---- Time tracking for pace calculation ---------------------------------
+    start_date: str = ""
+    """ISO date when challenge started (set on first session)."""
+    elapsed_days: int = 0
+    """Trading sessions completed."""
+
     # ---- Derived properties -------------------------------------------------
-
-    @property
-    def pdt_slots_remaining(self) -> int:
-        used = sum(self.pdt_day_trade_counts[-5:])
-        return max(0, 3 - used)
-
-    @property
-    def pdt_cleared(self) -> bool:
-        return self.balance >= self.target
 
     @property
     def open_market_value(self) -> float:
@@ -167,7 +161,7 @@ class ChallengeState:
 
     @property
     def progress_pct(self) -> float:
-        """Fraction of the journey from seed to target completed (0–1)."""
+        """Fraction of the journey from seed to target completed (0-1)."""
         span = self.target - self.seed
         if span <= 0:
             return 1.0
@@ -212,13 +206,13 @@ class ChallengeState:
             "session_count": self.session_count,
             "created_at": self.created_at,
             "last_updated": self.last_updated,
-            "pdt_day_trade_counts": list(self.pdt_day_trade_counts),
-            "pdt_last_session_date": self.pdt_last_session_date,
             "open_positions": [p.to_dict() for p in self.open_positions],
             "trade_history": [t.to_dict() for t in self.trade_history],
             "regime_win_rates": {k: list(v) for k, v in self.regime_win_rates.items()},
             "daily_realized_pnl": self.daily_realized_pnl,
             "daily_pnl_date": self.daily_pnl_date,
+            "start_date": self.start_date,
+            "elapsed_days": self.elapsed_days,
         }
 
     @classmethod
@@ -238,11 +232,11 @@ class ChallengeState:
             session_count=int(d.get("session_count", 0)),
             created_at=str(d.get("created_at", "")),
             last_updated=str(d.get("last_updated", "")),
-            pdt_day_trade_counts=[int(x) for x in d.get("pdt_day_trade_counts", [])],
-            pdt_last_session_date=str(d.get("pdt_last_session_date", "")),
             regime_win_rates=regime_win_rates,
             daily_realized_pnl=float(d.get("daily_realized_pnl", 0.0)),
             daily_pnl_date=str(d.get("daily_pnl_date", "")),
+            start_date=str(d.get("start_date", "")),
+            elapsed_days=int(d.get("elapsed_days", 0)),
         )
 
     @classmethod
