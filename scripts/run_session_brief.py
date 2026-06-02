@@ -43,7 +43,14 @@ def main() -> int:
         str(out),
     ]
     print(f"[session-brief] phase={args.phase} -> {' '.join(cmd)}", flush=True)
-    return int(subprocess.call(cmd, cwd=str(ROOT)))
+    from rlm.utils.subprocess_run import run_with_timeout
+
+    return run_with_timeout(
+        cmd,
+        cwd=ROOT,
+        env_key="RLM_PIPELINE_TIMEOUT_SEC",
+        default_timeout=2700.0,
+    )
 
 
 if __name__ == "__main__":

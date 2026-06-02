@@ -130,6 +130,14 @@ def main() -> None:  # noqa: C901
         )
 
         engine = ChallengeEngine(cfg, tracker)
+        from rlm.utils.market_hours import entry_window_open, session_label
+
+        if directive in ("long", "short") and not entry_window_open():
+            print(
+                f"[challenge] outside RTH entry window ({session_label()}) — evaluating exits only",
+                file=sys.stderr,
+            )
+            directive = "no_trade"
         summary = engine.run_session(
             directive=directive,
             underlying_price=underlying_price,

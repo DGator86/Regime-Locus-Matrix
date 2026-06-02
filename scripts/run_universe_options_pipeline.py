@@ -819,7 +819,7 @@ def _write_universe_latest_views(final_results: list[dict[str, object]], out_dir
     )
 
 
-def main() -> int:
+def _main_locked() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1368,6 +1368,17 @@ def main() -> int:
     _write_universe_latest_views(final_results, processed_dir)
     print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0
+
+
+def main() -> int:
+    from rlm.utils.pipeline_lock import PipelineLockError, universe_pipeline_lock
+
+    try:
+        with universe_pipeline_lock(DATA_ROOT):
+            return _main_locked()
+    except PipelineLockError as exc:
+        print(f"[pipeline-lock] skip — {exc}", flush=True)
+        return 0
 
 
 if __name__ == "__main__":

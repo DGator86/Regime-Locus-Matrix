@@ -52,12 +52,26 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
+from rlm.utils.subprocess_run import run_with_timeout  # noqa: E402
 
 
-def _run(cmd: list[str]) -> int:
-    print("+", " ".join(cmd), flush=True)
-    p = subprocess.run(cmd, cwd=str(ROOT))
-    return int(p.returncode)
+def _run(cmd: list[str], *, timeout_sec: float | None = None, timeout_env: str = "RLM_SUBPROCESS_TIMEOUT_SEC") -> int:
+    return run_with_timeout(
+        cmd,
+        cwd=ROOT,
+        timeout_sec=timeout_sec,
+        env_key=timeout_env,
+        default_timeout=600.0,
+    )
+
+
+def _run_pipeline(cmd: list[str]) -> int:
+    return run_with_timeout(
+        cmd,
+        cwd=ROOT,
+        env_key="RLM_PIPELINE_TIMEOUT_SEC",
+        default_timeout=2700.0,
+    )
 
 
 def _pipeline_cmd_has_flag(cmd: list[str], flag: str) -> bool:
@@ -445,7 +459,7 @@ def main() -> int:
             )
 
     if not args.skip_pipeline:
-        rc = _run(pipeline_cmd())
+        rc = _run_pipeline(pipeline_cmd())
         if rc != 0:
             return rc
 
@@ -506,7 +520,7 @@ def main() -> int:
                         continue
                     if not args.skip_pipeline:
                         print(f"[rescan] every {rescan_every:.0f}s: universe pipeline", flush=True)
-                        if _run(pipeline_cmd()) != 0:
+                        if _run_pipeline(pipeline_cmd()) != 0:
                             if pipeline_rescan_strict:
                                 _abort_after_pipeline_failure()
                             print("[rescan] pipeline failed (continuing)", flush=True)
