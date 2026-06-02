@@ -22,25 +22,19 @@ class ChallengePosition:
     dte_at_entry: int
     entry_date: str
     premium_per_share: float
-    """Option price per share at entry (contracts x 100 = total notional per contract)."""
     qty: int
-    """Number of option contracts held."""
     total_cost: float
-    """Actual cash spent: premium_per_share x qty x 100."""
     delta_at_entry: float
     iv_at_entry: float
 
-    # Updated each session
     dte_remaining: int = 0
     current_premium: float = 0.0
     current_value: float = 0.0
     unrealised_pnl: float = 0.0
     status: Literal["open", "closed"] = "open"
     peak_premium_mult: float = 1.0
-    """High-water mark of current_premium / premium_per_share this leg."""
     trail_armed: bool = False
     regime_key: str = ""
-    """Regime identifier at entry; used for per-regime win-rate tracking."""
 
     @classmethod
     def new(
@@ -106,9 +100,7 @@ class ChallengeTradeRecord:
     entry_date: str
     exit_date: str
     premium_paid: float
-    """Total cash spent at entry."""
     proceeds: float
-    """Total cash received at exit."""
     pnl: float
     pnl_pct: float
     exit_reason: Literal["target", "stop", "trail", "expiry", "manual"]
@@ -131,24 +123,11 @@ class ChallengeState:
     session_count: int = 0
     created_at: str = ""
     last_updated: str = ""
-
-    # ---- Per-regime win-rate history ----------------------------------------
     regime_win_rates: dict[str, list[bool]] = field(default_factory=dict)
-    """Rolling list (last 20) of trade outcomes per regime_key. True=profit."""
-
-    # ---- Daily P&L tracking -------------------------------------------------
     daily_realized_pnl: float = 0.0
-    """Sum of closed-trade P&L for the current calendar day."""
     daily_pnl_date: str = ""
-    """ISO date string of the day to which daily_realized_pnl belongs."""
-
-    # ---- Time tracking for pace calculation ---------------------------------
     start_date: str = ""
-    """ISO date when challenge started (set on first session)."""
     elapsed_days: int = 0
-    """Trading sessions completed."""
-
-    # ---- Derived properties -------------------------------------------------
 
     @property
     def open_market_value(self) -> float:
@@ -156,12 +135,10 @@ class ChallengeState:
 
     @property
     def equity_value(self) -> float:
-        """Cash plus marked value of open option legs."""
         return self.balance + self.open_market_value
 
     @property
     def progress_pct(self) -> float:
-        """Fraction of the journey from seed to target completed (0-1)."""
         span = self.target - self.seed
         if span <= 0:
             return 1.0
@@ -169,7 +146,6 @@ class ChallengeState:
 
     @property
     def current_milestone_idx(self) -> int:
-        """Index of the next un-cleared milestone (0-based)."""
         for i, m in enumerate(MILESTONES):
             if self.equity_value < m.target:
                 return i
@@ -195,8 +171,6 @@ class ChallengeState:
     @property
     def total_return_pct(self) -> float:
         return (self.equity_value - self.seed) / self.seed * 100.0
-
-    # ---- Serialisation ------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
         return {
