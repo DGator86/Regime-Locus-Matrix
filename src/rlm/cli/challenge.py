@@ -1,4 +1,4 @@
-"""``rlm challenge`` — $1K→$25K aggressive options dry-run challenge.
+"""``rlm challenge`` — $1K→$100K aggressive options dry-run challenge.
 
 Runs in complete isolation from the standard IBKR equities / options flow.
 State lives under ``data/challenge/``.  No real orders are ever placed.
@@ -31,7 +31,7 @@ from rlm.cli.common import add_backend_arg, add_data_root_arg, normalize_symbol
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="rlm challenge",
-        description="$1K→$25K aggressive options dry-run challenge.",
+        description="$1K→$100K aggressive options dry-run challenge (FINRA Rule 4210).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -53,8 +53,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--target",
         type=float,
-        default=25_000.0,
-        help="Target capital (default: $25,000)",
+        default=ChallengeConfig().target_capital,
+        help="Target capital (default: $100,000)",
     )
     p.add_argument(
         "--underlying-price",
@@ -265,7 +265,7 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     bar_filled = int(state.progress_pct * 30)
     bar = "█" * bar_filled + "░" * (30 - bar_filled)
 
-    print("\n  $1K→$25K OPTIONS CHALLENGE  ")
+    print("\n  $1K→$100K OPTIONS CHALLENGE  ")
     print("=" * 46)
     print(f"  Balance   : ${state.balance:>12,.2f}")
     if state.open_positions:
@@ -279,10 +279,13 @@ def _print_dashboard(tracker: ChallengeTracker) -> None:
     print()
     print(f"  Sessions  : {state.session_count}")
     print(f"  Trades    : {len(state.trade_history)}  (W:{state.wins} L:{state.losses}  WR:{state.win_rate:.0%})")
-    if not state.pdt_cleared:
-        print(f"  PDT slots : {state.pdt_slots_remaining} day-trade(s) left (5d rolling)")
-    else:
-        print("  PDT       : cleared (equity at/above target)")
+    print(
+        f"  Exposure  : ${state.intraday_exposure:,.2f}  "
+        f"(peak ${state.intraday_exposure_peak:,.2f})"
+    )
+    if state.start_date:
+        print(f"  Timeline  : {state.elapsed_days} session(s) since {state.start_date}")
+    print("  Account   : cash · day trades unrestricted (FINRA Rule 4210)")
     print()
 
     # Milestones
@@ -325,7 +328,7 @@ def _print_summary(summary: object, symbol: str) -> None:
     if s.milestone_cleared:
         print(f"\n  *** MILESTONE CLEARED: {s.milestone_cleared} ***")
     if s.challenge_complete:
-        print("\n  *** CHALLENGE COMPLETE — $25,000 reached! ***")
+        print(f"\n  *** CHALLENGE COMPLETE — ${ChallengeConfig().target_capital:,.0f} reached! ***")
     print()
 
 
