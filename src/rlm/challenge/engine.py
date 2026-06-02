@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 from typing import Literal
 
 from rlm.challenge.config import ChallengeConfig
+from rlm.challenge.pricing import entry_friction, exit_friction, min_tick_round
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import (
     ChallengePosition,
@@ -74,7 +75,9 @@ class ChallengeEngine:
         signal_alignment: float = 0.7,
         confidence: float = 0.7,
         iv: float | None = None,
+        realized_vol: float | None = None,
         session_date: str | None = None,
+        regime_key: str = "",
     ) -> SessionSummary:
         """Execute one challenge session.
 
@@ -89,11 +92,23 @@ class ChallengeEngine:
         confidence:
             From ``seven.confidence``; used by strategy for conviction gating.
         iv:
-            Implied volatility override.  Defaults to ``cfg.default_iv``.
+            Implied volatility override.  If ``None`` or 0, falls back to
+            ``realized_vol * (1 + cfg.iv_vol_premium)`` and then ``cfg.default_iv``.
+        realized_vol:
+            Realised historical volatility (annualised).  Used as an IV proxy when
+            ``iv`` is unavailable; a ``cfg.iv_vol_premium`` risk premium is added.
         session_date:
             ISO date string (``YYYY-MM-DD``).  Defaults to today (UTC).
+        regime_key:
+            Regime identifier string (e.g. ``"bull_low_vol"``).  Stored on new
+            positions and used for per-regime win-rate filtering.
         """
-        iv = iv or self.cfg.default_iv
+        # IV fallback chain: live iv → realized_vol + premium → default_iv
+        if not iv:
+            if realized_vol:
+                iv = realized_vol * (1.0 + self.cfg.iv_vol_premium)
+            else:
+                iv = self.cfg.default_iv
         session_date = session_date or date.today().isoformat()
         now_iso = datetime.now(tz=timezone.utc).isoformat()
 
@@ -103,6 +118,11 @@ class ChallengeEngine:
 
         self._advance_pdt_calendar(state, session_date)
 
+        # Reset daily P&L tracker at the start of a new calendar day
+        if state.daily_pnl_date != session_date:
+            state.daily_realized_pnl = 0.0
+            state.daily_pnl_date = session_date
+
         closed_trades: list[ChallengeTradeRecord] = []
 
         # 1. Evaluate open positions
@@ -110,6 +130,7 @@ class ChallengeEngine:
             record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
             if record is not None:
                 closed_trades.append(record)
+                state.daily_realized_pnl += record.pnl
 
         # 2. Consider new entry (if slots available and challenge not yet complete)
         new_position: ChallengePosition | None = None
@@ -120,43 +141,70 @@ class ChallengeEngine:
                 f"cash ${state.balance:,.2f}"
             )
         elif state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
-            play = self._strategy.select(
-                directive,
-                underlying_price,
-                state.balance,
-                iv,
-                self.cfg,
-                signal_alignment=signal_alignment,
-                confidence=confidence,
-            )
-            if play is None:
-                entry_skip_reason = (
-                    f"No affordable weekly/scalp under ${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
+            # Gate: daily loss limit
+            if not entry_skip_reason and _daily_loss_limit_reached(state.daily_realized_pnl, state.balance, self.cfg):
+                entry_skip_reason = "daily_loss_limit_reached"
+
+            # Gate: major event blackout
+            if not entry_skip_reason and _is_event_blackout(session_date, self.cfg):
+                entry_skip_reason = "major_event_blackout"
+
+            # Gate: regime win-rate filter
+            if not entry_skip_reason and not _regime_win_rate_ok(regime_key, state, self.cfg):
+                entry_skip_reason = "regime_win_rate_below_threshold"
+
+            if not entry_skip_reason:
+                play = self._strategy.select(
+                    directive,
+                    underlying_price,
+                    state.balance,
+                    iv,
+                    self.cfg,
+                    signal_alignment=signal_alignment,
+                    confidence=confidence,
                 )
-            elif play is not None:
-                qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
-                if qty <= 0 or spend > state.balance:
-                    cost = float(play.estimated_premium) * 100.0
+                if play is None:
                     entry_skip_reason = (
-                        f"insufficient cash for 1 contract (need ~${cost:,.0f}, balance ${state.balance:,.2f})"
+                        f"No affordable weekly/scalp under ${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
                     )
-                if qty > 0 and spend <= state.balance:
-                    pos = ChallengePosition.new(
-                        symbol=self.cfg.symbol,
-                        option_type=play.option_type,
-                        direction=play.direction,
-                        underlying_entry=underlying_price,
-                        strike=play.strike,
-                        dte=play.dte,
-                        entry_date=session_date,
-                        premium_per_share=play.estimated_premium,
-                        qty=qty,
-                        delta=play.estimated_delta,
-                        iv=iv,
+                else:
+                    # Gate: correlation / basket risk
+                    same_dir_spend = sum(
+                        p.total_cost for p in state.open_positions if p.direction == play.direction
                     )
-                    state.open_positions.append(pos)
-                    state.balance -= spend
-                    new_position = pos
+                    if same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
+                        entry_skip_reason = "correlation_exposure_limit"
+                    else:
+                        qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
+                        if qty <= 0 or spend > state.balance:
+                            cost = float(play.estimated_premium) * 100.0
+                            entry_skip_reason = (
+                                f"insufficient cash for 1 contract (need ~${cost:,.0f}, balance ${state.balance:,.2f})"
+                            )
+                        if qty > 0 and spend <= state.balance:
+                            # Apply entry friction (spread + commission)
+                            e_friction = entry_friction(play.estimated_premium, qty, self.cfg)
+                            total_entry_cost = spend + e_friction
+                            if total_entry_cost > state.balance:
+                                # Retry without friction overage — just use available cash
+                                total_entry_cost = spend
+                            pos = ChallengePosition.new(
+                                symbol=self.cfg.symbol,
+                                option_type=play.option_type,
+                                direction=play.direction,
+                                underlying_entry=underlying_price,
+                                strike=play.strike,
+                                dte=play.dte,
+                                entry_date=session_date,
+                                premium_per_share=min_tick_round(play.estimated_premium),
+                                qty=qty,
+                                delta=play.estimated_delta,
+                                iv=iv,
+                                regime_key=regime_key,
+                            )
+                            state.open_positions.append(pos)
+                            state.balance -= total_entry_cost
+                            new_position = pos
 
         state.session_count += 1
         state.last_updated = now_iso
@@ -248,11 +296,23 @@ class ChallengeEngine:
             return None  # PDT: hold overnight
 
         fill_mult = self._exit_fill_mult(pos, exit_reason, state, mult)
-        fill_premium = pos.premium_per_share * fill_mult
-        proceeds = fill_premium * pos.qty * 100
+        fill_premium = min_tick_round(pos.premium_per_share * fill_mult)
+        raw_proceeds = fill_premium * pos.qty * 100
+        # Deduct exit friction (spread + exit-leg commission)
+        e_friction = exit_friction(fill_premium, pos.qty, self.cfg)
+        proceeds = max(raw_proceeds - e_friction, 0.0)
         pnl = proceeds - pos.total_cost
         balance_before = state.balance
         state.balance = state.balance + proceeds
+
+        # Update per-regime win-rate history
+        rk = getattr(pos, "regime_key", "")
+        if rk:
+            wins_list = state.regime_win_rates.setdefault(rk, [])
+            wins_list.append(pnl > 0)
+            # Cap at 20 most-recent trades
+            if len(wins_list) > 20:
+                state.regime_win_rates[rk] = wins_list[-20:]
         state.open_positions.remove(pos)
         pos.status = "closed"
 
@@ -332,6 +392,53 @@ class ChallengeEngine:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_event_blackout(session_date: str, cfg: ChallengeConfig) -> bool:
+    """Return True if ``session_date`` is within ``block_hours_before_event / 24`` days of any major event."""
+    if not cfg.major_event_dates:
+        return False
+    try:
+        sd = date.fromisoformat(session_date)
+    except ValueError:
+        return False
+    buffer_days = max(1, cfg.block_hours_before_event // 24)
+    for event_str in cfg.major_event_dates:
+        try:
+            ev = date.fromisoformat(event_str)
+        except ValueError:
+            continue
+        if 0 <= (ev - sd).days <= buffer_days:
+            return True
+    return False
+
+
+def _regime_win_rate_ok(regime_key: str, state: "ChallengeState", cfg: ChallengeConfig) -> bool:
+    """Return True if the regime's rolling win-rate meets the minimum threshold."""
+    if not regime_key:
+        return True  # no regime info — don't block
+    wins_list = state.regime_win_rates.get(regime_key, [])
+    if len(wins_list) < cfg.regime_win_rate_min_samples:
+        return True  # not enough samples — no gate
+    win_rate = sum(wins_list) / len(wins_list)
+    return win_rate >= cfg.regime_win_rate_min
+
+
+def _stage_daily_loss_frac(balance: float, cfg: ChallengeConfig) -> float:
+    """Return the applicable per-stage daily loss fraction for the current balance."""
+    if balance < 3_000.0:
+        return cfg.stage1_max_daily_loss_frac
+    if balance < 10_000.0:
+        return cfg.stage2_max_daily_loss_frac
+    return cfg.stage3_max_daily_loss_frac
+
+
+def _daily_loss_limit_reached(daily_realized_pnl: float, balance: float, cfg: ChallengeConfig) -> bool:
+    """Return True if today's realized loss has breached the stage-appropriate daily limit."""
+    if daily_realized_pnl >= 0:
+        return False
+    limit_frac = _stage_daily_loss_frac(balance, cfg)
+    return abs(daily_realized_pnl) / max(balance, 1.0) >= limit_frac
 
 
 def _days_between(start: str, end: str) -> int:

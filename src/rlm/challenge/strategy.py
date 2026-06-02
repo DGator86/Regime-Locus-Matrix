@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from rlm.challenge.config import ChallengeConfig
-from rlm.challenge.pricing import estimate_delta, estimate_premium
+from rlm.challenge.pricing import delta_per_theta_ratio, estimate_delta, estimate_premium
 
 
 @dataclass(frozen=True)
@@ -57,10 +57,30 @@ class ChallengeStrategy:
             and confidence >= cfg.scalp_min_confidence
         )
 
-        candidates: list[tuple[int, float, str]] = []
-
         weekly_dte = max(5, int(cfg.dte(balance)))
         base_otm = cfg.otm_pct(balance)
+
+        # Surface-aware strike selection: pick OTM% with best delta/theta ratio
+        if getattr(cfg, "use_surface_strike_selection", False):
+            search_range = getattr(cfg, "strike_search_otm_range", (0.000, 0.010, 0.020, 0.030, 0.040, 0.050))
+            best_ratio = -1.0
+            best_otm = base_otm
+            for candidate_otm in search_range:
+                if option_type == "call":
+                    candidate_strike = underlying_price * (1.0 + candidate_otm)
+                else:
+                    candidate_strike = underlying_price * (1.0 - candidate_otm)
+                candidate_premium = estimate_premium(underlying_price, iv, weekly_dte, candidate_strike)
+                if candidate_premium > max_pps:
+                    continue  # not affordable — skip
+                ratio = delta_per_theta_ratio(underlying_price, candidate_strike, iv, weekly_dte, option_type)
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_otm = candidate_otm
+            base_otm = best_otm
+
+        candidates: list[tuple[int, float, str]] = []
+
         candidates.append((weekly_dte, base_otm, f"weekly-{weekly_dte}DTE"))
         for otm in cfg.weekly_otm_ladder:
             if otm > base_otm:

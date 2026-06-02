@@ -39,6 +39,8 @@ class ChallengePosition:
     peak_premium_mult: float = 1.0
     """High-water mark of current_premium / premium_per_share this leg."""
     trail_armed: bool = False
+    regime_key: str = ""
+    """Regime identifier at entry; used for per-regime win-rate tracking."""
 
     @classmethod
     def new(
@@ -55,6 +57,7 @@ class ChallengePosition:
         qty: int,
         delta: float,
         iv: float,
+        regime_key: str = "",
     ) -> "ChallengePosition":
         total = premium_per_share * qty * 100
         return cls(
@@ -75,6 +78,7 @@ class ChallengePosition:
             current_premium=premium_per_share,
             current_value=total,
             unrealised_pnl=0.0,
+            regime_key=regime_key,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,6 +89,7 @@ class ChallengePosition:
         data = dict(d)
         data.setdefault("peak_premium_mult", 1.0)
         data.setdefault("trail_armed", False)
+        data.setdefault("regime_key", "")
         return cls(**data)
 
 
@@ -129,6 +134,16 @@ class ChallengeState:
     pdt_day_trade_counts: list[int] = field(default_factory=list)
     """Rolling same-day round-trip counts (last five session dates)."""
     pdt_last_session_date: str = ""
+
+    # ---- Per-regime win-rate history ----------------------------------------
+    regime_win_rates: dict[str, list[bool]] = field(default_factory=dict)
+    """Rolling list (last 20) of trade outcomes per regime_key. True=profit."""
+
+    # ---- Daily P&L tracking -------------------------------------------------
+    daily_realized_pnl: float = 0.0
+    """Sum of closed-trade P&L for the current calendar day."""
+    daily_pnl_date: str = ""
+    """ISO date string of the day to which daily_realized_pnl belongs."""
 
     # ---- Derived properties -------------------------------------------------
 
@@ -201,12 +216,19 @@ class ChallengeState:
             "pdt_last_session_date": self.pdt_last_session_date,
             "open_positions": [p.to_dict() for p in self.open_positions],
             "trade_history": [t.to_dict() for t in self.trade_history],
+            "regime_win_rates": {k: list(v) for k, v in self.regime_win_rates.items()},
+            "daily_realized_pnl": self.daily_realized_pnl,
+            "daily_pnl_date": self.daily_pnl_date,
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ChallengeState":
         positions = [ChallengePosition.from_dict(p) for p in d.get("open_positions", [])]
         trades = [ChallengeTradeRecord(**t) for t in d.get("trade_history", [])]
+        raw_win_rates = d.get("regime_win_rates", {})
+        regime_win_rates: dict[str, list[bool]] = {
+            k: [bool(x) for x in v] for k, v in raw_win_rates.items()
+        }
         return cls(
             balance=float(d["balance"]),
             seed=float(d["seed"]),
@@ -218,6 +240,9 @@ class ChallengeState:
             last_updated=str(d.get("last_updated", "")),
             pdt_day_trade_counts=[int(x) for x in d.get("pdt_day_trade_counts", [])],
             pdt_last_session_date=str(d.get("pdt_last_session_date", "")),
+            regime_win_rates=regime_win_rates,
+            daily_realized_pnl=float(d.get("daily_realized_pnl", 0.0)),
+            daily_pnl_date=str(d.get("daily_pnl_date", "")),
         )
 
     @classmethod

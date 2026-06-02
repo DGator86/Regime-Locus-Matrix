@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import math
 
+# Imported lazily to avoid circular dependency — used only by type hints below.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rlm.challenge.config import ChallengeConfig
+
 # ---------------------------------------------------------------------------
 # Premium estimation
 # ---------------------------------------------------------------------------
@@ -111,3 +117,99 @@ def updated_premium(
 
     new_price = entry_premium + delta_pnl + gamma_pnl + theta_pnl
     return max(new_price, 0.01)
+
+
+# ---------------------------------------------------------------------------
+# Friction model (spread + commission)
+# ---------------------------------------------------------------------------
+
+
+def min_tick_round(premium: float) -> float:
+    """Round option premium to nearest penny (standard US equity option increment)."""
+    return round(premium * 100.0) / 100.0
+
+
+def spread_cost(premium: float, qty: int, cfg: "ChallengeConfig") -> float:
+    """Total round-trip friction for a position: spread (entry+exit) + 2× commissions.
+
+    Parameters
+    ----------
+    premium:
+        Per-share option price at entry.
+    qty:
+        Number of contracts (each = 100 shares).
+    cfg:
+        ChallengeConfig carrying spread_half_width_frac and commission_per_contract.
+
+    Returns
+    -------
+    float
+        Total friction in dollars applied across the full round trip.
+    """
+    if not cfg.use_spread_model:
+        return 0.0
+    # Entry half-spread + exit half-spread = full spread × notional
+    spread_dollars = 2.0 * cfg.spread_half_width_frac * premium * qty * 100
+    commission_dollars = 2.0 * cfg.commission_per_contract * qty  # entry leg + exit leg
+    return spread_dollars + commission_dollars
+
+
+def entry_friction(premium: float, qty: int, cfg: "ChallengeConfig") -> float:
+    """One-way friction charged at entry: half-spread + 1× commission per contract."""
+    if not cfg.use_spread_model:
+        return 0.0
+    spread_dollars = cfg.spread_half_width_frac * premium * qty * 100
+    commission_dollars = cfg.commission_per_contract * qty
+    return spread_dollars + commission_dollars
+
+
+def exit_friction(fill_premium: float, qty: int, cfg: "ChallengeConfig") -> float:
+    """One-way friction charged at exit: half-spread + 1× commission per contract."""
+    if not cfg.use_spread_model:
+        return 0.0
+    spread_dollars = cfg.spread_half_width_frac * fill_premium * qty * 100
+    commission_dollars = cfg.commission_per_contract * qty
+    return spread_dollars + commission_dollars
+
+
+# ---------------------------------------------------------------------------
+# Delta/theta ratio for surface-aware strike selection (Item 8)
+# ---------------------------------------------------------------------------
+
+
+def delta_per_theta_ratio(
+    underlying: float,
+    strike: float,
+    iv: float,
+    dte: int,
+    option_type: str,
+) -> float:
+    """Ratio of |delta| to daily theta cost — higher means more directional bang per decay dollar.
+
+    Parameters
+    ----------
+    underlying:
+        Current price of the underlying.
+    strike:
+        Option strike price.
+    iv:
+        Implied volatility (annualised, e.g. 0.20).
+    dte:
+        Days to expiry.
+    option_type:
+        ``"call"`` or ``"put"``.
+
+    Returns
+    -------
+    float
+        |delta| / daily_theta, or 0.0 if theta is negligible.
+    """
+    d = abs(estimate_delta(underlying, strike, iv, dte, option_type))
+    premium = estimate_premium(underlying, iv, dte, strike)
+    t_prev = max(dte, 1) / 252.0
+    t_now = max(dte - 1, 0.5) / 252.0
+    t_entry = t_prev  # normalise relative to entry life
+    daily_theta = premium * (math.sqrt(t_prev) - math.sqrt(t_now)) / math.sqrt(t_entry)
+    if daily_theta <= 1e-9:
+        return 0.0
+    return d / daily_theta
