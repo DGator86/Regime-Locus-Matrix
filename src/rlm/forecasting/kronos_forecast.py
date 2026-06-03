@@ -33,6 +33,7 @@ Install the required extras before use::
 
 from __future__ import annotations
 
+import os
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -393,6 +394,20 @@ class KronosForecastPipeline:
 # ---------------------------------------------------------------------------
 
 
+def _ohlcv_for_kronos(df: pd.DataFrame) -> pd.DataFrame:
+    """Return OHLCV columns with NaNs forward/back-filled for Kronos context."""
+    cols = [c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
+    if not cols:
+        raise ValueError("forecast_df missing open/high/low/close for Kronos blend")
+    work = df[cols].copy()
+    for c in ("open", "high", "low", "close"):
+        if c not in work.columns:
+            raise ValueError(f"forecast_df missing required column: {c}")
+    if "volume" not in work.columns:
+        work["volume"] = 0.0
+    return work.ffill().bfill()
+
+
 def apply_kronos_blend(
     forecast_df: pd.DataFrame,
     config: KronosConfig | None = None,
@@ -442,10 +457,19 @@ def apply_kronos_blend(
         return forecast_df  # no-op
 
     cfg = config or KronosConfig()
-    pipe = KronosForecastPipeline(config=cfg)
+    pred_override: Any | None = None
+    if (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip():
+        from rlm.forecasting.models.kronos.predictor import RLMKronosPredictor
+
+        pred_override = RLMKronosPredictor(cfg)
+    pipe = KronosForecastPipeline(config=cfg, predictor=pred_override)
+    kronos_input = _ohlcv_for_kronos(forecast_df)
+    blend_df = forecast_df.copy()
+    for col in kronos_input.columns:
+        blend_df[col] = kronos_input[col].values
 
     try:
-        kronos_df = pipe.compute_kronos_overlay(forecast_df)
+        kronos_df = pipe.compute_kronos_overlay(blend_df)
     except Exception as exc:
         warnings.warn(
             f"apply_kronos_blend: Kronos inference failed; returning base forecast unchanged. " f"Reason: {exc}",
@@ -533,9 +557,12 @@ class KronosBlendPipeline:
         """Run the base pipeline then blend in Kronos forecasts."""
         import inspect
 
+        from rlm.forecasting.models.kronos.regime_confidence import KronosRegimeConfidence
+
         sig = inspect.signature(self.base_pipeline.run)
         if "train_mask" in sig.parameters:
             base_out = self.base_pipeline.run(df, **kwargs)
         else:
             base_out = self.base_pipeline.run(df)
-        return apply_kronos_blend(base_out, config=self.kronos_config, weight=self.weight)
+        blended = apply_kronos_blend(base_out, config=self.kronos_config, weight=self.weight)
+        return KronosRegimeConfidence(config=self.kronos_config).annotate(blended)
