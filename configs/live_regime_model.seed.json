@@ -58,7 +58,7 @@
   "timeframe_hierarchy": {
     "primary_bar_size": "1 min",
     "primary_duration": "30 D",
-    "confirmation_bar_sizes": [],
+    "confirmation_bar_sizes": ["5 mins", "15 mins"],
     "confirmation_duration": "10 D",
     "confirmation_mode": "direction",
     "require_all_confirmations": true

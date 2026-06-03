@@ -6,6 +6,7 @@ Idempotent: replaces or appends known keys. Backs up .env before write.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,9 @@ _FAST_PROFILE: dict[str, str] = {
     "TELEGRAM_NOTIFY_UNIVERSE": "1",
     "TELEGRAM_NOTIFY_CHALLENGE": "0",
     "RLM_OPTIONS_TRADE_LOG_PATH": "data/processed/options_large_account_trade_log.csv",
+    "RLM_SHORT_DTE_SCORING": "1",
+    "RLM_OPTIONS_MIN_BUYER_EDGE_PCT": "0.02",
+    "RLM_OPTIONS_MAX_SPREAD_PCT_MID": "0.12",
 }
 
 
@@ -83,6 +87,28 @@ def _apply_profile(text: str, profile: dict[str, str]) -> tuple[str, list[str]]:
     return new_text, changes
 
 
+def _patch_live_regime_mtf_confirmation(repo_root: Path, *, dry_run: bool) -> list[str]:
+    """Enable 5m/15m confirmation bars on live regime JSON when empty."""
+    path = repo_root / "data" / "processed" / "live_regime_model.json"
+    if not path.is_file():
+        return []
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    th = blob.setdefault("timeframe_hierarchy", {})
+    cur = th.get("confirmation_bar_sizes") or []
+    want = ["5 mins", "15 mins"]
+    if cur == want:
+        return []
+    th["confirmation_bar_sizes"] = want
+    th.setdefault("confirmation_duration", "10 D")
+    th.setdefault("confirmation_mode", "direction")
+    if not dry_run:
+        path.write_text(json.dumps(blob, indent=2), encoding="utf-8")
+    return [f"live_regime_model.json confirmation_bar_sizes -> {want!r}"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
@@ -90,6 +116,12 @@ def main() -> int:
         type=Path,
         default=Path("/opt/Regime-Locus-Matrix/.env"),
         help="Target .env (default: VPS path)",
+    )
+    ap.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path("/opt/Regime-Locus-Matrix"),
+        help="Repo root for live_regime_model.json patch",
     )
     ap.add_argument("--dry-run", action="store_true", help="Print changes without writing")
     args = ap.parse_args()
@@ -115,6 +147,9 @@ def main() -> int:
     shutil.copy2(p, backup)
     p.write_text(new_text, encoding="utf-8")
     print(f"wrote {p} (backup {backup.name})", flush=True)
+
+    for line in _patch_live_regime_mtf_confirmation(args.repo_root.resolve(), dry_run=False):
+        print(line, flush=True)
     return 0
 
 

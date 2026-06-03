@@ -69,8 +69,10 @@ from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
-from rlm.execution.trade_log_io import seed_paper_opens_from_active_plans
+from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, seed_paper_opens_from_active_plans
+from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
+from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
@@ -248,7 +250,7 @@ def _forecast_final_row(
     df = bars.sort_values("timestamp").set_index("timestamp")
     chain = factor_option_chain if factor_option_chain is not None and not factor_option_chain.empty else None
     df = prepare_bars_for_factors(df, option_chain=chain, underlying=sym, attach_vix=attach_vix)
-    feats = FactorPipeline().run(df)
+    feats = FactorPipeline(feature_config=feature_config_for_pipeline()).run(df)
     feats = classify_state_matrix(feats)
     if live_model is not None:
         forecast = live_model.build_pipeline()
@@ -339,7 +341,7 @@ def _prepare_symbol(
     chain = factor_option_chain if factor_option_chain is not None and not factor_option_chain.empty else None
     df = prepare_bars_for_factors(df, option_chain=chain, underlying=sym, attach_vix=attach_vix)
 
-    feats = FactorPipeline().run(df)
+    feats = FactorPipeline(feature_config=feature_config_for_pipeline(short_dte=short_dte)).run(df)
     feats = classify_state_matrix(feats)
     if live_model is not None:
         forecast = live_model.build_pipeline()
@@ -559,7 +561,37 @@ def _finalize_symbol(
         base["dte_window"] = [dte_min, dte_max]
         return base
 
-    matched = match_legs_to_chain(decision=decision, chain_slice=expiry_slice)
+    spot_px = chain_spot_price(expiry_slice, fallback=float(base.get("last_close") or 0) or None)
+    rk_pre = str(decision.regime_key or "")
+    head_pre = rk_pre.split("|", 1)[0].strip().lower() if rk_pre else ""
+    regime_dir_pre = head_pre if head_pre in ("bull", "bear") else ""
+    prefer_delta = dte_max <= 5
+    dec_meta = dict(decision.metadata or {})
+    if prefer_delta and "target_delta" not in dec_meta:
+        if regime_dir_pre == "bull":
+            dec_meta["target_delta"] = 0.45
+        elif regime_dir_pre == "bear":
+            dec_meta["target_delta"] = -0.45
+        else:
+            dec_meta["target_delta"] = 0.35
+        decision = TradeDecision(
+            action=decision.action,
+            strategy_name=decision.strategy_name,
+            regime_key=decision.regime_key,
+            rationale=decision.rationale,
+            size_fraction=decision.size_fraction,
+            target_profit_pct=decision.target_profit_pct,
+            max_risk_pct=decision.max_risk_pct,
+            candidate=decision.candidate,
+            legs=decision.legs,
+            metadata=dec_meta,
+        )
+    matched = match_legs_to_chain(
+        decision=decision,
+        chain_slice=expiry_slice,
+        spot=spot_px if np.isfinite(spot_px) else None,
+        prefer_delta=prefer_delta,
+    )
     if matched.action != "enter" or not matched.metadata.get("matched_legs"):
         base["skip_reason"] = matched.rationale or "chain_match_failed"
         return base
@@ -573,6 +605,20 @@ def _finalize_symbol(
         return base
     if not np.isfinite(v0):
         base["skip_reason"] = "invalid_v0_mark"
+        return base
+
+    edge = assess_combo_edge(
+        mlegs,
+        spot=float(spot_px) if np.isfinite(spot_px) else float(mlegs[0].get("strike") or 0),
+        entry_debit_dollars=float(entry_debit),
+        regime_direction=regime_dir_pre,
+        strategy_name=str(decision.strategy_name or ""),
+    )
+    mlegs = edge.get("matched_legs_enriched") or mlegs
+    apply_edge_gate = dte_max <= 5 or sym.upper() == "SPY"
+    if apply_edge_gate and not edge.get("passes_edge_gate", True):
+        base["skip_reason"] = str(edge.get("edge_skip_reason") or "options_edge_gate")
+        base["options_edge"] = {k: edge[k] for k in edge if k != "matched_legs_enriched"}
         return base
 
     tp_pct = float(candidate.target_profit_pct)
@@ -641,6 +687,20 @@ def _finalize_symbol(
             "regime_direction": regime_direction,
             "combo_spec": combo_spec_payload,
             "rank_score": score,
+            "options_edge": {
+                k: edge[k]
+                for k in (
+                    "buyer_edge_pct",
+                    "net_delta",
+                    "avg_gamma",
+                    "avg_theta",
+                    "max_spread_pct_mid",
+                    "fair_mark_dollars",
+                    "market_mark_dollars",
+                    "passes_edge_gate",
+                )
+                if k in edge
+            },
         }
     )
     return base
@@ -1400,6 +1460,10 @@ def _main_locked() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
+        n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
+        if n_closed:
+            print(f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}", flush=True)
     seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
     if seeded:
         print(

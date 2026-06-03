@@ -180,6 +180,47 @@ def upsert_trade_log_row(path: Path, row: dict[str, str]) -> None:
             writer.writerow(r)
 
 
+def close_stale_open_rows_above_dte(log_path: Path, *, max_dte: float = 5.0) -> int:
+    """Mark open rows with DTE above ``max_dte`` as closed (legacy swing ghosts)."""
+    if not log_path.is_file():
+        return 0
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        with log_path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return 0
+
+    closed = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for pid, row in latest.items():
+        if str(row.get("closed") or "0").strip() == "1":
+            continue
+        try:
+            dte = float(row.get("dte") or 0.0)
+        except (TypeError, ValueError):
+            dte = 0.0
+        if dte <= max_dte:
+            continue
+        row = dict(row)
+        row["timestamp_utc"] = now
+        row["signal"] = "stale_dte_cleanup"
+        row["closed"] = "1"
+        latest[pid] = row
+        closed += 1
+
+    if closed:
+        with log_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(TRADE_LOG_COLUMNS), extrasaction="ignore")
+            writer.writeheader()
+            for r in latest.values():
+                writer.writerow(r)
+    return closed
+
+
 def seed_paper_opens_from_active_plans(
     active_plans: list[dict[str, Any]],
     log_path: Path,

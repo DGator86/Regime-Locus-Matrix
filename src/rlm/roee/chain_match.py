@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from rlm.data.option_chain import select_nearest_expiry_slice
+from rlm.options.edge import enrich_leg_greeks
 from rlm.types.options import TradeDecision
 
 
@@ -42,6 +43,36 @@ def _row_to_matched_leg(row: pd.Series, side: str) -> MatchedLeg:
         vega=float(row["vega"]) if "vega" in row and pd.notna(row["vega"]) else None,
         iv=float(row["iv"]) if "iv" in row and pd.notna(row["iv"]) else None,
     )
+
+
+def find_nearest_contract_by_delta(
+    chain_slice: pd.DataFrame,
+    option_type: str,
+    target_delta: float,
+    *,
+    spot: float | None = None,
+) -> pd.Series | None:
+    """Pick contract whose |delta| is closest to ``target_delta`` (abs delta for puts)."""
+    subset = chain_slice[chain_slice["option_type"] == option_type].copy()
+    if subset.empty:
+        return None
+    if "delta" not in subset.columns or subset["delta"].isna().all():
+        if spot is not None and spot > 0 and "strike" in subset.columns:
+            subset = subset.copy()
+            subset["_dist_atm"] = (subset["strike"].astype(float) - float(spot)).abs()
+            subset = subset.sort_values("_dist_atm")
+            return subset.iloc[0]
+        return find_nearest_contract(subset, option_type, float(spot or 0.0))
+
+    target_abs = abs(float(target_delta))
+    subset["delta_distance"] = (subset["delta"].astype(float).abs() - target_abs).abs()
+    if "mid" not in subset.columns:
+        subset["mid"] = (subset["bid"].astype(float) + subset["ask"].astype(float)) / 2.0
+    if "spread_pct_mid" not in subset.columns:
+        spread = subset["ask"].astype(float) - subset["bid"].astype(float)
+        subset["spread_pct_mid"] = np.where(subset["mid"] > 0, spread / subset["mid"], np.nan)
+    subset = subset.sort_values(["delta_distance", "spread_pct_mid", "strike"])
+    return subset.iloc[0]
 
 
 def find_nearest_contract(
@@ -126,6 +157,8 @@ def match_legs_to_chain(
     *,
     decision: TradeDecision,
     chain_slice: pd.DataFrame,
+    spot: float | None = None,
+    prefer_delta: bool = False,
 ) -> TradeDecision:
     """
     Replaces abstract legs with actual matched chain contracts.
@@ -135,13 +168,28 @@ def match_legs_to_chain(
 
     matched_legs: list[MatchedLeg] = []
 
+    meta_pre = decision.metadata or {}
+    spot_f = float(spot) if spot is not None and np.isfinite(spot) and spot > 0 else None
+    use_delta = prefer_delta or bool(meta_pre.get("prefer_delta_match"))
+
     for leg in decision.legs:
         leg_chain = _filter_chain_for_leg_expiry(chain_slice, leg.expiry)
-        row = find_nearest_contract(
-            chain_slice=leg_chain,
-            option_type=leg.option_type,
-            target_strike=leg.strike,
-        )
+        target_delta = getattr(leg, "target_delta", None)
+        if target_delta is None:
+            target_delta = meta_pre.get("target_delta")
+        if use_delta and target_delta is not None and np.isfinite(float(target_delta)):
+            row = find_nearest_contract_by_delta(
+                leg_chain,
+                leg.option_type,
+                float(target_delta),
+                spot=spot_f,
+            )
+        else:
+            row = find_nearest_contract(
+                chain_slice=leg_chain,
+                option_type=leg.option_type,
+                target_strike=leg.strike,
+            )
         if row is None:
             expiry_hint = f" expiry={leg.expiry}" if leg.expiry else ""
             return TradeDecision(
@@ -173,7 +221,10 @@ def match_legs_to_chain(
         seen_contracts.add(key)
 
     new_metadata = dict(decision.metadata)
-    new_metadata["matched_legs"] = [m.__dict__ for m in matched_legs]
+    leg_dicts = [m.__dict__ for m in matched_legs]
+    if spot_f is not None:
+        leg_dicts = [enrich_leg_greeks(d, spot=spot_f) for d in leg_dicts]
+    new_metadata["matched_legs"] = leg_dicts
 
     return TradeDecision(
         action=decision.action,

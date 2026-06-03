@@ -548,6 +548,21 @@ def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
         lines.append(f"Profit aim: +{float(target_pct) * 100:.0f}% on debit (model)")
     if max_risk_pct is not None:
         lines.append(f"Risk cap:   {float(max_risk_pct) * 100:.1f}% of book")
+    edge = plan.get("options_edge") if isinstance(plan.get("options_edge"), dict) else {}
+    if edge:
+        be = edge.get("buyer_edge_pct")
+        if be is not None:
+            try:
+                lines.append(f"Model edge: {float(be) * 100:+.1f}% vs BS fair (buyer-favorable if +)")
+            except (TypeError, ValueError):
+                pass
+        for label, key in (("Net Δ", "net_delta"), ("Γ", "avg_gamma"), ("Θ/day", "avg_theta")):
+            v = edge.get(key)
+            if v is not None:
+                try:
+                    lines.append(f"{label:8} {float(v):+.3f}")
+                except (TypeError, ValueError):
+                    pass
     pay_exit = _plan_pay_and_exit_lines(plan)
     if pay_exit:
         lines.append(_SEP)

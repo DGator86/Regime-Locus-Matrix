@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
@@ -24,6 +25,49 @@ def load_feature_engineering_config() -> dict[str, Any]:
     if not isinstance(feature_config, dict):
         return {}
     return feature_config
+
+
+# Extra scored factors for short-DTE / SPY daytrade path (candles + MTF confluence + S/R).
+_SHORT_DTE_FACTOR_OVERLAY: dict[str, list[str]] = {
+    "direction": [
+        "candle_bullish_reversal",
+        "candle_bearish_reversal",
+        "candle_continuation",
+        "doji_or_spinning_top",
+        "mtf_confluencema_spread_over_atr",
+        "mtf_confluencero_c_n",
+        "dist_to_nearest_support",
+        "dist_to_nearest_resistance",
+        "breakout_confirmed",
+    ],
+}
+
+
+def feature_config_for_pipeline(*, short_dte: bool = False) -> dict[str, Any]:
+    """Base YAML config, optionally merged with short-DTE scoring overlay."""
+    base = dict(load_feature_engineering_config())
+    use_overlay = short_dte or (os.environ.get("RLM_SHORT_DTE_SCORING") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not use_overlay:
+        return base
+    enabled = base.get("enabled_factors")
+    if not isinstance(enabled, dict):
+        enabled = {}
+    merged: dict[str, list[str]] = {}
+    for cat, names in enabled.items():
+        if isinstance(names, list):
+            merged[str(cat)] = list(names)
+    for cat, extra in _SHORT_DTE_FACTOR_OVERLAY.items():
+        merged.setdefault(cat, [])
+        for name in extra:
+            if name not in merged[cat]:
+                merged[cat].append(name)
+    base["enabled_factors"] = merged
+    return base
 
 
 def _normalize_enabled_factors(raw: object) -> dict[str, set[str]]:
