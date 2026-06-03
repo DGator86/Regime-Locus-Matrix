@@ -1484,6 +1484,28 @@ def main() -> None:
 
     print(f"[equity] Loaded {len(plans)} active plans, {len(positions)} tracked positions", flush=True)
 
+    from rlm.utils.market_hours import entry_window_open, is_rth_now, session_label
+
+    equity_rth_only = (os.environ.get("RLM_EQUITY_RTH_ONLY") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    if equity_rth_only and not is_rth_now():
+        print(
+            f"[equity] outside NYSE RTH ({session_label()}) — no entries or exits this tick",
+            flush=True,
+        )
+        _save_state(positions, state_path)
+        return
+    if equity_rth_only and not args.monitor_only and not entry_window_open():
+        print(
+            f"[equity] outside entry window ({session_label()}) — monitor/exits only, no new stock opens",
+            flush=True,
+        )
+        args.monitor_only = True
+
     if args.dry_run:
         # No IBKR connection needed — work in dry-run mode
         if not args.monitor_only:

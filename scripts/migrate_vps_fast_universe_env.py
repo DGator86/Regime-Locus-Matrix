@@ -15,7 +15,12 @@ _FAST_PROFILE: dict[str, str] = {
     "RLM_ALLOW_DAILY_PRIMARY": "1",
     "RLM_PRIMARY_BAR_SIZE": "1 day",
     "RLM_PRIMARY_DURATION": "30 D",
-    "RLM_PIPELINE_ARGS": "--ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4",
+    "RLM_PIPELINE_ARGS": (
+        "--ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4 --market-hours-only"
+    ),
+    "RLM_PIPELINE_MARKET_HOURS_ONLY": "1",
+    "RLM_MONITOR_RTH_ONLY": "1",
+    "RLM_EQUITY_RTH_ONLY": "1",
     "RLM_PIPELINE_TIMEOUT_SEC": "2700",
     "RLM_SKIP_FEATURE_CSV": "1",
     "RLM_SKIP_MASTER_CHALLENGE": "1",

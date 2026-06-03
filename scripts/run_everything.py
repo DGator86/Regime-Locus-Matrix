@@ -101,6 +101,18 @@ def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
             cmd.extend(["--massive-workers", mw])
     if not _pipeline_cmd_has_flag(cmd, "--no-feature-csv") and _env_truthy("RLM_SKIP_FEATURE_CSV"):
         cmd.append("--no-feature-csv")
+    if not _pipeline_cmd_has_flag(cmd, "--market-hours-only") and _env_truthy("RLM_PIPELINE_MARKET_HOURS_ONLY"):
+        cmd.append("--market-hours-only")
+
+
+def _monitor_rth_only_enabled(*, master: bool) -> bool:
+    """Default on for ``--master`` unless ``RLM_MONITOR_RTH_ONLY=0``."""
+    raw = (os.environ.get("RLM_MONITOR_RTH_ONLY") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    return bool(master)
 
 
 def main() -> int:
@@ -595,6 +607,8 @@ def main() -> int:
     if args.paper_close_dry_run:
         mcmd.append("--paper-close-dry-run")
     mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+    if _monitor_rth_only_enabled(master=bool(args.master)):
+        mcmd.append("--rth-only-poll")
     if args.follow:
         proc = subprocess.Popen(mcmd, cwd=str(ROOT))
         monitor_proc["p"] = proc

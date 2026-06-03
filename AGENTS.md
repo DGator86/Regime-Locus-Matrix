@@ -60,6 +60,7 @@ When you change this codebase in a session, **commit** the intended files, then 
 - **Stock bars:** `RLM_STOCK_BARS_SOURCE=eodhd` reads `data/stocks/{SYM}/1m/*.parquet` (lake). Bar load is fast; scan time is dominated by **Massive option chains**, **Markov/HMM fit**, and optional **per-symbol CSV dumps**.
 - **Fast routine rescans:** `RLM_ALLOW_DAILY_PRIMARY=1` (daily bars, not auto-upgraded to 1m/30D), `RLM_SKIP_FEATURE_CSV=1`, `RLM_MASSIVE_WORKERS=4` (or in `RLM_PIPELINE_ARGS`). Apply on VPS: `python3 scripts/migrate_vps_fast_universe_env.py`.
 - **Alerts:** `TELEGRAM_NOTIFY_UNIVERSE=1`, `TELEGRAM_NOTIFY_CHALLENGE=0`. Health checks suppress stale `universe_trade_plans.json` while `.universe_pipeline.lock` is held.
+- **RTH only:** `RLM_PIPELINE_MARKET_HOURS_ONLY=1` + `--market-hours-only` on universe pipeline; `RLM_MONITOR_RTH_ONLY=1` (master passes `--rth-only-poll`); `RLM_EQUITY_RTH_ONLY=1` for equity paper. No options TP/stop/new-log rows outside 09:30–16:00 ET.
 - **Do not** pass `--no-kronos` to `run_universe_options_pipeline.py` (unsupported); Kronos is controlled via `live_regime_model.json`.
 
 ### Gotchas

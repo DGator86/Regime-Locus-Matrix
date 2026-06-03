@@ -539,6 +539,13 @@ def main() -> int:
         help="Outside NYSE RTH, skip Massive polling and sleep for --interval (saves API quota)",
     )
     args = p.parse_args()
+    if not args.rth_only_poll and (os.environ.get("RLM_MONITOR_RTH_ONLY") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        args.rth_only_poll = True
 
     if args.paper_close and not args.paper_close_dry_run:
         from rlm.execution.options_ibkr_policy import exit_ibkr_option_combo_blocked
