@@ -58,14 +58,39 @@ def main() -> int:
     print(f"RLM_CHALLENGE_SCALP_DTE={env.get('RLM_CHALLENGE_SCALP_DTE_MIN', '?')}-{env.get('RLM_CHALLENGE_SCALP_DTE_MAX', '?')}")
     print("")
 
-    runpod = "https://o69xwhi8diaukn-8000.proxy.runpod.net/health"
-    try:
-        r = requests.get(runpod, timeout=10)
-        payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"raw": r.text[:200]}
-        print(f"runpod_health_status={r.status_code}")
-        print("runpod_health_payload=" + json.dumps(payload))
-    except Exception as exc:  # noqa: BLE001
-        print(f"runpod_health_error={exc}")
+    kronos_url = (env.get("RLM_KRONOS_REMOTE_URL") or os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip()
+    if kronos_url:
+        try:
+            r = requests.get(f"{kronos_url.rstrip('/')}/health", timeout=15)
+            payload = (
+                r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else {"raw": r.text[:200]}
+            )
+            print(f"kronos_remote_health_status={r.status_code}")
+            print("kronos_remote_health_payload=" + json.dumps(payload))
+        except Exception as exc:  # noqa: BLE001
+            print(f"kronos_remote_health_error={exc}")
+    else:
+        print("kronos_remote_health_skipped=RLM_KRONOS_REMOTE_URL unset")
+
+    if (root / "scripts" / "verify_kronos_gpu.py").is_file():
+        import subprocess
+
+        print("")
+        print("=== Kronos predict_paths probe ===")
+        proc = subprocess.run(
+            [sys.executable, str(root / "scripts" / "verify_kronos_gpu.py")],
+            cwd=str(root),
+            env={**os.environ, **env, "RLM_ROOT": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        print(proc.stdout or "")
+        if proc.stderr:
+            print(proc.stderr, file=sys.stderr)
+        print(f"kronos_predict_probe_exit={proc.returncode}")
 
     return 0
 

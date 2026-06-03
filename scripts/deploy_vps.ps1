@@ -55,7 +55,7 @@ if (-not $SkipRestart) {
     $unitsRaw = $SystemdUnits
     if ([string]::IsNullOrWhiteSpace($unitsRaw)) { $unitsRaw = $env:VPS_SYSTEMD_UNITS }
     if ([string]::IsNullOrWhiteSpace($unitsRaw)) {
-        $unitsRaw = "regime-locus-master,regime-locus-crew,rlm-master-telegram,rlm-telegram,rlm-telegram-bot,rlm-systems-control-telegram,rlm-host-watchdog"
+        $unitsRaw = "rlm-master-trader,regime-locus-master,rlm-challenge-loop,rlm-systems-control-telegram,regime-locus-crew,rlm-host-watchdog,rlm-master-telegram,rlm-telegram,rlm-telegram-bot"
     }
     $unitNames = @(
         $unitsRaw.Split(",", [StringSplitOptions]::RemoveEmptyEntries) |
@@ -69,7 +69,9 @@ if (-not $SkipRestart) {
     }
     $ensureRaw = $EnsureUnits
     if (-not $SkipEnsure -and [string]::IsNullOrWhiteSpace($ensureRaw)) { $ensureRaw = $env:VPS_ENSURE_UNITS }
-    if (-not $SkipEnsure -and [string]::IsNullOrWhiteSpace($ensureRaw)) { $ensureRaw = "regime-locus-crew" }
+    if (-not $SkipEnsure -and [string]::IsNullOrWhiteSpace($ensureRaw)) {
+        $ensureRaw = "rlm-master-trader,rlm-challenge-loop,rlm-systems-control-telegram,rlm-host-watchdog,regime-locus-crew"
+    }
     $ensureWithService = @()
     if (-not $SkipEnsure -and -not [string]::IsNullOrWhiteSpace($ensureRaw)) {
         foreach ($u in $ensureRaw.Split(",", [StringSplitOptions]::RemoveEmptyEntries)) {
@@ -95,6 +97,7 @@ if (-not $SkipRestart) {
     }
     $remote += " ; if [ `"`$restarted`" -eq 0 ]; then echo 'deploy_vps: no systemd unit from the deploy list was restarted or started (check systemctl status)'; fi"
 }
+$remote += " ; if [ -f scripts/rlm_enable_startup_services.sh ]; then bash scripts/rlm_enable_startup_services.sh; fi"
 
 ssh -o BatchMode=yes "$VpsUser@$VpsHost" $remote
 Write-Host "Deploy finished." -ForegroundColor Green

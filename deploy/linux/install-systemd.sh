@@ -74,6 +74,11 @@ _install_unit "${SCRIPT_DIR}/rlm-market-close.timer" \
 _install_unit "${SCRIPT_DIR}/rlm-challenge-loop.service" \
               "/etc/systemd/system/rlm-challenge-loop.service"
 
+if [[ -f "${SCRIPT_DIR}/../systemd/rlm-master-trader.service.example" ]]; then
+  _install_unit "${SCRIPT_DIR}/../systemd/rlm-master-trader.service.example" \
+                "/etc/systemd/system/rlm-master-trader.service"
+fi
+
 _install_unit "${SCRIPT_DIR}/rlm-host-watchdog.service" \
               "/etc/systemd/system/rlm-host-watchdog.service"
 
@@ -96,8 +101,14 @@ systemctl enable regime-locus-crew.service
 systemctl enable rlm-forecast.timer
 systemctl enable rlm-market-open.timer
 systemctl enable rlm-market-close.timer
-# Challenge loop: started at NY open / stopped at NY close via rlm-market-hours-*.sh (avoid 24/7 unless you enable it).
+systemctl enable rlm-challenge-loop.service
 systemctl enable rlm-host-watchdog.service
+if systemctl list-unit-files rlm-master-trader.service --no-legend 2>/dev/null | grep -q rlm-master-trader; then
+  systemctl enable rlm-master-trader.service
+fi
+if [[ -f /etc/systemd/system/rlm-systems-control-telegram.service ]]; then
+  systemctl enable rlm-systems-control-telegram.service
+fi
 systemctl enable rlm-startup-decision-health.service
 systemctl enable rlm-nightly-opt.timer
 systemctl enable rlm-weekly-calibrate.timer
