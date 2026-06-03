@@ -139,12 +139,12 @@ class RLMKronosPredictor:
             out = out.reset_index()
             ts_col = out.columns[0]
         if ts_col in out.columns:
-            timestamps = pd.to_datetime(out[ts_col])
+            timestamps = pd.Series(pd.to_datetime(out[ts_col]))
         elif isinstance(out.index, pd.DatetimeIndex):
             timestamps = pd.Series(out.index)
         else:
             n = len(out)
-            timestamps = pd.date_range("2020-01-01", periods=n, freq="D")
+            timestamps = pd.Series(pd.date_range("2020-01-01", periods=n, freq="D"))
 
         for col in _PRICE_COLS:
             if col not in out.columns:
@@ -158,8 +158,9 @@ class RLMKronosPredictor:
         return out[_KRONOS_COLS].copy(), timestamps
 
     @staticmethod
-    def _cache_key_for(timestamps: pd.Series) -> str:
-        raw = f"{timestamps.iloc[0]}_{timestamps.iloc[-1]}_{len(timestamps)}"
+    def _cache_key_for(timestamps: pd.Series | pd.DatetimeIndex) -> str:
+        ts = pd.Series(timestamps)
+        raw = f"{ts.iloc[0]}_{ts.iloc[-1]}_{len(ts)}"
         return hashlib.md5(raw.encode()).hexdigest()
 
     def predict_paths(
