@@ -30,6 +30,7 @@ _FAST_PROFILE: dict[str, str] = {
     "RLM_SKIP_MASTER_CHALLENGE": "1",
     "TELEGRAM_NOTIFY_UNIVERSE": "1",
     "TELEGRAM_NOTIFY_CHALLENGE": "0",
+    "RLM_OPTIONS_TRADE_LOG_PATH": "data/processed/options_large_account_trade_log.csv",
 }
 
 

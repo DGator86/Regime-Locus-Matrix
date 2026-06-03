@@ -28,6 +28,14 @@ def test_pipeline_market_hours_flag_from_env(monkeypatch) -> None:
     assert "--market-hours-only" in cmd
 
 
+def test_pipeline_trade_log_path_from_master(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    cmd = [sys.executable, "run_universe_options_pipeline.py"]
+    re._extend_pipeline_cmd_trade_log(cmd, tmp_path / "data/processed/options_large_account_trade_log.csv")
+    assert "--trade-log" in cmd
+    assert any("options_large_account_trade_log.csv" in str(x) for x in cmd)
+
+
 def test_pipeline_short_dte_flags_from_env(monkeypatch) -> None:
     monkeypatch.setenv("RLM_PIPELINE_SHORT_DTE", "1")
     monkeypatch.setenv("RLM_PIPELINE_DTE_MIN", "0")

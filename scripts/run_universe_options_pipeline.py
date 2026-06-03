@@ -69,6 +69,7 @@ from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
+from rlm.execution.trade_log_io import seed_paper_opens_from_active_plans
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
@@ -1399,6 +1400,14 @@ def _main_locked() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
+    if seeded:
+        print(
+            f"[paper] opened {len(seeded)} row(s) in {trade_log_path.name} "
+            f"(same plans as Robinhood alerts: {', '.join(seeded[:8])}"
+            f"{'…' if len(seeded) > 8 else ''})",
+            flush=True,
+        )
     _merge_trade_plan_snapshots(out_path.parent, final_results)
     _write_universe_latest_views(final_results, processed_dir)
     print(f"\nWrote {out_path}  (active setups: {len(final_active)})")

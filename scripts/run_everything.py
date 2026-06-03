@@ -115,6 +115,11 @@ def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
             cmd.extend(["--dte-max", dte_max])
 
 
+def _extend_pipeline_cmd_trade_log(cmd: list[str], trade_log: Path) -> None:
+    if not _pipeline_cmd_has_flag(cmd, "--trade-log"):
+        cmd.extend(["--trade-log", str(trade_log)])
+
+
 def _monitor_rth_only_enabled(*, master: bool) -> bool:
     """Default on for ``--master`` unless ``RLM_MONITOR_RTH_ONLY=0``."""
     raw = (os.environ.get("RLM_MONITOR_RTH_ONLY") or "").strip().lower()
@@ -335,7 +340,7 @@ def main() -> int:
             flush=True,
         )
     args.paper_close = False
-    args.paper_dry_run = True
+    args.paper_dry_run = False
 
     if args.with_equity:
         print(
@@ -423,14 +428,27 @@ def main() -> int:
         if args.use_vp_gating and "--use-vp-gating" not in cmd:
             cmd.append("--use-vp-gating")
         _extend_pipeline_cmd_from_env(cmd)
+        otl = (
+            Path(args.options_trade_log)
+            if Path(args.options_trade_log).is_absolute()
+            else (ROOT / args.options_trade_log)
+        )
+        _extend_pipeline_cmd_trade_log(cmd, otl)
         return cmd
 
     def paper_cmd() -> list[str]:
+        otl = (
+            Path(args.options_trade_log)
+            if Path(args.options_trade_log).is_absolute()
+            else (ROOT / args.options_trade_log)
+        )
         pcmd = [
             py,
             str(ROOT / "scripts" / "ibkr_paper_trade_from_plans.py"),
             "--plans",
             plans,
+            "--trade-log",
+            str(otl),
             "--max",
             str(args.paper_trade_max),
         ]

@@ -112,9 +112,9 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     ]
     (dproc / "trade_log.csv").write_text("".join(log_lines), encoding="utf-8")
     s1, _ = notification_cycle(tmp_path, b0)
-    assert len(s1) == 2
+    assert len(s1) == 1
     assert any("ROBINHOOD" in m and "BUY IDEA" in m and "QQQ" in m for m in s1)
-    assert any("LARGE OPTIONS" in m and "NEW POSITION" in m and "p2" in m and "QQQ" in m for m in s1)
+    assert not any("LARGE OPTIONS" in m and "NEW POSITION" in m for m in s1)
 
 
 def test_robinhood_universe_message_shows_pay_and_exit_targets() -> None:

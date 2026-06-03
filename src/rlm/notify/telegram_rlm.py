@@ -555,8 +555,9 @@ def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
     lines.extend(
         [
             _SEP,
+            "Paper book: same plan_id opened in local trade_log (monitor uses these marks).",
             "Session:   ideas after 09:45 ET (15m post-open); no scans outside 09:30–16:00 ET.",
-            "▶ Open Robinhood and enter this structure manually.",
+            "▶ Open Robinhood and match the structure/debit above; paper book tracks TP/stop.",
         ]
     )
     return "\n".join(lines)
@@ -1777,9 +1778,13 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
         if not closed and pid not in st.announced_trade_open:
             st.announced_trade_open.add(pid)
-            ed = row.get("entry_debit", row.get("entry_mid", ""))
-            dte_val = row.get("dte", "")
-            out.append(_build_new_opt_message(sym, pid, mark, ed, sig, dte_val, plan, row, root))
+            if _notify_flag("TELEGRAM_NOTIFY_UNIVERSE", default="1") and isinstance(plan, dict) and plan:
+                # Robinhood manual alert + paper row share the same universe plan (seeded at pipeline).
+                pass
+            else:
+                ed = row.get("entry_debit", row.get("entry_mid", ""))
+                dte_val = row.get("dte", "")
+                out.append(_build_new_opt_message(sym, pid, mark, ed, sig, dte_val, plan, row, root))
 
         if sig == "take_profit" and prev != "take_profit" and pid not in st.announced_tp:
             st.announced_tp.add(pid)
@@ -1809,6 +1814,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             plan = plan_lookup.get(pid)
             if isinstance(plan, dict) and plan:
                 out.append(_build_robinhood_universe_message(plan))
+                st.announced_trade_open.add(pid)
     st.last_universe_active_ids = cur_u
 
     prev_eq = st.last_equity_open
