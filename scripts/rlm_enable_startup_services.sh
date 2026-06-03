@@ -63,7 +63,11 @@ _start rlm-market-close.timer
 
 if [[ -x "${PY}" && -f "${ROOT}/scripts/verify_kronos_gpu.py" ]]; then
   echo "[startup] Kronos GPU probe"
-  "${PY}" "${ROOT}/scripts/verify_kronos_gpu.py" || echo "[startup] WARN: Kronos GPU probe failed (check RLM_KRONOS_REMOTE_URL)"
+  (
+    cd "${ROOT}"
+    export RLM_ROOT="${ROOT}"
+    "${PY}" "${ROOT}/scripts/verify_kronos_gpu.py"
+  ) || echo "[startup] WARN: Kronos GPU probe failed (check RLM_KRONOS_REMOTE_URL)"
 fi
 
 echo "[startup] active units:"

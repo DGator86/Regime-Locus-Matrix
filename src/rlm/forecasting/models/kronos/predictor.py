@@ -138,7 +138,13 @@ class RLMKronosPredictor:
         if ts_col not in out.columns and out.index.name in ("timestamp", "timestamps"):
             out = out.reset_index()
             ts_col = out.columns[0]
-        timestamps = pd.to_datetime(out[ts_col])
+        if ts_col in out.columns:
+            timestamps = pd.to_datetime(out[ts_col])
+        elif isinstance(out.index, pd.DatetimeIndex):
+            timestamps = pd.Series(out.index)
+        else:
+            n = len(out)
+            timestamps = pd.date_range("2020-01-01", periods=n, freq="D")
 
         for col in _PRICE_COLS:
             if col not in out.columns:

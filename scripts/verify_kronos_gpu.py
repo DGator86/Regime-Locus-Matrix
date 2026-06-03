@@ -30,6 +30,13 @@ def _bars(n: int = 48) -> pd.DataFrame:
 
 
 def main() -> int:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(_ROOT / ".env")
+    except ImportError:
+        pass
+
     base = (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip().rstrip("/")
     if not base:
         print("verify_kronos_gpu: RLM_KRONOS_REMOTE_URL not set — skipping remote GPU probe")

@@ -26,6 +26,13 @@ def _bars(n: int = 40) -> pd.DataFrame:
     )
 
 
+def test_prepare_df_without_timestamp_column() -> None:
+    df = _bars().drop(columns=["timestamp"])
+    ohlcv, ts = RLMKronosPredictor._prepare_df(df)
+    assert len(ohlcv) == len(df)
+    assert len(ts) == len(df)
+
+
 def test_remote_predict_paths_uses_env_url(monkeypatch) -> None:
     monkeypatch.setenv("RLM_KRONOS_REMOTE_URL", "http://gpu.test:8000")
     cfg = KronosConfig(pred_len=3, sample_count=2)
