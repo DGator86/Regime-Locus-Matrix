@@ -134,21 +134,22 @@ def main() -> int:
     new_text, changes = _apply_profile(text, _FAST_PROFILE)
     if not changes:
         print(f"ok: {p} already matches fast profile", flush=True)
-        return 0
+    else:
+        for c in changes:
+            print(c, flush=True)
+        if args.dry_run:
+            print("dry-run: no .env write", flush=True)
+        else:
+            stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = p.with_suffix(f".env.bak.{stamp}")
+            shutil.copy2(p, backup)
+            p.write_text(new_text, encoding="utf-8")
+            print(f"wrote {p} (backup {backup.name})", flush=True)
 
-    for c in changes:
-        print(c, flush=True)
-    if args.dry_run:
-        print("dry-run: no write", flush=True)
-        return 0
-
-    stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = p.with_suffix(f".env.bak.{stamp}")
-    shutil.copy2(p, backup)
-    p.write_text(new_text, encoding="utf-8")
-    print(f"wrote {p} (backup {backup.name})", flush=True)
-
-    for line in _patch_live_regime_mtf_confirmation(args.repo_root.resolve(), dry_run=False):
+    for line in _patch_live_regime_mtf_confirmation(
+        args.repo_root.resolve(),
+        dry_run=args.dry_run,
+    ):
         print(line, flush=True)
     return 0
 
