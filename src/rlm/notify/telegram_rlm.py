@@ -416,6 +416,100 @@ def _challenge_exit_reason_human(reason: str) -> str:
     }.get(reason, reason)
 
 
+def _plan_pay_and_exit_lines(plan: dict[str, Any]) -> list[str]:
+    """Debit to pay and projected combo mark exits from pipeline thresholds."""
+    thresholds = plan.get("thresholds") or {}
+    candidate = plan.get("candidate") or {}
+    spec = plan_combo_spec(plan) or {}
+    combo_qty = max(1, int(spec.get("quantity") or 1))
+
+    pay: float | None = None
+    for key in ("entry_debit_dollars", "entry_mid_mark_dollars"):
+        try:
+            val = float(plan.get(key) or 0.0)
+            if val > 0:
+                pay = val
+                break
+        except (TypeError, ValueError):
+            continue
+    if pay is None:
+        try:
+            lim = float(spec.get("limit_price") or 0.0)
+            if lim > 0:
+                pay = lim * 100.0 * combo_qty
+        except (TypeError, ValueError):
+            pay = None
+
+    lines: list[str] = []
+    if pay is not None:
+        per_combo = pay / float(combo_qty)
+        lines.append(
+            f"Pay (est.):  {_fmt_dollar(per_combo)} per combo  ×{combo_qty}  "
+            f"≈ {_fmt_dollar(pay)} total debit"
+        )
+
+    v_tp = thresholds.get("v_take_profit")
+    v_stop = thresholds.get("v_hard_stop")
+    v0 = thresholds.get("v0") or plan.get("entry_mid_mark_dollars")
+    if v_tp is not None:
+        tp_line = f"Exit target: {_fmt_dollar(v_tp)} combo mark (take profit)"
+        target_pct = candidate.get("target_profit_pct")
+        if target_pct is not None and pay is not None and pay > 0:
+            try:
+                pct = (float(v_tp) - pay) / pay * 100.0
+                tp_line += f"  ≈ +{pct:.0f}% vs debit"
+            except (TypeError, ValueError):
+                pass
+        elif target_pct is not None:
+            tp_line += f"  (+{float(target_pct) * 100:.0f}% on debit aim)"
+        lines.append(tp_line)
+    elif candidate.get("target_profit_pct") is not None and pay is not None:
+        try:
+            aim = pay * (1.0 + float(candidate["target_profit_pct"]))
+            lines.append(f"Exit target: {_fmt_dollar(aim)} combo mark (+{float(candidate['target_profit_pct']) * 100:.0f}% aim)")
+        except (TypeError, ValueError):
+            pass
+
+    if v_stop is not None:
+        stop_line = f"Exit stop:   {_fmt_dollar(v_stop)} combo mark (hard stop)"
+        if pay is not None and pay > 0:
+            try:
+                pct = (float(v_stop) - pay) / pay * 100.0
+                stop_line += f"  ≈ {pct:.0f}% vs debit"
+            except (TypeError, ValueError):
+                pass
+        lines.append(stop_line)
+
+    if v0 is not None and v_tp is None and v_stop is None:
+        lines.append(f"Mark anchor (V0): {_fmt_dollar(v0)}")
+
+    return lines
+
+
+def _plan_contract_dte_line(plan: dict[str, Any]) -> str | None:
+    """Best-effort DTE from matched legs or candidate window."""
+    matched = list(plan.get("matched_legs") or [])
+    if not matched:
+        matched = _legs_from_combo_spec_display(plan_combo_spec(plan))
+    dtes: list[float] = []
+    for leg in matched:
+        try:
+            d = float(leg.get("dte") or 0.0)
+            if d > 0:
+                dtes.append(d)
+        except (TypeError, ValueError):
+            continue
+    if dtes:
+        d = min(dtes)
+        return f"DTE:       {d:.1f} days (nearest expiry leg)"
+    candidate = plan.get("candidate") or {}
+    dte_min = candidate.get("target_dte_min")
+    dte_max = candidate.get("target_dte_max")
+    if dte_min is not None and dte_max is not None:
+        return f"DTE window: {dte_min}–{dte_max} days (engine target)"
+    return None
+
+
 def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
     """Actionable manual-buy alert when a symbol first becomes active in the universe."""
     sym = str(plan.get("symbol") or "?")
@@ -425,11 +519,8 @@ def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
     rationale = str(decis.get("rationale") or "")
     strat_human, structure, combo_qty = _plan_option_structure_lines(plan, None)
     candidate = plan.get("candidate") or {}
-    thresholds = plan.get("thresholds") or {}
     target_pct = candidate.get("target_profit_pct")
     max_risk_pct = candidate.get("max_risk_pct")
-    dte_min = candidate.get("target_dte_min")
-    dte_max = candidate.get("target_dte_max")
     try:
         rs = float(plan.get("rank_score") or 0.0)
         rs_fmt = f"{rs:.4f}"
@@ -446,25 +537,28 @@ def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
         f"Combo qty: ×{combo_qty}",
         f"Rank:      {rs_fmt}",
     ]
+    dte_line = _plan_contract_dte_line(plan)
+    if dte_line:
+        lines.append(dte_line)
     if regime_key:
         lines.append(f"Regime:    {_regime_human(regime_key)}")
     if rationale and rationale not in (strat_human, structure):
         lines.append(f"Logic:     {rationale}")
-    if dte_min is not None and dte_max is not None:
-        lines.append(f"DTE window: {dte_min}–{dte_max} days")
     if target_pct is not None:
-        lines.append(f"Profit aim: +{float(target_pct) * 100:.0f}% on debit")
+        lines.append(f"Profit aim: +{float(target_pct) * 100:.0f}% on debit (model)")
     if max_risk_pct is not None:
         lines.append(f"Risk cap:   {float(max_risk_pct) * 100:.1f}% of book")
-    v_tp = thresholds.get("v_take_profit")
-    v_stop = thresholds.get("v_hard_stop")
-    if v_tp is not None or v_stop is not None:
+    pay_exit = _plan_pay_and_exit_lines(plan)
+    if pay_exit:
         lines.append(_SEP)
-        if v_tp is not None:
-            lines.append(f"Take profit: mark ≥ {_fmt_dollar(v_tp)}")
-        if v_stop is not None:
-            lines.append(f"Hard stop:   mark ≤ {_fmt_dollar(v_stop)}")
-    lines.extend([_SEP, "▶ Open Robinhood and enter this structure manually."])
+        lines.extend(pay_exit)
+    lines.extend(
+        [
+            _SEP,
+            "Session:   ideas after 09:45 ET (15m post-open); no scans outside 09:30–16:00 ET.",
+            "▶ Open Robinhood and enter this structure manually.",
+        ]
+    )
     return "\n".join(lines)
 
 

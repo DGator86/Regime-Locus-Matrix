@@ -117,6 +117,29 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     assert any("LARGE OPTIONS" in m and "NEW POSITION" in m and "p2" in m and "QQQ" in m for m in s1)
 
 
+def test_robinhood_universe_message_shows_pay_and_exit_targets() -> None:
+    from rlm.notify.telegram_rlm import _build_robinhood_universe_message
+
+    plan = {
+        "symbol": "SPY",
+        "plan_id": "SPY_20260603_1445",
+        "rank_score": 0.91,
+        "entry_debit_dollars": 190.0,
+        "decision": {"strategy_name": "scalp_long_straddle", "regime_key": "bear|high_vol|thin|destabilizing"},
+        "candidate": {"target_dte_min": 0, "target_dte_max": 2, "target_profit_pct": 0.35},
+        "thresholds": {"v_take_profit": 256.5, "v_hard_stop": 95.0},
+        "matched_legs": [
+            {"side": "long", "option_type": "call", "strike": 600.0, "expiry": "2026-06-06", "dte": 2.1},
+        ],
+        "combo_spec": {"quantity": 1, "limit_price": 1.9, "legs": []},
+    }
+    msg = _build_robinhood_universe_message(plan)
+    assert "ROBINHOOD" in msg and "Pay (est.)" in msg
+    assert "Exit target" in msg and "256.50" in msg
+    assert "Exit stop" in msg and "95.00" in msg
+    assert "09:45 ET" in msg
+
+
 def test_profit_target_and_exit_alerts(tmp_path: Path) -> None:
     dproc = tmp_path / "data" / "processed"
     dproc.mkdir(parents=True)

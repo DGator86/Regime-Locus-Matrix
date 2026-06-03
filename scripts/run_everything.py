@@ -103,6 +103,16 @@ def _extend_pipeline_cmd_from_env(cmd: list[str]) -> None:
         cmd.append("--no-feature-csv")
     if not _pipeline_cmd_has_flag(cmd, "--market-hours-only") and _env_truthy("RLM_PIPELINE_MARKET_HOURS_ONLY"):
         cmd.append("--market-hours-only")
+    if not _pipeline_cmd_has_flag(cmd, "--short-dte") and _env_truthy("RLM_PIPELINE_SHORT_DTE"):
+        cmd.append("--short-dte")
+    if not _pipeline_cmd_has_flag(cmd, "--dte-min"):
+        dte_min = (os.environ.get("RLM_PIPELINE_DTE_MIN") or "").strip()
+        if dte_min:
+            cmd.extend(["--dte-min", dte_min])
+    if not _pipeline_cmd_has_flag(cmd, "--dte-max"):
+        dte_max = (os.environ.get("RLM_PIPELINE_DTE_MAX") or "").strip()
+        if dte_max:
+            cmd.extend(["--dte-max", dte_max])
 
 
 def _monitor_rth_only_enabled(*, master: bool) -> bool:

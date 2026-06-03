@@ -26,3 +26,14 @@ def test_pipeline_market_hours_flag_from_env(monkeypatch) -> None:
     cmd = [sys.executable, "run_universe_options_pipeline.py"]
     re._extend_pipeline_cmd_from_env(cmd)
     assert "--market-hours-only" in cmd
+
+
+def test_pipeline_short_dte_flags_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("RLM_PIPELINE_SHORT_DTE", "1")
+    monkeypatch.setenv("RLM_PIPELINE_DTE_MIN", "0")
+    monkeypatch.setenv("RLM_PIPELINE_DTE_MAX", "5")
+    cmd = [sys.executable, "run_universe_options_pipeline.py"]
+    re._extend_pipeline_cmd_from_env(cmd)
+    assert "--short-dte" in cmd
+    assert "--dte-min" in cmd and "0" in cmd
+    assert "--dte-max" in cmd and "5" in cmd
