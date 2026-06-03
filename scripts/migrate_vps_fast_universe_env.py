@@ -87,6 +87,31 @@ def _apply_profile(text: str, profile: dict[str, str]) -> tuple[str, list[str]]:
     return new_text, changes
 
 
+def _patch_live_regime_kronos_remote(
+    repo_root: Path,
+    env_path: Path,
+    *,
+    dry_run: bool,
+) -> list[str]:
+    """Turn on live-model Kronos blend when RunPod remote URL is configured."""
+    remote = (_parse_val(env_path.read_text(encoding="utf-8"), "RLM_KRONOS_REMOTE_URL") or "").strip()
+    if not remote:
+        return []
+    path = repo_root / "data" / "processed" / "live_regime_model.json"
+    if not path.is_file():
+        return []
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if blob.get("use_kronos") is True:
+        return []
+    blob["use_kronos"] = True
+    if not dry_run:
+        path.write_text(json.dumps(blob, indent=2), encoding="utf-8")
+    return [f"live_regime_model.json use_kronos -> true (remote {remote[:48]}...)"]
+
+
 def _patch_live_regime_mtf_confirmation(repo_root: Path, *, dry_run: bool) -> list[str]:
     """Enable 5m/15m confirmation bars on live regime JSON when empty."""
     path = repo_root / "data" / "processed" / "live_regime_model.json"
@@ -146,8 +171,15 @@ def main() -> int:
             p.write_text(new_text, encoding="utf-8")
             print(f"wrote {p} (backup {backup.name})", flush=True)
 
+    repo_root = args.repo_root.resolve()
+    for line in _patch_live_regime_kronos_remote(
+        repo_root,
+        p,
+        dry_run=args.dry_run,
+    ):
+        print(line, flush=True)
     for line in _patch_live_regime_mtf_confirmation(
-        args.repo_root.resolve(),
+        repo_root,
         dry_run=args.dry_run,
     ):
         print(line, flush=True)

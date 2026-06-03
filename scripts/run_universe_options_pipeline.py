@@ -1128,9 +1128,19 @@ def _main_locked() -> int:
         else:
             live_model = LiveRegimeModelConfig(use_kronos=True, kronos=kronos_params)
         print(f"[kronos] Blend enabled - weight={args.kronos_weight}, stride={args.kronos_stride}")
-    if live_model is not None and bool(live_model.use_kronos) and _kronos_stub_available():
+    if (
+        live_model is not None
+        and bool(live_model.use_kronos)
+        and _kronos_stub_available()
+        and not (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip()
+    ):
         live_model = live_model.model_copy(update={"use_kronos": False})
         print("[kronos] Disabled for this run: vendored Kronos runtime is stub-only on this host.", flush=True)
+    elif live_model is not None and bool(live_model.use_kronos) and (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip():
+        print(
+            f"[kronos] Remote GPU blend enabled ({os.environ.get('RLM_KRONOS_REMOTE_URL', '').strip()})",
+            flush=True,
+        )
     if live_model is not None:
         live_model = apply_nightly_hyperparam_overlay(live_model, DATA_ROOT)
     min_regime_train_samples = int(args.min_regime_train_samples)
