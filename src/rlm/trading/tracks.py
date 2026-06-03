@@ -115,7 +115,13 @@ def _env_truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def track_health(root: Path) -> dict[str, dict[str, Any]]:
+def _flag_from_env(env: dict[str, str] | None, name: str) -> bool:
+    if env is not None:
+        return (env.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+    return _env_truthy(name)
+
+
+def track_health(root: Path, *, env: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
     """Lightweight on-disk health for post-deploy / status."""
     tracks = load_tracks()
     out: dict[str, dict[str, Any]] = {}
@@ -133,7 +139,7 @@ def track_health(root: Path) -> dict[str, dict[str, Any]]:
             row["state_path"] = str(state_p)
         flag = spec.telegram_flag
         if flag:
-            row["telegram_enabled"] = _env_truthy(flag)
+            row["telegram_enabled"] = _flag_from_env(env, flag)
         if tid == TRACK_LARGE_OPTIONS:
             row["pipeline_short_dte"] = _env_truthy("RLM_PIPELINE_SHORT_DTE")
             row["dte_min"] = (os.environ.get("RLM_PIPELINE_DTE_MIN") or "7").strip()

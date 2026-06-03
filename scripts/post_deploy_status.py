@@ -36,7 +36,7 @@ def main() -> int:
     env = _read_env(root / ".env")
 
     print("=== RLM Post-Deploy Snapshot (three tracks) ===")
-    for tid, row in track_health(root).items():
+    for tid, row in track_health(root, env=env).items():
         print(f"[{tid}] {json.dumps(row, default=str)}")
     print("")
 
