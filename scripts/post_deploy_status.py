@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""One-shot post-deploy readiness snapshot for VPS/local use."""
+"""One-shot post-deploy readiness snapshot for VPS/local use (three tracks)."""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import requests
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from rlm.trading.tracks import track_health  # noqa: E402
 
 
 def _read_env(path: Path) -> dict[str, str]:
@@ -24,19 +32,30 @@ def _read_env(path: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(os.environ.get("RLM_ROOT") or _ROOT).resolve()
     env = _read_env(root / ".env")
+
+    print("=== RLM Post-Deploy Snapshot (three tracks) ===")
+    for tid, row in track_health(root).items():
+        print(f"[{tid}] {json.dumps(row, default=str)}")
+    print("")
+
     options_log = env.get("RLM_OPTIONS_TRADE_LOG_PATH", "data/processed/trade_log.csv")
     options_log_path = Path(options_log)
     if not options_log_path.is_absolute():
         options_log_path = root / options_log_path
     challenge_log = root / "data" / "challenge" / "trade_log.csv"
+    equity_log = root / "data" / "processed" / "equity_trade_log.csv"
 
-    print("=== RLM Post-Deploy Snapshot ===")
     print(f"RLM_OPTIONS_TRADE_LOG_PATH={options_log}")
     print(f"options_log_exists={options_log_path.exists()} path={options_log_path}")
+    print(f"equity_log_exists={equity_log.exists()} path={equity_log}")
     print(f"challenge_log_exists={challenge_log.exists()} path={challenge_log}")
-    print(f"telegram_balances_enabled=True (uses IBKR snapshot)")
+    print(f"TELEGRAM_NOTIFY_UNIVERSE={env.get('TELEGRAM_NOTIFY_UNIVERSE', '?')}")
+    print(f"TELEGRAM_NOTIFY_CHALLENGE={env.get('TELEGRAM_NOTIFY_CHALLENGE', '?')}")
+    print(f"RLM_SKIP_MASTER_CHALLENGE={env.get('RLM_SKIP_MASTER_CHALLENGE', '?')}")
+    print(f"RLM_PIPELINE_DTE={env.get('RLM_PIPELINE_DTE_MIN', '?')}-{env.get('RLM_PIPELINE_DTE_MAX', '?')}")
+    print(f"RLM_CHALLENGE_SCALP_DTE={env.get('RLM_CHALLENGE_SCALP_DTE_MIN', '?')}-{env.get('RLM_CHALLENGE_SCALP_DTE_MAX', '?')}")
     print("")
 
     runpod = "https://o69xwhi8diaukn-8000.proxy.runpod.net/health"

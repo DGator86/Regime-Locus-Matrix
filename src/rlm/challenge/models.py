@@ -69,7 +69,7 @@ class ChallengePipelineConfig:
     scalp_delta_min: float = 0.40  # ATM-ish; matches engine's 0DTE ATM play
     scalp_delta_max: float = 0.60
     scalp_dte_min: int = 0  # true 0DTE allowed (was 3)
-    scalp_dte_max: int = 3  # short-dated cap (was 10)
+    scalp_dte_max: int = 5  # 0DTE–5DTE weeklies (SPY day-trade track)
 
     # Max bid-ask spread as fraction of mid-price
     max_spread_pct: float = 0.06

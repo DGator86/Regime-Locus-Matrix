@@ -51,6 +51,7 @@ _SRC = ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from rlm.trading.tracks import print_tracks_banner, resolve_root  # noqa: E402
 from rlm.utils.market_hours import is_scanner_window_open, scanner_window_label  # noqa: E402
 from rlm.utils.subprocess_run import run_with_timeout  # noqa: E402
 
@@ -341,6 +342,9 @@ def main() -> int:
         )
     args.paper_close = False
     args.paper_dry_run = False
+
+    if args.master:
+        print_tracks_banner(resolve_root())
 
     if args.with_equity:
         print(

@@ -615,7 +615,7 @@ def _finalize_symbol(
         strategy_name=str(decision.strategy_name or ""),
     )
     mlegs = edge.get("matched_legs_enriched") or mlegs
-    apply_edge_gate = dte_max <= 5 or sym.upper() == "SPY"
+    apply_edge_gate = dte_max <= 21
     if apply_edge_gate and not edge.get("passes_edge_gate", True):
         base["skip_reason"] = str(edge.get("edge_skip_reason") or "options_edge_gate")
         base["options_edge"] = {k: edge[k] for k in edge if k != "matched_legs_enriched"}

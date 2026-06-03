@@ -140,7 +140,18 @@ def assess_combo_edge(
     if math.isfinite(fair_mark) and abs(market_mark) > 1e-6:
         buyer_edge_pct = (fair_mark - market_mark) / abs(market_mark)
 
-    min_edge = _env_float("RLM_OPTIONS_MIN_BUYER_EDGE_PCT", 0.02)
+    is_short_dte = False
+    if matched_legs:
+        try:
+            exp = str(matched_legs[0].get("expiry") or "")
+            t_y = _years_to_expiry(exp)
+            is_short_dte = math.isfinite(t_y) and t_y <= (6.0 / 365.0)
+        except (TypeError, ValueError):
+            pass
+    min_edge = _env_float(
+        "RLM_OPTIONS_MIN_BUYER_EDGE_PCT" if is_short_dte else "RLM_OPTIONS_SWING_MIN_BUYER_EDGE_PCT",
+        0.02 if is_short_dte else 0.01,
+    )
     max_overpay = _env_float("RLM_OPTIONS_MAX_OVERPAY_PCT", 0.08)
 
     passes = True

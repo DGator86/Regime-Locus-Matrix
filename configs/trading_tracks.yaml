@@ -1,0 +1,34 @@
+# Three parallel trading sleeves (large equities, large options, SPY day trade).
+# Env vars in migrate_vps_three_tracks / .env override paths and DTE windows.
+
+tracks:
+  large_equities:
+    label: Large Equities
+    execution: ibkr_paper
+    plans_path: data/processed/universe_trade_plans.json
+    state_path: data/processed/equity_positions_state.json
+    log_path: data/processed/equity_trade_log.csv
+    rth_env: RLM_EQUITY_RTH_ONLY
+    telegram_flag: TELEGRAM_NOTIFY_EQUITY
+
+  large_options:
+    label: Large Options
+    execution: local_paper_monitor
+    plans_path: data/processed/universe_trade_plans.json
+    log_path: data/processed/options_large_account_trade_log.csv
+    pipeline_dte_min: 7
+    pipeline_dte_max: 21
+    short_dte: false
+    rth_env: RLM_MONITOR_RTH_ONLY
+    telegram_flag: TELEGRAM_NOTIFY_UNIVERSE
+
+  spy_daytrade:
+    label: SPY Day Trade
+    execution: challenge_loop
+    symbol: SPY
+    state_path: data/challenge/state.json
+    log_path: data/challenge/trade_log.csv
+    systemd_unit: rlm-challenge-loop.service
+    scalp_dte_min: 0
+    scalp_dte_max: 5
+    telegram_flag: TELEGRAM_NOTIFY_CHALLENGE

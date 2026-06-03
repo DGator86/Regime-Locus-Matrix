@@ -1833,6 +1833,12 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
     st.last_universe_active_ids = cur_u
 
     prev_eq = st.last_equity_open
+    if not _notify_flag("TELEGRAM_NOTIFY_EQUITY", default="1"):
+        st.last_equity_open = now_open
+        if _notify_flag("TELEGRAM_NOTIFY_CHALLENGE", default="0"):
+            out.extend(_challenge_notification_messages(root, st))
+        return out, {**state_blob, **st.to_json()}
+
     for pid, d in eq.items():
         pkey = str(pid)
         pdat = d or {}

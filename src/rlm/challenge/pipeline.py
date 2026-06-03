@@ -5,6 +5,9 @@ trade-mode selection, contract profiling, and risk plan generation.
 
 from __future__ import annotations
 
+import os
+from dataclasses import replace
+
 from rlm.challenge.challenge_strategy_map import get_challenge_strategy
 from rlm.challenge.daytrade_filters import is_great_daytrade_setup
 from rlm.challenge.models import (
@@ -18,6 +21,22 @@ from rlm.challenge.models import (
     TradeModeDecision,
 )
 from rlm.persona.models import PersonaPipelineResult
+
+def apply_pipeline_config_env(cfg: ChallengePipelineConfig) -> ChallengePipelineConfig:
+    """Env overrides for SPY day-trade track (``RLM_CHALLENGE_SCALP_DTE_*``, symbol)."""
+    kwargs: dict[str, object] = {}
+    for env_key, field_name in (
+        ("RLM_CHALLENGE_SCALP_DTE_MIN", "scalp_dte_min"),
+        ("RLM_CHALLENGE_SCALP_DTE_MAX", "scalp_dte_max"),
+    ):
+        raw = (os.environ.get(env_key) or "").strip()
+        if raw:
+            kwargs[field_name] = int(raw)
+    sym = (os.environ.get("RLM_CHALLENGE_SYMBOL") or "").strip().upper()
+    if sym:
+        kwargs["allowed_universe"] = [sym]
+    return replace(cfg, **kwargs) if kwargs else cfg
+
 
 _SNIPER_DIRECTIONAL_DIRECTIVES: dict[str, str] = {
     "aggressive_daytrader_call": "long",
@@ -40,7 +59,7 @@ class ChallengeDecisionPipeline:
     """
 
     def __init__(self, config: ChallengePipelineConfig | None = None) -> None:
-        self._cfg = config or ChallengePipelineConfig()
+        self._cfg = apply_pipeline_config_env(config or ChallengePipelineConfig())
 
     # ------------------------------------------------------------------
     # Public entry point
