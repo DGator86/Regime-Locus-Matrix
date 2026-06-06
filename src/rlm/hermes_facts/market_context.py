@@ -257,10 +257,74 @@ def _read_equity_state(root: Path) -> str:
     return "\n".join(lines)
 
 
+def _build_data_quality_checks(root: Path) -> str:
+    """Summarise data readiness for embedded agents.
+
+    Emits a one-line readiness banner plus deterministic key-value checks
+    so both humans and downstream agents can parse/act consistently.
+    """
+
+    checks: list[str] = []
+    blockers: list[str] = []
+    warnings: list[str] = []
+    plans_path = root / "data" / "processed" / "universe_trade_plans.json"
+    if plans_path.is_file():
+        generated_at, age_min = plans_data_age(root)
+        is_fresh = age_min <= _STALE_THRESHOLD_MINUTES
+        freshness = "fresh" if is_fresh else "stale"
+        stamp = generated_at or "unknown"
+        checks.append(f"plans_file=ok generated_at={stamp} age_min={age_min:.1f} freshness={freshness}")
+        if not is_fresh:
+            warnings.append("plans_stale")
+        try:
+            payload = json.loads(plans_path.read_text(encoding="utf-8"))
+            rows = payload.get("results") or []
+            active = [r for r in rows if r.get("status") == "active"]
+            with_regime = sum(1 for r in active if r.get("regime") or r.get("regime_label"))
+            with_score = sum(1 for r in active if r.get("rank_score") is not None)
+            checks.append(
+                "plans_active="
+                f"{len(active)} regime_coverage={with_regime}/{len(active) or 1} "
+                f"score_coverage={with_score}/{len(active) or 1}"
+            )
+            if not active:
+                warnings.append("no_active_plans")
+            if active and (with_regime < len(active) or with_score < len(active)):
+                warnings.append("incomplete_plan_fields")
+        except Exception:
+            checks.append("plans_parse=failed")
+            blockers.append("plans_parse_failed")
+    else:
+        checks.append("plans_file=missing")
+        blockers.append("plans_missing")
+
+    artifact_dir = root / "data" / "artifacts" / "runs"
+    artifact_files = sorted(artifact_dir.glob("*.json")) if artifact_dir.is_dir() else []
+    checks.append(f"pipeline_artifacts={len(artifact_files)}")
+    if not artifact_files:
+        warnings.append("no_pipeline_artifacts")
+
+    wf_files = sorted((root / "data" / "processed").glob("walkforward_summary_*.csv"))
+    checks.append(f"walkforward_summary_files={len(wf_files)}")
+    if not wf_files:
+        warnings.append("no_walkforward_summaries")
+
+    if blockers:
+        readiness = "RED"
+    elif warnings:
+        readiness = "YELLOW"
+    else:
+        readiness = "GREEN"
+
+    header = f"readiness={readiness} blockers={','.join(blockers) or 'none'} warnings={','.join(warnings) or 'none'}"
+    return "\n".join([f"  - {header}", *(f"  - {line}" for line in checks)])
+
+
 def build_trade_and_regime_context(root: Path) -> str:
     """Single string suitable as user context for the research / commander agent."""
     root = root.resolve()
     sections: list[str] = [f"Market State: {session_label()}"]
+    sections.append(f"=== Data Quality Checks ===\n{_build_data_quality_checks(root)}")
 
     plans_text = _read_plans(root)
     if plans_text:
