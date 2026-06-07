@@ -44,15 +44,33 @@ def test_volatility_proxy():
 def test_classify_path_returns_regime_key():
     path = np.array(
         [
-            [100, 102, 98, 101, 1000, 101000],
-            [101, 103, 99, 102, 1100, 112200],
-            [102, 104, 100, 103, 1200, 123600],
+            [100, 102, 98, 101, 150000, 15000000],
+            [101, 103, 99, 102, 150000, 15300000],
+            [102, 104, 100, 103, 150000, 15450000],
         ],
         dtype=float,
     )
     rk = _classify_path(100.0, path)
-    assert isinstance(rk, str)
-    assert "|" in rk
+    assert rk == "bull|high_vol|high_liquidity|destabilizing"
+
+
+def test_classify_path_uses_state_matrix_vocabulary_for_supportive_flow():
+    path = np.array(
+        [
+            [100.0, 100.8, 99.8, 100.1, 130000.0, 13013000.0],
+            [100.0, 100.9, 99.9, 100.2, 130000.0, 13026000.0],
+            [100.0, 100.7, 99.7, 100.1, 130000.0, 13013000.0],
+        ],
+        dtype=float,
+    )
+    rk = _classify_path(100.0, path)
+    direction, volatility, liquidity, dealer_flow = rk.split("|")
+
+    assert direction in {"bull", "bear", "range", "transition", "unknown"}
+    assert volatility in {"high_vol", "low_vol", "transition", "unknown"}
+    assert liquidity in {"high_liquidity", "low_liquidity", "unknown"}
+    assert dealer_flow in {"supportive", "destabilizing", "unknown"}
+    assert rk == "range|low_vol|low_liquidity|supportive"
 
 
 # ── score_bar via mock predictor ─────────────────────────────────────
@@ -154,6 +172,32 @@ def test_score_bar_without_current_regime():
     assert result["kronos_transition_flag"] is False
 
 
+def test_score_bar_regime_agreement_matches_state_matrix_key():
+    cfg = KronosConfig(sample_count=3, pred_len=3)
+    mock_pred = MagicMock()
+
+    def _predict_paths(df, future_timestamps=None):
+        current_close = float(df["close"].iloc[-1])
+        path = np.array(
+            [
+                [current_close, current_close + 0.8, current_close - 0.8, current_close + 0.1, 150000.0, 0.0],
+                [current_close, current_close + 0.9, current_close - 0.9, current_close + 0.2, 150000.0, 0.0],
+                [current_close, current_close + 0.7, current_close - 0.7, current_close + 0.1, 150000.0, 0.0],
+            ],
+            dtype=float,
+        )
+        return np.repeat(path[np.newaxis, :, :], 3, axis=0)
+
+    mock_pred.predict_paths = _predict_paths
+    krc = KronosRegimeConfidence(config=cfg, predictor=mock_pred)
+
+    bars = _make_bars(50)
+    result = krc.score_bar(bars, current_regime_key="range|low_vol|high_liquidity|supportive")
+
+    assert result["kronos_regime_agreement"] == 1.0
+    assert result["kronos_transition_flag"] is False
+
+
 # ── annotate (batch) ─────────────────────────────────────────────────
 
 
@@ -170,3 +214,17 @@ def test_annotate_adds_columns():
     assert "kronos_regime_agreement" in result.columns
     assert result["kronos_confidence"].iloc[31:].notna().all()
     assert result["kronos_confidence"].iloc[:30].isna().all()
+
+
+def test_annotate_skips_overlay_when_predictor_backend_fails():
+    cfg = KronosConfig(sample_count=3, pred_len=2, max_context=50)
+    mock_pred = MagicMock()
+    mock_pred.predict_paths.side_effect = RuntimeError("remote GPU unavailable")
+    krc = KronosRegimeConfidence(config=cfg, predictor=mock_pred)
+
+    bars = _make_bars(60)
+    bars["regime_key"] = "range|low_vol|high_liquidity|supportive"
+    result = krc.annotate(bars, min_lookback=30)
+
+    assert result is bars
+    assert "kronos_confidence" not in result.columns
