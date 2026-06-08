@@ -344,8 +344,11 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
-        pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
+    elif (
+        float(soft_time_stop_dte) > 0.0
+        and plan_dte == plan_dte
+        and plan_dte <= soft_time_stop_dte
+        and (pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold))
     ):
         signal = "time_stop"
     elif v >= v_tp:

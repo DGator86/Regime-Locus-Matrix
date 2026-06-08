@@ -218,16 +218,20 @@ def test_monitor_keeps_open_trade_log_row_for_ghost_snapshot(tmp_path: Path, mon
         encoding="utf-8",
     )
     snap_path.write_text(json.dumps({"plan_1": plan}), encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", [
-        "monitor_active_trade_plans.py",
-        "--plans",
-        str(plans_path),
-        "--state",
-        str(state_path),
-        "--trade-log",
-        str(trade_log),
-        "--once",
-    ])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "monitor_active_trade_plans.py",
+            "--plans",
+            str(plans_path),
+            "--state",
+            str(state_path),
+            "--trade-log",
+            str(trade_log),
+            "--once",
+        ],
+    )
     monkeypatch.delenv("RLM_MONITOR_GHOST_PLANS", raising=False)
     monkeypatch.setattr(monitor, "MassiveClient", lambda: object())
     monkeypatch.setattr(
