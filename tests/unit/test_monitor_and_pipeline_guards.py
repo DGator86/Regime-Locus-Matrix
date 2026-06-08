@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -9,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import scripts.monitor_active_trade_plans as monitor
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
+from rlm.datasets.backtest_data import synthetic_bars_demo
 from scripts.monitor_active_trade_plans import _evaluate_plan
 from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
@@ -148,6 +152,32 @@ def test_monitor_trailing_stop_holds_when_below_profit_floor(tmp_path: Path, mon
     assert str(row["closed"]) == "0"
 
 
+def test_monitor_legacy_plan_without_min_trail_exit_does_not_crash(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "trade_log.csv"
+    plan = _sample_plan()
+    del plan["thresholds"]["min_trail_exit_v"]
+    state = {"plan_1": {"peak_v": 130.0, "trail_on": True}}
+    monkeypatch.setattr("scripts.monitor_active_trade_plans.dte_from_plan", lambda _: 30.0)
+
+    _evaluate_plan(
+        plan,
+        chain=_sample_chain(mid=0.9),
+        state=state,
+        paper_close=False,
+        paper_close_dry_run=False,
+        force_close_dte=0.0,
+        soft_time_stop_dte=0.0,
+        min_profit_pct_for_soft_hold=20.0,
+        max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
+        trade_log_path=log_path,
+    )
+
+    row = pd.read_csv(log_path).iloc[-1]
+    assert row["signal"] == "hold"
+    assert str(row["closed"]) == "0"
+
+
 def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path, monkeypatch) -> None:
     log_path = tmp_path / "trade_log.csv"
     plan = _sample_plan()
@@ -171,6 +201,51 @@ def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path
     row = pd.read_csv(log_path).iloc[-1]
     assert row["signal"] == "hold"
     assert str(row["closed"]) == "0"
+
+
+def test_monitor_keeps_open_trade_log_row_for_ghost_snapshot(tmp_path: Path, monkeypatch) -> None:
+    plans_path = tmp_path / "plans.json"
+    state_path = tmp_path / "trade_monitor_state.json"
+    trade_log = tmp_path / "trade_log.csv"
+    snap_path = tmp_path / "trade_plan_snapshots.json"
+    plan = _sample_plan()
+
+    plans_path.write_text(json.dumps({"active_ranked": [], "results": []}), encoding="utf-8")
+    trade_log.write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,"
+        "unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n"
+        "2026-04-28T00:00:00Z,plan_1,TSLA,bull_call_spread,100,100,100,100,0,0,hold,0,20\n",
+        encoding="utf-8",
+    )
+    snap_path.write_text(json.dumps({"plan_1": plan}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "monitor_active_trade_plans.py",
+        "--plans",
+        str(plans_path),
+        "--state",
+        str(state_path),
+        "--trade-log",
+        str(trade_log),
+        "--once",
+    ])
+    monkeypatch.delenv("RLM_MONITOR_GHOST_PLANS", raising=False)
+    monkeypatch.setattr(monitor, "MassiveClient", lambda: object())
+    monkeypatch.setattr(
+        monitor,
+        "massive_option_chains_from_client",
+        lambda *args, **kwargs: SimpleNamespace(errors={}, chains={"TSLA": _sample_chain(mid=1.0)}),
+    )
+    evaluated: list[str] = []
+
+    def _record_evaluate(pl: dict, **kwargs: object) -> None:
+        evaluated.append(str(pl.get("plan_id")))
+
+    monkeypatch.setattr(monitor, "_evaluate_plan", _record_evaluate)
+
+    assert monitor.main() == 0
+    rows = pd.read_csv(trade_log)
+    assert str(rows.iloc[-1]["closed"]) == "0"
+    assert evaluated == ["plan_1"]
 
 
 def test_pipeline_duplicate_symbol_trimmed() -> None:
@@ -211,6 +286,23 @@ def test_full_pipeline_nightly_overlay_ignores_stale_mtf_regimes(tmp_path: Path)
 
     assert pipe.config.move_window == 91
     assert pipe.config.mtf_regimes is False
+
+
+def test_full_pipeline_no_kronos_skips_kronos_factor_calculator(monkeypatch) -> None:
+    def _fail_if_called(self: object, df: pd.DataFrame) -> pd.DataFrame:
+        raise AssertionError("use_kronos=False should not run Kronos factors")
+
+    monkeypatch.setattr(
+        "rlm.features.factors.kronos_factors.KronosFactorCalculator.compute",
+        _fail_if_called,
+    )
+
+    bars = synthetic_bars_demo(end=pd.Timestamp("2024-12-31"), periods=140)
+    cfg = FullRLMConfig(regime_model="hmm", hmm_states=3, use_kronos=False, attach_vix=False)
+    result = FullRLMPipeline(cfg).run(bars)
+
+    assert "raw_kronos_return_forecast" not in result.factors_df.columns
+    assert not result.policy_df.empty
 
 
 def test_kronos_stub_detector_returns_bool() -> None:

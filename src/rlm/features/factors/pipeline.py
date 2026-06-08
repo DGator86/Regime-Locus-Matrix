@@ -75,6 +75,9 @@ class FactorPipeline:
             specs.extend(calc.specs())
         return filter_specs(specs, self.feature_config)
 
+    def _enabled_calculators(self) -> list[Any]:
+        return [calc for calc in self.calculators if filter_specs(calc.specs(), self.feature_config)]
+
     def _concat_factor_frames(self, frames: list[pd.DataFrame]) -> pd.DataFrame:
         if not frames:
             return pd.DataFrame()
@@ -97,7 +100,7 @@ class FactorPipeline:
         return out
 
     def compute_raw_factors(self, df: pd.DataFrame) -> pd.DataFrame:
-        tasks = [(calc, df) for calc in self.calculators]
+        tasks = [(calc, df) for calc in self._enabled_calculators()]
         frames = parallel_map(
             _compute_factor_frame,
             tasks,

@@ -118,10 +118,10 @@ class KronosRegimeConfidence:
             return df
         try:
             self._predictor.predict_paths(df.iloc[: min_lookback + 1])
-        except ImportError as exc:
+        except Exception as exc:
             logger.warning(
-                "KronosRegimeConfidence: predict_paths backend unavailable (%s); "
-                "Kronos overlay skipped — regime confidence will fall back to pure HMM/Markov.",
+                "KronosRegimeConfidence: predict_paths unavailable (%s); "
+                "Kronos overlay skipped; regime confidence will fall back to pure HMM/Markov.",
                 exc,
             )
             return df

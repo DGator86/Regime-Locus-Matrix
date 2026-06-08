@@ -308,6 +308,8 @@ def _evaluate_plan(
         return
 
     v = float(estimate_mark_value_from_matched_legs(updated))
+    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
+    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     v_tp = float(thr.get("v_take_profit", float("nan")))
     v_sl = float(thr.get("v_hard_stop", float("nan")))
     v_tr_act = float(thr.get("v_trail_activate", float("nan")))
@@ -335,8 +337,6 @@ def _evaluate_plan(
         f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
     )
 
-    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
     pnl = v - entry_debit
     pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
@@ -596,14 +596,6 @@ def main() -> int:
             seen.add(pid)
             uniq.append(r)
 
-        active_plan_ids = {
-            str(r.get("plan_id") or "").strip()
-            for r in active
-            if str(r.get("plan_id") or "").strip()
-        }
-        if trade_log_path is not None:
-            _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
-
         state = _load_state(state_path)
         snap_path = state_path.with_name("trade_plan_snapshots.json")
         plan_snapshots: dict[str, dict] = {}
@@ -616,7 +608,7 @@ def main() -> int:
                 plan_snapshots = {}
 
         # Re-evaluate open trade_log rows that fell out of universe JSON (use snapshots).
-        monitor_ghosts = (os.environ.get("RLM_MONITOR_GHOST_PLANS") or "").strip().lower() in {
+        monitor_ghosts = (os.environ.get("RLM_MONITOR_GHOST_PLANS") or "1").strip().lower() in {
             "1",
             "true",
             "yes",

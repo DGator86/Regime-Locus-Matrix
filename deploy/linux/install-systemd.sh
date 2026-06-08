@@ -71,6 +71,8 @@ _install_unit "${SCRIPT_DIR}/rlm-market-close.service" \
               "/etc/systemd/system/rlm-market-close.service"
 _install_unit "${SCRIPT_DIR}/rlm-market-close.timer" \
               "/etc/systemd/system/rlm-market-close.timer"
+_install_script "${SCRIPT_DIR}/rlm-challenge-loop.sh" \
+                "/usr/local/bin/rlm-challenge-loop.sh"
 _install_unit "${SCRIPT_DIR}/rlm-challenge-loop.service" \
               "/etc/systemd/system/rlm-challenge-loop.service"
 

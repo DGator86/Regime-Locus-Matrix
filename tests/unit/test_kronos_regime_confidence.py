@@ -170,3 +170,16 @@ def test_annotate_adds_columns():
     assert "kronos_regime_agreement" in result.columns
     assert result["kronos_confidence"].iloc[31:].notna().all()
     assert result["kronos_confidence"].iloc[:30].isna().all()
+
+
+def test_annotate_returns_base_frame_when_predictor_unavailable():
+    cfg = KronosConfig(sample_count=3, pred_len=2, max_context=50)
+    mock_pred = MagicMock()
+    mock_pred.predict_paths.side_effect = RuntimeError("remote unavailable")
+    krc = KronosRegimeConfidence(config=cfg, predictor=mock_pred)
+
+    bars = _make_bars(60)
+    result = krc.annotate(bars, min_lookback=30)
+
+    assert result is bars
+    assert "kronos_confidence" not in result.columns

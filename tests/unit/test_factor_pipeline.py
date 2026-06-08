@@ -156,3 +156,28 @@ def test_factor_pipeline_respects_enabled_factor_config() -> None:
         "raw_spread_pct_mid",
         "raw_gex_signal",
     }
+
+
+def test_factor_pipeline_skips_calculators_with_no_enabled_specs(monkeypatch) -> None:
+    def _fail_if_called(self: object, df: pd.DataFrame) -> pd.DataFrame:
+        raise AssertionError("disabled Kronos calculator should not run")
+
+    monkeypatch.setattr(
+        "rlm.features.factors.kronos_factors.KronosFactorCalculator.compute",
+        _fail_if_called,
+    )
+
+    df = make_sample_bars()
+    feature_config = {
+        "enabled_factors": {
+            "direction": ["price_vs_vwap"],
+            "volatility": ["underlying_vix_corr"],
+            "liquidity": ["spread_pct_mid"],
+            "dealer_flow": ["gex_signal"],
+        }
+    }
+
+    out = FactorPipeline(feature_config=feature_config).run(df)
+
+    assert "raw_kronos_return_forecast" not in out.columns
+    assert "S_D" in out.columns
