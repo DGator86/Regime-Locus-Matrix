@@ -9,7 +9,15 @@ import yaml
 
 from rlm.types.factors import FactorSpec
 
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "default.yaml"
+_HERE = Path(__file__).resolve()
+_DEFAULT_CONFIG_PATH = next(
+    (
+        parent / "configs" / "default.yaml"
+        for parent in _HERE.parents
+        if (parent / "configs" / "default.yaml").is_file()
+    ),
+    _HERE.parents[3] / "configs" / "default.yaml",
+)
 
 
 @lru_cache(maxsize=1)
