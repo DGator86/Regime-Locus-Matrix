@@ -49,13 +49,13 @@ if str(REPO_ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.dte_utils import dte_from_plan, needs_force_close
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.combo_spec import (
     legs_from_combo_spec,
     plan_combo_spec,
     reverse_combo_legs,
 )
+from rlm.execution.dte_utils import dte_from_plan, needs_force_close
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs, refresh_matched_leg_mids
 from rlm.utils.market_hours import is_rth_now, session_label
@@ -308,6 +308,8 @@ def _evaluate_plan(
         return
 
     v = float(estimate_mark_value_from_matched_legs(updated))
+    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
+    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     v_tp = float(thr.get("v_take_profit", float("nan")))
     v_sl = float(thr.get("v_hard_stop", float("nan")))
     v_tr_act = float(thr.get("v_trail_activate", float("nan")))
@@ -335,8 +337,6 @@ def _evaluate_plan(
         f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
     )
 
-    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
     pnl = v - entry_debit
     pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
@@ -344,8 +344,11 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
-        pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
+    elif (
+        float(soft_time_stop_dte) > 0.0
+        and plan_dte == plan_dte
+        and plan_dte <= soft_time_stop_dte
+        and (pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold))
     ):
         signal = "time_stop"
     elif v >= v_tp:
@@ -596,14 +599,6 @@ def main() -> int:
             seen.add(pid)
             uniq.append(r)
 
-        active_plan_ids = {
-            str(r.get("plan_id") or "").strip()
-            for r in active
-            if str(r.get("plan_id") or "").strip()
-        }
-        if trade_log_path is not None:
-            _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
-
         state = _load_state(state_path)
         snap_path = state_path.with_name("trade_plan_snapshots.json")
         plan_snapshots: dict[str, dict] = {}
@@ -616,7 +611,7 @@ def main() -> int:
                 plan_snapshots = {}
 
         # Re-evaluate open trade_log rows that fell out of universe JSON (use snapshots).
-        monitor_ghosts = (os.environ.get("RLM_MONITOR_GHOST_PLANS") or "").strip().lower() in {
+        monitor_ghosts = (os.environ.get("RLM_MONITOR_GHOST_PLANS") or "1").strip().lower() in {
             "1",
             "true",
             "yes",

@@ -9,7 +9,15 @@ import yaml
 
 from rlm.types.factors import FactorSpec
 
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "default.yaml"
+_HERE = Path(__file__).resolve()
+_DEFAULT_CONFIG_PATH = next(
+    (
+        parent / "configs" / "default.yaml"
+        for parent in _HERE.parents
+        if (parent / "configs" / "default.yaml").is_file()
+    ),
+    _HERE.parents[3] / "configs" / "default.yaml",
+)
 
 
 @lru_cache(maxsize=1)
@@ -42,8 +50,18 @@ _SHORT_DTE_FACTOR_OVERLAY: dict[str, list[str]] = {
     ],
 }
 
+_KRONOS_FACTOR_NAMES = {
+    "kronos_return_forecast",
+    "kronos_range_forecast",
+    "kronos_path_dispersion",
+}
 
-def feature_config_for_pipeline(*, short_dte: bool = False) -> dict[str, Any]:
+
+def feature_config_for_pipeline(
+    *,
+    short_dte: bool = False,
+    include_kronos: bool = True,
+) -> dict[str, Any]:
     """Base YAML config, optionally merged with short-DTE scoring overlay."""
     base = dict(load_feature_engineering_config())
     use_overlay = short_dte or (os.environ.get("RLM_SHORT_DTE_SCORING") or "").strip().lower() in (
@@ -52,8 +70,6 @@ def feature_config_for_pipeline(*, short_dte: bool = False) -> dict[str, Any]:
         "yes",
         "on",
     )
-    if not use_overlay:
-        return base
     enabled = base.get("enabled_factors")
     if not isinstance(enabled, dict):
         enabled = {}
@@ -61,11 +77,15 @@ def feature_config_for_pipeline(*, short_dte: bool = False) -> dict[str, Any]:
     for cat, names in enabled.items():
         if isinstance(names, list):
             merged[str(cat)] = list(names)
-    for cat, extra in _SHORT_DTE_FACTOR_OVERLAY.items():
-        merged.setdefault(cat, [])
-        for name in extra:
-            if name not in merged[cat]:
-                merged[cat].append(name)
+    if use_overlay:
+        for cat, extra in _SHORT_DTE_FACTOR_OVERLAY.items():
+            merged.setdefault(cat, [])
+            for name in extra:
+                if name not in merged[cat]:
+                    merged[cat].append(name)
+    if not include_kronos:
+        for cat, names in list(merged.items()):
+            merged[cat] = [name for name in names if name not in _KRONOS_FACTOR_NAMES]
     base["enabled_factors"] = merged
     return base
 

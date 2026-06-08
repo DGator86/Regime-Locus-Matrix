@@ -36,7 +36,6 @@ def _classify_path(last_close: float, path: np.ndarray) -> str:
     d = _direction_proxy(last_close, closes)
     v = _volatility_proxy(last_close, highs, lows)
     dir_lab = "bull" if d > 0.002 else ("bear" if d < -0.002 else "range")
-    vol_lab = "high_vol" if v > 0.02 else "low_vol"
     liq_lab = "high_liquidity" if float(np.mean(vols)) > 140_000 else "low_liquidity"
     trans = "transition" if v > 0.025 else "trend"
     flow = "destabilizing" if abs(d) > 0.01 else "stabilizing"
@@ -118,10 +117,10 @@ class KronosRegimeConfidence:
             return df
         try:
             self._predictor.predict_paths(df.iloc[: min_lookback + 1])
-        except ImportError as exc:
+        except Exception as exc:
             logger.warning(
-                "KronosRegimeConfidence: predict_paths backend unavailable (%s); "
-                "Kronos overlay skipped — regime confidence will fall back to pure HMM/Markov.",
+                "KronosRegimeConfidence: predict_paths unavailable (%s); "
+                "Kronos overlay skipped; regime confidence will fall back to pure HMM/Markov.",
                 exc,
             )
             return df

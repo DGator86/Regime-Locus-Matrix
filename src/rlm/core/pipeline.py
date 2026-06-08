@@ -48,6 +48,7 @@ from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.factors.cumulative_wyckoff_factors import CumulativeWyckoffFactors
 from rlm.factors.hybrid_confluence_factors import HybridConfluenceFactors
 from rlm.factors.microstructure_vp_factors import MicrostructureVPFactors
+from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import (
@@ -268,7 +269,8 @@ class FullRLMPipeline:
         )
 
         # 2. Factor pipeline (Kronos + liquidity + orderflow + dealer-flow)
-        factors_df = FactorPipeline().run(df)
+        factor_config = feature_config_for_pipeline(include_kronos=cfg.use_kronos)
+        factors_df = FactorPipeline(feature_config=factor_config).run(df)
 
         vp_metrics: pd.DataFrame | None = None
         use_intraday_vp = cfg.use_intraday_vp or (vp_cfg.enabled and vp_cfg.intraday_enabled)
