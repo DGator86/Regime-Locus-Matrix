@@ -170,3 +170,19 @@ def test_annotate_adds_columns():
     assert "kronos_regime_agreement" in result.columns
     assert result["kronos_confidence"].iloc[31:].notna().all()
     assert result["kronos_confidence"].iloc[:30].isna().all()
+
+
+def test_annotate_skips_when_predict_paths_backend_fails():
+    class BrokenPredictor:
+        def predict_paths(self, df, future_timestamps=None):
+            raise RuntimeError("remote timeout")
+
+    cfg = KronosConfig(sample_count=3, pred_len=2, max_context=50)
+    krc = KronosRegimeConfidence(config=cfg, predictor=BrokenPredictor())
+
+    bars = _make_bars(60)
+    bars["regime_key"] = "range|transition|low_liquidity|destabilizing"
+    result = krc.annotate(bars, min_lookback=30)
+
+    assert result.equals(bars)
+    assert "kronos_confidence" not in result.columns
