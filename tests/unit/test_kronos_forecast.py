@@ -10,7 +10,7 @@ import pytest
 
 from rlm.factors import KronosFactorCalculator
 from rlm.forecasting.kronos_config import KronosConfig
-from rlm.forecasting.kronos_forecast import KronosForecastPipeline
+from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosForecastPipeline
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:
@@ -120,6 +120,34 @@ class TestKronosForecastPipeline:
         result = pipeline.run(bars)
         for col in ["lower_1s", "upper_1s", "lower_2s", "upper_2s"]:
             assert col in result.columns
+
+    def test_blend_pipeline_skips_confidence_when_remote_backend_fails(self, monkeypatch):
+        def _raise_post(*args, **kwargs):
+            raise RuntimeError("remote timeout")
+
+        class BasePipeline:
+            def run(self, df):
+                out = df.copy()
+                out["forecast_return_median"] = 0.01
+                out["forecast_return_lower"] = 0.0
+                out["forecast_return_upper"] = 0.02
+                out["forecast_return"] = out["forecast_return_median"]
+                out["mu"] = out["forecast_return_median"]
+                out["sigma"] = 0.01
+                out["mean_price"] = out["close"] * (1.0 + out["forecast_return"])
+                out["forecast_source"] = "base"
+                out["regime_key"] = "bull|trend|high_liquidity|stabilizing"
+                return out
+
+        monkeypatch.setenv("RLM_KRONOS_REMOTE_URL", "http://gpu.test")
+        monkeypatch.setattr("requests.post", _raise_post)
+        cfg = KronosConfig(sample_count=2, pred_len=2, lookback=30)
+        pipeline = KronosBlendPipeline(BasePipeline(), kronos_config=cfg, weight=0.35)
+
+        result = pipeline.run(_make_bars(40))
+
+        assert (result["forecast_source"] == "base").all()
+        assert "kronos_confidence" not in result.columns
 
 
 # ── KronosFactorCalculator ───────────────────────────────────────────
