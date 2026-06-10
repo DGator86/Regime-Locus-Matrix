@@ -125,6 +125,13 @@ class KronosRegimeConfidence:
                 exc,
             )
             return df
+        except Exception as exc:
+            logger.warning(
+                "KronosRegimeConfidence: predict_paths backend failed (%s); "
+                "Kronos overlay skipped — regime confidence will fall back to pure HMM/Markov.",
+                exc,
+            )
+            return df
 
         out = df.copy()
         extra = {
