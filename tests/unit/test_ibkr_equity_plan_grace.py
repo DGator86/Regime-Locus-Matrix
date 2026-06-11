@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
@@ -150,6 +151,46 @@ def test_stop_loss_before_universe_even_when_plan_missing(tmp_path: Path) -> Non
     assert pos.exit_reason is not None
     assert str(pos.exit_reason).startswith("stop_loss_") and pos.exit_reason.endswith("pct")
     assert pos.status == "closed"
+
+
+def test_failed_live_close_keeps_position_open_for_retry(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod)
+    pos.entry_price = 100.0
+    positions = {pos.plan_id: pos}
+
+    class RejectingApp:
+        def get_last_price(self, symbol: str) -> float:
+            assert symbol == "QQQ"
+            return 94.0
+
+        def place_stock_order(self, symbol: str, action: str, quantity: int) -> int:
+            assert (symbol, action, quantity) == ("QQQ", "SELL", 10)
+            raise RuntimeError("simulated IBKR rejection")
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={pos.plan_id},
+        plan_by_id={},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=False,
+        app=RejectingApp(),
+        log_path=log_path,
+        utc_now=t0,
+        exit_on_plan_absent=True,
+    )
+
+    assert pos.status == "open"
+    assert pos.exit_reason is None
+    rows = list(csv.DictReader(log_path.open("r", encoding="utf-8", newline="")))
+    assert rows[-1]["signal"] == "close_order_error"
+    assert rows[-1]["closed"] == "0"
+    assert "simulated IBKR rejection" in rows[-1]["note"]
 
 
 def test_plan_returns_clears_grace_timer(tmp_path: Path) -> None:
