@@ -185,6 +185,29 @@ def _save_state(positions: dict[str, EquityPosition], path: Path) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _try_acquire_equity_run_lock(state_path: Path):
+    """Best-effort process lock so rescans cannot overlap equity order submission."""
+    lock_path = state_path.with_name(f"{state_path.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fh = lock_path.open("a+", encoding="utf-8")
+    try:
+        import fcntl
+
+        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_fh.close()
+        return None
+    except ImportError:
+        # Non-POSIX hosts keep legacy behavior; the VPS/trading host uses fcntl.
+        pass
+    lock_fh.seek(0)
+    lock_fh.truncate()
+    acquired = datetime.now(tz=timezone.utc).isoformat()
+    lock_fh.write(f"pid={os.getpid()} acquired_utc={acquired}\n")
+    lock_fh.flush()
+    return lock_fh
+
+
 def _parse_iso_utc(ts: str) -> datetime:
     s = ts.replace("Z", "+00:00")
     dt = datetime.fromisoformat(s)
@@ -1257,6 +1280,24 @@ def evaluate_equity_positions(
                 print(f"    close order_id={close_order_id} trail={trail}", flush=True)
             except Exception as exc:
                 print(f"    [equity] {pos.symbol}: close order error — {exc}", flush=True)
+                pos.close_order_id = close_order_id
+                _append_log(log_path, {
+                    "timestamp_utc": now.isoformat(),
+                    "plan_id": plan_id,
+                    "symbol": pos.symbol,
+                    "strategy": pos.direction,
+                    "action": "hold",
+                    "quantity": pos.quantity,
+                    "current_mark": current_price,
+                    "entry_debit": pos.entry_price,
+                    "order_id": close_order_id or "",
+                    "unrealized_pnl": round(pnl, 2),
+                    "unrealized_pnl_pct": round(pnl_pct, 4),
+                    "signal": "close_order_error",
+                    "closed": "0",
+                    "note": f"{exit_reason}: {exc}",
+                })
+                continue
 
         pos.status = "closed"
         pos.exit_price = current_price
@@ -1418,6 +1459,13 @@ def main() -> None:
     state_path = _resolve_data_path(args.state)
     log_path = _resolve_data_path(args.log)
     _ensure_equity_log_file(log_path)
+    run_lock = _try_acquire_equity_run_lock(state_path)
+    if run_lock is None:
+        print(
+            f"[equity] another equity trading run holds {state_path.name}.lock — skipping this tick",
+            flush=True,
+        )
+        return
 
     print(f"\n{'='*60}", flush=True)
     print(f"  IBKR Equity Paper Trade  |  {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
