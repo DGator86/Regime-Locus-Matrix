@@ -96,16 +96,11 @@ _install_unit "${SCRIPT_DIR}/rlm-weekly-calibrate.timer" \
               "/etc/systemd/system/rlm-weekly-calibrate.timer"
 
 systemctl daemon-reload
-systemctl enable regime-locus-master.service
 systemctl enable regime-locus-crew.service
 systemctl enable rlm-forecast.timer
 systemctl enable rlm-market-open.timer
 systemctl enable rlm-market-close.timer
-systemctl enable rlm-challenge-loop.service
 systemctl enable rlm-host-watchdog.service
-if systemctl list-unit-files rlm-master-trader.service --no-legend 2>/dev/null | grep -q rlm-master-trader; then
-  systemctl enable rlm-master-trader.service
-fi
 if [[ -f /etc/systemd/system/rlm-systems-control-telegram.service ]]; then
   systemctl enable rlm-systems-control-telegram.service
 fi
@@ -113,10 +108,12 @@ systemctl enable rlm-startup-decision-health.service
 systemctl enable rlm-nightly-opt.timer
 systemctl enable rlm-weekly-calibrate.timer
 
+systemctl disable regime-locus-master.service rlm-master-trader.service rlm-master-telegram.service rlm-challenge-loop.service 2>/dev/null || true
+
 echo ""
 echo "  Optional: copy deploy/systemd/ib-gateway.service.example with IB_GATEWAY_DIR sed, enable ib-gateway before master."
 echo ""
-echo "  Start master:    systemctl start regime-locus-master"
+echo "  Start trading:   systemctl start rlm-market-open.service (or wait for rlm-market-open.timer)"
 echo "  Start timers:    systemctl start rlm-market-open.timer rlm-market-close.timer rlm-nightly-opt.timer rlm-weekly-calibrate.timer"
 echo "  Follow log:      journalctl -u regime-locus-master -f"
 echo "  Market open log: journalctl -u rlm-market-open.service -f"

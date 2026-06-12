@@ -6,8 +6,9 @@
 # Overrides: $env:VPS_HOST, $env:VPS_USER, $env:VPS_REPO, $env:VPS_SYSTEMD_UNITS, $env:VPS_ENSURE_UNITS
 #
 # -SystemdUnits: comma-separated base names or full unit names (e.g. regime-locus-master,rlm-master-telegram).
-#   Units in -EnsureUnits (default: regime-locus-crew) are enabled and started or restarted so Hermes
-#   stays up even if it was stopped. Other units are only restarted when already active.
+#   Units in -EnsureUnits are enabled and started or restarted so always-on services stay up even if they
+#   were stopped. Default ensure excludes market-hours trading units; those are started by market timers.
+#   Other units are only restarted when already active.
 #   Example: .\scripts\deploy_vps.ps1 -SystemdUnits "regime-locus-master,rlm-control-center"
 
 param(
@@ -70,7 +71,7 @@ if (-not $SkipRestart) {
     $ensureRaw = $EnsureUnits
     if (-not $SkipEnsure -and [string]::IsNullOrWhiteSpace($ensureRaw)) { $ensureRaw = $env:VPS_ENSURE_UNITS }
     if (-not $SkipEnsure -and [string]::IsNullOrWhiteSpace($ensureRaw)) {
-        $ensureRaw = "rlm-master-trader,rlm-challenge-loop,rlm-systems-control-telegram,rlm-host-watchdog,regime-locus-crew"
+        $ensureRaw = "rlm-systems-control-telegram,rlm-host-watchdog,regime-locus-crew"
     }
     $ensureWithService = @()
     if (-not $SkipEnsure -and -not [string]::IsNullOrWhiteSpace($ensureRaw)) {
