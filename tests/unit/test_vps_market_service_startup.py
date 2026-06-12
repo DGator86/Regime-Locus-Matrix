@@ -92,9 +92,7 @@ def test_deploy_default_ensure_excludes_market_hours_trading_units() -> None:
 
 
 def test_systemd_installer_does_not_enable_market_hours_trading_units() -> None:
-    installer = (ROOT / "deploy" / "linux" / "install-systemd.sh").read_text(
-        encoding="utf-8"
-    )
+    installer = (ROOT / "deploy" / "linux" / "install-systemd.sh").read_text(encoding="utf-8")
 
     assert "systemctl enable regime-locus-master.service" not in installer
     assert "systemctl enable rlm-challenge-loop.service" not in installer
