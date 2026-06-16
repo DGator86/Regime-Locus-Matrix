@@ -8,6 +8,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
+
 
 def _notify_state_path(root: Path) -> Path:
     raw = (os.environ.get("TELEGRAM_STATE_PATH") or "").strip()
@@ -17,13 +19,43 @@ def _notify_state_path(root: Path) -> Path:
     return root / "data" / "processed" / "telegram_notify_state.json"
 
 
+def _parse_id_list(raw: str) -> set[int]:
+    out: set[int] = set()
+    for part in raw.replace(";", ",").split(","):
+        p = part.strip()
+        if p.isdigit() or (p.startswith("-") and p[1:].isdigit()):
+            out.add(int(p))
+    return out
+
+
+def _allowed_state_chat_ids() -> set[int] | None:
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_ALLOW_ALL_USERS",
+    ):
+        if (os.environ.get(key) or "").strip().lower() in _TRUTHY_ENV:
+            return None
+
+    allowed: set[int] = set()
+    for key in (
+        "RLM_HERMES_TELEGRAM_ALLOWED_USER_IDS",
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_ALLOWED_USER_IDS",
+        "TELEGRAM_ALLOWED_USER_IDS",
+    ):
+        allowed.update(_parse_id_list(os.environ.get(key) or ""))
+    return allowed
+
+
 def resolve_telegram_chat_id(root: Path) -> str:
-    """``TELEGRAM_NOTIFY_CHAT_ID`` or ``notify_chat_id`` from bot ``/start`` state file."""
+    """Explicit chat env, or an allow-listed private chat from bot ``/start`` state."""
     raw = (os.environ.get("RLM_HERMES_TELEGRAM_CHAT_ID") or "").strip() or (
         os.environ.get("TELEGRAM_NOTIFY_CHAT_ID") or ""
     ).strip()
     if raw:
         return raw
+    allowed = _allowed_state_chat_ids()
+    if allowed is not None and not allowed:
+        return ""
     st = _notify_state_path(root)
     if not st.is_file():
         return ""
@@ -31,7 +63,9 @@ def resolve_telegram_chat_id(root: Path) -> str:
         d = json.loads(st.read_text(encoding="utf-8"))
         c = d.get("notify_chat_id")
         if c is not None:
-            return str(int(c))
+            cid = int(c)
+            if allowed is None or cid in allowed:
+                return str(cid)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
     return ""
