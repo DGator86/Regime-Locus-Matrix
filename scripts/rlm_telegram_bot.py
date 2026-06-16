@@ -143,6 +143,16 @@ def _write_notify_state_blob(path: Path, blob: dict[str, Any]) -> None:
     path.write_text(json.dumps(blob, indent=2, default=str), encoding="utf-8")
 
 
+def _notify_state_chat_allowed(blob: dict[str, Any], chat_id: int, allowed: set[int] | None) -> bool:
+    if allowed is None or chat_id in allowed:
+        return True
+    try:
+        bound_user_id = int(blob.get("notify_chat_authorized_user_id"))
+    except (TypeError, ValueError):
+        return False
+    return bound_user_id in allowed
+
+
 def _persist_notify_cycle_state(path: Path, cycle_blob: dict[str, Any]) -> None:
     """Persist notify de-dupe state without overwriting a concurrent /start chat binding."""
     with _NOTIFY_STATE_LOCK:
@@ -210,6 +220,7 @@ def _handle_message(
         with _NOTIFY_STATE_LOCK:
             blob = _load_notify_state_blob(st)
             blob["notify_chat_id"] = chat_id
+            blob["notify_chat_authorized_user_id"] = user_id
             _write_notify_state_blob(st, blob)
         reply = (
             "RLM bot online. Push alerts use this chat.\n"
@@ -267,7 +278,7 @@ def _chat_for_push(allowed: set[int] | None = None) -> int | None:
             c = d.get("notify_chat_id")
             if c is not None:
                 cid = int(c)
-                if allowed is None or cid in allowed:
+                if _notify_state_chat_allowed(d, cid, allowed):
                     return cid
         except (ValueError, TypeError):
             pass

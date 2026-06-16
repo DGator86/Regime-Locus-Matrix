@@ -540,6 +540,34 @@ def test_telegram_bot_filters_state_push_chat_by_allowlist(monkeypatch, tmp_path
     assert bot._chat_for_push(None) == 222
 
 
+def test_telegram_bot_allows_authorized_group_start_as_push_chat(monkeypatch, tmp_path: Path) -> None:
+    bot = _load_telegram_bot_module()
+    for key in (
+        "RLM_SYSTEMS_CONTROL_TELEGRAM_CHAT_ID",
+        "TELEGRAM_NOTIFY_CHAT_ID",
+        "TELEGRAM_STATE_PATH",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RLM_ROOT", str(tmp_path))
+
+    sent: list[dict[str, object]] = []
+
+    def fake_api(token: str, method: str, **params: object) -> dict[str, object]:
+        sent.append({"token": token, "method": method, **params})
+        return {}
+
+    monkeypatch.setattr(bot, "_api", fake_api)
+    bot._handle_message("token", chat_id=-100222333444, user_id=111, text="/start", allowed={111})
+
+    state = tmp_path / "data" / "processed" / "telegram_notify_state.json"
+    saved = json.loads(state.read_text(encoding="utf-8"))
+    assert saved["notify_chat_id"] == -100222333444
+    assert saved["notify_chat_authorized_user_id"] == 111
+    assert bot._chat_for_push({111}) == -100222333444
+    assert bot._chat_for_push({999}) is None
+    assert sent[-1]["chat_id"] == -100222333444
+
+
 def test_telegram_bot_notify_cycle_preserves_concurrent_start_chat(monkeypatch, tmp_path: Path) -> None:
     bot = _load_telegram_bot_module()
     for key in (
