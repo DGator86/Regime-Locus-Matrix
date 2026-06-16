@@ -210,6 +210,7 @@ def _handle_message(
         with _NOTIFY_STATE_LOCK:
             blob = _load_notify_state_blob(st)
             blob["notify_chat_id"] = chat_id
+            blob["notify_chat_authorized_user_id"] = user_id
             _write_notify_state_blob(st, blob)
         reply = (
             "RLM bot online. Push alerts use this chat.\n"
@@ -268,6 +269,9 @@ def _chat_for_push(allowed: set[int] | None = None) -> int | None:
             if c is not None:
                 cid = int(c)
                 if allowed is None or cid in allowed:
+                    return cid
+                binder = d.get("notify_chat_authorized_user_id")
+                if binder is not None and int(binder) in allowed:
                     return cid
         except (ValueError, TypeError):
             pass
