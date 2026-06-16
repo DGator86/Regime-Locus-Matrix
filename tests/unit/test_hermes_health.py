@@ -120,6 +120,64 @@ def test_auto_restart_skips_inactive_master_when_sibling_is_active(
     assert actions == ["[auto] skip restart regime-locus-master.service (active mutually-exclusive sibling)"]
 
 
+def test_auto_restart_skips_inactive_trader_outside_scanner_window(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+    report = health.HealthReport(
+        timestamp="2020-01-01T00:00:00Z",
+        services=[
+            health.ServiceStatus(
+                name="rlm-master-trader",
+                active=False,
+                sub_state="dead",
+                load_state="loaded",
+            ),
+        ],
+    )
+
+    def fake_run(cmd: list[str], **kwargs) -> object:
+        calls.append(cmd)
+        raise AssertionError("systemctl restart should not be called")
+
+    monkeypatch.setattr(health.shutil, "which", lambda name: "/bin/systemctl")
+    monkeypatch.setattr(health.subprocess, "run", fake_run)
+    monkeypatch.setattr(health, "is_scanner_window_open", lambda: False)
+
+    actions = health._try_restart_inactive_services(
+        tmp_path,
+        report,
+        ["rlm-master-trader"],
+    )
+
+    assert calls == []
+    assert actions == []
+
+
+def test_inactive_trader_outside_scanner_window_does_not_degrade_health(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        health,
+        "_check_services",
+        lambda root, services: [
+            health.ServiceStatus(name="rlm-master-trader", active=False, sub_state="dead", load_state="loaded"),
+        ],
+    )
+    monkeypatch.setattr(health, "_check_disk", lambda root: [])
+    monkeypatch.setattr(health, "_check_staleness", lambda root: [])
+    monkeypatch.setattr(health, "_check_logs", lambda root, services: [])
+    monkeypatch.setattr(health, "_run_doctor", lambda root: "")
+    monkeypatch.setattr(health, "session_label", lambda: "after_hours")
+    monkeypatch.setattr(health, "is_scanner_window_open", lambda: False)
+
+    report = health._gather_report(tmp_path, ["rlm-master-trader"])
+
+    assert report.overall_ok is True
+
+
 def test_staleness_ignores_old_trade_log_when_equity_book_only(tmp_path: Path, monkeypatch) -> None:
     """Open equities without options rows must not require fresh options monitor CSV mtime."""
     processed = tmp_path / "data" / "processed"
