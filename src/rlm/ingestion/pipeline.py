@@ -19,13 +19,28 @@ from rlm.utils.parallel import parallel_map
 DEFAULT_SYMBOLS = ("SPY", "QQQ", "IWM", "AAPL", "TSLA", "NVDA")
 
 
+def _csv_list(value: str, *, uppercase: bool = False) -> list[str]:
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    if uppercase:
+        return [item.upper() for item in items]
+    return items
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return parsed
+
+
 @dataclass
 class IngestionPipeline:
     config: IngestionConfig = field(default_factory=IngestionConfig)
 
     def run(self, args: argparse.Namespace) -> int:
-        syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+        syms = _csv_list(args.symbols, uppercase=True)
         if not syms:
+            print("No symbols provided after parsing --symbols input.")
             return 1
 
         higher_tfs = parse_higher_tfs(args.higher_tfs)
@@ -77,7 +92,7 @@ class IngestionPipeline:
             if bad:
                 return bad
 
-        tickers = [t.strip() for t in args.option_tickers.split(",") if t.strip()]
+        tickers = _csv_list(args.option_tickers)
         if tickers and not args.skip_option_bars:
             bad = _first_bad(
                 parallel_map(
@@ -148,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quote-window-lt", default="2026-03-20T20:00:00Z")
     p.add_argument("--mtf", action="store_true")
     p.add_argument("--higher-tfs", default="1W,1M")
-    p.add_argument("--jobs", type=int, default=1)
+    p.add_argument("--jobs", type=_positive_int, default=1)
     p.add_argument("--parallel-backend", default="process", choices=("serial", "thread", "process", "ray"))
     return p
 
