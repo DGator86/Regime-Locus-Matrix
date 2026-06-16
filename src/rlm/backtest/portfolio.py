@@ -152,6 +152,23 @@ class Portfolio:
         return float(total)
 
     @staticmethod
+    def _lifecycle_expiry_from_matched_legs(matched_legs: list[dict]) -> str | None:
+        expiries: list[pd.Timestamp] = []
+        for leg in matched_legs:
+            expiry = leg.get("expiry")
+            if expiry is None:
+                continue
+            try:
+                ts = pd.Timestamp(expiry).normalize()
+            except (TypeError, ValueError):
+                continue
+            if pd.notna(ts):
+                expiries.append(ts)
+        if not expiries:
+            return None
+        return str(min(expiries).date())
+
+    @staticmethod
     def _capital_reserve_for_structure(
         matched_legs: list[dict],
         contract_multiplier: int,
@@ -338,7 +355,7 @@ class Portfolio:
         self.cash -= entry_commission
         self.cash -= entry_transaction_cost.total
 
-        expiry = matched[0]["expiry"] if matched else None
+        expiry = self._lifecycle_expiry_from_matched_legs(matched)
         position_id = str(uuid.uuid4())
         init_mark, init_exit = self._initial_marks_from_matched_legs(
             matched_legs=matched,
