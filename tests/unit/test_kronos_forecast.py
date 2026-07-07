@@ -7,10 +7,11 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 
 from rlm.factors import KronosFactorCalculator
 from rlm.forecasting.kronos_config import KronosConfig
-from rlm.forecasting.kronos_forecast import KronosForecastPipeline
+from rlm.forecasting.kronos_forecast import KronosBlendPipeline, KronosForecastPipeline
 
 
 def _make_bars(n: int = 60) -> pd.DataFrame:
@@ -120,6 +121,40 @@ class TestKronosForecastPipeline:
         result = pipeline.run(bars)
         for col in ["lower_1s", "upper_1s", "lower_2s", "upper_2s"]:
             assert col in result.columns
+
+
+class TestKronosBlendPipeline:
+    def test_remote_confidence_probe_failure_returns_base_forecast(self, monkeypatch):
+        class BasePipeline:
+            def run(self, df):
+                out = df.copy()
+                out["mu"] = 0.01
+                out["sigma"] = 0.02
+                out["forecast_return"] = 0.01
+                out["forecast_return_median"] = 0.01
+                out["forecast_return_lower"] = -0.01
+                out["forecast_return_upper"] = 0.03
+                out["forecast_source"] = "hmm"
+                return out
+
+        def _raise_timeout(*args, **kwargs):
+            raise requests.exceptions.Timeout("runpod timeout")
+
+        monkeypatch.setenv("RLM_KRONOS_REMOTE_URL", "http://gpu.test:8000")
+        monkeypatch.setattr(requests, "post", _raise_timeout)
+
+        bars = _make_bars(60)
+        pipeline = KronosBlendPipeline(
+            BasePipeline(),
+            kronos_config=KronosConfig(sample_count=2, pred_len=3, max_context=60),
+            weight=0.35,
+        )
+
+        result = pipeline.run(bars)
+
+        assert len(result) == len(bars)
+        assert (result["forecast_source"] == "hmm").all()
+        assert result["forecast_return"].eq(0.01).all()
 
 
 # ── KronosFactorCalculator ───────────────────────────────────────────
