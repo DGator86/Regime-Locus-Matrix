@@ -69,7 +69,7 @@ from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
-from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, seed_paper_opens_from_active_plans
+from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, open_plan_ids, seed_paper_opens_from_active_plans
 from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
 from rlm.options.edge import assess_combo_edge, chain_spot_price
@@ -812,6 +812,34 @@ def _apply_active_plan_guards(
             active_by_symbol[sym] = n_active + 1
 
 
+def _trim_new_active_plans_outside_entry_window(
+    results: list[dict[str, object]],
+    *,
+    market_hours_only: bool,
+    buffer_open_minutes: int,
+    buffer_close_minutes: int,
+    open_plan_ids_in_log: set[str],
+) -> int:
+    """Prevent late-finishing scans from publishing fresh entries after the entry window closes."""
+    if not market_hours_only:
+        return 0
+    if entry_window_open(buffer_open_minutes=buffer_open_minutes, buffer_close_minutes=buffer_close_minutes):
+        return 0
+
+    reason = f"outside_entry_window_at_publish ({session_label()})"
+    trimmed = 0
+    for row in results:
+        if row.get("status") != "active":
+            continue
+        pid = str(row.get("plan_id") or "").strip()
+        if pid and pid in open_plan_ids_in_log:
+            continue
+        row["status"] = "trimmed"
+        row["skip_reason"] = reason
+        trimmed += 1
+    return trimmed
+
+
 def _write_universe_latest_views(final_results: list[dict[str, object]], out_dir: Path) -> None:
     rows: list[dict[str, object]] = []
     for row in final_results:
@@ -1457,6 +1485,19 @@ def _main_locked() -> int:
             if r.get("status") == "active" and id(r) not in keep_ids:
                 r["status"] = "trimmed"
                 r["skip_reason"] = f"not_in_top_{args.top}"
+
+    trimmed_late = _trim_new_active_plans_outside_entry_window(
+        final_results,
+        market_hours_only=bool(args.market_hours_only),
+        buffer_open_minutes=int(args.buffer_open_minutes),
+        buffer_close_minutes=int(args.buffer_close_minutes),
+        open_plan_ids_in_log=open_plan_ids(trade_log_path),
+    )
+    if trimmed_late:
+        print(
+            f"[market-hours] trimmed {trimmed_late} fresh active plan(s) because the entry window closed before publish",
+            flush=True,
+        )
 
     final_active = [r for r in final_results if r.get("status") == "active"]
     final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)

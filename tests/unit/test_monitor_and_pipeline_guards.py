@@ -15,6 +15,7 @@ from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
     _kronos_stub_available,
     _load_open_symbols_from_trade_log,
+    _trim_new_active_plans_outside_entry_window,
 )
 
 
@@ -200,6 +201,46 @@ def test_pipeline_open_symbol_in_trade_log_blocks_new_active(tmp_path: Path) -> 
     _apply_active_plan_guards(rows, max_active_per_symbol=1, open_symbols=open_symbols)
     assert rows[0]["status"] == "trimmed"
     assert rows[0]["skip_reason"] == "symbol_already_open_in_trade_log"
+
+
+def test_pipeline_publish_gate_trims_fresh_active_plans_after_entry_window(monkeypatch) -> None:
+    rows = [
+        {"symbol": "SPY", "status": "active", "rank_score": 0.9, "plan_id": "new_spy"},
+        {"symbol": "TSLA", "status": "active", "rank_score": 0.8, "plan_id": "open_tsla"},
+        {"symbol": "AAPL", "status": "skipped", "rank_score": 0.7, "plan_id": "skip_aapl"},
+    ]
+    monkeypatch.setattr("scripts.run_universe_options_pipeline.entry_window_open", lambda **_: False)
+    monkeypatch.setattr("scripts.run_universe_options_pipeline.session_label", lambda: "after_close")
+
+    trimmed = _trim_new_active_plans_outside_entry_window(
+        rows,
+        market_hours_only=True,
+        buffer_open_minutes=15,
+        buffer_close_minutes=30,
+        open_plan_ids_in_log={"open_tsla"},
+    )
+
+    assert trimmed == 1
+    assert rows[0]["status"] == "trimmed"
+    assert rows[0]["skip_reason"] == "outside_entry_window_at_publish (after_close)"
+    assert rows[1]["status"] == "active"
+    assert rows[2]["status"] == "skipped"
+
+
+def test_pipeline_publish_gate_allows_fresh_active_plans_inside_entry_window(monkeypatch) -> None:
+    rows = [{"symbol": "SPY", "status": "active", "rank_score": 0.9, "plan_id": "new_spy"}]
+    monkeypatch.setattr("scripts.run_universe_options_pipeline.entry_window_open", lambda **_: True)
+
+    trimmed = _trim_new_active_plans_outside_entry_window(
+        rows,
+        market_hours_only=True,
+        buffer_open_minutes=15,
+        buffer_close_minutes=30,
+        open_plan_ids_in_log=set(),
+    )
+
+    assert trimmed == 0
+    assert rows[0]["status"] == "active"
 
 
 def test_full_pipeline_nightly_overlay_ignores_stale_mtf_regimes(tmp_path: Path) -> None:
