@@ -55,24 +55,28 @@ apply_compute_thread_env()
 import numpy as np
 import pandas as pd
 
-# ruff: noqa: E402
-from rlm.data.bars_enrichment import prepare_bars_for_factors
-from rlm.data.event_calendar import has_major_event_today
 from rlm.data.bar_timeframes import (
     apply_intraday_primary_defaults,
     clamp_intraday_duration,
     is_intraday_bar_size,
 )
-from rlm.data.stock_bars_provider import fetch_stock_bars
+
+# ruff: noqa: E402
+from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.data.event_calendar import has_major_event_today
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
+from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
-from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, open_plan_ids, seed_paper_opens_from_active_plans
+from rlm.execution.trade_log_io import (
+    close_stale_open_rows_above_dte,
+    open_plan_ids,
+    seed_paper_opens_from_active_plans,
+)
 from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
@@ -84,6 +88,7 @@ from rlm.forecasting.live_model import (
     save_live_regime_model,
 )
 from rlm.monitoring.structured import build_pipeline_event
+from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.regimes.forecast_regime_snapshot import (
     build_regime_transition_snapshot,
     regime_direction_equity,
@@ -332,7 +337,11 @@ def _prepare_symbol(
         base["skip_reason"] = f"outside_entry_window ({session_label()})"
         return base, None, None
 
-    raw_bars = bars if bars is not None else _fetch_stock_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
+    raw_bars = (
+        bars
+        if bars is not None
+        else _fetch_stock_bars(sym, duration=duration, bar_size=bar_size, serialize_ibkr=serialize_ibkr)
+    )
     if raw_bars.empty:
         base["skip_reason"] = "no_stock_bars"
         return base, None, None
@@ -409,8 +418,7 @@ def _prepare_symbol(
             last["tf_confirmation_failed"] = not agg
             last["tf_confirmation_detail"] = json.dumps(detail_map, default=str)
             last["tf_confirmation_rationale"] = (
-                "Primary timeframe bias disagreed with confirmation timeframe(s) "
-                f"(mode={hier.confirmation_mode})."
+                "Primary timeframe bias disagreed with confirmation timeframe(s) " f"(mode={hier.confirmation_mode})."
             )
 
     pipeline_row = {
@@ -435,9 +443,7 @@ def _prepare_symbol(
     if "tf_confirmation_failed" in last.index:
         pipeline_row["tf_confirmation_failed"] = bool(last["tf_confirmation_failed"])
         detail = last.get("tf_confirmation_detail")
-        pipeline_row["tf_confirmation_detail"] = (
-            str(detail) if detail is not None and pd.notna(detail) else None
-        )
+        pipeline_row["tf_confirmation_detail"] = str(detail) if detail is not None and pd.notna(detail) else None
 
     pipeline_row["regime_transition"] = build_regime_transition_snapshot(
         last,
@@ -478,7 +484,9 @@ def _prepare_symbol(
         },
         regime_state=str(pipeline_row.get("regime_key") or ""),
         kronos_confidence=(
-            float(last["kronos_confidence"]) if "kronos_confidence" in last and pd.notna(last["kronos_confidence"]) else None
+            float(last["kronos_confidence"])
+            if "kronos_confidence" in last and pd.notna(last["kronos_confidence"])
+            else None
         ),
         action=decision.action,
         extra={"strategy_name": decision.strategy_name},
@@ -1164,7 +1172,11 @@ def _main_locked() -> int:
     ):
         live_model = live_model.model_copy(update={"use_kronos": False})
         print("[kronos] Disabled for this run: vendored Kronos runtime is stub-only on this host.", flush=True)
-    elif live_model is not None and bool(live_model.use_kronos) and (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip():
+    elif (
+        live_model is not None
+        and bool(live_model.use_kronos)
+        and (os.environ.get("RLM_KRONOS_REMOTE_URL") or "").strip()
+    ):
         print(
             f"[kronos] Remote GPU blend enabled ({os.environ.get('RLM_KRONOS_REMOTE_URL', '').strip()})",
             flush=True,
