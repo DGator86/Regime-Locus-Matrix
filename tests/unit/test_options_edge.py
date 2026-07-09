@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 
-from rlm.options.edge import assess_combo_edge, enrich_leg_greeks
+import pandas as pd
+
+from rlm.options.edge import assess_combo_edge, chain_spot_price, enrich_leg_greeks
 
 
 def test_enrich_leg_greeks_fills_delta() -> None:
@@ -44,3 +46,30 @@ def test_assess_combo_edge_rejects_wide_spread(monkeypatch) -> None:
         strategy_name="long_call",
     )
     assert edge["passes_edge_gate"] is False
+
+
+def test_chain_spot_price_falls_back_when_underlying_is_symbol() -> None:
+    chain = pd.DataFrame(
+        [
+            {
+                "underlying": "SPY",
+                "bid": 1.0,
+                "ask": 1.2,
+            }
+        ]
+    )
+
+    assert chain_spot_price(chain, fallback=505.25) == 505.25
+
+
+def test_chain_spot_price_uses_numeric_spot_column() -> None:
+    chain = pd.DataFrame(
+        [
+            {
+                "underlying": "SPY",
+                "underlying_price": "502.5",
+            }
+        ]
+    )
+
+    assert chain_spot_price(chain, fallback=505.25) == 502.5

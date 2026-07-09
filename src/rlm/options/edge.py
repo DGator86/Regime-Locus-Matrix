@@ -230,9 +230,12 @@ def _mean_finite(vals: list[Any]) -> float:
 
 
 def chain_spot_price(chain: pd.DataFrame, fallback: float | None = None) -> float:
-    for col in ("underlying_price", "spot", "underlying"):
+    for col in ("underlying_price", "spot"):
         if col in chain.columns and not chain[col].empty:
-            v = float(chain[col].dropna().iloc[-1])
+            numeric = pd.to_numeric(chain[col], errors="coerce").dropna()
+            if numeric.empty:
+                continue
+            v = float(numeric.iloc[-1])
             if math.isfinite(v) and v > 0:
                 return v
     if fallback is not None and math.isfinite(fallback) and fallback > 0:

@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import tempfile
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from rlm.execution.dte_utils import dte_from_plan
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
 
 # Keep in sync with ``scripts/monitor_active_trade_plans._TRADE_LOG_COLUMNS``.
 TRADE_LOG_COLUMNS: tuple[str, ...] = (
@@ -29,7 +38,47 @@ TRADE_LOG_COLUMNS: tuple[str, ...] = (
 )
 
 
-def _migrate_columns(log_path: Path) -> None:
+@contextmanager
+def _trade_log_lock(path: Path) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f"{path.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _write_trade_log_rows_atomic(path: Path, rows: Iterable[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(TRADE_LOG_COLUMNS), extrasaction="ignore")
+            writer.writeheader()
+            for r in rows:
+                writer.writerow({k: str(r.get(k, "")) for k in TRADE_LOG_COLUMNS})
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _ensure_trade_log_unlocked(path: Path) -> None:
+    if path.is_file():
+        return
+    _write_trade_log_rows_atomic(path, [])
+
+
+def _migrate_columns_unlocked(log_path: Path) -> None:
     if not log_path.is_file() or log_path.stat().st_size == 0:
         return
     try:
@@ -46,19 +95,17 @@ def _migrate_columns(log_path: Path) -> None:
             rows = list(csv.DictReader(f))
     except OSError:
         return
-    with log_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(TRADE_LOG_COLUMNS), extrasaction="ignore")
-        writer.writeheader()
-        for r in rows:
-            writer.writerow({k: str(r.get(k, "")) for k in TRADE_LOG_COLUMNS})
+    _write_trade_log_rows_atomic(log_path, rows)
+
+
+def _migrate_columns(log_path: Path) -> None:
+    with _trade_log_lock(log_path):
+        _migrate_columns_unlocked(log_path)
 
 
 def ensure_trade_log(path: Path) -> None:
-    if path.is_file():
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(list(TRADE_LOG_COLUMNS))
+    with _trade_log_lock(path):
+        _ensure_trade_log_unlocked(path)
 
 
 def open_plan_ids(path: Path) -> set[str]:
@@ -153,72 +200,67 @@ def trade_log_row_from_active_plan(plan: dict[str, Any]) -> dict[str, str] | Non
 
 def upsert_trade_log_row(path: Path, row: dict[str, str]) -> None:
     """Upsert one row per ``plan_id`` (latest state)."""
-    ensure_trade_log(path)
-    _migrate_columns(path)
-    rows: dict[str, dict[str, str]] = {}
-    if path.is_file() and path.stat().st_size > 0:
-        try:
-            with path.open("r", encoding="utf-8", newline="") as f:
-                for existing in csv.DictReader(f):
-                    pid = str(existing.get("plan_id") or "").strip()
-                    if pid:
-                        rows[pid] = {k: str(existing.get(k, "")) for k in TRADE_LOG_COLUMNS}
-        except OSError:
-            rows = {}
     pid = str(row.get("plan_id") or "").strip()
     if not pid:
         return
-    merged = rows.get(pid, {})
-    for col in TRADE_LOG_COLUMNS:
-        if col in row and row[col] is not None:
-            merged[col] = str(row[col])
-    rows[pid] = merged
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(TRADE_LOG_COLUMNS), extrasaction="ignore")
-        writer.writeheader()
-        for r in rows.values():
-            writer.writerow(r)
+    with _trade_log_lock(path):
+        _ensure_trade_log_unlocked(path)
+        _migrate_columns_unlocked(path)
+        rows: dict[str, dict[str, str]] = {}
+        if path.is_file() and path.stat().st_size > 0:
+            try:
+                with path.open("r", encoding="utf-8", newline="") as f:
+                    for existing in csv.DictReader(f):
+                        existing_pid = str(existing.get("plan_id") or "").strip()
+                        if existing_pid:
+                            rows[existing_pid] = {k: str(existing.get(k, "")) for k in TRADE_LOG_COLUMNS}
+            except OSError:
+                rows = {}
+        merged = rows.get(pid, {})
+        for col in TRADE_LOG_COLUMNS:
+            if col in row and row[col] is not None:
+                merged[col] = str(row[col])
+        rows[pid] = merged
+        _write_trade_log_rows_atomic(path, rows.values())
 
 
 def close_stale_open_rows_above_dte(log_path: Path, *, max_dte: float = 5.0) -> int:
     """Mark open rows with DTE above ``max_dte`` as closed (legacy swing ghosts)."""
-    if not log_path.is_file():
-        return 0
-    latest: dict[str, dict[str, str]] = {}
-    try:
-        with log_path.open("r", encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
-                pid = str(row.get("plan_id") or "").strip()
-                if pid:
-                    latest[pid] = {k: str(v) for k, v in row.items()}
-    except OSError:
-        return 0
-
-    closed = 0
-    now = datetime.now(timezone.utc).isoformat()
-    for pid, row in latest.items():
-        if str(row.get("closed") or "0").strip() == "1":
-            continue
+    with _trade_log_lock(log_path):
+        if not log_path.is_file():
+            return 0
+        _migrate_columns_unlocked(log_path)
+        latest: dict[str, dict[str, str]] = {}
         try:
-            dte = float(row.get("dte") or 0.0)
-        except (TypeError, ValueError):
-            dte = 0.0
-        if dte <= max_dte:
-            continue
-        row = dict(row)
-        row["timestamp_utc"] = now
-        row["signal"] = "stale_dte_cleanup"
-        row["closed"] = "1"
-        latest[pid] = row
-        closed += 1
+            with log_path.open("r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    pid = str(row.get("plan_id") or "").strip()
+                    if pid:
+                        latest[pid] = {k: str(v) for k, v in row.items()}
+        except OSError:
+            return 0
 
-    if closed:
-        with log_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(TRADE_LOG_COLUMNS), extrasaction="ignore")
-            writer.writeheader()
-            for r in latest.values():
-                writer.writerow(r)
-    return closed
+        closed = 0
+        now = datetime.now(timezone.utc).isoformat()
+        for pid, row in latest.items():
+            if str(row.get("closed") or "0").strip() == "1":
+                continue
+            try:
+                dte = float(row.get("dte") or 0.0)
+            except (TypeError, ValueError):
+                dte = 0.0
+            if dte <= max_dte:
+                continue
+            row = dict(row)
+            row["timestamp_utc"] = now
+            row["signal"] = "stale_dte_cleanup"
+            row["closed"] = "1"
+            latest[pid] = row
+            closed += 1
+
+        if closed:
+            _write_trade_log_rows_atomic(log_path, latest.values())
+        return closed
 
 
 def seed_paper_opens_from_active_plans(
