@@ -49,14 +49,15 @@ if str(REPO_ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.dte_utils import dte_from_plan, needs_force_close
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.combo_spec import (
     legs_from_combo_spec,
     plan_combo_spec,
     reverse_combo_legs,
 )
+from rlm.execution.dte_utils import dte_from_plan, needs_force_close
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
+from rlm.execution.trade_log_io import upsert_trade_log_row
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs, refresh_matched_leg_mids
 from rlm.utils.market_hours import is_rth_now, session_label
 
@@ -138,31 +139,7 @@ def _legs_json_for_trade_log(updated: list[dict] | None) -> str:
 
 def _append_trade_log(log_path: Path, row: dict) -> None:
     """Upsert one row per ``plan_id`` (latest state) to avoid multi-GB poll append logs."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    if log_path.is_file() and log_path.stat().st_size > 0:
-        _migrate_trade_log_add_columns(log_path, _TRADE_LOG_COLUMNS)
-    rows: dict[str, dict[str, str]] = {}
-    if log_path.is_file() and log_path.stat().st_size > 0:
-        try:
-            with log_path.open("r", encoding="utf-8", newline="") as f:
-                for existing in csv.DictReader(f):
-                    pid = str(existing.get("plan_id") or "").strip()
-                    if pid:
-                        rows[pid] = {k: str(existing.get(k, "")) for k in _TRADE_LOG_COLUMNS}
-        except OSError:
-            rows = {}
-    pid = str(row.get("plan_id") or "").strip()
-    if pid:
-        merged = rows.get(pid, {})
-        for col in _TRADE_LOG_COLUMNS:
-            if col in row and row[col] is not None:
-                merged[col] = str(row[col])
-        rows[pid] = merged
-    with log_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        for r in rows.values():
-            writer.writerow(r)
+    upsert_trade_log_row(log_path, {k: str(v) for k, v in row.items()})
 
 
 def _contract_key(leg: dict) -> str:
@@ -312,6 +289,8 @@ def _evaluate_plan(
     v_sl = float(thr.get("v_hard_stop", float("nan")))
     v_tr_act = float(thr.get("v_trail_activate", float("nan")))
     tr_r = float(thr.get("trail_retrace_frac", 0.20))
+    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
+    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     min_exit_v = float(thr.get("min_trail_exit_v", float("nan")))
     if min_exit_v != min_exit_v:  # NaN
         v0_anchor = float(plan.get("entry_mid_mark_dollars") or entry_mid or v)
@@ -335,8 +314,6 @@ def _evaluate_plan(
         f"debit={plan.get('entry_debit_dollars')}{dte_suffix}"
     )
 
-    entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-    entry_mid = float(plan.get("entry_mid_mark_dollars") or 0.0)
     # Use entry_debit as the cost basis (positive = paid a debit, negative = received credit).
     pnl = v - entry_debit
     pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else float("nan")
@@ -344,8 +321,11 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
-        pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
+    elif (
+        float(soft_time_stop_dte) > 0.0
+        and plan_dte == plan_dte
+        and plan_dte <= soft_time_stop_dte
+        and (pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold))
     ):
         signal = "time_stop"
     elif v >= v_tp:
@@ -596,11 +576,7 @@ def main() -> int:
             seen.add(pid)
             uniq.append(r)
 
-        active_plan_ids = {
-            str(r.get("plan_id") or "").strip()
-            for r in active
-            if str(r.get("plan_id") or "").strip()
-        }
+        active_plan_ids = {str(r.get("plan_id") or "").strip() for r in active if str(r.get("plan_id") or "").strip()}
         if trade_log_path is not None:
             _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
 

@@ -101,9 +101,7 @@ def _leg_fair_mid(leg: dict[str, Any], *, spot: float, risk_free: float) -> floa
     from rlm.data.microstructure.calculators.greeks import _bs_price
 
     try:
-        return float(
-            _bs_price(spot, strike, t_years, risk_free, iv_f, is_call)
-        )
+        return float(_bs_price(spot, strike, t_years, risk_free, iv_f, is_call))
     except Exception:
         return math.nan
 
@@ -230,9 +228,12 @@ def _mean_finite(vals: list[Any]) -> float:
 
 
 def chain_spot_price(chain: pd.DataFrame, fallback: float | None = None) -> float:
-    for col in ("underlying_price", "spot", "underlying"):
+    for col in ("underlying_price", "spot"):
         if col in chain.columns and not chain[col].empty:
-            v = float(chain[col].dropna().iloc[-1])
+            numeric = pd.to_numeric(chain[col], errors="coerce").dropna()
+            if numeric.empty:
+                continue
+            v = float(numeric.iloc[-1])
             if math.isfinite(v) and v > 0:
                 return v
     if fallback is not None and math.isfinite(fallback) and fallback > 0:

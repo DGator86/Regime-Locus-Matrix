@@ -148,6 +148,32 @@ def test_monitor_trailing_stop_holds_when_below_profit_floor(tmp_path: Path, mon
     assert str(row["closed"]) == "0"
 
 
+def test_monitor_legacy_thresholds_without_min_trail_exit_do_not_crash(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "trade_log.csv"
+    plan = _sample_plan()
+    del plan["thresholds"]["min_trail_exit_v"]
+    state = {"plan_1": {"peak_v": 150.0, "trail_on": True}}
+    monkeypatch.setattr("scripts.monitor_active_trade_plans.dte_from_plan", lambda _: 30.0)
+
+    _evaluate_plan(
+        plan,
+        chain=_sample_chain(mid=1.09),  # mark=109; legacy profit floor falls back to 108.
+        state=state,
+        paper_close=False,
+        paper_close_dry_run=False,
+        force_close_dte=0.0,
+        soft_time_stop_dte=0.0,
+        min_profit_pct_for_soft_hold=20.0,
+        max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
+        trade_log_path=log_path,
+    )
+
+    row = pd.read_csv(log_path).iloc[-1]
+    assert row["signal"] == "trailing_stop"
+    assert str(row["closed"]) == "1"
+
+
 def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path, monkeypatch) -> None:
     log_path = tmp_path / "trade_log.csv"
     plan = _sample_plan()
