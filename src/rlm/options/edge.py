@@ -101,9 +101,7 @@ def _leg_fair_mid(leg: dict[str, Any], *, spot: float, risk_free: float) -> floa
     from rlm.data.microstructure.calculators.greeks import _bs_price
 
     try:
-        return float(
-            _bs_price(spot, strike, t_years, risk_free, iv_f, is_call)
-        )
+        return float(_bs_price(spot, strike, t_years, risk_free, iv_f, is_call))
     except Exception:
         return math.nan
 

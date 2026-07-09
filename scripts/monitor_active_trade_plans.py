@@ -49,13 +49,13 @@ if str(REPO_ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.dte_utils import dte_from_plan, needs_force_close
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.combo_spec import (
     legs_from_combo_spec,
     plan_combo_spec,
     reverse_combo_legs,
 )
+from rlm.execution.dte_utils import dte_from_plan, needs_force_close
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
 from rlm.execution.trade_log_io import upsert_trade_log_row
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs, refresh_matched_leg_mids
@@ -321,8 +321,11 @@ def _evaluate_plan(
     signal = "hold"
     if needs_force_close(plan, force_close_dte):
         signal = "expiry_force_close"
-    elif float(soft_time_stop_dte) > 0.0 and plan_dte == plan_dte and plan_dte <= soft_time_stop_dte and (
-        pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold)
+    elif (
+        float(soft_time_stop_dte) > 0.0
+        and plan_dte == plan_dte
+        and plan_dte <= soft_time_stop_dte
+        and (pnl_pct != pnl_pct or pnl_pct < float(min_profit_pct_for_soft_hold))
     ):
         signal = "time_stop"
     elif v >= v_tp:
@@ -573,11 +576,7 @@ def main() -> int:
             seen.add(pid)
             uniq.append(r)
 
-        active_plan_ids = {
-            str(r.get("plan_id") or "").strip()
-            for r in active
-            if str(r.get("plan_id") or "").strip()
-        }
+        active_plan_ids = {str(r.get("plan_id") or "").strip() for r in active if str(r.get("plan_id") or "").strip()}
         if trade_log_path is not None:
             _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
 
