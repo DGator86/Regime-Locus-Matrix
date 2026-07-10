@@ -18,8 +18,8 @@ from rlm.challenge.pricing import (
     updated_premium,
 )
 from rlm.challenge.sizing import AggressiveSizer
-from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
-from rlm.challenge.strategy import ChallengeStrategy
+from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
+from rlm.challenge.strategy import ChallengeStrategy, PlaySpec
 from rlm.challenge.tracker import ChallengeTracker
 
 # ---------------------------------------------------------------------------
@@ -386,6 +386,59 @@ class TestChallengeEngine:
             underlying_price=500.0,
         )
         assert summary.new_position is None
+
+    def test_intraday_exposure_limit_uses_sized_quantity(
+        self,
+        cfg: ChallengeConfig,
+        tmp_tracker: ChallengeTracker,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        limited = replace(cfg, use_spread_model=False, stage1_size_frac=0.35)
+        state = tmp_tracker.reset(limited)
+        existing = ChallengePosition.new(
+            symbol="SPY",
+            option_type="put",
+            direction="short",
+            underlying_entry=500.0,
+            strike=495.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=9.0,
+            qty=1,
+            delta=-0.5,
+            iv=0.20,
+        )
+        existing.current_premium = 9.0
+        existing.current_value = 900.0
+        state.open_positions = [existing]
+        state.balance = 1_000.0
+        tmp_tracker.save(state)
+
+        play = PlaySpec(
+            option_type="call",
+            direction="long",
+            strike=505.0,
+            dte=7,
+            estimated_premium=0.50,
+            estimated_delta=0.40,
+            otm_pct=0.01,
+            rationale="cheap-multi-contract",
+        )
+        monkeypatch.setattr(
+            "rlm.challenge.engine.mark_open_position_premium",
+            lambda *args, **kwargs: (9.0, 500.0, 5),
+        )
+        engine = ChallengeEngine(limited, tmp_tracker)
+        engine._strategy.select = lambda *args, **kwargs: play  # type: ignore[method-assign]
+        monkeypatch.setattr(engine, "_compute_pace_size_multiplier", lambda *args, **kwargs: 1.0)
+
+        summary = engine.run_session("long", 500.0, session_date="2026-01-02")
+
+        assert summary.new_position is None
+        assert "intraday_exposure_limit" in summary.message
+        loaded = tmp_tracker.load()
+        assert len(loaded.open_positions) == 1
+        assert loaded.intraday_exposure == pytest.approx(900.0)
 
     def test_target_hit_closes_position_at_2x(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
