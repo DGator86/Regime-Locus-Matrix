@@ -141,18 +141,10 @@ class ChallengeEngine:
                         f"${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
                     )
                 else:
-                    proposed_exposure = state.intraday_exposure + (play.estimated_premium * 1 * 100)
-                    exposure_limit = state.balance * self.cfg.intraday_exposure_limit_frac
-                    if proposed_exposure > exposure_limit:
-                        entry_skip_reason = (
-                            f"intraday_exposure_limit: proposed ${proposed_exposure:,.0f} "
-                            f"would exceed limit ${exposure_limit:,.0f} "
-                            f"({self.cfg.intraday_exposure_limit_frac:.0%} of ${state.balance:,.0f})"
-                        )
                     same_dir_spend = sum(
                         p.total_cost for p in state.open_positions if p.direction == play.direction
                     )
-                    if not entry_skip_reason and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
+                    if same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
                         entry_skip_reason = "correlation_exposure_limit"
                     if not entry_skip_reason:
                         pace_mult = self._compute_pace_size_multiplier(state, session_date)
@@ -172,7 +164,17 @@ class ChallengeEngine:
                                 f"insufficient cash for 1 contract "
                                 f"(need ~${cost:,.0f}, balance ${state.balance:,.2f})"
                             )
-                        if qty > 0 and spend <= state.balance:
+                        if not entry_skip_reason:
+                            entry_exposure = play.estimated_premium * qty * 100.0
+                            proposed_exposure = state.intraday_exposure + entry_exposure
+                            exposure_limit = state.balance * self.cfg.intraday_exposure_limit_frac
+                            if proposed_exposure > exposure_limit:
+                                entry_skip_reason = (
+                                    f"intraday_exposure_limit: proposed ${proposed_exposure:,.0f} "
+                                    f"would exceed limit ${exposure_limit:,.0f} "
+                                    f"({self.cfg.intraday_exposure_limit_frac:.0%} of ${state.balance:,.0f})"
+                                )
+                        if not entry_skip_reason:
                             e_friction = entry_friction(play.estimated_premium, qty, self.cfg)
                             total_entry_cost = spend + e_friction
                             if total_entry_cost > state.balance:
