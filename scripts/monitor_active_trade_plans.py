@@ -49,20 +49,32 @@ if str(REPO_ROOT / "src") not in sys.path:
 # ruff: noqa: E402
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
-from rlm.execution.dte_utils import dte_from_plan, needs_force_close
-from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.combo_spec import (
     legs_from_combo_spec,
     plan_combo_spec,
     reverse_combo_legs,
 )
+from rlm.execution.dte_utils import dte_from_plan, needs_force_close
+from rlm.execution.exit_signals import EXIT_SIGNALS
 from rlm.execution.risk_targets import should_trailing_stop_exit, trailing_stop_from_peak
 from rlm.roee.chain_match import estimate_mark_value_from_matched_legs, refresh_matched_leg_mids
+from rlm.utils.atomic_io import write_json_atomic
 from rlm.utils.market_hours import is_rth_now, session_label
 
 
 def _load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"plans payload must be a JSON object, got {type(raw).__name__}")
+    return raw
+
+
+def _try_load_plans_payload(path: Path) -> dict | None:
+    """Load universe plans JSON, or ``None`` when the file is briefly unreadable."""
+    try:
+        return _load_json(path)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        return None
 
 
 def _load_state(path: Path) -> dict:
@@ -75,8 +87,7 @@ def _load_state(path: Path) -> dict:
 
 
 def _save_state(path: Path, state: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+    write_json_atomic(path, state)
 
 
 _TRADE_LOG_COLUMNS = [
@@ -581,7 +592,13 @@ def main() -> int:
             )
             return max(5.0, float(args.interval))
 
-        payload = _load_json(plans_path)
+        payload = _try_load_plans_payload(plans_path)
+        if payload is None:
+            # Concurrent non-atomic publishes can briefly yield truncated JSON.
+            # Skip this cycle instead of crashing the monitor process (or treating
+            # the book as empty, which would stale-close every open row).
+            print("[monitor] plans unreadable; retry next cycle", flush=True)
+            return max(5.0, float(args.interval))
         ranked = list(payload.get("active_ranked") or [])
         if ranked:
             active = ranked
@@ -702,7 +719,7 @@ def main() -> int:
 
         _save_state(state_path, state)
         try:
-            snap_path.write_text(json.dumps(plan_snapshots, indent=2, default=str), encoding="utf-8")
+            write_json_atomic(snap_path, plan_snapshots)
         except OSError as e:
             print(f"[monitor] could not write {snap_path}: {e}", file=sys.stderr)
 

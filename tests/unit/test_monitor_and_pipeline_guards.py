@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
-from scripts.monitor_active_trade_plans import _evaluate_plan
+from scripts.monitor_active_trade_plans import _evaluate_plan, _try_load_plans_payload
 from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
     _kronos_stub_available,
@@ -171,6 +171,22 @@ def test_monitor_default_lifecycle_stops_do_not_close_fresh_trade(tmp_path: Path
     row = pd.read_csv(log_path).iloc[-1]
     assert row["signal"] == "hold"
     assert str(row["closed"]) == "0"
+
+
+def test_try_load_plans_payload_skips_truncated_json(tmp_path: Path) -> None:
+    plans = tmp_path / "universe_trade_plans.json"
+    plans.write_text('{"active_ranked": [{"plan_id": "ok", "status": "active"}]', encoding="utf-8")
+    # Truncate mid-object like a concurrent Path.write_text reader would observe.
+    plans.write_text('{"generated_at_utc": "2026-07-24T15:00:00Z", "active_ranked": [', encoding="utf-8")
+    assert _try_load_plans_payload(plans) is None
+
+    plans.write_text(
+        '{"generated_at_utc": "2026-07-24T15:00:00Z", "active_ranked": [{"plan_id": "ok"}]}',
+        encoding="utf-8",
+    )
+    payload = _try_load_plans_payload(plans)
+    assert payload is not None
+    assert payload["active_ranked"][0]["plan_id"] == "ok"
 
 
 def test_pipeline_duplicate_symbol_trimmed() -> None:

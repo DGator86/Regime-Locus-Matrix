@@ -55,24 +55,24 @@ apply_compute_thread_env()
 import numpy as np
 import pandas as pd
 
-# ruff: noqa: E402
-from rlm.data.bars_enrichment import prepare_bars_for_factors
-from rlm.data.event_calendar import has_major_event_today
 from rlm.data.bar_timeframes import (
     apply_intraday_primary_defaults,
     clamp_intraday_duration,
     is_intraday_bar_size,
 )
-from rlm.data.stock_bars_provider import fetch_stock_bars
+
+# ruff: noqa: E402
+from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.data.event_calendar import has_major_event_today
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
+from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, seed_paper_opens_from_active_plans
 from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
@@ -84,6 +84,7 @@ from rlm.forecasting.live_model import (
     save_live_regime_model,
 )
 from rlm.monitoring.structured import build_pipeline_event
+from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.regimes.forecast_regime_snapshot import (
     build_regime_transition_snapshot,
     regime_direction_equity,
@@ -98,6 +99,7 @@ from rlm.roee.decision import select_trade_for_row
 from rlm.roee.regime_safety import attach_regime_safety_columns
 from rlm.roee.system_gate import SystemGate
 from rlm.types.options import TradeDecision
+from rlm.utils.atomic_io import write_json_atomic
 from rlm.utils.market_hours import entry_window_open, session_label
 
 # Statsmodels emits this repeatedly for our non-fixed-frequency trading calendar index.
@@ -771,8 +773,7 @@ def _merge_trade_plan_snapshots(processed_dir: Path, final_results: list[dict[st
             "entry_debit_dollars": row.get("entry_debit_dollars"),
             "entry_mid_mark_dollars": row.get("entry_mid_mark_dollars"),
         }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
+    write_json_atomic(path, existing)
 
 
 def _apply_active_plan_guards(
@@ -1462,14 +1463,13 @@ def _main_locked() -> int:
     final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
 
     out_path = DATA_ROOT / args.out if not args.out.is_absolute() else args.out
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "symbols_requested": syms,
         "results": final_results,
         "active_ranked": final_active,
     }
-    out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    write_json_atomic(out_path, payload)
     if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
         n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
         if n_closed:
