@@ -466,6 +466,48 @@ def _plans_by_plan_id(plans: list[dict]) -> dict[str, dict]:
     return out
 
 
+def _resolve_plan_for_position(
+    plan_id: str,
+    pos: EquityPosition,
+    plan_by_id: dict[str, dict],
+) -> dict | None:
+    """Return the live universe row for an open leg.
+
+    Universe rescans mint a fresh ``{SYM}_{YYYYMMDD_HHMM}`` plan_id every run, so an
+    open equity position's stored id often rotates even while the same symbol remains
+    active. Prefer the exact id, then the same-symbol active row (direction match first).
+    """
+    cur = plan_by_id.get(plan_id)
+    if isinstance(cur, dict):
+        return cur
+    sym = str(pos.symbol or "").upper()
+    if not sym:
+        return None
+    matches = [
+        p
+        for p in plan_by_id.values()
+        if isinstance(p, dict) and str(p.get("symbol") or "").upper() == sym
+    ]
+    if not matches:
+        return None
+    for p in matches:
+        if _infer_regime_direction(p) == pos.direction:
+            return p
+    return matches[0]
+
+
+def _plan_still_active_for_position(
+    plan_id: str,
+    pos: EquityPosition,
+    active_plan_ids: set[str],
+    plan_by_id: dict[str, dict],
+) -> bool:
+    """True when the stored plan_id is active, or the symbol still has any active plan."""
+    if plan_id in active_plan_ids:
+        return True
+    return _resolve_plan_for_position(plan_id, pos, plan_by_id) is not None
+
+
 def _merge_universe_rows_for_open_positions(
     plan_by_id: dict[str, dict],
     plans_path: Path,
@@ -488,6 +530,27 @@ def _merge_universe_rows_for_open_positions(
             continue
         pid = str(row.get("plan_id") or "")
         if pid in missing:
+            plan_by_id[pid] = row
+            missing.discard(pid)
+    # Rescans rotate plan_ids; attach the latest same-symbol row under the open leg's id
+    # so regime/transition exits keep using current universe context.
+    if not missing:
+        return
+    by_symbol: dict[str, dict] = {}
+    for row in (raw.get("active_ranked") or []) + (raw.get("results") or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "").lower() not in {"", "active"}:
+            continue
+        sym = str(row.get("symbol") or "").upper()
+        if sym and sym not in by_symbol:
+            by_symbol[sym] = row
+    for pid in list(missing):
+        pos = positions.get(pid)
+        if pos is None:
+            continue
+        row = by_symbol.get(str(pos.symbol or "").upper())
+        if row is not None:
             plan_by_id[pid] = row
 
 
@@ -1100,7 +1163,10 @@ def evaluate_equity_positions(
             )
         )
 
-        if plan_id in active_plan_ids:
+        plan_active = _plan_still_active_for_position(
+            plan_id, pos, active_plan_ids, plan_by_id
+        )
+        if plan_active:
             pos.plan_missing_since_utc = None
         elif exit_on_plan_absent:
             if grace_sec > 0.0 and pos.plan_missing_since_utc is None:
@@ -1108,8 +1174,7 @@ def evaluate_equity_positions(
         else:
             pos.plan_missing_since_utc = None
 
-        cur_plan_raw = plan_by_id.get(plan_id)
-        cur_plan: dict | None = cur_plan_raw if isinstance(cur_plan_raw, dict) else None
+        cur_plan = _resolve_plan_for_position(plan_id, pos, plan_by_id)
         pipe: dict[str, Any] = {}
         if isinstance(cur_plan, dict):
             p_raw = cur_plan.get("pipeline")
@@ -1185,7 +1250,7 @@ def evaluate_equity_positions(
         if exit_reason is None and thesis_ok and weak_mass_would_exit:
             exit_reason = "weak_transition_label_mass"
 
-        if exit_reason is None and exit_on_plan_absent and plan_id not in active_plan_ids:
+        if exit_reason is None and exit_on_plan_absent and not plan_active:
             if grace_sec <= 0.0:
                 exit_reason = "plan_no_longer_active"
             else:
@@ -1199,14 +1264,14 @@ def evaluate_equity_positions(
         grace_note = ""
         if (
             exit_reason is None
-            and plan_id not in active_plan_ids
+            and not plan_active
             and exit_on_plan_absent
             and grace_sec > 0.0
             and pos.plan_missing_since_utc is not None
         ):
             absent_for = (now - _parse_iso_utc(pos.plan_missing_since_utc)).total_seconds()
             grace_note = f" (plan absent {absent_for:.0f}s / {grace_sec:.0f}s grace)"
-        elif exit_reason is None and plan_id not in active_plan_ids and not exit_on_plan_absent:
+        elif exit_reason is None and not plan_active and not exit_on_plan_absent:
             grace_note = " (plan off active list — hold; exit on price/thesis only)"
         hold_note = ""
         if exit_reason is None and not thesis_ok and (

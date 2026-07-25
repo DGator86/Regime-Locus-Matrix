@@ -152,6 +152,129 @@ def test_stop_loss_before_universe_even_when_plan_missing(tmp_path: Path) -> Non
     assert pos.status == "closed"
 
 
+def test_rescan_plan_id_rotation_does_not_stale_close(tmp_path: Path) -> None:
+    """Universe mint of a new {SYM}_{YYYYMMDD_HHMM} id must not force-close the equity leg."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod, plan_id="QQQ_20260725_1400")
+    pos.entry_regime_key = "bull|tu|rv|dl"
+    positions = {pos.plan_id: pos}
+    rotated = {
+        "plan_id": "QQQ_20260725_1405",
+        "symbol": "QQQ",
+        "status": "active",
+        "regime_key": "bull|tu|rv|dl",
+        "regime_direction": "bull",
+        "pipeline": {
+            "regime_transition": {"family": "hmm", "most_likely_next_prob": 0.55},
+        },
+    }
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={rotated["plan_id"]},
+        plan_by_id={rotated["plan_id"]: rotated},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=0.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=True,
+        app=None,
+        log_path=log_path,
+        utc_now=t0 + timedelta(seconds=1800),
+        exit_on_plan_absent=True,
+    )
+    assert pos.status == "open"
+    assert pos.exit_reason is None
+    assert pos.plan_missing_since_utc is None
+
+
+def test_symbol_absent_from_universe_still_closes_after_grace(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod, plan_id="QQQ_20260725_1400")
+    positions = {pos.plan_id: pos}
+    other = {
+        "plan_id": "SPY_20260725_1405",
+        "symbol": "SPY",
+        "status": "active",
+        "regime_key": "bull|tu|rv|dl",
+    }
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={other["plan_id"]},
+        plan_by_id={other["plan_id"]: other},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=600.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=True,
+        app=None,
+        log_path=log_path,
+        utc_now=t0,
+        exit_on_plan_absent=True,
+    )
+    assert pos.status == "open"
+    assert pos.plan_missing_since_utc is not None
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={other["plan_id"]},
+        plan_by_id={other["plan_id"]: other},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=600.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=True,
+        app=None,
+        log_path=log_path,
+        utc_now=t0 + timedelta(seconds=600),
+        exit_on_plan_absent=True,
+    )
+    assert pos.status == "closed"
+    assert pos.exit_reason == "plan_no_longer_active"
+
+
+def test_rotated_plan_id_still_applies_regime_flip(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod, plan_id="QQQ_20260725_1400")
+    pos.entry_regime_key = "bull|tu|rv|dl"
+    positions = {pos.plan_id: pos}
+    rotated = {
+        "plan_id": "QQQ_20260725_1405",
+        "symbol": "QQQ",
+        "status": "active",
+        "regime_key": "bear|tu|rv|dl",
+        "regime_direction": "bear",
+        "pipeline": {
+            "regime_transition": {"family": "hmm", "most_likely_next_prob": 0.5},
+        },
+    }
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={rotated["plan_id"]},
+        plan_by_id={rotated["plan_id"]: rotated},
+        stop_pct=50.0,
+        target_pct=50.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=True,
+        app=None,
+        log_path=log_path,
+        utc_now=t0,
+        min_hold_sec=0.0,
+        exit_on_plan_absent=True,
+    )
+    assert pos.status == "closed"
+    assert pos.exit_reason == "regime_flip"
+
+
 def test_plan_returns_clears_grace_timer(tmp_path: Path) -> None:
     mod = _equity_script_module()
     log_path = tmp_path / "equity_trade_log.csv"
