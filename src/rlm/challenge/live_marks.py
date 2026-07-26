@@ -106,12 +106,13 @@ def refresh_challenge_at_root(root: Path) -> str | None:
     if not ch_path.is_file():
         return None
     tracker = ChallengeTracker(data_root=str(root / "data"))
-    try:
-        state = tracker.load()
-    except FileNotFoundError:
-        return None
-    cfg = apply_challenge_profile_env(ChallengeConfig())
-    asof = refresh_challenge_state(state, cfg)
-    if asof is not None:
-        tracker.save(state)
-    return asof
+    with tracker.exclusive_lock():
+        try:
+            state = tracker.load()
+        except FileNotFoundError:
+            return None
+        cfg = apply_challenge_profile_env(ChallengeConfig())
+        asof = refresh_challenge_state(state, cfg)
+        if asof is not None:
+            tracker.save(state)
+        return asof

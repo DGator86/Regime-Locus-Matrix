@@ -77,171 +77,179 @@ class ChallengeEngine:
         session_date = session_date or date.today().isoformat()
         now_iso = datetime.now(tz=timezone.utc).isoformat()
 
-        state = self.tracker.load()
-        balance_before = state.balance
-        prev_milestone_idx = state.current_milestone_idx
+        # Serialize against overlapping challenge --run processes / threads so
+        # accepted opens/closes are not lost to last-writer-wins state saves.
+        with self.tracker.exclusive_lock():
+            state = self.tracker.load()
+            balance_before = state.balance
+            prev_milestone_idx = state.current_milestone_idx
 
-        # Set start_date on first session
-        if state.start_date == "":
-            state.start_date = session_date
+            # Set start_date on first session
+            if state.start_date == "":
+                state.start_date = session_date
 
-        # Increment elapsed_days each session
-        state.elapsed_days += 1
+            # Increment elapsed_days each session
+            state.elapsed_days += 1
 
-        # Reset daily P&L tracker at the start of a new calendar day
-        if state.daily_pnl_date != session_date:
-            state.daily_realized_pnl = 0.0
-            state.daily_pnl_date = session_date
+            # Reset daily P&L tracker at the start of a new calendar day
+            if state.daily_pnl_date != session_date:
+                state.daily_realized_pnl = 0.0
+                state.daily_pnl_date = session_date
 
-        closed_trades: list[ChallengeTradeRecord] = []
+            closed_trades: list[ChallengeTradeRecord] = []
 
-        # 1. Evaluate open positions
-        for pos in list(state.open_positions):
-            record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
-            if record is not None:
-                closed_trades.append(record)
-                state.daily_realized_pnl += record.pnl
+            # 1. Evaluate open positions
+            for pos in list(state.open_positions):
+                record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
+                if record is not None:
+                    closed_trades.append(record)
+                    state.daily_realized_pnl += record.pnl
 
-        # Recalculate intraday exposure after close evaluations
-        state.intraday_exposure = sum(p.current_value for p in state.open_positions)
-        if state.intraday_exposure > state.intraday_exposure_peak:
-            state.intraday_exposure_peak = state.intraday_exposure
+            # Recalculate intraday exposure after close evaluations
+            state.intraday_exposure = sum(p.current_value for p in state.open_positions)
+            if state.intraday_exposure > state.intraday_exposure_peak:
+                state.intraday_exposure_peak = state.intraday_exposure
 
-        # 2. Consider new entry
-        new_position: ChallengePosition | None = None
-        entry_skip_reason: str | None = None
-        if len(state.open_positions) >= self.cfg.max_concurrent_positions:
-            entry_skip_reason = (
-                f"Holding {len(state.open_positions)} open leg(s); "
-                f"cash ${state.balance:,.2f}"
-            )
-        elif state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
-            if not entry_skip_reason and _daily_loss_limit_reached(state.daily_realized_pnl, state.balance, self.cfg):
-                entry_skip_reason = "daily_loss_limit_reached"
+            # 2. Consider new entry
+            new_position: ChallengePosition | None = None
+            entry_skip_reason: str | None = None
+            if len(state.open_positions) >= self.cfg.max_concurrent_positions:
+                entry_skip_reason = f"Holding {len(state.open_positions)} open leg(s); " f"cash ${state.balance:,.2f}"
+            elif (
+                state.balance < self.cfg.target_capital
+                and len(state.open_positions) < self.cfg.max_concurrent_positions
+            ):
+                if not entry_skip_reason and _daily_loss_limit_reached(
+                    state.daily_realized_pnl, state.balance, self.cfg
+                ):
+                    entry_skip_reason = "daily_loss_limit_reached"
 
-            if not entry_skip_reason and _is_event_blackout(session_date, self.cfg):
-                entry_skip_reason = "major_event_blackout"
+                if not entry_skip_reason and _is_event_blackout(session_date, self.cfg):
+                    entry_skip_reason = "major_event_blackout"
 
-            if not entry_skip_reason and not _regime_win_rate_ok(regime_key, state, self.cfg):
-                entry_skip_reason = "regime_win_rate_below_threshold"
+                if not entry_skip_reason and not _regime_win_rate_ok(regime_key, state, self.cfg):
+                    entry_skip_reason = "regime_win_rate_below_threshold"
 
-            if not entry_skip_reason:
-                play = self._strategy.select(
-                    directive,
-                    underlying_price,
-                    state.balance,
-                    iv,
-                    self.cfg,
-                    signal_alignment=signal_alignment,
-                    confidence=confidence,
-                )
-                if play is None:
-                    entry_skip_reason = (
-                        f"No affordable weekly/scalp under "
-                        f"${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
+                if not entry_skip_reason:
+                    play = self._strategy.select(
+                        directive,
+                        underlying_price,
+                        state.balance,
+                        iv,
+                        self.cfg,
+                        signal_alignment=signal_alignment,
+                        confidence=confidence,
                     )
-                else:
-                    proposed_exposure = state.intraday_exposure + (play.estimated_premium * 1 * 100)
-                    exposure_limit = state.balance * self.cfg.intraday_exposure_limit_frac
-                    if proposed_exposure > exposure_limit:
+                    if play is None:
                         entry_skip_reason = (
-                            f"intraday_exposure_limit: proposed ${proposed_exposure:,.0f} "
-                            f"would exceed limit ${exposure_limit:,.0f} "
-                            f"({self.cfg.intraday_exposure_limit_frac:.0%} of ${state.balance:,.0f})"
+                            f"No affordable weekly/scalp under "
+                            f"${state.balance * self.cfg.size_fraction(state.balance):,.0f} premium budget"
                         )
-                    same_dir_spend = sum(
-                        p.total_cost for p in state.open_positions if p.direction == play.direction
-                    )
-                    if not entry_skip_reason and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
-                        entry_skip_reason = "correlation_exposure_limit"
-                    if not entry_skip_reason:
-                        pace_mult = self._compute_pace_size_multiplier(state, session_date)
-                        budget_override = state.balance * self.cfg.size_fraction(state.balance) * pace_mult
-                        qty, spend = self._sizer.compute(
-                            state.balance,
-                            play.estimated_premium,
-                            self.cfg,
-                            budget_override=budget_override,
-                        )
-                        # Safety: never spend more than real balance
-                        if spend > state.balance:
-                            qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
-                        if qty <= 0 or spend > state.balance:
-                            cost = float(play.estimated_premium) * 100.0
+                    else:
+                        proposed_exposure = state.intraday_exposure + (play.estimated_premium * 1 * 100)
+                        exposure_limit = state.balance * self.cfg.intraday_exposure_limit_frac
+                        if proposed_exposure > exposure_limit:
                             entry_skip_reason = (
-                                f"insufficient cash for 1 contract "
-                                f"(need ~${cost:,.0f}, balance ${state.balance:,.2f})"
+                                f"intraday_exposure_limit: proposed ${proposed_exposure:,.0f} "
+                                f"would exceed limit ${exposure_limit:,.0f} "
+                                f"({self.cfg.intraday_exposure_limit_frac:.0%} of ${state.balance:,.0f})"
                             )
-                        if qty > 0 and spend <= state.balance:
-                            e_friction = entry_friction(play.estimated_premium, qty, self.cfg)
-                            total_entry_cost = spend + e_friction
-                            if total_entry_cost > state.balance:
-                                total_entry_cost = spend
-                            pos = ChallengePosition.new(
-                                symbol=self.cfg.symbol,
-                                option_type=play.option_type,
-                                direction=play.direction,
-                                underlying_entry=underlying_price,
-                                strike=play.strike,
-                                dte=play.dte,
-                                entry_date=session_date,
-                                premium_per_share=min_tick_round(play.estimated_premium),
-                                qty=qty,
-                                delta=play.estimated_delta,
-                                iv=iv,
-                                regime_key=regime_key,
+                        same_dir_spend = sum(
+                            p.total_cost for p in state.open_positions if p.direction == play.direction
+                        )
+                        if (
+                            not entry_skip_reason
+                            and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac
+                        ):
+                            entry_skip_reason = "correlation_exposure_limit"
+                        if not entry_skip_reason:
+                            pace_mult = self._compute_pace_size_multiplier(state, session_date)
+                            budget_override = state.balance * self.cfg.size_fraction(state.balance) * pace_mult
+                            qty, spend = self._sizer.compute(
+                                state.balance,
+                                play.estimated_premium,
+                                self.cfg,
+                                budget_override=budget_override,
                             )
-                            state.open_positions.append(pos)
-                            state.balance -= total_entry_cost
-                            new_position = pos
-                            # Update intraday exposure after entry
-                            state.intraday_exposure = sum(p.current_value for p in state.open_positions)
-                            if state.intraday_exposure > state.intraday_exposure_peak:
-                                state.intraday_exposure_peak = state.intraday_exposure
+                            # Safety: never spend more than real balance
+                            if spend > state.balance:
+                                qty, spend = self._sizer.compute(state.balance, play.estimated_premium, self.cfg)
+                            if qty <= 0 or spend > state.balance:
+                                cost = float(play.estimated_premium) * 100.0
+                                entry_skip_reason = (
+                                    f"insufficient cash for 1 contract "
+                                    f"(need ~${cost:,.0f}, balance ${state.balance:,.2f})"
+                                )
+                            if qty > 0 and spend <= state.balance:
+                                e_friction = entry_friction(play.estimated_premium, qty, self.cfg)
+                                total_entry_cost = spend + e_friction
+                                if total_entry_cost > state.balance:
+                                    total_entry_cost = spend
+                                pos = ChallengePosition.new(
+                                    symbol=self.cfg.symbol,
+                                    option_type=play.option_type,
+                                    direction=play.direction,
+                                    underlying_entry=underlying_price,
+                                    strike=play.strike,
+                                    dte=play.dte,
+                                    entry_date=session_date,
+                                    premium_per_share=min_tick_round(play.estimated_premium),
+                                    qty=qty,
+                                    delta=play.estimated_delta,
+                                    iv=iv,
+                                    regime_key=regime_key,
+                                )
+                                state.open_positions.append(pos)
+                                state.balance -= total_entry_cost
+                                new_position = pos
+                                # Update intraday exposure after entry
+                                state.intraday_exposure = sum(p.current_value for p in state.open_positions)
+                                if state.intraday_exposure > state.intraday_exposure_peak:
+                                    state.intraday_exposure_peak = state.intraday_exposure
 
-        # End-of-day margin call simulation (FINRA Rule 4210 Path B compliance)
-        if self.cfg.end_of_day_margin_call_enabled:
-            eod_exposure = sum(p.current_value for p in state.open_positions)
-            eod_limit = state.balance * self.cfg.intraday_exposure_limit_frac
-            if eod_exposure > eod_limit:
-                state.intraday_margin_calls += 1
-                # Force-close the most expensive position to bring exposure under limit
-                if state.open_positions:
-                    worst = max(state.open_positions, key=lambda p: p.current_value)
-                    record = self._evaluate_position(worst, underlying_price, iv, session_date, state)
-                    if record:
-                        closed_trades.append(record)
+            # End-of-day margin call simulation (FINRA Rule 4210 Path B compliance)
+            if self.cfg.end_of_day_margin_call_enabled:
+                eod_exposure = sum(p.current_value for p in state.open_positions)
+                eod_limit = state.balance * self.cfg.intraday_exposure_limit_frac
+                if eod_exposure > eod_limit:
+                    state.intraday_margin_calls += 1
+                    # Force-close the most expensive position to bring exposure under limit
+                    if state.open_positions:
+                        worst = max(state.open_positions, key=lambda p: p.current_value)
+                        record = self._evaluate_position(worst, underlying_price, iv, session_date, state)
+                        if record:
+                            closed_trades.append(record)
 
-        state.session_count += 1
-        state.last_updated = now_iso
-        self.tracker.save(state)
+            state.session_count += 1
+            state.last_updated = now_iso
+            self.tracker.save(state)
 
-        milestone_cleared: str | None = None
-        if state.current_milestone_idx > prev_milestone_idx or state.balance >= self.cfg.target_capital:
-            from rlm.challenge.config import MILESTONES
+            milestone_cleared: str | None = None
+            if state.current_milestone_idx > prev_milestone_idx or state.balance >= self.cfg.target_capital:
+                from rlm.challenge.config import MILESTONES
 
-            idx = min(prev_milestone_idx, len(MILESTONES) - 1)
-            milestone_cleared = MILESTONES[idx].label
+                idx = min(prev_milestone_idx, len(MILESTONES) - 1)
+                milestone_cleared = MILESTONES[idx].label
 
-        challenge_complete = state.balance >= self.cfg.target_capital
+            challenge_complete = state.balance >= self.cfg.target_capital
 
-        return SessionSummary(
-            session_date=session_date,
-            directive=directive,
-            balance_before=balance_before,
-            balance_after=state.balance,
-            closed_trades=closed_trades,
-            new_position=new_position,
-            milestone_cleared=milestone_cleared,
-            challenge_complete=challenge_complete,
-            message=_compose_message(
-                state,
-                closed_trades,
-                new_position,
-                challenge_complete,
-                entry_skip_reason=entry_skip_reason,
-            ),
-        )
+            return SessionSummary(
+                session_date=session_date,
+                directive=directive,
+                balance_before=balance_before,
+                balance_after=state.balance,
+                closed_trades=closed_trades,
+                new_position=new_position,
+                milestone_cleared=milestone_cleared,
+                challenge_complete=challenge_complete,
+                message=_compose_message(
+                    state,
+                    closed_trades,
+                    new_position,
+                    challenge_complete,
+                    entry_skip_reason=entry_skip_reason,
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -453,13 +461,9 @@ def _compose_message(
         if entry_skip_reason:
             parts.append(f"No entry: {entry_skip_reason}")
         elif state.open_positions:
-            parts.append(
-                f"Holding {len(state.open_positions)} open leg(s); cash ${state.balance:,.2f}"
-            )
+            parts.append(f"Holding {len(state.open_positions)} open leg(s); cash ${state.balance:,.2f}")
         else:
             parts.append("No action this session.")
     if complete:
-        parts.append(
-            f"CHALLENGE COMPLETE -- $100,000 growth target reached in {state.elapsed_days} trading sessions!"
-        )
+        parts.append(f"CHALLENGE COMPLETE -- $100,000 growth target reached in {state.elapsed_days} trading sessions!")
     return "  ".join(parts)
