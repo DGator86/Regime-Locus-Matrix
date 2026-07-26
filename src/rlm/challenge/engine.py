@@ -114,12 +114,14 @@ class ChallengeEngine:
             new_position: ChallengePosition | None = None
             entry_skip_reason: str | None = None
             if len(state.open_positions) >= self.cfg.max_concurrent_positions:
-                entry_skip_reason = (
-                    f"Holding {len(state.open_positions)} open leg(s); "
-                    f"cash ${state.balance:,.2f}"
-                )
-            elif state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
-                if not entry_skip_reason and _daily_loss_limit_reached(state.daily_realized_pnl, state.balance, self.cfg):
+                entry_skip_reason = f"Holding {len(state.open_positions)} open leg(s); " f"cash ${state.balance:,.2f}"
+            elif (
+                state.balance < self.cfg.target_capital
+                and len(state.open_positions) < self.cfg.max_concurrent_positions
+            ):
+                if not entry_skip_reason and _daily_loss_limit_reached(
+                    state.daily_realized_pnl, state.balance, self.cfg
+                ):
                     entry_skip_reason = "daily_loss_limit_reached"
 
                 if not entry_skip_reason and _is_event_blackout(session_date, self.cfg):
@@ -155,7 +157,10 @@ class ChallengeEngine:
                         same_dir_spend = sum(
                             p.total_cost for p in state.open_positions if p.direction == play.direction
                         )
-                        if not entry_skip_reason and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac:
+                        if (
+                            not entry_skip_reason
+                            and same_dir_spend / max(state.balance, 1.0) >= self.cfg.max_same_direction_premium_frac
+                        ):
                             entry_skip_reason = "correlation_exposure_limit"
                         if not entry_skip_reason:
                             pace_mult = self._compute_pace_size_multiplier(state, session_date)
@@ -456,13 +461,9 @@ def _compose_message(
         if entry_skip_reason:
             parts.append(f"No entry: {entry_skip_reason}")
         elif state.open_positions:
-            parts.append(
-                f"Holding {len(state.open_positions)} open leg(s); cash ${state.balance:,.2f}"
-            )
+            parts.append(f"Holding {len(state.open_positions)} open leg(s); cash ${state.balance:,.2f}")
         else:
             parts.append("No action this session.")
     if complete:
-        parts.append(
-            f"CHALLENGE COMPLETE -- $100,000 growth target reached in {state.elapsed_days} trading sessions!"
-        )
+        parts.append(f"CHALLENGE COMPLETE -- $100,000 growth target reached in {state.elapsed_days} trading sessions!")
     return "  ".join(parts)

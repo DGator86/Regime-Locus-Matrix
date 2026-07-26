@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,21 @@ try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows dev
     fcntl = None  # type: ignore[assignment]
+
+# fcntl flocks are process-wide; also serialize same-process threads that share
+# a challenge state path (tests, embedded callers).
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _thread_lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        lock = _THREAD_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _THREAD_LOCKS[key] = lock
+        return lock
 
 
 class ChallengeTracker:
@@ -47,29 +63,34 @@ class ChallengeTracker:
 
     @contextmanager
     def exclusive_lock(self) -> Iterator[None]:
-        """Exclusive flock covering a challenge load→mutate→save critical section.
+        """Exclusive lock covering a challenge load→mutate→save critical section.
 
-        On platforms without ``fcntl``, yields without locking (dev/Windows).
+        Combines a path-keyed ``threading.Lock`` (same-process) with an ``fcntl``
+        flock (cross-process). On platforms without ``fcntl``, only the thread
+        lock is used.
         """
-        if fcntl is None:
-            yield
-            return
-
         self._dir.mkdir(parents=True, exist_ok=True)
-        fh = self._lock_path.open("a+", encoding="utf-8")
+        thread_lock = _thread_lock_for(self._lock_path)
+        thread_lock.acquire()
+        fh = None
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            fh.seek(0)
-            fh.truncate()
-            fh.write(f"pid={os.getpid()}\n")
-            fh.flush()
+            if fcntl is not None:
+                fh = self._lock_path.open("a+", encoding="utf-8")
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                fh.seek(0)
+                fh.truncate()
+                fh.write(f"pid={os.getpid()}\n")
+                fh.flush()
             yield
         finally:
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-            fh.close()
+            if fh is not None:
+                try:
+                    if fcntl is not None:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+                fh.close()
+            thread_lock.release()
 
     def load(self) -> ChallengeState:
         if not self._state_path.exists():
