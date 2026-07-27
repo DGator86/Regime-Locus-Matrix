@@ -418,3 +418,92 @@ def test_trailing_giveback_long(tmp_path: Path) -> None:
     assert pos.status == "closed"
     assert pos.exit_reason is not None
     assert pos.exit_reason.startswith("trailing_giveback_")
+
+
+def test_mark_equity_opened_does_not_overwrite_fresher_universe_plans(tmp_path: Path) -> None:
+    """Regression: equity fill must not RMW-stamp universe_trade_plans.json.
+
+    Concrete race (master --with-equity): startup equity thread still placing an
+    IBKR order after the 120s join timeout while a universe rescan republishes
+    plans. The old read-modify-write stamp could write a stale snapshot over the
+    fresh scan and wipe active_ranked for the options monitor / Telegram.
+    """
+    import json
+    import time
+
+    mod = _equity_script_module()
+    plans_path = tmp_path / "universe_trade_plans.json"
+    stale = {
+        "generated_at_utc": "2026-07-27T14:00:00+00:00",
+        "active_ranked": [
+            {"plan_id": "SPY_20260727_1400", "symbol": "SPY", "status": "active"},
+            {"plan_id": "IWM_20260727_1400", "symbol": "IWM", "status": "active"},
+        ],
+        "results": [
+            {"plan_id": "SPY_20260727_1400", "symbol": "SPY", "status": "active"},
+            {"plan_id": "IWM_20260727_1400", "symbol": "IWM", "status": "active"},
+        ],
+    }
+    fresh = {
+        "generated_at_utc": "2026-07-27T14:05:00+00:00",
+        "active_ranked": [
+            {"plan_id": "QQQ_20260727_1405", "symbol": "QQQ", "status": "active"},
+        ],
+        "results": [
+            {"plan_id": "QQQ_20260727_1405", "symbol": "QQQ", "status": "active"},
+            {"plan_id": "IWM_20260727_1405", "symbol": "IWM", "status": "skipped"},
+        ],
+    }
+    plans_path.write_text(json.dumps(stale, indent=2), encoding="utf-8")
+    # Old bug: read stale snapshot, then a concurrent rescan publishes fresh…
+    held = json.loads(plans_path.read_text(encoding="utf-8"))
+    for section in ("active_ranked", "results"):
+        for row in held.get(section) or []:
+            if row.get("plan_id") == "SPY_20260727_1400":
+                row["equity_opened"] = True
+    plans_path.write_text(json.dumps(fresh, indent=2), encoding="utf-8")
+    # …and writing the held snapshot would wipe the fresh scan (document hazard).
+    wiped = json.dumps(held, indent=2)
+    assert "QQQ_20260727_1405" not in wiped
+
+    before = plans_path.read_text(encoding="utf-8")
+    time.sleep(0.01)
+    # Stamp target still present in an alternate concurrent case: must not mutate.
+    mod._mark_equity_opened("QQQ_20260727_1405", plans_path)
+    after = plans_path.read_text(encoding="utf-8")
+    assert after == before
+    payload = json.loads(after)
+    assert payload["generated_at_utc"] == fresh["generated_at_utc"]
+    assert [r["plan_id"] for r in payload["active_ranked"]] == ["QQQ_20260727_1405"]
+    assert len(payload["results"]) == 2
+    assert "equity_opened" not in json.dumps(payload)
+
+def test_open_equity_skips_plan_id_already_open_in_state(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    _, pos = _mk_open_pos(mod, plan_id="SPY_KEEP")
+    positions = {pos.plan_id: pos}
+    plans = [
+        {
+            "plan_id": "SPY_KEEP",
+            "symbol": "SPY",
+            "status": "active",
+            "regime_direction": "bull",
+            "regime_key": "bull|trend",
+            "last_close": 500.0,
+        }
+    ]
+    before_len = len(positions)
+    mod.open_equity_positions(
+        plans=plans,
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=True,
+        app=None,
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert len(positions) == before_len
+    assert positions["SPY_KEEP"].quantity == pos.quantity
