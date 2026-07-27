@@ -819,21 +819,18 @@ def _load_plans(path: Path) -> list[dict]:
 
 
 def _mark_equity_opened(plan_id: str, plans_path: Path) -> None:
-    """Stamp equity_opened=true on the plan in the JSON file."""
-    if not plans_path.is_file():
-        return
-    try:
-        payload = json.loads(plans_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    changed = False
-    for section in ("active_ranked", "results"):
-        for row in payload.get(section) or []:
-            if isinstance(row, dict) and row.get("plan_id") == plan_id:
-                row["equity_opened"] = True
-                changed = True
-    if changed:
-        plans_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    """No-op: do not mutate shared ``universe_trade_plans.json``.
+
+    Historically this stamped ``equity_opened=true`` via read-modify-write on the
+    universe plans file. That raced with ``run_universe_options_pipeline`` publishes:
+    a slow IBKR fill could rewrite a stale snapshot over a fresher scan and wipe
+    ``active_ranked`` / ``results`` for the options monitor and Telegram alerts.
+
+    Open-state is already tracked in ``equity_positions_state.json`` (and
+    ``open_symbols`` in :func:`open_equity_positions`); that is sufficient to
+    prevent duplicate stock entries.
+    """
+    _ = (plan_id, plans_path)
 
 
 # ---------------------------------------------------------------------------
@@ -902,8 +899,11 @@ def open_equity_positions(
         plan_id = str(plan.get("plan_id", ""))
         if not sym or not plan_id:
             continue
+        existing = positions.get(plan_id)
+        if existing is not None and existing.status == "open":
+            continue  # already entered (equity state — do not rewrite universe plans JSON)
         if plan.get("equity_opened"):
-            continue  # already entered
+            continue  # legacy stamp from older builds; still honor if present
         if sym in open_symbols:
             print(f"  [equity] {sym}: already have open position — skip", flush=True)
             continue
