@@ -49,6 +49,7 @@ def test_notify_seed_silent(tmp_path: Path) -> None:
     assert blob.get("notify_seeded") is True
     assert "p1" in blob.get("announced_trade_open", [])
     assert "p1" in blob.get("last_universe_active_ids", [])
+    assert "SPY" in blob.get("last_universe_active_symbols", [])
 
 
 def test_new_position_after_seed(tmp_path: Path) -> None:
@@ -115,6 +116,86 @@ def test_new_position_after_seed(tmp_path: Path) -> None:
     assert len(s1) == 1
     assert any("ROBINHOOD" in m and "BUY IDEA" in m and "QQQ" in m for m in s1)
     assert not any("LARGE OPTIONS" in m and "NEW POSITION" in m for m in s1)
+
+
+def test_plan_id_rotation_same_symbol_does_not_realert(tmp_path: Path) -> None:
+    """Universe rescans mint ``{SYM}_{YYYYMMDD_HHMM}`` ids; Robinhood must key off symbol."""
+    dproc = tmp_path / "data" / "processed"
+    dproc.mkdir(parents=True)
+    (dproc / "equity_positions_state.json").write_text("{}", encoding="utf-8")
+    (dproc / "trade_log.csv").write_text(
+        "timestamp_utc,plan_id,symbol,strategy,entry_debit,entry_mid,current_mark,peak_mark,"
+        "unrealized_pnl,unrealized_pnl_pct,signal,closed,dte\n",
+        encoding="utf-8",
+    )
+    (dproc / "universe_trade_plans.json").write_text(
+        json.dumps(
+            {
+                "active_ranked": [
+                    {
+                        "status": "active",
+                        "plan_id": "AAPL_20260728_1000",
+                        "symbol": "AAPL",
+                        "entry_debit_dollars": 1.0,
+                        "decision": {"strategy_name": "call"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    m0, b0 = notification_cycle(tmp_path, {"notify_seeded": False})
+    assert m0 == []
+    assert "AAPL" in b0.get("last_universe_active_symbols", [])
+
+    (dproc / "universe_trade_plans.json").write_text(
+        json.dumps(
+            {
+                "active_ranked": [
+                    {
+                        "status": "active",
+                        "plan_id": "AAPL_20260728_1005",
+                        "symbol": "AAPL",
+                        "entry_debit_dollars": 1.1,
+                        "decision": {"strategy_name": "call"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    m1, b1 = notification_cycle(tmp_path, b0)
+    assert m1 == []
+    assert "AAPL_20260728_1005" in b1.get("last_universe_active_ids", [])
+    assert "AAPL" in b1.get("last_universe_active_symbols", [])
+
+    # Symbol drops then returns → alert again.
+    (dproc / "universe_trade_plans.json").write_text(
+        json.dumps({"active_ranked": []}),
+        encoding="utf-8",
+    )
+    m2, b2 = notification_cycle(tmp_path, b1)
+    assert m2 == []
+    assert "AAPL" not in b2.get("last_universe_active_symbols", [])
+    (dproc / "universe_trade_plans.json").write_text(
+        json.dumps(
+            {
+                "active_ranked": [
+                    {
+                        "status": "active",
+                        "plan_id": "AAPL_20260728_1015",
+                        "symbol": "AAPL",
+                        "entry_debit_dollars": 1.2,
+                        "decision": {"strategy_name": "call"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    m3, _ = notification_cycle(tmp_path, b2)
+    assert len(m3) == 1
+    assert any("ROBINHOOD" in m and "AAPL" in m and "AAPL_20260728_1015" in m for m in m3)
 
 
 def test_robinhood_universe_message_shows_pay_and_exit_targets() -> None:

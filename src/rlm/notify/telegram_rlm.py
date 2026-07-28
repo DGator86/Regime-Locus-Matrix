@@ -1,7 +1,8 @@
 """
 Telegram push logic driven by RLM on-disk state (no changes to the trading stack).
 
-* Universe: new **active** ``plan_id`` in ``universe_trade_plans.json`` (and optional ``session_brief.json`` for /brief).
+* Universe: new **active symbol** in ``universe_trade_plans.json`` (Robinhood BUY IDEA; plan_id
+  timestamps rotate on every rescan and must not re-alert). Optional ``session_brief.json`` for /brief.
 * Options monitor: ``trade_log.csv`` (open / take-profit / exit signals); leg detail is also read from
   ``data/processed/trade_plan_snapshots.json`` when a plan_id is no longer in ``universe_trade_plans.json``.
 * Equities: ``equity_positions_state.json``.
@@ -31,6 +32,7 @@ from rlm.notify.ledger_books import (
 from rlm.notify.options_paths import options_trade_log_primary, options_trade_log_read_paths
 from rlm.notify.options_plain_language import humanize_strategy_name as _strategy_entry_human
 from rlm.universe.active_plans import active_plan_ids as _active_plan_ids_from_plans_payload
+from rlm.universe.active_plans import active_symbols as _active_symbols_from_plans_payload
 from rlm.universe.active_plans import iter_active_trade_plan_rows as _iter_active_trade_plan_rows
 
 
@@ -511,7 +513,7 @@ def _plan_contract_dte_line(plan: dict[str, Any]) -> str | None:
 
 
 def _build_robinhood_universe_message(plan: dict[str, Any]) -> str:
-    """Actionable manual-buy alert when a symbol first becomes active in the universe."""
+    """Actionable manual-buy alert when a *symbol* first becomes active in the universe."""
     sym = str(plan.get("symbol") or "?")
     pid = str(plan.get("plan_id") or "?")
     decis = plan.get("decision") or {}
@@ -1252,6 +1254,11 @@ def _active_plan_ids_from_plans(data: dict[str, Any]) -> set[str]:
     return _active_plan_ids_from_plans_payload(data)
 
 
+def _active_symbols_from_plans(data: dict[str, Any]) -> set[str]:
+    """Active underlying symbols (Robinhood BUY IDEA de-dupe across plan_id rotation)."""
+    return _active_symbols_from_plans_payload(data)
+
+
 def _universe_row_strategy(r: dict[str, Any]) -> str:
     d = r.get("decision") if isinstance(r.get("decision"), dict) else {}
     s = str(d.get("strategy_name") or "").strip()
@@ -1627,6 +1634,8 @@ class _St:
     last_equity_open: set[str] = field(default_factory=set)
     announced_equity_close: set[str] = field(default_factory=set)
     last_universe_active_ids: set[str] = field(default_factory=set)
+    """Symbols already treated as active for Robinhood BUY IDEA de-dupe (survives plan_id rotation)."""
+    last_universe_active_symbols: set[str] = field(default_factory=set)
     challenge_trade_n: int = 0
     challenge_open_ids: set[str] = field(default_factory=set)
 
@@ -1645,6 +1654,11 @@ class _St:
         raw_u = d.get("last_universe_active_ids")
         if raw_u is not None:
             s.last_universe_active_ids = set(str(x) for x in raw_u)
+        raw_us = d.get("last_universe_active_symbols")
+        if raw_us is not None:
+            s.last_universe_active_symbols = {
+                str(x).strip().upper() for x in raw_us if str(x).strip()
+            }
         try:
             s.challenge_trade_n = int(d.get("challenge_trade_n", 0))
         except (TypeError, ValueError):
@@ -1664,6 +1678,7 @@ class _St:
             "last_equity_open": sorted(self.last_equity_open),
             "announced_equity_close": sorted(self.announced_equity_close),
             "last_universe_active_ids": sorted(self.last_universe_active_ids),
+            "last_universe_active_symbols": sorted(self.last_universe_active_symbols),
             "challenge_trade_n": self.challenge_trade_n,
             "challenge_open_ids": sorted(self.challenge_open_ids),
         }
@@ -1739,6 +1754,7 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
         st.announced_trade_open = {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
         st.last_equity_open = set(now_open)
         st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
+        st.last_universe_active_symbols = _active_symbols_from_plans(plans_data)
         ch_path = p["challenge_state"]
         if ch_path.is_file():
             try:
@@ -1765,6 +1781,13 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
 
     if st.notify_seeded and "last_universe_active_ids" not in state_blob:
         st.last_universe_active_ids = _active_plan_ids_from_plans(plans_data)
+        st.last_universe_active_symbols = _active_symbols_from_plans(plans_data)
+        merged = {**state_blob, **st.to_json()}
+        return [], merged
+
+    if st.notify_seeded and "last_universe_active_symbols" not in state_blob:
+        # Upgrade older state: seed symbols from the current book without re-alerting.
+        st.last_universe_active_symbols = _active_symbols_from_plans(plans_data)
         merged = {**state_blob, **st.to_json()}
         return [], merged
 
@@ -1824,13 +1847,18 @@ def notification_cycle(root: Path, state_blob: dict[str, Any]) -> tuple[list[str
             st.announced_trade_open.discard(pid)
 
     cur_u = _active_plan_ids_from_plans(plans_data)
+    cur_syms = _active_symbols_from_plans(plans_data)
     if _notify_flag("TELEGRAM_NOTIFY_UNIVERSE", default="1"):
-        for pid in sorted(cur_u - st.last_universe_active_ids):
-            plan = plan_lookup.get(pid)
+        # Key off symbols: rescans mint fresh ``{SYM}_{YYYYMMDD_HHMM}`` plan_ids every cycle.
+        for sym in sorted(cur_syms - st.last_universe_active_symbols):
+            plan = plan_by_sym.get(sym)
             if isinstance(plan, dict) and plan:
                 out.append(_build_robinhood_universe_message(plan))
-                st.announced_trade_open.add(pid)
+                pid = str(plan.get("plan_id") or "").strip()
+                if pid:
+                    st.announced_trade_open.add(pid)
     st.last_universe_active_ids = cur_u
+    st.last_universe_active_symbols = cur_syms
 
     prev_eq = st.last_equity_open
     if not _notify_flag("TELEGRAM_NOTIFY_EQUITY", default="1"):

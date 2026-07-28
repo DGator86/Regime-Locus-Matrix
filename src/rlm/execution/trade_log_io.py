@@ -77,6 +77,29 @@ def open_plan_ids(path: Path) -> set[str]:
     return {pid for pid, row in latest.items() if str(row.get("closed") or "0").strip() != "1"}
 
 
+def open_symbols(path: Path) -> set[str]:
+    """Underlying symbols with at least one open (``closed`` != 1) trade-log row."""
+    if not path.is_file():
+        return set()
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return set()
+    out: set[str] = set()
+    for row in latest.values():
+        if str(row.get("closed") or "0").strip() == "1":
+            continue
+        sym = str(row.get("symbol") or "").strip().upper()
+        if sym:
+            out.add(sym)
+    return out
+
+
 def _legs_json(matched_legs: list[dict[str, Any]] | None) -> str:
     if not matched_legs:
         return ""
@@ -225,19 +248,29 @@ def seed_paper_opens_from_active_plans(
     active_plans: list[dict[str, Any]],
     log_path: Path,
 ) -> list[str]:
-    """Open paper rows for active plans not already open in ``log_path``. Returns new ``plan_id``s."""
+    """Open paper rows for active plans not already open in ``log_path``. Returns new ``plan_id``s.
+
+    Skips when the same underlying already has an open row so minute-timestamped
+    ``plan_id`` rotation on universe rescans does not duplicate the paper book.
+    """
     open_ids = open_plan_ids(log_path)
+    open_syms = open_symbols(log_path)
     seeded: list[str] = []
     for plan in active_plans:
         if not isinstance(plan, dict):
             continue
         pid = str(plan.get("plan_id") or "").strip()
+        sym = str(plan.get("symbol") or "").strip().upper()
         if not pid or pid in open_ids:
+            continue
+        if sym and sym in open_syms:
             continue
         row = trade_log_row_from_active_plan(plan)
         if row is None:
             continue
         upsert_trade_log_row(log_path, row)
         open_ids.add(pid)
+        if sym:
+            open_syms.add(sym)
         seeded.append(pid)
     return seeded
