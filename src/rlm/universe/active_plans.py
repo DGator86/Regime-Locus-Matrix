@@ -31,6 +31,16 @@ def active_plan_ids(raw: dict[str, Any]) -> set[str]:
     return {str(r.get("plan_id")) for r in iter_active_trade_plan_rows(raw) if r.get("plan_id")}
 
 
+def active_symbols(raw: dict[str, Any]) -> set[str]:
+    """Set of underlying symbols for active universe rows."""
+    out: set[str] = set()
+    for r in iter_active_trade_plan_rows(raw):
+        sym = str(r.get("symbol") or "").strip().upper()
+        if sym:
+            out.add(sym)
+    return out
+
+
 def symbol_by_plan_id(raw: dict[str, Any]) -> dict[str, str]:
     """Map plan_id → underlying symbol for active rows."""
     m: dict[str, str] = {}
