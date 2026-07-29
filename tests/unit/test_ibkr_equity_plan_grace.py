@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -418,3 +421,42 @@ def test_trailing_giveback_long(tmp_path: Path) -> None:
     assert pos.status == "closed"
     assert pos.exit_reason is not None
     assert pos.exit_reason.startswith("trailing_giveback_")
+
+
+def test_missing_equity_state_is_empty_book(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    assert mod._load_state(tmp_path / "missing.json") == {}
+
+
+def test_empty_equity_state_file_refuses_empty_book(tmp_path: Path) -> None:
+    """Truncated mid-write must not look like a fresh empty book."""
+    mod = _equity_script_module()
+    path = tmp_path / "equity_positions_state.json"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(mod.EquityStateError, match="empty"):
+        mod._load_state(path)
+
+
+def test_corrupt_equity_state_refuses_empty_book(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    path = tmp_path / "equity_positions_state.json"
+    path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(mod.EquityStateError, match="corrupt"):
+        mod._load_state(path)
+
+
+def test_save_state_atomic_roundtrip_preserves_open_legs(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    path = tmp_path / "equity_positions_state.json"
+    _, pos = _mk_open_pos(mod, plan_id="AAPL_20260603_1000")
+    positions = {pos.plan_id: pos}
+    mod._save_state(positions, path)
+    assert path.is_file()
+    loaded = mod._load_state(path)
+    assert set(loaded) == {"AAPL_20260603_1000"}
+    assert loaded["AAPL_20260603_1000"].symbol == "QQQ"
+    assert loaded["AAPL_20260603_1000"].status == "open"
+    # Valid empty book after intentional flatten still loads.
+    mod._save_state({}, path)
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
+    assert mod._load_state(path) == {}

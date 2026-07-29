@@ -163,26 +163,65 @@ class EquityPosition:
     eff_profile_note: str = ""
 
 
+class EquityStateError(RuntimeError):
+    """Raised when an existing equity positions state file is empty or unreadable."""
+
+
 def _load_state(path: Path) -> dict[str, EquityPosition]:
+    """Load equity positions.
+
+    Missing file → empty book (first run). An existing but empty/corrupt file must
+    not be treated as empty: that would drop tracked opens and allow duplicate IBKR
+    stock orders on the next tick after a crash mid-write.
+    """
     if not path.is_file():
         return {}
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise EquityStateError(f"cannot read equity state {path}: {exc}") from exc
+    if not text.strip():
+        raise EquityStateError(
+            f"equity state file is empty (possible crash mid-write): {path} — "
+            "refusing to open new stock legs until state is restored"
+        )
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise EquityStateError(
+            f"equity state file is corrupt: {path}: {exc} — "
+            "refusing to open new stock legs until state is restored"
+        ) from exc
+    if not isinstance(raw, dict):
+        raise EquityStateError(f"equity state root must be an object: {path}")
     out: dict[str, EquityPosition] = {}
     for pid, d in raw.items():
+        if not isinstance(d, dict):
+            continue
         try:
-            out[pid] = EquityPosition(**d)
+            out[str(pid)] = EquityPosition(**d)
         except TypeError:
             pass
     return out
 
 
 def _save_state(positions: dict[str, EquityPosition], path: Path) -> None:
+    """Atomically persist equity positions (temp file + os.replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {pid: asdict(pos) for pid, pos in positions.items()}
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    text = json.dumps(payload, indent=2)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _parse_iso_utc(ts: str) -> datetime:
@@ -1459,7 +1498,11 @@ def main() -> None:
     print(f"{'='*60}\n", flush=True)
 
     plans = _load_plans(plans_path)
-    positions = _load_state(state_path)
+    try:
+        positions = _load_state(state_path)
+    except EquityStateError as exc:
+        print(f"[equity] FATAL: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
     active_plan_ids = {p["plan_id"] for p in plans if p.get("plan_id")}
     plan_by_id = _plans_by_plan_id(plans)
     _merge_universe_rows_for_open_positions(plan_by_id, plans_path, positions)
