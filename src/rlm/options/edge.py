@@ -42,8 +42,13 @@ def enrich_leg_greeks(
     spot: float,
     risk_free: float = _DEFAULT_RISK_FREE,
 ) -> dict[str, Any]:
-    """Fill missing delta/gamma/theta/vega/iv on a matched leg dict."""
+    """Fill missing delta/gamma/theta/vega/iv on a matched leg dict.
+
+    When IV is solved from the leg mid, sets ``_iv_solved_from_mid`` so callers
+    can avoid circular mid→IV→fair mispricing checks.
+    """
     out = dict(leg)
+    out.pop("_iv_solved_from_mid", None)
     strike = float(out.get("strike") or 0.0)
     if strike <= 0 or spot <= 0:
         return out
@@ -53,6 +58,7 @@ def enrich_leg_greeks(
     mid = float(out.get("mid") or 0.0)
     iv = out.get("iv")
     iv_f = float(iv) if iv is not None and str(iv) not in ("", "nan") and pd.notna(iv) else math.nan
+    solved_from_mid = False
 
     if not math.isfinite(iv_f) or iv_f <= 1e-6:
         if mid > 0 and math.isfinite(t_years) and t_years > 0:
@@ -67,9 +73,13 @@ def enrich_leg_greeks(
             if solved is not None and math.isfinite(solved) and solved > 1e-6:
                 iv_f = float(solved)
                 out["iv"] = iv_f
+                solved_from_mid = True
 
     if not math.isfinite(iv_f) or iv_f <= 1e-6:
         return out
+
+    if solved_from_mid:
+        out["_iv_solved_from_mid"] = True
 
     g = full_greeks_row(
         spot=spot,
@@ -121,23 +131,36 @@ def assess_combo_edge(
     """
     Compare BS fair combo mark vs market mid mark.
 
-    ``buyer_edge_pct`` > 0 means market is cheaper than model (favorable for net debit buyers).
+    ``buyer_edge_pct`` > 0 means market is cheaper than model (favorable for net
+    debit buyers and for net-credit sellers when marks are signed consistently).
+
+    Mispricing % is only computed from legs whose IV came from the chain (not
+    solved from mid). Mid-implied IV makes fair≈mid by construction, which would
+    false-reject every debit under a positive ``min_edge`` threshold. When no
+    independent fair is available, the % gate is skipped (delta/spread still apply).
     """
     enriched = [enrich_leg_greeks(m, spot=spot, risk_free=risk_free) for m in matched_legs]
     market_mark = 0.0
     fair_mark = 0.0
+    n_independent_fair = 0
     for leg in enriched:
         mid = float(leg.get("mid") or 0.0)
         fair = _leg_fair_mid(leg, spot=spot, risk_free=risk_free)
         sign = 1.0 if str(leg.get("side") or "").lower() == "long" else -1.0
         market_mark += sign * mid * contract_multiplier
+        # Circular mid→IV→fair must not drive the % edge gate.
+        if leg.pop("_iv_solved_from_mid", False):
+            continue
         if math.isfinite(fair):
             fair_mark += sign * fair * contract_multiplier
+            n_independent_fair += 1
 
     debit = float(entry_debit_dollars)
     is_credit = debit < 0
     buyer_edge_pct = math.nan
-    if math.isfinite(fair_mark) and abs(market_mark) > 1e-6:
+    # fair_mark stays 0.0 when nothing independent was added — that is "unknown",
+    # not "worthless". Only score edge when at least one chain-IV fair exists.
+    if n_independent_fair > 0 and abs(market_mark) > 1e-6:
         buyer_edge_pct = (fair_mark - market_mark) / abs(market_mark)
 
     is_short_dte = False
@@ -152,20 +175,17 @@ def assess_combo_edge(
         "RLM_OPTIONS_MIN_BUYER_EDGE_PCT" if is_short_dte else "RLM_OPTIONS_SWING_MIN_BUYER_EDGE_PCT",
         0.02 if is_short_dte else 0.01,
     )
-    max_overpay = _env_float("RLM_OPTIONS_MAX_OVERPAY_PCT", 0.08)
 
     passes = True
     reason = ""
     if math.isfinite(buyer_edge_pct):
-        if not is_credit and buyer_edge_pct < min_edge:
+        # Same signed convention for debit and credit: need buyer_edge >= min_edge.
+        # (For credits with negative market_mark, positive edge means richer credit
+        # than model — favorable to the seller.)
+        if buyer_edge_pct < min_edge:
+            kind = "credit_underpriced" if is_credit else "debit_overpriced"
             passes = False
-            reason = f"debit_overpriced edge={buyer_edge_pct:.2%} need>={min_edge:.2%}"
-        elif is_credit and buyer_edge_pct > -min_edge:
-            passes = False
-            reason = f"credit_underpriced edge={buyer_edge_pct:.2%}"
-        elif not is_credit and buyer_edge_pct < -max_overpay:
-            passes = False
-            reason = f"debit_extreme_overpay edge={buyer_edge_pct:.2%}"
+            reason = f"{kind} edge={buyer_edge_pct:.2%} need>={min_edge:.2%}"
 
     dir_norm = str(regime_direction or "").strip().lower()
     net_delta = 0.0
@@ -205,7 +225,7 @@ def assess_combo_edge(
         "matched_legs_enriched": enriched,
         "spot": spot,
         "market_mark_dollars": market_mark,
-        "fair_mark_dollars": fair_mark,
+        "fair_mark_dollars": fair_mark if n_independent_fair > 0 else math.nan,
         "buyer_edge_pct": buyer_edge_pct,
         "net_delta": net_delta,
         "avg_gamma": avg_gamma,
