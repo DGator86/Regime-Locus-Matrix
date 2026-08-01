@@ -398,9 +398,7 @@ class TestChallengeEngine:
         assert isinstance(summary.balance_after, float)
         assert summary.balance_after > 0
 
-    def test_trail_exit_respects_breakeven_floor(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_trail_exit_respects_breakeven_floor(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from rlm.challenge.state import ChallengePosition
 
         state = tmp_tracker.reset(cfg)
@@ -428,9 +426,7 @@ class TestChallengeEngine:
         assert len(summary.closed_trades) == 1
         assert summary.closed_trades[0].exit_reason == "trail"
 
-    def test_live_mark_triggers_target_exit(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_live_mark_triggers_target_exit(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from unittest.mock import patch
 
         from rlm.challenge.state import ChallengePosition
@@ -548,9 +544,7 @@ class TestChallengeEngine:
         cap = 2.0 * cfg.stage1_profit_target_mult * 100
         assert summary.closed_trades[0].proceeds == pytest.approx(cap, rel=1e-4)
 
-    def test_stop_hit_closes_position(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_stop_hit_closes_position(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg_enter)
         engine = ChallengeEngine(cfg_enter, tmp_tracker)
         # Open a long call
@@ -562,9 +556,7 @@ class TestChallengeEngine:
         total_trades = len(state.trade_history)
         assert total_trades >= 1
 
-    def test_balance_deducted_on_entry(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_balance_deducted_on_entry(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg_enter)
         initial = state.balance
         engine = ChallengeEngine(cfg_enter, tmp_tracker)
@@ -600,6 +592,42 @@ class TestChallengeEngine:
             engine.run_session("long", 500.0)
         state = tmp_tracker.load()
         assert state.session_count == 3
+
+    def test_elapsed_days_advances_once_per_calendar_day(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        """Challenge loop ticks many times/day; pace must use calendar days."""
+        tmp_tracker.reset(cfg)
+        engine = ChallengeEngine(cfg, tmp_tracker)
+        for _ in range(20):
+            engine.run_session("no_trade", 500.0, session_date="2026-01-05")
+        state = tmp_tracker.load()
+        assert state.session_count == 20
+        assert state.elapsed_days == 1
+
+        engine.run_session("no_trade", 500.0, session_date="2026-01-06")
+        state = tmp_tracker.load()
+        assert state.session_count == 21
+        assert state.elapsed_days == 2
+
+    def test_same_day_loop_ticks_do_not_max_out_pace_boost(self, tmp_tracker: ChallengeTracker) -> None:
+        """Regression: per-tick elapsed_days inflated the 252-day pace curve intraday."""
+        cfg = ChallengeConfig(seed_capital=1_000.0, target_capital=100_000.0)
+        tmp_tracker.reset(cfg)
+        engine = ChallengeEngine(cfg, tmp_tracker)
+        # Full RTH day of 5-minute challenge-loop ticks
+        for _ in range(78):
+            engine.run_session("no_trade", 500.0, session_date="2026-01-05")
+        state = tmp_tracker.load()
+        assert state.session_count == 78
+        assert state.elapsed_days == 1
+        pace = engine._compute_pace_size_multiplier(state, "2026-01-05")
+        # Day-1 required growth is ~1.018x; at seed, progress≈0.98 > 0.80 threshold
+        assert pace == pytest.approx(1.0)
+        # Bug baseline: treating each tick as a day would already demand ~+14% boost
+        state.elapsed_days = state.session_count
+        buggy_pace = engine._compute_pace_size_multiplier(state, "2026-01-05")
+        assert buggy_pace > 1.10
 
     def test_state_persists_across_engine_instances(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg)
