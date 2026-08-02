@@ -26,8 +26,21 @@ if [[ -x "${PY}" && -d "${ROOT}" ]]; then
   "${PY}" "${ROOT}/scripts/run_eodhd_stock_collector.py" --backfill --once || true
   echo "[market-start] universe pipeline (large-options swing from RLM_PIPELINE_ARGS)"
   read -r -a _PIPE_ARGS <<< "${RLM_PIPELINE_ARGS:---ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4 --market-hours-only --dte-min 7 --dte-max 21 --no-feature-csv}"
+  _TRADE_LOG="${RLM_OPTIONS_TRADE_LOG_PATH:-data/processed/options_large_account_trade_log.csv}"
+  _PIPE_HAS_TRADE_LOG=0
+  for _a in "${_PIPE_ARGS[@]+"${_PIPE_ARGS[@]}"}"; do
+    if [[ "${_a}" == "--trade-log" ]]; then
+      _PIPE_HAS_TRADE_LOG=1
+      break
+    fi
+  done
+  _TRADE_LOG_ARGS=()
+  if [[ "${_PIPE_HAS_TRADE_LOG}" -eq 0 ]]; then
+    _TRADE_LOG_ARGS=(--trade-log "${_TRADE_LOG}")
+  fi
   "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" \
     --out "data/processed/universe_trade_plans.json" \
+    "${_TRADE_LOG_ARGS[@]}" \
     "${_PIPE_ARGS[@]}" || true
   "${PY}" "${ROOT}/scripts/run_session_brief.py" --phase preopen --top 8 --out "data/processed/session_brief.json" || true
 else

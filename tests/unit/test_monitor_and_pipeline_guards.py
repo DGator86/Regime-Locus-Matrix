@@ -13,6 +13,7 @@ from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from scripts.monitor_active_trade_plans import _evaluate_plan
 from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
+    _entry_window_blocks_universe_run,
     _kronos_stub_available,
     _load_open_symbols_from_trade_log,
 )
@@ -200,6 +201,48 @@ def test_pipeline_open_symbol_in_trade_log_blocks_new_active(tmp_path: Path) -> 
     _apply_active_plan_guards(rows, max_active_per_symbol=1, open_symbols=open_symbols)
     assert rows[0]["status"] == "trimmed"
     assert rows[0]["skip_reason"] == "symbol_already_open_in_trade_log"
+
+
+def test_entry_window_blocks_universe_run_when_market_hours_only_and_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "scripts.run_universe_options_pipeline.entry_window_open",
+        lambda **_: False,
+    )
+    assert (
+        _entry_window_blocks_universe_run(
+            market_hours_only=True,
+            buffer_open_minutes=15,
+            buffer_close_minutes=30,
+        )
+        is True
+    )
+
+
+def test_entry_window_does_not_block_inside_window_or_without_flag(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "scripts.run_universe_options_pipeline.entry_window_open",
+        lambda **_: True,
+    )
+    assert (
+        _entry_window_blocks_universe_run(
+            market_hours_only=True,
+            buffer_open_minutes=15,
+            buffer_close_minutes=30,
+        )
+        is False
+    )
+    monkeypatch.setattr(
+        "scripts.run_universe_options_pipeline.entry_window_open",
+        lambda **_: False,
+    )
+    assert (
+        _entry_window_blocks_universe_run(
+            market_hours_only=False,
+            buffer_open_minutes=15,
+            buffer_close_minutes=30,
+        )
+        is False
+    )
 
 
 def test_full_pipeline_nightly_overlay_ignores_stale_mtf_regimes(tmp_path: Path) -> None:

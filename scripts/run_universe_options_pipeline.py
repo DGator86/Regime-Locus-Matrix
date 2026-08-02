@@ -775,6 +775,27 @@ def _merge_trade_plan_snapshots(processed_dir: Path, final_results: list[dict[st
     path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
 
 
+def _entry_window_blocks_universe_run(
+    *,
+    market_hours_only: bool,
+    buffer_open_minutes: int,
+    buffer_close_minutes: int,
+) -> bool:
+    """True when ``--market-hours-only`` should abort before fetch/publish.
+
+    Outside the entry window every symbol would be skipped as
+    ``outside_entry_window``, then the pipeline would still overwrite
+    ``universe_trade_plans.json`` with an empty ``active_ranked``. That wipe
+    drops prior actives and can force equity exits via ``plan_no_longer_active``.
+    """
+    if not market_hours_only:
+        return False
+    return not entry_window_open(
+        buffer_open_minutes=buffer_open_minutes,
+        buffer_close_minutes=buffer_close_minutes,
+    )
+
+
 def _apply_active_plan_guards(
     results: list[dict[str, object]],
     *,
@@ -1085,6 +1106,18 @@ def _main_locked() -> int:
         help="Skip writing features_{SYM}.csv and forecast_features_{SYM}.csv (or set RLM_SKIP_FEATURE_CSV=1).",
     )
     args = p.parse_args()
+
+    if _entry_window_blocks_universe_run(
+        market_hours_only=bool(args.market_hours_only),
+        buffer_open_minutes=int(args.buffer_open_minutes),
+        buffer_close_minutes=int(args.buffer_close_minutes),
+    ):
+        print(
+            f"[market-hours] entry window closed ({session_label()}); "
+            "skipping universe scan/publish to preserve existing plans",
+            flush=True,
+        )
+        return 0
 
     try:
         client = MassiveClient()

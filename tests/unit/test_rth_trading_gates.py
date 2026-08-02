@@ -36,6 +36,13 @@ def test_pipeline_trade_log_path_from_master(monkeypatch, tmp_path: Path) -> Non
     assert any("options_large_account_trade_log.csv" in str(x) for x in cmd)
 
 
+def test_market_hours_start_script_wires_options_trade_log() -> None:
+    script = (ROOT / "deploy" / "linux" / "rlm-market-hours-start.sh").read_text(encoding="utf-8")
+    assert "RLM_OPTIONS_TRADE_LOG_PATH" in script
+    assert "--trade-log" in script
+    assert "options_large_account_trade_log.csv" in script
+
+
 def test_pipeline_short_dte_flags_from_env(monkeypatch) -> None:
     monkeypatch.setenv("RLM_PIPELINE_SHORT_DTE", "1")
     monkeypatch.setenv("RLM_PIPELINE_DTE_MIN", "0")
