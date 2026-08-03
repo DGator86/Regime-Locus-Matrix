@@ -125,29 +125,78 @@ def fetch_stock_bars(
         return _fetch_ibkr_intraday(sym, duration=duration, bar_size=bar_size, serialize=serialize_ibkr, lock=ibkr_lock)
 
     if source == "eodhd":
-        # Daily regime on EODHD-only hosts: fall through to IBKR unless allowed
+        # Daily regime on EODHD-only hosts: prefer multi-year daily CSV / full-lake
+        # resample. Truncating the 1m lake to ``duration`` (often 30 D) yields ~21
+        # sessions — too short for live vol_window baselines.
         if not _env_truthy("RLM_ALLOW_IBKR_STOCK_BARS"):
-            lake = load_stock_1m_from_lake(sym, root=data_root, lookback_days=days)
-            if not lake.empty:
-                daily = (
-                    lake.set_index("timestamp")
-                    .resample("1D")
-                    .agg(
-                        {
-                            "open": "first",
-                            "high": "max",
-                            "low": "min",
-                            "close": "last",
-                            "volume": "sum",
-                            "vwap": "mean",
-                        }
-                    )
-                    .dropna(how="all")
-                    .reset_index()
-                )
+            daily = _load_daily_bars_offline(sym, data_root=data_root, lookback_days=days)
+            if not daily.empty:
                 return daily
 
     return _fetch_ibkr_daily(sym, duration=duration, bar_size=bar_size, serialize=serialize_ibkr, lock=ibkr_lock)
+
+
+def _data_dir_for_daily(data_root: Path) -> Path:
+    """Normalize repo root vs ``data/`` for :func:`load_best_daily_bars`."""
+    root = Path(data_root).expanduser().resolve()
+    if (root / "data" / "raw").is_dir() or (root / "data" / "stocks").is_dir():
+        return root / "data"
+    return root
+
+
+def _trim_daily_lookback(daily: pd.DataFrame, *, lookback_days: int) -> pd.DataFrame:
+    if daily.empty or lookback_days <= 0:
+        return daily.reset_index(drop=True)
+    out = daily.copy()
+    out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce")
+    out = out.dropna(subset=["timestamp"]).sort_values("timestamp")
+    span = pd.Timedelta(days=int(lookback_days))
+    trimmed_now = out.loc[out["timestamp"] >= (pd.Timestamp.now().normalize() - span)]
+    last = pd.Timestamp(out["timestamp"].max())
+    trimmed_last = out.loc[out["timestamp"] >= (last.normalize() - span)]
+    # Stale CSVs often leave a sparse "now" window; prefer the denser trailing span.
+    if len(trimmed_last) > len(trimmed_now):
+        trimmed = trimmed_last
+    else:
+        trimmed = trimmed_now if not trimmed_now.empty else trimmed_last
+    return (trimmed if not trimmed.empty else out).reset_index(drop=True)
+
+
+def _load_daily_bars_offline(
+    symbol: str,
+    *,
+    data_root: Path,
+    lookback_days: int,
+) -> pd.DataFrame:
+    """Load daily OHLCV without IBKR (best CSV/lake), then apply lookback."""
+    # Lazy import: daily_bars_sync imports load_stock_1m_from_lake from this module.
+    from rlm.data.daily_bars_sync import load_best_daily_bars
+
+    try:
+        daily = load_best_daily_bars(symbol, data_root=_data_dir_for_daily(data_root))
+    except FileNotFoundError:
+        daily = pd.DataFrame()
+    if daily.empty:
+        lake = load_stock_1m_from_lake(symbol, root=data_root, lookback_days=None)
+        if lake.empty:
+            return daily
+        daily = (
+            lake.set_index("timestamp")
+            .resample("1D")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                    "vwap": "mean",
+                }
+            )
+            .dropna(how="all")
+            .reset_index()
+        )
+    return _trim_daily_lookback(daily, lookback_days=lookback_days)
 
 
 def _fetch_ibkr_intraday(

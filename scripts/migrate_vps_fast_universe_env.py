@@ -15,7 +15,7 @@ _FAST_PROFILE: dict[str, str] = {
     "RLM_STOCK_BARS_SOURCE": "eodhd",
     "RLM_ALLOW_DAILY_PRIMARY": "1",
     "RLM_PRIMARY_BAR_SIZE": "1 day",
-    "RLM_PRIMARY_DURATION": "30 D",
+    "RLM_PRIMARY_DURATION": "220 D",
     "RLM_PIPELINE_ARGS": (
         "--ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4 "
         "--market-hours-only --short-dte --dte-min 0 --dte-max 5"

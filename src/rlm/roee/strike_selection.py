@@ -33,6 +33,33 @@ def target_strike_from_sigma(
     return strike
 
 
+def ensure_vertical_width(
+    long_strike: float,
+    short_strike: float,
+    *,
+    option_type: str,
+    increment: float = 1.0,
+) -> tuple[float, float]:
+    """Guarantee debit verticals keep a positive width after strike rounding.
+
+    Floor-level ``sigma`` (short daily history) can collapse long/short to the same
+    ATM strike; widen the short leg by one increment in the OTM direction.
+    """
+    step = float(increment) if increment and increment > 0 else 1.0
+    if option_type == "call":
+        if short_strike <= long_strike:
+            short_strike = round_to_increment(long_strike + step, step)
+        return long_strike, short_strike
+    if short_strike >= long_strike:
+        short_strike = round_to_increment(long_strike - step, step)
+        floor = max(step, 1e-6)
+        if short_strike < floor:
+            short_strike = floor
+            if long_strike <= short_strike:
+                long_strike = round_to_increment(short_strike + step, step)
+    return long_strike, short_strike
+
+
 def build_legs_from_candidate(
     candidate: TradeCandidate,
     current_price: float,
@@ -81,6 +108,9 @@ def build_legs_from_candidate(
     }:
         long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or 0.5, strike_increment)
         short_strike = target_strike_from_sigma(current_price, sigma, candidate.short_sigma or 1.5, strike_increment)
+        long_strike, short_strike = ensure_vertical_width(
+            long_strike, short_strike, option_type="call", increment=strike_increment
+        )
         legs = [
             OptionLeg(side="long", option_type="call", strike=long_strike),
             OptionLeg(side="short", option_type="call", strike=short_strike),
@@ -96,6 +126,9 @@ def build_legs_from_candidate(
     }:
         long_strike = target_strike_from_sigma(current_price, sigma, candidate.long_sigma or -0.5, strike_increment)
         short_strike = target_strike_from_sigma(current_price, sigma, candidate.short_sigma or -1.5, strike_increment)
+        long_strike, short_strike = ensure_vertical_width(
+            long_strike, short_strike, option_type="put", increment=strike_increment
+        )
         legs = [
             OptionLeg(side="long", option_type="put", strike=long_strike),
             OptionLeg(side="short", option_type="put", strike=short_strike),

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from rlm.data.bar_timeframes import (
     apply_intraday_primary_defaults,
     bar_size_step_minutes,
+    clamp_daily_duration,
     clamp_intraday_duration,
     duration_to_calendar_days,
     ibkr_chunk_days_for_bar_size,
@@ -38,6 +37,11 @@ def test_duration_to_calendar_days() -> None:
 def test_clamp_intraday_duration() -> None:
     assert clamp_intraday_duration("10 D") == "30 D"
     assert clamp_intraday_duration("45 D") == "45 D"
+
+
+def test_clamp_daily_duration() -> None:
+    assert clamp_daily_duration("30 D") == "220 D"
+    assert clamp_daily_duration("400 D") == "400 D"
 
 
 def test_ibkr_chunk_days_for_1min() -> None:

@@ -60,6 +60,7 @@ from rlm.data.bars_enrichment import prepare_bars_for_factors
 from rlm.data.event_calendar import has_major_event_today
 from rlm.data.bar_timeframes import (
     apply_intraday_primary_defaults,
+    clamp_daily_duration,
     clamp_intraday_duration,
     is_intraday_bar_size,
 )
@@ -1178,7 +1179,7 @@ def _main_locked() -> int:
         )
     if _env_truthy("RLM_ALLOW_DAILY_PRIMARY"):
         env_bar = (os.environ.get("RLM_PRIMARY_BAR_SIZE") or "1 day").strip() or "1 day"
-        env_dur = (os.environ.get("RLM_PRIMARY_DURATION") or "30 D").strip() or "30 D"
+        env_dur = (os.environ.get("RLM_PRIMARY_DURATION") or "220 D").strip() or "220 D"
         if (bar_size, duration) != (env_bar, env_dur):
             bar_size, duration = env_bar, env_dur
             print(
@@ -1187,6 +1188,15 @@ def _main_locked() -> int:
             )
     if is_intraday_bar_size(bar_size):
         duration = clamp_intraday_duration(duration)
+    else:
+        clamped = clamp_daily_duration(duration)
+        if clamped != duration:
+            print(
+                f"[bars] daily primary duration raised {duration!r} -> {clamped!r} "
+                "(need history for move/vol baseline windows)",
+                flush=True,
+            )
+            duration = clamped
 
     hot_cache_symbols = _parse_symbols(args.massive_hot_cache_symbols)
     # When Hermes (or manual edits) sets STAND-DOWN, ROEE returns system_gate_block for every symbol.
@@ -1470,10 +1480,19 @@ def _main_locked() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
+    # Short-DTE passes used to close every open row with DTE>5 in the shared log.
+    # Never do that against the large-account / swing book (wipes 7–21 DTE paper).
+    log_name = trade_log_path.name.lower()
+    swing_book = "large_account" in log_name or "swing" in log_name
+    if (args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5)) and not swing_book:
         n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
         if n_closed:
             print(f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}", flush=True)
+    elif swing_book and (args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5)):
+        print(
+            f"[paper] skip stale_dte_cleanup on swing book {trade_log_path.name}",
+            flush=True,
+        )
     seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
     if seeded:
         print(

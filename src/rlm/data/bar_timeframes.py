@@ -98,3 +98,24 @@ def clamp_intraday_duration(duration: str, *, min_days: int = 30) -> str:
     if days < min_days:
         return f"{min_days} D"
     return duration
+
+
+# Live seed uses vol_window≈141 (min_periods≈47). ~21 daily bars from ``30 D`` leaves
+# b_sigma all-NaN and floors sigma → zero-width debit spreads. Require enough calendar
+# days for a full vol window of trading sessions (141 * 7/5 ≈ 198, plus buffer).
+DEFAULT_MIN_DAILY_PRIMARY_DAYS = 220
+
+
+def clamp_daily_duration(
+    duration: str,
+    *,
+    min_days: int = DEFAULT_MIN_DAILY_PRIMARY_DAYS,
+) -> str:
+    """Ensure daily-primary lookbacks cover forecast move/vol baseline windows."""
+    days = duration_to_calendar_days(duration)
+    if days < int(min_days):
+        return f"{int(min_days)} D"
+    # Preserve non-day units when already long enough (e.g. ``1 Y``).
+    if duration.strip().upper().endswith(" D"):
+        return f"{days} D"
+    return duration
