@@ -62,6 +62,28 @@ class TestLoadBestDailyBars:
         best = load_best_daily_bars("SPY", data_root=root / "data")
         assert pd.Timestamp(best["timestamp"].max()).date() >= date(2026, 5, 28)
 
+    def test_prefers_long_fresh_csv_over_short_lake_tail(self, tmp_path: Path) -> None:
+        root = tmp_path
+        raw = root / "data" / "raw"
+        raw.mkdir(parents=True)
+        idx = pd.bdate_range("2025-06-02", periods=200)
+        pd.DataFrame(
+            {
+                "timestamp": idx,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+                "volume": 1e6,
+                "vwap": 100.0,
+            }
+        ).to_csv(raw / "bars_SPY.csv", index=False)
+        # Lake ends on the same session but only has a few days of 1m history.
+        merge_bars_into_lake("SPY", _minute_bars(idx[-1].date() - timedelta(days=3), 4), root=root)
+
+        best = load_best_daily_bars("SPY", data_root=root / "data")
+        assert len(best) >= 180
+
 
 class TestRefreshSymbolDailyBars:
     def test_yfinance_updates_csv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

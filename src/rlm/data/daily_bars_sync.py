@@ -138,8 +138,16 @@ def refresh_universe_daily_bars(
 def load_best_daily_bars(
     symbol: str,
     data_root: str | Path | None = None,
+    *,
+    freshness_days: int = 5,
 ) -> pd.DataFrame:
-    """Return the freshest daily bars available without network I/O."""
+    """Return the best daily bars available without network I/O.
+
+    Prefers the longest series among sources whose last bar is within
+    ``freshness_days`` of the newest available date. A short 1m-lake resample
+    that is one session fresher must not displace a multi-year daily CSV — the
+    short series breaks forecast ``vol_window`` baselines (~141 sessions).
+    """
     sym = symbol.upper().strip()
     data = get_data_root(data_root)
     csv_path = get_raw_data_dir(data) / f"bars_{sym}.csv"
@@ -162,6 +170,13 @@ def load_best_daily_bars(
     if not candidates:
         raise FileNotFoundError(f"No daily bars for {sym} (checked {csv_path} and 1m lake)")
 
-    # Newest date wins; on a tie prefer the longer history (full CSV over short 1m tail).
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    return candidates[-1][2].reset_index(drop=True)
+    newest = max(item[0] for item in candidates)
+    fresh = [
+        item
+        for item in candidates
+        if (newest - item[0]).days <= max(0, int(freshness_days))
+    ]
+    pool = fresh or candidates
+    # Longest history among acceptably fresh sources; tie-break on newest date.
+    pool.sort(key=lambda item: (item[1], item[0]))
+    return pool[-1][2].reset_index(drop=True)
