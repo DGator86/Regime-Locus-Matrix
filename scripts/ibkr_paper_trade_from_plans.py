@@ -44,8 +44,11 @@ def main() -> int:
     p.add_argument(
         "--trade-log",
         type=Path,
-        default=Path("data/processed/trade_log.csv"),
-        help="Paper monitor CSV (default: data/processed/trade_log.csv)",
+        default=None,
+        help=(
+            "Paper monitor CSV. Default: RLM_OPTIONS_TRADE_LOG_PATH or "
+            "data/processed/trade_log.csv"
+        ),
     )
     p.add_argument("--max", type=int, default=20, help="Max active plans to consider (safety cap)")
     p.add_argument(
@@ -57,7 +60,12 @@ def main() -> int:
 
     data_root = Path(os.environ.get("RLM_ROOT", str(ROOT))).expanduser().resolve()
     plans_path = args.plans if args.plans.is_absolute() else data_root / args.plans
-    log_path = args.trade_log if args.trade_log.is_absolute() else data_root / args.trade_log
+    if args.trade_log is None:
+        from rlm.notify.options_paths import options_trade_log_primary
+
+        log_path = options_trade_log_primary(data_root)
+    else:
+        log_path = args.trade_log if args.trade_log.is_absolute() else data_root / args.trade_log
 
     if not plans_path.is_file():
         print(f"Missing {plans_path}", file=sys.stderr)

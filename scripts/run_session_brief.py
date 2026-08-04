@@ -8,7 +8,6 @@ Writes a separate JSON (default ``data/processed/session_brief.json``) so the ma
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -33,6 +32,8 @@ def main() -> int:
     args = p.parse_args()
 
     out = args.out if args.out.is_absolute() else ROOT / args.out
+    # Briefs must not mutate the live large-options paper book / monitor snapshots.
+    # (Those side effects belong only to the primary universe_trade_plans publish.)
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_universe_options_pipeline.py"),
@@ -41,6 +42,8 @@ def main() -> int:
         str(int(args.top)),
         "--out",
         str(out),
+        "--no-paper-seed",
+        "--no-update-live-side-effects",
     ]
     print(f"[session-brief] phase={args.phase} -> {' '.join(cmd)}", flush=True)
     from rlm.utils.subprocess_run import run_with_timeout

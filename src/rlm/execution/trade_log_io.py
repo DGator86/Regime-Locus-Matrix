@@ -122,13 +122,20 @@ def trade_log_row_from_active_plan(plan: dict[str, Any]) -> dict[str, str] | Non
     if not pid or not sym:
         return None
     try:
-        entry_debit = float(plan.get("entry_debit_dollars") or 0.0)
-        entry_mid = float(plan.get("entry_mid_mark_dollars") or entry_debit or 0.0)
+        raw_debit = plan.get("entry_debit_dollars")
+        entry_debit = float(0.0 if raw_debit is None else raw_debit)
+        raw_mid = plan.get("entry_mid_mark_dollars")
+        if raw_mid is None:
+            entry_mid = entry_debit
+        else:
+            entry_mid = float(raw_mid)
     except (TypeError, ValueError):
         return None
-    if entry_debit <= 0 and entry_mid <= 0:
+    # Debit > 0, credit < 0 (see chain_match.estimate_entry_cost_from_matched_legs).
+    # Reject only a zero/invalid book — negative credits must still seed the paper log.
+    if abs(entry_debit) < 1e-9 and abs(entry_mid) < 1e-9:
         return None
-    mark = entry_mid if entry_mid > 0 else entry_debit
+    mark = entry_mid if abs(entry_mid) >= 1e-9 else entry_debit
     pnl = mark - entry_debit
     pnl_pct = (pnl / abs(entry_debit) * 100.0) if abs(entry_debit) > 1e-6 else 0.0
     plan_dte = dte_from_plan(plan)
