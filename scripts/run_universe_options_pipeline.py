@@ -1030,8 +1030,26 @@ def _main_locked() -> int:
     p.add_argument(
         "--trade-log",
         type=Path,
-        default=Path("data/processed/trade_log.csv"),
-        help="Trade log CSV used for open-position gating when --respect-open-trade-log is enabled.",
+        default=None,
+        help=(
+            "Trade log CSV for open-position gating / paper seeding. "
+            "Default: RLM_OPTIONS_TRADE_LOG_PATH or data/processed/trade_log.csv."
+        ),
+    )
+    p.add_argument(
+        "--paper-seed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Seed open rows into --trade-log from active plans (disable for session briefs).",
+    )
+    p.add_argument(
+        "--update-live-side-effects",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Merge trade_plan_snapshots.json and universe_forecast_latest.* "
+            "(disable for session briefs that only write --out)."
+        ),
     )
     p.add_argument(
         "--purge-bars",
@@ -1194,8 +1212,14 @@ def _main_locked() -> int:
     gate: SystemGate | None = None if _env_truthy("RLM_SKIP_SYSTEM_GATE") else SystemGate(DATA_ROOT)
     if gate is None:
         print("[gate] RLM_SKIP_SYSTEM_GATE=1 — ROEE ignores data/processed/gate_state.json", flush=True)
-    trade_log_path = DATA_ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
-    _ensure_trade_log_with_header(trade_log_path)
+    if args.trade_log is None:
+        from rlm.notify.options_paths import options_trade_log_primary
+
+        trade_log_path = options_trade_log_primary(DATA_ROOT)
+    else:
+        trade_log_path = DATA_ROOT / args.trade_log if not args.trade_log.is_absolute() else args.trade_log
+    if bool(args.paper_seed) or bool(args.respect_open_trade_log):
+        _ensure_trade_log_with_header(trade_log_path)
 
     chain_for_factors = bool(args.chain_for_factors) and not _env_truthy("RLM_NO_CHAIN_FOR_FACTORS")
     if not chain_for_factors:
@@ -1470,20 +1494,33 @@ def _main_locked() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
-        n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
-        if n_closed:
-            print(f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}", flush=True)
-    seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
-    if seeded:
+    if bool(args.paper_seed):
+        if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
+            n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
+            if n_closed:
+                print(
+                    f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}",
+                    flush=True,
+                )
+        seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
+        if seeded:
+            print(
+                f"[paper] opened {len(seeded)} row(s) in {trade_log_path.name} "
+                f"(same plans as Robinhood alerts: {', '.join(seeded[:8])}"
+                f"{'…' if len(seeded) > 8 else ''})",
+                flush=True,
+            )
+    else:
+        print("[paper] seed disabled (--no-paper-seed)", flush=True)
+    if bool(args.update_live_side_effects):
+        _merge_trade_plan_snapshots(out_path.parent, final_results)
+        _write_universe_latest_views(final_results, processed_dir)
+    else:
         print(
-            f"[paper] opened {len(seeded)} row(s) in {trade_log_path.name} "
-            f"(same plans as Robinhood alerts: {', '.join(seeded[:8])}"
-            f"{'…' if len(seeded) > 8 else ''})",
+            "[paper] live side-effects disabled (--no-update-live-side-effects): "
+            "skip trade_plan_snapshots / universe_forecast_latest",
             flush=True,
         )
-    _merge_trade_plan_snapshots(out_path.parent, final_results)
-    _write_universe_latest_views(final_results, processed_dir)
     print(f"\nWrote {out_path}  (active setups: {len(final_active)})")
     return 0
 

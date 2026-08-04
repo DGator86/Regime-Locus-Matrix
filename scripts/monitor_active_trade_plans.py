@@ -489,8 +489,11 @@ def main() -> int:
     p.add_argument(
         "--trade-log",
         type=Path,
-        default=Path("data/processed/trade_log.csv"),
-        help="CSV file to append per-poll P&L rows (default: data/processed/trade_log.csv).",
+        default=None,
+        help=(
+            "CSV file to append per-poll P&L rows. "
+            "Default: RLM_OPTIONS_TRADE_LOG_PATH or data/processed/trade_log.csv."
+        ),
     )
     p.add_argument(
         "--no-trade-log",
@@ -560,7 +563,12 @@ def main() -> int:
     state_path = _resolve_data_path(args.state)
     trade_log_path: Path | None = None
     if not args.no_trade_log:
-        trade_log_path = _resolve_data_path(args.trade_log)
+        if args.trade_log is None:
+            from rlm.notify.options_paths import options_trade_log_primary
+
+            trade_log_path = options_trade_log_primary(DATA_ROOT)
+        else:
+            trade_log_path = _resolve_data_path(args.trade_log)
 
     if not plans_path.is_file():
         print(f"Missing plans file: {plans_path}", file=sys.stderr)
