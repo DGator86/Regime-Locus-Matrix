@@ -263,6 +263,20 @@ class TestChallengeStrategy:
         # High conviction stage-1 play should have equal or shorter DTE
         assert high_conv.dte <= standard.dte
 
+    def test_three_track_scalp_dte_env_bounds_opens(self, monkeypatch) -> None:
+        """Production rlm-challenge-loop sets RLM_CHALLENGE_SCALP_DTE_*; must not open 7DTE weeklies."""
+        from rlm.challenge.config import apply_challenge_profile_env
+
+        monkeypatch.setenv("RLM_CHALLENGE_SCALP_DTE_MIN", "0")
+        monkeypatch.setenv("RLM_CHALLENGE_SCALP_DTE_MAX", "5")
+        monkeypatch.delenv("RLM_CHALLENGE_PROFILE", raising=False)
+        cfg = apply_challenge_profile_env(ChallengeConfig())
+        assert cfg.scalp_dte_min == 0
+        assert cfg.scalp_dte_max == 5
+        play = ChallengeStrategy().select("long", 500.0, 1_000.0, 0.18, cfg, signal_alignment=0.60, confidence=0.60)
+        assert play is not None
+        assert 0 <= play.dte <= 5, f"expected day-trade DTE, got {play.dte} ({play.rationale})"
+
     def test_stage3_uses_atm(self, cfg: ChallengeConfig) -> None:
         play = ChallengeStrategy().select("long", 500.0, 12_000.0, 0.18, cfg)
         assert play is not None
@@ -398,9 +412,7 @@ class TestChallengeEngine:
         assert isinstance(summary.balance_after, float)
         assert summary.balance_after > 0
 
-    def test_trail_exit_respects_breakeven_floor(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_trail_exit_respects_breakeven_floor(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from rlm.challenge.state import ChallengePosition
 
         state = tmp_tracker.reset(cfg)
@@ -428,9 +440,7 @@ class TestChallengeEngine:
         assert len(summary.closed_trades) == 1
         assert summary.closed_trades[0].exit_reason == "trail"
 
-    def test_live_mark_triggers_target_exit(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_live_mark_triggers_target_exit(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from unittest.mock import patch
 
         from rlm.challenge.state import ChallengePosition
@@ -548,9 +558,7 @@ class TestChallengeEngine:
         cap = 2.0 * cfg.stage1_profit_target_mult * 100
         assert summary.closed_trades[0].proceeds == pytest.approx(cap, rel=1e-4)
 
-    def test_stop_hit_closes_position(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_stop_hit_closes_position(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg_enter)
         engine = ChallengeEngine(cfg_enter, tmp_tracker)
         # Open a long call
@@ -562,9 +570,7 @@ class TestChallengeEngine:
         total_trades = len(state.trade_history)
         assert total_trades >= 1
 
-    def test_balance_deducted_on_entry(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_balance_deducted_on_entry(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg_enter)
         initial = state.balance
         engine = ChallengeEngine(cfg_enter, tmp_tracker)
