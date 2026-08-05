@@ -22,10 +22,10 @@ class ChallengeMilestone:
 
 # Fixed progression checkpoints
 MILESTONES: tuple[ChallengeMilestone, ...] = (
-    ChallengeMilestone(5_000.0,   "Stage I — Ignition",    "5x from seed; prove the edge"),
-    ChallengeMilestone(20_000.0,  "Stage II — Momentum",   "4x from Stage I; compound the gains"),
-    ChallengeMilestone(50_000.0,  "Stage III — Scale",     "2.5x from Stage II; disciplined sizing"),
-    ChallengeMilestone(100_000.0, "Stage IV — Arrival",    "2x from Stage III; $100K target reached"),
+    ChallengeMilestone(5_000.0, "Stage I — Ignition", "5x from seed; prove the edge"),
+    ChallengeMilestone(20_000.0, "Stage II — Momentum", "4x from Stage I; compound the gains"),
+    ChallengeMilestone(50_000.0, "Stage III — Scale", "2.5x from Stage II; disciplined sizing"),
+    ChallengeMilestone(100_000.0, "Stage IV — Arrival", "2x from Stage III; $100K target reached"),
 )
 
 
@@ -118,6 +118,10 @@ class ChallengeConfig:
 
     scalp_dte: int = 1
     """DTE for high-conviction intraday scalp plays."""
+    scalp_dte_min: int | None = None
+    """When set (via ``RLM_CHALLENGE_SCALP_DTE_MIN``), day-trade track lower DTE bound."""
+    scalp_dte_max: int | None = None
+    """When set (via ``RLM_CHALLENGE_SCALP_DTE_MAX``), day-trade track upper DTE bound."""
     scalp_min_alignment: float = 0.75
     scalp_min_confidence: float = 0.70
     weekly_otm_ladder: tuple[float, ...] = (0.010, 0.015, 0.020, 0.030, 0.040)
@@ -278,17 +282,58 @@ class ChallengeConfig:
         return self.stage4_max_daily_loss_frac
 
 
+def apply_challenge_track_env(cfg: ChallengeConfig) -> ChallengeConfig:
+    """Apply three-track SPY day-trade DTE window from env.
+
+    ``RLM_CHALLENGE_SCALP_DTE_MIN`` / ``RLM_CHALLENGE_SCALP_DTE_MAX`` (set by
+    ``migrate_vps_three_tracks`` / ``trading_tracks.yaml``) must affect the
+    production ``rlm challenge --run`` path (``ChallengeEngine`` +
+    ``ChallengeStrategy``), not only the unused ``ChallengeDecisionPipeline``.
+    """
+    raw_min = (os.environ.get("RLM_CHALLENGE_SCALP_DTE_MIN") or "").strip()
+    raw_max = (os.environ.get("RLM_CHALLENGE_SCALP_DTE_MAX") or "").strip()
+    if not raw_min and not raw_max:
+        return cfg
+    try:
+        dte_min = int(raw_min) if raw_min else 0
+        dte_max = int(raw_max) if raw_max else 5
+    except ValueError:
+        return cfg
+    if dte_max < dte_min:
+        dte_min, dte_max = dte_max, dte_min
+    dte_min = max(0, dte_min)
+    dte_max = max(dte_min, dte_max)
+
+    def _clamp(d: int) -> int:
+        return max(dte_min, min(dte_max, int(d)))
+
+    scalp = _clamp(cfg.scalp_dte)
+    if scalp < dte_min or scalp > dte_max:
+        scalp = dte_min if dte_min > 0 else min(1, dte_max)
+    return replace(
+        cfg,
+        scalp_dte_min=dte_min,
+        scalp_dte_max=dte_max,
+        scalp_dte=scalp,
+        stage1_dte=_clamp(cfg.stage1_dte),
+        stage2_dte=_clamp(cfg.stage2_dte),
+        stage3_dte=_clamp(cfg.stage3_dte),
+        stage4_dte=_clamp(cfg.stage4_dte),
+        min_dte_exit=min(int(cfg.min_dte_exit), max(0, dte_min)),
+    )
+
+
 def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
     """Tune challenge risk from env without changing seed/target.
 
     ``RLM_CHALLENGE_PROFILE=robinhood_elite`` — swing/LEAPS-leaning: longer DTE,
     smaller % of balance per entry, slightly wider OTM, wider min-DTE exit buffer.
+
+    Always applies three-track ``RLM_CHALLENGE_SCALP_DTE_*`` when present.
     """
     prof = (os.environ.get("RLM_CHALLENGE_PROFILE") or "").strip().lower()
-    if prof in ("", "default", "aggressive", "weekly"):
-        return cfg
     if prof == "robinhood_elite":
-        return replace(
+        cfg = replace(
             cfg,
             max_concurrent_positions=1,
             stage1_size_frac=0.12,
@@ -314,4 +359,4 @@ def apply_challenge_profile_env(cfg: ChallengeConfig) -> ChallengeConfig:
             stage4_stop_loss_mult=0.70,
             min_dte_exit=5,
         )
-    return cfg
+    return apply_challenge_track_env(cfg)

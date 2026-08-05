@@ -1,7 +1,8 @@
 """ChallengeStrategy — translate a persona directive into a specific option play.
 
-Selects **affordable** weeklies (5–7 DTE) on $1K–$3K books, with optional high-vol
-1DTE scalps when conviction is strong.  Sizing is handled by ``ChallengeEngine``.
+Default (no track env): affordable weeklies (5–7 DTE) with optional high-vol 1DTE
+scalps.  Three-track SPY day trade (``RLM_CHALLENGE_SCALP_DTE_*``): stay inside the
+configured 0–5 DTE window.  Sizing is handled by ``ChallengeEngine``.
 """
 
 from __future__ import annotations
@@ -52,12 +53,22 @@ class ChallengeStrategy:
             return None
 
         high_vol_scalp = (
-            balance < 3_000.0
-            and signal_alignment >= cfg.scalp_min_alignment
-            and confidence >= cfg.scalp_min_confidence
+            balance < 3_000.0 and signal_alignment >= cfg.scalp_min_alignment and confidence >= cfg.scalp_min_confidence
         )
 
-        weekly_dte = max(5, int(cfg.dte(balance)))
+        daytrade = cfg.scalp_dte_min is not None and cfg.scalp_dte_max is not None
+        if daytrade:
+            dte_lo = int(cfg.scalp_dte_min)
+            dte_hi = int(cfg.scalp_dte_max)
+            if dte_hi < dte_lo:
+                dte_lo, dte_hi = dte_hi, dte_lo
+            primary_dte = int(cfg.scalp_dte)
+            if primary_dte < dte_lo or primary_dte > dte_hi:
+                primary_dte = dte_lo if dte_lo > 0 else min(1, dte_hi)
+        else:
+            dte_lo = dte_hi = None
+            primary_dte = max(5, int(cfg.dte(balance)))
+
         base_otm = cfg.otm_pct(balance)
 
         # Surface-aware strike selection: pick OTM% with best delta/theta ratio
@@ -70,10 +81,10 @@ class ChallengeStrategy:
                     candidate_strike = underlying_price * (1.0 + candidate_otm)
                 else:
                     candidate_strike = underlying_price * (1.0 - candidate_otm)
-                candidate_premium = estimate_premium(underlying_price, iv, weekly_dte, candidate_strike)
+                candidate_premium = estimate_premium(underlying_price, iv, primary_dte, candidate_strike)
                 if candidate_premium > max_pps:
                     continue  # not affordable — skip
-                ratio = delta_per_theta_ratio(underlying_price, candidate_strike, iv, weekly_dte, option_type)
+                ratio = delta_per_theta_ratio(underlying_price, candidate_strike, iv, primary_dte, option_type)
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_otm = candidate_otm
@@ -81,16 +92,36 @@ class ChallengeStrategy:
 
         candidates: list[tuple[int, float, str]] = []
 
-        candidates.append((weekly_dte, base_otm, f"weekly-{weekly_dte}DTE"))
-        for otm in cfg.weekly_otm_ladder:
-            if otm > base_otm:
-                candidates.append((weekly_dte, otm, f"weekly-{weekly_dte}DTE-{otm * 100:.0f}otm"))
+        if daytrade:
+            # Prefer shorter DTEs first (true day-trade / weekly scalp sleeve).
+            dtes: list[int] = []
+            if dte_lo <= primary_dte <= dte_hi:
+                dtes.append(primary_dte)
+            for d in range(dte_lo, dte_hi + 1):
+                if d not in dtes:
+                    dtes.append(d)
+            for dte in dtes:
+                tag_prefix = "daytrade" if dte <= 5 else "weekly"
+                candidates.append((dte, base_otm, f"{tag_prefix}-{dte}DTE"))
+                for otm in cfg.weekly_otm_ladder:
+                    if otm > base_otm:
+                        candidates.append((dte, otm, f"{tag_prefix}-{dte}DTE-{otm * 100:.0f}otm"))
+            if high_vol_scalp:
+                scalp = max(dte_lo, min(dte_hi, int(cfg.scalp_dte)))
+                candidates.insert(0, (scalp, 0.0, f"hv-scalp-{scalp}DTE-ATM"))
+                candidates.insert(1, (scalp, 0.01, f"hv-scalp-{scalp}DTE-1otm"))
+        else:
+            weekly_dte = primary_dte
+            candidates.append((weekly_dte, base_otm, f"weekly-{weekly_dte}DTE"))
+            for otm in cfg.weekly_otm_ladder:
+                if otm > base_otm:
+                    candidates.append((weekly_dte, otm, f"weekly-{weekly_dte}DTE-{otm * 100:.0f}otm"))
 
-        if high_vol_scalp:
-            candidates.insert(0, (int(cfg.scalp_dte), 0.0, f"hv-scalp-{cfg.scalp_dte}DTE-ATM"))
-            candidates.insert(1, (int(cfg.scalp_dte), 0.01, f"hv-scalp-{cfg.scalp_dte}DTE-1otm"))
-            tight_weekly = max(5, weekly_dte - 2)
-            candidates.insert(2, (tight_weekly, base_otm, f"weekly-tight-{tight_weekly}DTE"))
+            if high_vol_scalp:
+                candidates.insert(0, (int(cfg.scalp_dte), 0.0, f"hv-scalp-{cfg.scalp_dte}DTE-ATM"))
+                candidates.insert(1, (int(cfg.scalp_dte), 0.01, f"hv-scalp-{cfg.scalp_dte}DTE-1otm"))
+                tight_weekly = max(5, weekly_dte - 2)
+                candidates.insert(2, (tight_weekly, base_otm, f"weekly-tight-{tight_weekly}DTE"))
 
         for dte, otm_pct, tag in candidates:
             spec = _build_spec(
