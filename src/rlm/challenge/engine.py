@@ -291,7 +291,10 @@ class ChallengeEngine:
             )
             if mult < trail_floor:
                 exit_reason = "trail"
-        elif should_force_expiry_exit(
+        # Expiry must not sit under ``elif trail_armed``: an armed trail that has
+        # not retraced would otherwise skip force-close forever (0DTE winners
+        # held past the entry-window flatten into expiration).
+        if exit_reason is None and should_force_expiry_exit(
             new_dte=new_dte,
             min_dte_exit=self.cfg.min_dte_exit,
             entry_date=pos.entry_date,

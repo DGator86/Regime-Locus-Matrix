@@ -465,6 +465,50 @@ class TestShouldForceExpiryExit:
         assert summary.closed_trades == []
         assert len(tmp_tracker.load().open_positions) == 1
 
+    def test_engine_expiry_closes_even_when_trail_armed(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Armed trail must not skip the post-window 0DTE force-close."""
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        monkeypatch.setattr(
+            "rlm.challenge.engine.entry_window_open",
+            lambda _override=None: False,
+        )
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=500.0,
+            dte=0,
+            entry_date="2026-08-06",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.2,
+        )
+        pos.trail_armed = True
+        pos.peak_premium_mult = 1.25
+        state.open_positions = [pos]
+        state.balance = 800.0
+        tmp_tracker.save(state)
+
+        # 1.15x mark: above trail floor (max(1.08, 1.25*0.9)=1.125) and below target.
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(2.3, 500.0, 0),
+        ):
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 500.0, session_date="2026-08-06", iv=0.2)
+
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "expiry"
+        assert tmp_tracker.load().open_positions == []
+
 
 class TestChallengeEngine:
     def test_bullish_session_opens_call(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
