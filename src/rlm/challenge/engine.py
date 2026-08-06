@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 from typing import Literal
 
 from rlm.challenge.config import ChallengeConfig
-from rlm.challenge.live_marks import mark_open_position_premium
+from rlm.challenge.live_marks import mark_open_position_premium, option_expiry_date
 from rlm.challenge.pricing import entry_friction, exit_friction, min_tick_round
 from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import (
@@ -30,6 +30,7 @@ from rlm.challenge.state import (
 )
 from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
+from rlm.utils.market_hours import entry_window_open
 
 
 @dataclass
@@ -290,7 +291,13 @@ class ChallengeEngine:
             )
             if mult < trail_floor:
                 exit_reason = "trail"
-        elif new_dte <= self.cfg.min_dte_exit:
+        elif should_force_expiry_exit(
+            new_dte=new_dte,
+            min_dte_exit=self.cfg.min_dte_exit,
+            entry_date=pos.entry_date,
+            dte_at_entry=pos.dte_at_entry,
+            session_date=session_date,
+        ):
             exit_reason = "expiry"
 
         if exit_reason is None:
@@ -383,6 +390,39 @@ class ChallengeEngine:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def should_force_expiry_exit(
+    *,
+    new_dte: int,
+    min_dte_exit: int,
+    entry_date: str,
+    dte_at_entry: int,
+    session_date: str,
+    now: datetime | None = None,
+) -> bool:
+    """Return True when a challenge leg should be force-closed for expiry.
+
+    ``ChallengeConfig.min_dte_exit`` is documented as "fewer than this many days
+    remain" (strict ``<``). Using ``<=`` previously force-closed same-day 1DTE
+    scalps on the next challenge-loop tick. On the calendar expiry date
+    (``new_dte == 0``, including 0DTE day trades) we still hold through the RTH
+    entry window and only flatten once that window has closed.
+    """
+    if int(new_dte) >= int(min_dte_exit):
+        return False
+    try:
+        exp = option_expiry_date(entry_date, dte_at_entry)
+        sess = date.fromisoformat(str(session_date)[:10])
+    except ValueError:
+        return True
+    if sess > exp:
+        return True
+    if sess < exp:
+        # e.g. min_dte_exit=2 with 1 day left before the labelled expiry date
+        return True
+    # sess == exp: expiry / 0DTE day — allow intraday hold until entry window ends
+    return not entry_window_open(_override=now)
 
 
 def _is_event_blackout(session_date: str, cfg: ChallengeConfig) -> bool:
