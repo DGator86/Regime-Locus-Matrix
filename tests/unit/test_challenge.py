@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from rlm.challenge.config import ChallengeConfig
-from rlm.challenge.engine import ChallengeEngine, _days_between
+from rlm.challenge.engine import ChallengeEngine, _days_between, should_force_expiry_exit
 from rlm.challenge.pricing import (
     atm_premium,
     estimate_delta,
@@ -21,6 +23,8 @@ from rlm.challenge.sizing import AggressiveSizer
 from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
 from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
+
+_ET = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -349,8 +353,161 @@ class TestChallengeTracker:
 
 
 # ---------------------------------------------------------------------------
-# Engine integration tests
+# Expiry force-close (0DTE / 1DTE day-trade sleeve)
 # ---------------------------------------------------------------------------
+
+
+class TestShouldForceExpiryExit:
+    def test_1dte_same_day_does_not_force_close(self) -> None:
+        # Previously ``new_dte <= min_dte_exit`` expired 1DTE scalps on the next loop tick.
+        assert (
+            should_force_expiry_exit(
+                new_dte=1,
+                min_dte_exit=1,
+                entry_date="2026-08-06",
+                dte_at_entry=1,
+                session_date="2026-08-06",
+                now=datetime(2026, 8, 6, 11, 0, tzinfo=_ET),
+            )
+            is False
+        )
+
+    def test_0dte_holds_during_entry_window(self) -> None:
+        assert (
+            should_force_expiry_exit(
+                new_dte=0,
+                min_dte_exit=1,
+                entry_date="2026-08-06",
+                dte_at_entry=0,
+                session_date="2026-08-06",
+                now=datetime(2026, 8, 6, 11, 0, tzinfo=_ET),
+            )
+            is False
+        )
+
+    def test_0dte_flattens_after_entry_window(self) -> None:
+        assert (
+            should_force_expiry_exit(
+                new_dte=0,
+                min_dte_exit=1,
+                entry_date="2026-08-06",
+                dte_at_entry=0,
+                session_date="2026-08-06",
+                now=datetime(2026, 8, 6, 15, 45, tzinfo=_ET),
+            )
+            is True
+        )
+
+    def test_past_expiry_date_force_closes(self) -> None:
+        assert (
+            should_force_expiry_exit(
+                new_dte=0,
+                min_dte_exit=1,
+                entry_date="2026-08-05",
+                dte_at_entry=0,
+                session_date="2026-08-06",
+                now=datetime(2026, 8, 6, 11, 0, tzinfo=_ET),
+            )
+            is True
+        )
+
+    def test_swing_closes_when_below_min_dte_before_expiry_date(self) -> None:
+        # min_dte_exit=2 with 1 calendar day left before labelled expiry → flatten
+        assert (
+            should_force_expiry_exit(
+                new_dte=1,
+                min_dte_exit=2,
+                entry_date="2026-08-01",
+                dte_at_entry=5,
+                session_date="2026-08-05",
+                now=datetime(2026, 8, 5, 11, 0, tzinfo=_ET),
+            )
+            is True
+        )
+
+    def test_engine_holds_1dte_scalp_across_same_day_ticks(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """High-vol 1DTE scalps must survive challenge-loop ticks on entry day."""
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        monkeypatch.setattr(
+            "rlm.challenge.engine.entry_window_open",
+            lambda _override=None: True,
+        )
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=500.0,
+            dte=1,
+            entry_date="2026-08-06",
+            premium_per_share=1.5,
+            qty=1,
+            delta=0.5,
+            iv=0.2,
+        )
+        state.open_positions = [pos]
+        state.balance = 850.0
+        tmp_tracker.save(state)
+
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(1.5, 500.0, 1),
+        ):
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 500.0, session_date="2026-08-06", iv=0.2)
+
+        assert summary.closed_trades == []
+        assert len(tmp_tracker.load().open_positions) == 1
+
+    def test_engine_expiry_closes_even_when_trail_armed(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Armed trail must not skip the post-window 0DTE force-close."""
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        monkeypatch.setattr(
+            "rlm.challenge.engine.entry_window_open",
+            lambda _override=None: False,
+        )
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=500.0,
+            dte=0,
+            entry_date="2026-08-06",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.2,
+        )
+        pos.trail_armed = True
+        pos.peak_premium_mult = 1.25
+        state.open_positions = [pos]
+        state.balance = 800.0
+        tmp_tracker.save(state)
+
+        # 1.15x mark: above trail floor (max(1.08, 1.25*0.9)=1.125) and below target.
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(2.3, 500.0, 0),
+        ):
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            summary = engine.run_session("no_trade", 500.0, session_date="2026-08-06", iv=0.2)
+
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "expiry"
+        assert tmp_tracker.load().open_positions == []
 
 
 class TestChallengeEngine:

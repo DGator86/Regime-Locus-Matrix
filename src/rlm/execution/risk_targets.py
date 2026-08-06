@@ -1,10 +1,13 @@
-"""Dollar-based exit levels for **long-premium / debit-style** spreads using mid marks.
+"""Dollar-based exit levels for debit- and credit-style spreads using mid marks.
 
 Convention (matches :func:`~rlm.roee.chain_match.estimate_mark_value_from_matched_legs`):
 
 - ``V`` = net mid liquidation value of the combo (× contract multiplier already applied).
-- ``D`` = positive debit paid to open (from ask/bid entry cost).
+  Debits are typically ``V > 0``; credits are typically ``V < 0`` (short legs dominate).
+- ``D`` = absolute entry debit/credit magnitude (pipeline passes ``abs(entry_debit)``).
 - We snapshot ``V0`` at decision time and compare live ``V`` to thresholds anchored at ``V0``.
+  Favourable marks move **up** the number line for both styles (debit: higher premium;
+  credit: less-negative close cost).
 
 This is a **monitoring heuristic**, not a guarantee of fill prices (uses mids; closes use bid/ask).
 """
@@ -55,7 +58,15 @@ def build_spread_exit_thresholds(
 
 
 def trailing_stop_from_peak(peak_v: float, retrace_frac: float) -> float:
-    return float(peak_v) * (1.0 - float(retrace_frac))
+    """Trail stop placed an adverse retrace *below* the favourable peak mark.
+
+    Uses ``peak - abs(peak) * retrace`` so debit peaks (positive) stop below the
+    peak and credit peaks (negative) stop *more negative* than the peak. The
+    previous ``peak * (1 - retrace)`` formula put credit stops *above* the peak,
+    so ``should_trailing_stop_exit`` fired on the same tick the trail armed.
+    """
+    peak = float(peak_v)
+    return peak - abs(peak) * float(retrace_frac)
 
 
 def should_trailing_stop_exit(
