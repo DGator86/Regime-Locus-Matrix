@@ -418,3 +418,68 @@ def test_trailing_giveback_long(tmp_path: Path) -> None:
     assert pos.status == "closed"
     assert pos.exit_reason is not None
     assert pos.exit_reason.startswith("trailing_giveback_")
+
+
+def test_open_persists_state_immediately_before_process_exit(tmp_path: Path) -> None:
+    """Fills must hit disk before end-of-run save; otherwise a kill rebuys the same symbol."""
+    mod = _equity_script_module()
+    state_path = tmp_path / "equity_positions_state.json"
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+
+    plan = {
+        "plan_id": "NVDA_20260807_1000",
+        "symbol": "NVDA",
+        "regime_key": "bull|tu|rv|dl",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+    positions: dict = {}
+
+    # Simulate a tick that places an open then "crashes" before main()'s final save:
+    # only open_equity_positions runs; state_path must already contain the fill.
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=True,
+        app=None,
+        plans_path=plans_path,
+        log_path=log_path,
+        state_path=state_path,
+    )
+    assert "NVDA_20260807_1000" in positions
+    assert state_path.is_file()
+
+    reloaded = mod._load_state(state_path)
+    assert "NVDA_20260807_1000" in reloaded
+    assert reloaded["NVDA_20260807_1000"].status == "open"
+    assert reloaded["NVDA_20260807_1000"].symbol == "NVDA"
+
+    # Fresh process: load persisted state and refuse a duplicate open for NVDA.
+    again: dict = dict(reloaded)
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=again,
+        position_usd=1000.0,
+        dry_run=True,
+        app=None,
+        plans_path=plans_path,
+        log_path=log_path,
+        state_path=state_path,
+    )
+    assert sum(1 for p in again.values() if p.symbol == "NVDA" and p.status == "open") == 1
+
+
+def test_save_state_atomic_roundtrip(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    state_path = tmp_path / "equity_positions_state.json"
+    _, pos = _mk_open_pos(mod, plan_id="p1")
+    mod._save_state({pos.plan_id: pos}, state_path)
+    loaded = mod._load_state(state_path)
+    assert loaded[pos.plan_id].symbol == "QQQ"
+    assert loaded[pos.plan_id].quantity == 10
+    leftovers = list(tmp_path.glob(".equity_positions_state.json.*.tmp"))
+    assert leftovers == []

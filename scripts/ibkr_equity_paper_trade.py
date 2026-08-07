@@ -180,9 +180,28 @@ def _load_state(path: Path) -> dict[str, EquityPosition]:
 
 
 def _save_state(positions: dict[str, EquityPosition], path: Path) -> None:
+    """Persist equity positions via temp file + ``os.replace`` (crash-safe).
+
+    Callers must invoke this immediately after each successful open/close so a
+    kill before process exit cannot drop a live IBKR fill from local state and
+    cause a duplicate order on the next tick.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {pid: asdict(pos) for pid, pos in positions.items()}
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    text = json.dumps(payload, indent=2)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def _parse_iso_utc(ts: str) -> datetime:
@@ -889,6 +908,7 @@ def open_equity_positions(
     app: _EquityApp | None,
     plans_path: Path,
     log_path: Path,
+    state_path: Path | None = None,
 ) -> None:
     open_symbols = {pos.symbol.upper() for pos in positions.values() if pos.status == "open"}
 
@@ -1034,6 +1054,9 @@ def open_equity_positions(
             "closed": "0",
             "note": "dry_run" if dry_run else "placed",
         })
+        # Persist before the next order / process exit so a kill cannot drop this fill.
+        if state_path is not None:
+            _save_state(positions, state_path)
 
 
 def evaluate_equity_positions(
@@ -1055,6 +1078,7 @@ def evaluate_equity_positions(
     trail_activate_pct: float | None = None,
     trail_retrace_frac: float | None = None,
     min_trail_exit_pnl_pct: float = 0.0,
+    state_path: Path | None = None,
 ) -> None:
     now = utc_now if utc_now is not None else datetime.now(tz=timezone.utc)
     for plan_id, pos in list(positions.items()):
@@ -1283,6 +1307,8 @@ def evaluate_equity_positions(
             "closed": "1",
             "note": exit_reason,
         })
+        if state_path is not None:
+            _save_state(positions, state_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1508,74 +1534,81 @@ def main() -> None:
 
     if args.dry_run:
         # No IBKR connection needed — work in dry-run mode
-        if not args.monitor_only:
-            open_equity_positions(
-                plans=plans, positions=positions, position_usd=args.position_usd,
-                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+        try:
+            if not args.monitor_only:
+                open_equity_positions(
+                    plans=plans, positions=positions, position_usd=args.position_usd,
+                    risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                    target_pct=args.target_pct,
+                    min_hold_sec=min_hold_main,
+                    trail_activate_pct=trail_act,
+                    trail_retrace_frac=trail_rf,
+                    dynamic_horizon=dynamic_h,
+                    account_nlv=account_nlv, max_account_pct=args.max_account_pct,
+                    dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
+                    state_path=state_path,
+                )
+            evaluate_equity_positions(
+                positions=positions,
+                active_plan_ids=active_plan_ids,
+                plan_by_id=plan_by_id,
+                stop_pct=args.stop_pct,
                 target_pct=args.target_pct,
+                grace_sec=grace_sec,
+                min_most_likely_next_prob=min_np,
+                min_next_label_aligned_mass=min_lm,
+                dry_run=True,
+                app=None,
+                log_path=log_path,
+                exit_on_plan_absent=exit_on_plan_absent,
                 min_hold_sec=min_hold_main,
                 trail_activate_pct=trail_act,
                 trail_retrace_frac=trail_rf,
-                dynamic_horizon=dynamic_h,
-                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
-                dry_run=True, app=None, plans_path=plans_path, log_path=log_path,
+                min_trail_exit_pnl_pct=min_trail_exit,
+                state_path=state_path,
             )
-        evaluate_equity_positions(
-            positions=positions,
-            active_plan_ids=active_plan_ids,
-            plan_by_id=plan_by_id,
-            stop_pct=args.stop_pct,
-            target_pct=args.target_pct,
-            grace_sec=grace_sec,
-            min_most_likely_next_prob=min_np,
-            min_next_label_aligned_mass=min_lm,
-            dry_run=True,
-            app=None,
-            log_path=log_path,
-            exit_on_plan_absent=exit_on_plan_absent,
-            min_hold_sec=min_hold_main,
-            trail_activate_pct=trail_act,
-            trail_retrace_frac=trail_rf,
-            min_trail_exit_pnl_pct=min_trail_exit,
-        )
-        _save_state(positions, state_path)
+        finally:
+            _save_state(positions, state_path)
         print("\n[equity] dry-run complete.", flush=True)
         return
 
-    # Live IBKR connection
-    with ibkr_equity_connection() as app:
-        if not args.monitor_only:
-            open_equity_positions(
-                plans=plans, positions=positions, position_usd=args.position_usd,
-                risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+    # Live IBKR connection — always flush state even if monitor raises after a fill.
+    try:
+        with ibkr_equity_connection() as app:
+            if not args.monitor_only:
+                open_equity_positions(
+                    plans=plans, positions=positions, position_usd=args.position_usd,
+                    risk_usd=args.risk_usd, stop_pct=args.stop_pct,
+                    target_pct=args.target_pct,
+                    min_hold_sec=min_hold_main,
+                    trail_activate_pct=trail_act,
+                    trail_retrace_frac=trail_rf,
+                    dynamic_horizon=dynamic_h,
+                    account_nlv=account_nlv, max_account_pct=args.max_account_pct,
+                    dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
+                    state_path=state_path,
+                )
+            evaluate_equity_positions(
+                positions=positions,
+                active_plan_ids=active_plan_ids,
+                plan_by_id=plan_by_id,
+                stop_pct=args.stop_pct,
                 target_pct=args.target_pct,
+                grace_sec=grace_sec,
+                min_most_likely_next_prob=min_np,
+                min_next_label_aligned_mass=min_lm,
+                dry_run=False,
+                app=app,
+                log_path=log_path,
+                exit_on_plan_absent=exit_on_plan_absent,
                 min_hold_sec=min_hold_main,
                 trail_activate_pct=trail_act,
                 trail_retrace_frac=trail_rf,
-                dynamic_horizon=dynamic_h,
-                account_nlv=account_nlv, max_account_pct=args.max_account_pct,
-                dry_run=False, app=app, plans_path=plans_path, log_path=log_path,
+                min_trail_exit_pnl_pct=min_trail_exit,
+                state_path=state_path,
             )
-        evaluate_equity_positions(
-            positions=positions,
-            active_plan_ids=active_plan_ids,
-            plan_by_id=plan_by_id,
-            stop_pct=args.stop_pct,
-            target_pct=args.target_pct,
-            grace_sec=grace_sec,
-            min_most_likely_next_prob=min_np,
-            min_next_label_aligned_mass=min_lm,
-            dry_run=False,
-            app=app,
-            log_path=log_path,
-            exit_on_plan_absent=exit_on_plan_absent,
-            min_hold_sec=min_hold_main,
-            trail_activate_pct=trail_act,
-            trail_retrace_frac=trail_rf,
-            min_trail_exit_pnl_pct=min_trail_exit,
-        )
-
-    _save_state(positions, state_path)
+    finally:
+        _save_state(positions, state_path)
     print("\n[equity] done.", flush=True)
 
 
