@@ -550,6 +550,48 @@ def _load_equity_socket_config() -> tuple[str, int, int]:
     return host, port, cid
 
 
+def _ibkr_order_outcome(status: str, *, filled: float = 0.0, remaining: float = 0.0) -> str:
+    """Classify an IBKR orderStatus callback as filled / failed / pending.
+
+    Only ``filled`` means local equity state may record an open or close.
+    ``PreSubmitted`` / ``Submitted`` are pending (not success). ``Cancelled`` /
+    ``ApiCancelled`` / ``Rejected`` are hard failures — except when shares already
+    filled (partial then cancel), which counts as ``filled`` so callers can book
+    the filled qty instead of leaving ghost broker inventory.
+    """
+    last = (status or "").strip()
+    filled_n = float(filled or 0.0)
+    remaining_n = float(remaining or 0.0)
+    if last == "Filled" or (filled_n > 0.0 and remaining_n <= 1e-9):
+        return "filled"
+    if last in {"Cancelled", "ApiCancelled", "Rejected", "Inactive"}:
+        # Partial fill then cancel/reject: book what filled rather than "failed".
+        if filled_n > 0.0:
+            return "filled"
+        return "failed"
+    return "pending"
+
+
+def _fill_meta_dict(fill_meta: Any) -> dict[str, Any]:
+    """Normalize ``wait_for_order`` results to a dict with fill fields.
+
+    Defense for duck-typed test doubles / legacy trail-only returns: a bare
+    status list cannot prove quantity filled, so ``filled`` stays 0.0.
+    """
+    if isinstance(fill_meta, dict):
+        return fill_meta
+    if isinstance(fill_meta, list):
+        last = str(fill_meta[-1]) if fill_meta else ""
+        return {
+            "status": last,
+            "filled": 0.0,
+            "remaining": 0.0,
+            "avg_fill_price": 0.0,
+            "trail": list(fill_meta),
+        }
+    return {"status": "", "filled": 0.0, "remaining": 0.0, "avg_fill_price": 0.0}
+
+
 def _get_ibapi_bundle() -> tuple[Type[Any], Any]:
     """Return (EClient, EWrapper); raise SystemExit if ibapi is not installed."""
     if not _IBAPI_OK:
@@ -570,6 +612,10 @@ class _EquityApp:
 
         self._app = _App()
         self._app._order_status: dict[int, list[str]] = {}
+        # Latest orderStatus callback fields keyed by order id. Callers of
+        # wait_for_order need filled/remaining/avgFillPrice — the status trail
+        # alone cannot prove a fill.
+        self._app._order_meta: dict[int, dict[str, Any]] = {}
         self._app._error_lines: list[tuple[int, int, str]] = []
         self._app._next_order_id: int | None = None
         self._app._ticker_prices: dict[int, float] = {}
@@ -593,6 +639,12 @@ class _EquityApp:
                           avgFillPrice: float, permId: int, parentId: int, lastFillPrice: float,
                           clientId: int, whyHeld: str, mktCapPrice: float = 0.0) -> None:
             self._app._order_status.setdefault(orderId, []).append(status)
+            self._app._order_meta[orderId] = {
+                "status": str(status or ""),
+                "filled": float(filled or 0.0),
+                "remaining": float(remaining or 0.0),
+                "avg_fill_price": float(avgFillPrice or lastFillPrice or 0.0),
+            }
 
         def _next_valid_id(orderId: int) -> None:
             self._app._next_order_id = orderId
@@ -725,19 +777,49 @@ class _EquityApp:
         self._app.placeOrder(oid, contract, order)
         return oid
 
-    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> list[str]:
+    def cancel_order(self, order_id: int) -> None:
+        """Cancel a working order. Compatible with older/newer ibapi signatures."""
+        try:
+            self._app.cancelOrder(order_id, "")
+        except TypeError:
+            self._app.cancelOrder(order_id)
+
+    def _order_fill_dict(self, order_id: int) -> dict[str, Any]:
+        meta = dict(self._app._order_meta.get(order_id) or {})
+        return {
+            "status": str(meta.get("status") or ""),
+            "filled": float(meta.get("filled") or 0.0),
+            "remaining": float(meta.get("remaining") or 0.0),
+            "avg_fill_price": float(meta.get("avg_fill_price") or 0.0),
+            "trail": list(self._app._order_status.get(order_id, [])),
+        }
+
+    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> dict[str, Any]:
+        """Block until the order is filled, failed, or ``timeout_sec`` elapses.
+
+        Returns a fill metadata dict (``status``, ``filled``, ``remaining``,
+        ``avg_fill_price``, ``trail``). ``PreSubmitted`` / ``Submitted`` are
+        pending — we keep waiting so open/close paths do not treat an unfilled
+        working order as success (and so callers can safely ``.get("filled")``).
+
+        On timeout the working order is cancelled before raising. A late or
+        partial fill discovered during cancel is returned as success so callers
+        book broker inventory instead of stacking a duplicate order next tick.
+        """
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
-            trail = list(self._app._order_status.get(order_id, []))
-            if trail:
-                last = trail[-1]
-                if last == "Rejected":
+            fill = self._order_fill_dict(order_id)
+            status = str(fill.get("status") or "")
+            filled = float(fill.get("filled") or 0.0)
+            remaining = float(fill.get("remaining") or 0.0)
+            if status:
+                outcome = _ibkr_order_outcome(status, filled=filled, remaining=remaining)
+                if outcome == "filled":
+                    return fill
+                if outcome == "failed":
                     errs = [(c, m) for r, c, m in self._app._error_lines if r == order_id]
-                    raise RuntimeError(
-                        f"IBKR order {order_id} rejected: {errs[-1] if errs else 'Rejected'}"
-                    )
-                if last in ("Filled", "Cancelled", "ApiCancelled", "Submitted", "PreSubmitted"):
-                    return trail
+                    detail = errs[-1] if errs else status
+                    raise RuntimeError(f"IBKR order {order_id} {status}: {detail}")
             # Raise only on hard (non-advisory) error codes — advisory codes are
             # already filtered at the _error callback, but guard here too.
             hard_errs = [
@@ -747,7 +829,39 @@ class _EquityApp:
             if hard_errs:
                 raise RuntimeError(f"IBKR order {order_id} rejected: {hard_errs[-1]}")
             time.sleep(0.1)
-        return list(self._app._order_status.get(order_id, []))
+
+        # Timed out still pending — cancel so the next open/close tick cannot
+        # stack a second live stock order on top of this working one.
+        try:
+            self.cancel_order(order_id)
+        except Exception as exc:
+            print(f"  [equity] cancel after timeout failed for order {order_id}: {exc}", flush=True)
+
+        cancel_deadline = time.monotonic() + min(5.0, max(1.0, float(timeout_sec)))
+        while time.monotonic() < cancel_deadline:
+            fill = self._order_fill_dict(order_id)
+            status = str(fill.get("status") or "")
+            filled = float(fill.get("filled") or 0.0)
+            remaining = float(fill.get("remaining") or 0.0)
+            if status:
+                outcome = _ibkr_order_outcome(status, filled=filled, remaining=remaining)
+                if outcome == "filled":
+                    return fill
+                if outcome == "failed":
+                    break
+            time.sleep(0.1)
+
+        fill = self._order_fill_dict(order_id)
+        status = str(fill.get("status") or "Timeout")
+        filled = float(fill.get("filled") or 0.0)
+        remaining = float(fill.get("remaining") or 0.0)
+        if filled > 0.0:
+            # Cancel ack lagged but shares already filled — book them.
+            return fill
+        raise RuntimeError(
+            f"IBKR order {order_id} timeout after {timeout_sec:.0f}s "
+            f"(status={status!r}, filled={filled}, remaining={remaining}; cancelled)"
+        )
 
 
 @contextmanager
@@ -983,13 +1097,38 @@ def open_equity_positions(
         )
 
         order_id: int | None = None
+        fill_meta: dict[str, Any] | None = None
         if not dry_run and app is not None:
             try:
                 # Use a slight slippage limit for shorts, market for longs
                 lim = round(entry_price * (0.998 if direction == "bear" else 1.002), 2)
                 order_id = app.place_stock_order(sym, action, qty, limit_price=lim)
-                trail = app.wait_for_order(order_id)
-                print(f"    order_id={order_id} trail={trail}", flush=True)
+                fill_meta = _fill_meta_dict(app.wait_for_order(order_id))
+                print(f"    order_id={order_id} fill={fill_meta}", flush=True)
+                # Refuse ghost opens: wait_for_order must report a real fill.
+                filled_qty = float(fill_meta.get("filled") or 0.0)
+                if filled_qty <= 0.0:
+                    # Duck-typed apps may return an unfilled dict; cancel any
+                    # working remainder so the next tick cannot double-buy.
+                    cancel = getattr(app, "cancel_order", None)
+                    if callable(cancel) and order_id is not None:
+                        try:
+                            cancel(order_id)
+                        except Exception as cancel_exc:
+                            print(
+                                f"    [equity] {sym}: cancel unfilled open "
+                                f"{order_id} failed — {cancel_exc}",
+                                flush=True,
+                            )
+                    print(
+                        f"    [equity] {sym}: order {order_id} returned without fill — skip open",
+                        flush=True,
+                    )
+                    continue
+                qty = max(1, int(filled_qty))
+                avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
+                if avg_px > 0.0:
+                    entry_price = avg_px
             except Exception as exc:
                 print(f"    [equity] {sym}: order error — {exc}", flush=True)
                 continue
@@ -1032,7 +1171,7 @@ def open_equity_positions(
             "unrealized_pnl_pct": 0.0,
             "signal": "open",
             "closed": "0",
-            "note": "dry_run" if dry_run else "placed",
+            "note": "dry_run" if dry_run else "filled",
         })
 
 
@@ -1253,10 +1392,81 @@ def evaluate_equity_positions(
         if not dry_run and app is not None:
             try:
                 close_order_id = app.place_stock_order(pos.symbol, close_action, pos.quantity)
-                trail = app.wait_for_order(close_order_id)
-                print(f"    close order_id={close_order_id} trail={trail}", flush=True)
+                fill_meta = _fill_meta_dict(app.wait_for_order(close_order_id))
+                print(f"    close order_id={close_order_id} fill={fill_meta}", flush=True)
+                filled_qty = float(fill_meta.get("filled") or 0.0)
+                if filled_qty <= 0.0:
+                    raise RuntimeError(
+                        f"IBKR close order {close_order_id} returned without fill "
+                        f"(status={fill_meta.get('status')!r})"
+                    )
+                avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
+                if avg_px > 0.0:
+                    current_price = avg_px
+                filled_shares = max(1, int(filled_qty))
+                # Partial close (timeout→cancel after some fills): shrink the
+                # residual and keep the local row open so the next tick closes
+                # only what remains — never mark fully closed / never re-sell
+                # the already-filled shares.
+                if filled_shares < int(pos.quantity):
+                    closed_shares = filled_shares
+                    pos.quantity = int(pos.quantity) - closed_shares
+                    pos.close_order_id = close_order_id
+                    if pos.side == "long":
+                        part_pnl = (current_price - pos.entry_price) * closed_shares
+                        part_pnl_pct = (current_price - pos.entry_price) / pos.entry_price * 100.0
+                    else:
+                        part_pnl = (pos.entry_price - current_price) * closed_shares
+                        part_pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
+                    print(
+                        f"    [equity] {pos.symbol}: partial close {closed_shares} shares "
+                        f"(residual={pos.quantity}) — retry next tick",
+                        flush=True,
+                    )
+                    _append_log(log_path, {
+                        "timestamp_utc": now.isoformat(),
+                        "plan_id": plan_id,
+                        "symbol": pos.symbol,
+                        "strategy": pos.direction,
+                        "action": close_action,
+                        "quantity": closed_shares,
+                        "current_mark": current_price,
+                        "entry_debit": pos.entry_price,
+                        "order_id": close_order_id or "",
+                        "unrealized_pnl": round(part_pnl, 2),
+                        "unrealized_pnl_pct": round(part_pnl_pct, 4),
+                        "signal": "partial_close",
+                        "closed": "0",
+                        "note": f"{exit_reason}: partial fill {closed_shares}",
+                    })
+                    continue
+                if pos.side == "long":
+                    pnl = (current_price - pos.entry_price) * pos.quantity
+                    pnl_pct = (current_price - pos.entry_price) / pos.entry_price * 100.0
+                else:
+                    pnl = (pos.entry_price - current_price) * pos.quantity
+                    pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
             except Exception as exc:
                 print(f"    [equity] {pos.symbol}: close order error — {exc}", flush=True)
+                pos.close_order_id = close_order_id
+                _append_log(log_path, {
+                    "timestamp_utc": now.isoformat(),
+                    "plan_id": plan_id,
+                    "symbol": pos.symbol,
+                    "strategy": pos.direction,
+                    "action": "hold",
+                    "quantity": pos.quantity,
+                    "current_mark": current_price,
+                    "entry_debit": pos.entry_price,
+                    "order_id": close_order_id or "",
+                    "unrealized_pnl": round(pnl, 2),
+                    "unrealized_pnl_pct": round(pnl_pct, 4),
+                    "signal": "close_order_error",
+                    "closed": "0",
+                    "note": f"{exit_reason}: {exc}",
+                })
+                # Keep local state open so the next tick retries the close.
+                continue
 
         pos.status = "closed"
         pos.exit_price = current_price

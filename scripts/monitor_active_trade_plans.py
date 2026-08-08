@@ -137,7 +137,11 @@ def _legs_json_for_trade_log(updated: list[dict] | None) -> str:
 
 
 def _append_trade_log(log_path: Path, row: dict) -> None:
-    """Upsert one row per ``plan_id`` (latest state) to avoid multi-GB poll append logs."""
+    """Upsert one row per ``plan_id`` (latest state) to avoid multi-GB poll append logs.
+
+    Closed rows are sticky: a later hold poll must not flip ``closed`` back to 0 while
+    the same ``plan_id`` remains in ``universe_trade_plans.json`` actives.
+    """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     if log_path.is_file() and log_path.stat().st_size > 0:
         _migrate_trade_log_add_columns(log_path, _TRADE_LOG_COLUMNS)
@@ -154,6 +158,8 @@ def _append_trade_log(log_path: Path, row: dict) -> None:
     pid = str(row.get("plan_id") or "").strip()
     if pid:
         merged = rows.get(pid, {})
+        if str(merged.get("closed") or "0").strip() == "1" and str(row.get("closed") or "0").strip() != "1":
+            return
         for col in _TRADE_LOG_COLUMNS:
             if col in row and row[col] is not None:
                 merged[col] = str(row[col])
@@ -229,10 +235,10 @@ def _persist_trade_plan_snapshot(plan_snapshots: dict[str, dict], plan: dict) ->
     }
 
 
-def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
-    """``plan_id`` values whose latest CSV row is still open (``closed`` != 1)."""
+def _latest_trade_log_by_plan(log_path: Path) -> dict[str, dict[str, str]]:
+    """Latest CSV row per ``plan_id`` (empty on missing/unreadable file)."""
     if not log_path.is_file():
-        return set()
+        return {}
     latest: dict[str, dict[str, str]] = {}
     try:
         with log_path.open("r", encoding="utf-8", newline="") as f:
@@ -241,8 +247,20 @@ def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
                 if pid:
                     latest[pid] = {k: str(v) for k, v in row.items()}
     except OSError:
-        return set()
+        return {}
+    return latest
+
+
+def _open_trade_log_plan_ids(log_path: Path) -> set[str]:
+    """``plan_id`` values whose latest CSV row is still open (``closed`` != 1)."""
+    latest = _latest_trade_log_by_plan(log_path)
     return {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() != "1"}
+
+
+def _closed_trade_log_plan_ids(log_path: Path) -> set[str]:
+    """``plan_id`` values whose latest CSV row is closed (``closed`` == 1)."""
+    latest = _latest_trade_log_by_plan(log_path)
+    return {pid for pid, row in latest.items() if (row.get("closed") or "0").strip() == "1"}
 
 
 def _close_stale_open_trade_log_rows(log_path: Path, active_plan_ids: set[str]) -> int:
@@ -603,6 +621,19 @@ def main() -> int:
         }
         if trade_log_path is not None:
             _close_stale_open_trade_log_rows(trade_log_path, active_plan_ids)
+            # Do not re-evaluate plan_ids the book already exited; a later hold mark
+            # would otherwise rewrite closed=0 and revive the sleeve row.
+            already_closed = _closed_trade_log_plan_ids(trade_log_path)
+            if already_closed:
+                uniq = [
+                    r
+                    for r in uniq
+                    if str(r.get("plan_id") or r.get("symbol") or "").strip() not in already_closed
+                ]
+                seen = {
+                    str(r.get("plan_id") or r.get("symbol") or "")
+                    for r in uniq
+                }
 
         state = _load_state(state_path)
         snap_path = state_path.with_name("trade_plan_snapshots.json")

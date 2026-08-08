@@ -608,6 +608,73 @@ class TestChallengeEngine:
         state = tmp_tracker.load()
         assert len(state.open_positions) <= cfg.max_concurrent_positions
 
+    def test_concurrent_closes_freeze_stage_thresholds(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        """Closing leg A must not raise TP for leg B when cash crosses a stage.
+
+        Concrete trigger (default max_concurrent_positions=2): cash $4,900
+        (Stage 1 TP 1.50×). Leg A marks 1.55× → close credits cash into Stage 2
+        (TP 1.75×). Leg B marks 1.60× — must still target-exit under Stage 1.
+        """
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        loose = replace(
+            cfg,
+            use_spread_model=False,
+            max_concurrent_positions=2,
+            stage1_stop_loss_mult=0.40,
+            stage2_stop_loss_mult=0.40,
+            stage3_stop_loss_mult=0.40,
+            stage4_stop_loss_mult=0.40,
+        )
+        state = tmp_tracker.reset(loose)
+        state.balance = 4_900.0
+        pos_a = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=1.0,
+            qty=2,
+            delta=0.5,
+            iv=0.18,
+        )
+        pos_b = ChallengePosition.new(
+            symbol="SPY",
+            option_type="put",
+            direction="short",
+            underlying_entry=500.0,
+            strike=495.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=1.0,
+            qty=1,
+            delta=-0.5,
+            iv=0.18,
+        )
+        state.open_positions = [pos_a, pos_b]
+        tmp_tracker.save(state)
+
+        def _mark(pos, _cfg, session_date=None, pipeline_underlying=None, iv=None):
+            if pos.option_type == "call":
+                return (1.55, 500.0, 6)
+            return (1.60, 500.0, 6)
+
+        with patch("rlm.challenge.engine.mark_open_position_premium", side_effect=_mark):
+            summary = ChallengeEngine(loose, tmp_tracker).run_session(
+                "no_trade", 500.0, session_date="2026-01-02"
+            )
+
+        reasons = sorted(t.exit_reason for t in summary.closed_trades)
+        assert reasons == ["target", "target"]
+        assert len(tmp_tracker.load().open_positions) == 0
+
 
 # ---------------------------------------------------------------------------
 # Milestone and progress tests
