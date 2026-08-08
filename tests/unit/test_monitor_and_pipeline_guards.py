@@ -58,6 +58,49 @@ def _sample_chain(mid: float) -> pd.DataFrame:
     )
 
 
+def test_monitor_hold_after_exit_does_not_reopen_closed_row(tmp_path: Path, monkeypatch) -> None:
+    """TP then a later hold poll must leave closed=1 (same plan_id still in universe)."""
+    log_path = tmp_path / "trade_log.csv"
+    plan = _sample_plan()
+    state: dict = {}
+    monkeypatch.setattr("scripts.monitor_active_trade_plans.dte_from_plan", lambda _: 30.0)
+
+    _evaluate_plan(
+        plan,
+        chain=_sample_chain(mid=1.4),  # mark=140 >= TP 130
+        state=state,
+        paper_close=False,
+        paper_close_dry_run=False,
+        force_close_dte=0.0,
+        soft_time_stop_dte=0.0,
+        min_profit_pct_for_soft_hold=20.0,
+        max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
+        trade_log_path=log_path,
+    )
+    first = pd.read_csv(log_path).iloc[-1]
+    assert first["signal"] == "take_profit"
+    assert str(first["closed"]) == "1"
+
+    _evaluate_plan(
+        plan,
+        chain=_sample_chain(mid=1.0),  # mark=100: hold (below trail floor; not TP/stop)
+        state=state,
+        paper_close=False,
+        paper_close_dry_run=False,
+        force_close_dte=0.0,
+        soft_time_stop_dte=0.0,
+        min_profit_pct_for_soft_hold=20.0,
+        max_loss_pct=-70.0,
+        min_trail_profit_frac=0.08,
+        trade_log_path=log_path,
+    )
+    second = pd.read_csv(log_path).iloc[-1]
+    assert str(second["closed"]) == "1"
+    assert second["signal"] == "take_profit"
+    assert float(second["peak_mark"]) == 140.0
+
+
 def test_monitor_max_loss_stop_closes_trade(tmp_path: Path, monkeypatch) -> None:
     log_path = tmp_path / "trade_log.csv"
     plan = _sample_plan()

@@ -61,10 +61,10 @@ def ensure_trade_log(path: Path) -> None:
         csv.writer(f).writerow(list(TRADE_LOG_COLUMNS))
 
 
-def open_plan_ids(path: Path) -> set[str]:
-    """``plan_id`` values whose latest row has ``closed`` != 1."""
+def _latest_trade_log_rows(path: Path) -> dict[str, dict[str, str]]:
+    """Latest CSV row per ``plan_id`` (empty on missing/unreadable file)."""
     if not path.is_file():
-        return set()
+        return {}
     latest: dict[str, dict[str, str]] = {}
     try:
         with path.open("r", encoding="utf-8", newline="") as f:
@@ -73,8 +73,25 @@ def open_plan_ids(path: Path) -> set[str]:
                 if pid:
                     latest[pid] = {k: str(v) for k, v in row.items()}
     except OSError:
-        return set()
+        return {}
+    return latest
+
+
+def open_plan_ids(path: Path) -> set[str]:
+    """``plan_id`` values whose latest row has ``closed`` != 1."""
+    latest = _latest_trade_log_rows(path)
     return {pid for pid, row in latest.items() if str(row.get("closed") or "0").strip() != "1"}
+
+
+def closed_plan_ids(path: Path) -> set[str]:
+    """``plan_id`` values whose latest row has ``closed`` == 1."""
+    latest = _latest_trade_log_rows(path)
+    return {pid for pid, row in latest.items() if str(row.get("closed") or "0").strip() == "1"}
+
+
+def known_plan_ids(path: Path) -> set[str]:
+    """All ``plan_id`` values present in the log (open or closed)."""
+    return set(_latest_trade_log_rows(path))
 
 
 def _legs_json(matched_legs: list[dict[str, Any]] | None) -> str:
@@ -152,7 +169,12 @@ def trade_log_row_from_active_plan(plan: dict[str, Any]) -> dict[str, str] | Non
 
 
 def upsert_trade_log_row(path: Path, row: dict[str, str]) -> None:
-    """Upsert one row per ``plan_id`` (latest state)."""
+    """Upsert one row per ``plan_id`` (latest state).
+
+    Closed rows are sticky: a later write that would set ``closed=0`` is ignored so
+    monitor hold polls / concurrent paper seeds cannot revive an exited plan_id.
+    Updates that keep ``closed=1`` (e.g. repeating an exit signal) still merge.
+    """
     ensure_trade_log(path)
     _migrate_columns(path)
     rows: dict[str, dict[str, str]] = {}
@@ -169,6 +191,8 @@ def upsert_trade_log_row(path: Path, row: dict[str, str]) -> None:
     if not pid:
         return
     merged = rows.get(pid, {})
+    if str(merged.get("closed") or "0").strip() == "1" and str(row.get("closed") or "0").strip() != "1":
+        return
     for col in TRADE_LOG_COLUMNS:
         if col in row and row[col] is not None:
             merged[col] = str(row[col])
@@ -225,19 +249,26 @@ def seed_paper_opens_from_active_plans(
     active_plans: list[dict[str, Any]],
     log_path: Path,
 ) -> list[str]:
-    """Open paper rows for active plans not already open in ``log_path``. Returns new ``plan_id``s."""
-    open_ids = open_plan_ids(log_path)
+    """Open paper rows for active plans not already present in ``log_path``.
+
+    Skips ``plan_id``s that already have a row — including **closed** ones — so a
+    concurrent paper reseed cannot revive a position the monitor just closed while
+    the same ``universe_trade_plans.json`` actives are still published. Sticky
+    ``upsert_trade_log_row`` is the second line of defense if a race still attempts
+    ``closed=0``.
+    """
+    seen_ids = known_plan_ids(log_path)
     seeded: list[str] = []
     for plan in active_plans:
         if not isinstance(plan, dict):
             continue
         pid = str(plan.get("plan_id") or "").strip()
-        if not pid or pid in open_ids:
+        if not pid or pid in seen_ids:
             continue
         row = trade_log_row_from_active_plan(plan)
         if row is None:
             continue
         upsert_trade_log_row(log_path, row)
-        open_ids.add(pid)
+        seen_ids.add(pid)
         seeded.append(pid)
     return seeded
