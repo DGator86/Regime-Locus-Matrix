@@ -429,6 +429,9 @@ def test_ibkr_order_outcome_requires_fill_not_submitted_or_cancelled() -> None:
     assert mod._ibkr_order_outcome("Rejected") == "failed"
     assert mod._ibkr_order_outcome("Filled", filled=10.0, remaining=0.0) == "filled"
     assert mod._ibkr_order_outcome("Submitted", filled=10.0, remaining=0.0) == "filled"
+    # Partial fill then cancel must book the filled shares (not "failed").
+    assert mod._ibkr_order_outcome("Cancelled", filled=4.0, remaining=6.0) == "filled"
+    assert mod._ibkr_order_outcome("ApiCancelled", filled=4.0, remaining=6.0) == "filled"
 
 
 def test_cancelled_live_close_keeps_position_open_for_retry(tmp_path: Path) -> None:
@@ -698,3 +701,130 @@ def test_filled_live_close_marks_position_closed(tmp_path: Path) -> None:
     rows = list(csv.DictReader(log_path.open("r", encoding="utf-8", newline="")))
     assert rows[-1]["closed"] == "1"
     assert rows[-1]["signal"] == "closed"
+
+
+def test_wait_for_order_timeout_cancels_working_order() -> None:
+    """Timeout must cancel the live order so the next tick cannot double-buy/sell."""
+    import pytest
+
+    mod = _equity_script_module()
+
+    class FakeInner:
+        def __init__(self) -> None:
+            self._order_status: dict[int, list[str]] = {}
+            self._order_meta: dict[int, dict] = {}
+            self._error_lines: list = []
+            self.cancelled: list[int] = []
+
+        def cancelOrder(self, order_id: int, *args: object) -> None:
+            self.cancelled.append(int(order_id))
+            self._order_meta[int(order_id)] = {
+                "status": "Cancelled",
+                "filled": 0.0,
+                "remaining": 10.0,
+                "avg_fill_price": 0.0,
+            }
+            self._order_status.setdefault(int(order_id), []).append("Cancelled")
+
+    app = object.__new__(mod._EquityApp)
+    app._app = FakeInner()
+    app._app._order_meta[7] = {
+        "status": "Submitted",
+        "filled": 0.0,
+        "remaining": 10.0,
+        "avg_fill_price": 0.0,
+    }
+    app._app._order_status[7] = ["Submitted"]
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        app.wait_for_order(7, timeout_sec=0.25)
+    assert app._app.cancelled == [7]
+
+
+def test_wait_for_order_timeout_returns_late_fill_after_cancel() -> None:
+    """If the order fills while we cancel after timeout, book the fill."""
+    mod = _equity_script_module()
+
+    class FakeInner:
+        def __init__(self) -> None:
+            self._order_status: dict[int, list[str]] = {}
+            self._order_meta: dict[int, dict] = {}
+            self._error_lines: list = []
+            self.cancelled: list[int] = []
+
+        def cancelOrder(self, order_id: int, *args: object) -> None:
+            self.cancelled.append(int(order_id))
+            self._order_meta[int(order_id)] = {
+                "status": "Filled",
+                "filled": 10.0,
+                "remaining": 0.0,
+                "avg_fill_price": 101.5,
+            }
+            self._order_status.setdefault(int(order_id), []).append("Filled")
+
+    app = object.__new__(mod._EquityApp)
+    app._app = FakeInner()
+    app._app._order_meta[8] = {
+        "status": "Submitted",
+        "filled": 0.0,
+        "remaining": 10.0,
+        "avg_fill_price": 0.0,
+    }
+    app._app._order_status[8] = ["Submitted"]
+
+    fill = app.wait_for_order(8, timeout_sec=0.25)
+    assert app._app.cancelled == [8]
+    assert fill["filled"] == 10.0
+    assert fill["avg_fill_price"] == 101.5
+
+
+def test_partial_live_close_keeps_residual_open(tmp_path: Path) -> None:
+    """Partial close fill must shrink qty and retry — not mark fully closed."""
+    import csv
+
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod)
+    pos.entry_price = 100.0
+    pos.quantity = 10
+    positions = {pos.plan_id: pos}
+
+    class PartialCloseApp:
+        def get_last_price(self, symbol: str) -> float:
+            return 94.0
+
+        def place_stock_order(self, symbol: str, action: str, quantity: int) -> int:
+            assert quantity == 10
+            return 93
+
+        def wait_for_order(self, order_id: int) -> dict:
+            return {
+                "status": "Cancelled",
+                "filled": 4.0,
+                "remaining": 6.0,
+                "avg_fill_price": 93.5,
+                "trail": ["Submitted", "Cancelled"],
+            }
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={pos.plan_id},
+        plan_by_id={},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=False,
+        app=PartialCloseApp(),
+        log_path=log_path,
+        utc_now=t0,
+        exit_on_plan_absent=True,
+    )
+
+    assert pos.status == "open"
+    assert pos.quantity == 6
+    rows = list(csv.DictReader(log_path.open("r", encoding="utf-8", newline="")))
+    assert rows[-1]["signal"] == "partial_close"
+    assert rows[-1]["closed"] == "0"
+    assert rows[-1]["quantity"] == "4"
