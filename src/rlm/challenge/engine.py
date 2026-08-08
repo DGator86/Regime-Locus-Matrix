@@ -95,9 +95,22 @@ class ChallengeEngine:
 
         closed_trades: list[ChallengeTradeRecord] = []
 
+        # Freeze stage thresholds for this exit pass. Closes credit cash and can
+        # cross a stage boundary mid-loop; re-reading state.balance inside
+        # _evaluate_position would raise TP/trail/stop hurdles for later legs
+        # and leave winners open past their intended exit.
+        exit_threshold_balance = state.balance
+
         # 1. Evaluate open positions
         for pos in list(state.open_positions):
-            record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
+            record = self._evaluate_position(
+                pos,
+                underlying_price,
+                iv,
+                session_date,
+                state,
+                threshold_balance=exit_threshold_balance,
+            )
             if record is not None:
                 closed_trades.append(record)
                 state.daily_realized_pnl += record.pnl
@@ -208,7 +221,14 @@ class ChallengeEngine:
                 # Force-close the most expensive position to bring exposure under limit
                 if state.open_positions:
                     worst = max(state.open_positions, key=lambda p: p.current_value)
-                    record = self._evaluate_position(worst, underlying_price, iv, session_date, state)
+                    record = self._evaluate_position(
+                        worst,
+                        underlying_price,
+                        iv,
+                        session_date,
+                        state,
+                        threshold_balance=state.balance,
+                    )
                     if record:
                         closed_trades.append(record)
 
@@ -254,6 +274,8 @@ class ChallengeEngine:
         iv: float,
         session_date: str,
         state: ChallengeState,
+        *,
+        threshold_balance: float | None = None,
     ) -> ChallengeTradeRecord | None:
         """Update position value; close and record if an exit condition is met."""
         new_premium, _, new_dte = mark_open_position_premium(
@@ -269,11 +291,12 @@ class ChallengeEngine:
         pos.current_value = new_premium * pos.qty * 100
         pos.unrealised_pnl = pos.current_value - pos.total_cost
 
-        mult = new_premium / pos.premium_per_share
+        stage_balance = state.balance if threshold_balance is None else float(threshold_balance)
+        mult = new_premium / pos.premium_per_share if pos.premium_per_share > 0 else 1.0
         if mult > pos.peak_premium_mult:
             pos.peak_premium_mult = mult
-        trail_arm = self.cfg.trail_activate_for(state.balance)
-        profit_target = self.cfg.profit_target_for(state.balance)
+        trail_arm = self.cfg.trail_activate_for(stage_balance)
+        profit_target = self.cfg.profit_target_for(stage_balance)
         if mult >= trail_arm:
             pos.trail_armed = True
 
@@ -281,7 +304,7 @@ class ChallengeEngine:
 
         if mult >= profit_target:
             exit_reason = "target"
-        elif mult <= self.cfg.stop_loss_for(state.balance):
+        elif mult <= self.cfg.stop_loss_for(stage_balance):
             exit_reason = "stop"
         elif pos.trail_armed:
             trail_floor = max(
@@ -296,7 +319,7 @@ class ChallengeEngine:
         if exit_reason is None:
             return None
 
-        fill_mult = self._exit_fill_mult(pos, exit_reason, state, mult)
+        fill_mult = self._exit_fill_mult(pos, exit_reason, stage_balance, mult)
         fill_premium = min_tick_round(pos.premium_per_share * fill_mult)
         raw_proceeds = fill_premium * pos.qty * 100
         e_friction = exit_friction(fill_premium, pos.qty, self.cfg)
@@ -339,13 +362,13 @@ class ChallengeEngine:
         self,
         pos: ChallengePosition,
         exit_reason: Literal["target", "stop", "trail", "expiry", "manual"],
-        state: ChallengeState,
+        threshold_balance: float,
         mark_mult: float,
     ) -> float:
         if exit_reason == "target":
-            return self.cfg.profit_target_for(state.balance)
+            return self.cfg.profit_target_for(threshold_balance)
         if exit_reason == "stop":
-            return self.cfg.stop_loss_for(state.balance)
+            return self.cfg.stop_loss_for(threshold_balance)
         if exit_reason == "trail":
             return max(
                 self.cfg.min_trail_exit_mult,

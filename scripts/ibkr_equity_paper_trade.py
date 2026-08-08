@@ -550,6 +550,41 @@ def _load_equity_socket_config() -> tuple[str, int, int]:
     return host, port, cid
 
 
+def _ibkr_order_outcome(status: str, *, filled: float = 0.0, remaining: float = 0.0) -> str:
+    """Classify an IBKR orderStatus callback as filled / failed / pending.
+
+    Only ``filled`` means local equity state may record an open or close.
+    ``PreSubmitted`` / ``Submitted`` are pending (not success). ``Cancelled`` /
+    ``ApiCancelled`` / ``Rejected`` are hard failures.
+    """
+    last = (status or "").strip()
+    if last in {"Cancelled", "ApiCancelled", "Rejected", "Inactive"}:
+        return "failed"
+    if last == "Filled" or (float(filled) > 0.0 and float(remaining) <= 1e-9):
+        return "filled"
+    return "pending"
+
+
+def _fill_meta_dict(fill_meta: Any) -> dict[str, Any]:
+    """Normalize ``wait_for_order`` results to a dict with fill fields.
+
+    Defense for duck-typed test doubles / legacy trail-only returns: a bare
+    status list cannot prove quantity filled, so ``filled`` stays 0.0.
+    """
+    if isinstance(fill_meta, dict):
+        return fill_meta
+    if isinstance(fill_meta, list):
+        last = str(fill_meta[-1]) if fill_meta else ""
+        return {
+            "status": last,
+            "filled": 0.0,
+            "remaining": 0.0,
+            "avg_fill_price": 0.0,
+            "trail": list(fill_meta),
+        }
+    return {"status": "", "filled": 0.0, "remaining": 0.0, "avg_fill_price": 0.0}
+
+
 def _get_ibapi_bundle() -> tuple[Type[Any], Any]:
     """Return (EClient, EWrapper); raise SystemExit if ibapi is not installed."""
     if not _IBAPI_OK:
@@ -570,6 +605,10 @@ class _EquityApp:
 
         self._app = _App()
         self._app._order_status: dict[int, list[str]] = {}
+        # Latest orderStatus callback fields keyed by order id. Callers of
+        # wait_for_order need filled/remaining/avgFillPrice — the status trail
+        # alone cannot prove a fill.
+        self._app._order_meta: dict[int, dict[str, Any]] = {}
         self._app._error_lines: list[tuple[int, int, str]] = []
         self._app._next_order_id: int | None = None
         self._app._ticker_prices: dict[int, float] = {}
@@ -593,6 +632,12 @@ class _EquityApp:
                           avgFillPrice: float, permId: int, parentId: int, lastFillPrice: float,
                           clientId: int, whyHeld: str, mktCapPrice: float = 0.0) -> None:
             self._app._order_status.setdefault(orderId, []).append(status)
+            self._app._order_meta[orderId] = {
+                "status": str(status or ""),
+                "filled": float(filled or 0.0),
+                "remaining": float(remaining or 0.0),
+                "avg_fill_price": float(avgFillPrice or lastFillPrice or 0.0),
+            }
 
         def _next_valid_id(orderId: int) -> None:
             self._app._next_order_id = orderId
@@ -725,19 +770,34 @@ class _EquityApp:
         self._app.placeOrder(oid, contract, order)
         return oid
 
-    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> list[str]:
+    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> dict[str, Any]:
+        """Block until the order is filled, failed, or ``timeout_sec`` elapses.
+
+        Returns a fill metadata dict (``status``, ``filled``, ``remaining``,
+        ``avg_fill_price``, ``trail``). ``PreSubmitted`` / ``Submitted`` are
+        pending — we keep waiting so open/close paths do not treat an unfilled
+        working order as success (and so callers can safely ``.get("filled")``).
+        """
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
-            trail = list(self._app._order_status.get(order_id, []))
-            if trail:
-                last = trail[-1]
-                if last == "Rejected":
+            meta = dict(self._app._order_meta.get(order_id) or {})
+            status = str(meta.get("status") or "")
+            filled = float(meta.get("filled") or 0.0)
+            remaining = float(meta.get("remaining") or 0.0)
+            if status:
+                outcome = _ibkr_order_outcome(status, filled=filled, remaining=remaining)
+                if outcome == "filled":
+                    return {
+                        "status": status,
+                        "filled": filled,
+                        "remaining": remaining,
+                        "avg_fill_price": float(meta.get("avg_fill_price") or 0.0),
+                        "trail": list(self._app._order_status.get(order_id, [])),
+                    }
+                if outcome == "failed":
                     errs = [(c, m) for r, c, m in self._app._error_lines if r == order_id]
-                    raise RuntimeError(
-                        f"IBKR order {order_id} rejected: {errs[-1] if errs else 'Rejected'}"
-                    )
-                if last in ("Filled", "Cancelled", "ApiCancelled", "Submitted", "PreSubmitted"):
-                    return trail
+                    detail = errs[-1] if errs else status
+                    raise RuntimeError(f"IBKR order {order_id} {status}: {detail}")
             # Raise only on hard (non-advisory) error codes — advisory codes are
             # already filtered at the _error callback, but guard here too.
             hard_errs = [
@@ -747,7 +807,16 @@ class _EquityApp:
             if hard_errs:
                 raise RuntimeError(f"IBKR order {order_id} rejected: {hard_errs[-1]}")
             time.sleep(0.1)
-        return list(self._app._order_status.get(order_id, []))
+        meta = dict(self._app._order_meta.get(order_id) or {})
+        status = str(meta.get("status") or "Timeout")
+        filled = float(meta.get("filled") or 0.0)
+        remaining = float(meta.get("remaining") or 0.0)
+        # Timed out still pending — do not pretend this is a completed fill.
+        # Open path skips via exception; close path retries next tick.
+        raise RuntimeError(
+            f"IBKR order {order_id} timeout after {timeout_sec:.0f}s "
+            f"(status={status!r}, filled={filled}, remaining={remaining})"
+        )
 
 
 @contextmanager
@@ -983,13 +1052,26 @@ def open_equity_positions(
         )
 
         order_id: int | None = None
+        fill_meta: dict[str, Any] | None = None
         if not dry_run and app is not None:
             try:
                 # Use a slight slippage limit for shorts, market for longs
                 lim = round(entry_price * (0.998 if direction == "bear" else 1.002), 2)
                 order_id = app.place_stock_order(sym, action, qty, limit_price=lim)
-                trail = app.wait_for_order(order_id)
-                print(f"    order_id={order_id} trail={trail}", flush=True)
+                fill_meta = _fill_meta_dict(app.wait_for_order(order_id))
+                print(f"    order_id={order_id} fill={fill_meta}", flush=True)
+                # Refuse ghost opens: wait_for_order must report a real fill.
+                filled_qty = float(fill_meta.get("filled") or 0.0)
+                if filled_qty <= 0.0:
+                    print(
+                        f"    [equity] {sym}: order {order_id} returned without fill — skip open",
+                        flush=True,
+                    )
+                    continue
+                qty = max(1, int(filled_qty))
+                avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
+                if avg_px > 0.0:
+                    entry_price = avg_px
             except Exception as exc:
                 print(f"    [equity] {sym}: order error — {exc}", flush=True)
                 continue
@@ -1032,7 +1114,7 @@ def open_equity_positions(
             "unrealized_pnl_pct": 0.0,
             "signal": "open",
             "closed": "0",
-            "note": "dry_run" if dry_run else "placed",
+            "note": "dry_run" if dry_run else "filled",
         })
 
 
@@ -1253,10 +1335,44 @@ def evaluate_equity_positions(
         if not dry_run and app is not None:
             try:
                 close_order_id = app.place_stock_order(pos.symbol, close_action, pos.quantity)
-                trail = app.wait_for_order(close_order_id)
-                print(f"    close order_id={close_order_id} trail={trail}", flush=True)
+                fill_meta = _fill_meta_dict(app.wait_for_order(close_order_id))
+                print(f"    close order_id={close_order_id} fill={fill_meta}", flush=True)
+                filled_qty = float(fill_meta.get("filled") or 0.0)
+                if filled_qty <= 0.0:
+                    raise RuntimeError(
+                        f"IBKR close order {close_order_id} returned without fill "
+                        f"(status={fill_meta.get('status')!r})"
+                    )
+                avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
+                if avg_px > 0.0:
+                    current_price = avg_px
+                    if pos.side == "long":
+                        pnl = (current_price - pos.entry_price) * pos.quantity
+                        pnl_pct = (current_price - pos.entry_price) / pos.entry_price * 100.0
+                    else:
+                        pnl = (pos.entry_price - current_price) * pos.quantity
+                        pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
             except Exception as exc:
                 print(f"    [equity] {pos.symbol}: close order error — {exc}", flush=True)
+                pos.close_order_id = close_order_id
+                _append_log(log_path, {
+                    "timestamp_utc": now.isoformat(),
+                    "plan_id": plan_id,
+                    "symbol": pos.symbol,
+                    "strategy": pos.direction,
+                    "action": "hold",
+                    "quantity": pos.quantity,
+                    "current_mark": current_price,
+                    "entry_debit": pos.entry_price,
+                    "order_id": close_order_id or "",
+                    "unrealized_pnl": round(pnl, 2),
+                    "unrealized_pnl_pct": round(pnl_pct, 4),
+                    "signal": "close_order_error",
+                    "closed": "0",
+                    "note": f"{exit_reason}: {exc}",
+                })
+                # Keep local state open so the next tick retries the close.
+                continue
 
         pos.status = "closed"
         pos.exit_price = current_price
