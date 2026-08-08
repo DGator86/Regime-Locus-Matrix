@@ -431,6 +431,34 @@ def test_ibkr_order_outcome_requires_fill_not_submitted_or_cancelled() -> None:
     assert mod._ibkr_order_outcome("Submitted", filled=10.0, remaining=0.0) == "filled"
 
 
+def test_ibkr_fill_meta_ignores_submitted_until_real_fill() -> None:
+    """Submitted/Cancelled must not look like fill metadata for local state writes."""
+    mod = _equity_script_module()
+    submitted = [
+        mod._ibkr_order_update("PreSubmitted"),
+        mod._ibkr_order_update("Submitted", filled=0.0, remaining=10.0),
+    ]
+    assert mod._ibkr_fill_meta_from_updates(submitted) is None
+    assert (
+        mod._ibkr_order_failed_message(42, submitted, []) is None
+    ), "Submitted is still pending, not a hard failure"
+
+    cancelled = submitted + [mod._ibkr_order_update("Cancelled", filled=0.0, remaining=10.0)]
+    assert mod._ibkr_fill_meta_from_updates(cancelled) is None
+    fail = mod._ibkr_order_failed_message(42, cancelled, [])
+    assert fail is not None and "Cancelled" in fail
+
+    filled = submitted + [
+        mod._ibkr_order_update("Filled", filled=10.0, remaining=0.0, avg_fill_price=101.25)
+    ]
+    meta = mod._ibkr_fill_meta_from_updates(filled)
+    assert meta is not None
+    assert meta["filled"] == 10.0
+    assert meta["avg_fill_price"] == 101.25
+    assert meta["trail"] == ["PreSubmitted", "Submitted", "Filled"]
+    assert mod._ibkr_order_failed_message(42, filled, []) is None
+
+
 def test_cancelled_live_close_keeps_position_open_for_retry(tmp_path: Path) -> None:
     """Cancelled/unfilled close must not mark local state closed (lost exposure)."""
     import csv
@@ -509,6 +537,95 @@ def test_unfilled_live_open_does_not_record_position(tmp_path: Path) -> None:
         position_usd=1000.0,
         dry_run=False,
         app=UnfilledOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert positions == {}
+    assert not log_path.is_file()
+
+
+def test_filled_live_open_records_avg_fill_price(tmp_path: Path) -> None:
+    """Successful wait_for_order dict fills must open local state at avg fill price."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1001",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class FilledOpenApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            assert action == "BUY"
+            return 99
+
+        def wait_for_order(self, order_id: int) -> dict:
+            assert order_id == 99
+            return {
+                "status": "Filled",
+                "filled": 10.0,
+                "remaining": 0.0,
+                "avg_fill_price": 100.40,
+                "trail": ["Submitted", "Filled"],
+            }
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=FilledOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert list(positions) == ["NVDA_20260808_1001"]
+    pos = positions["NVDA_20260808_1001"]
+    assert pos.status == "open"
+    assert pos.quantity == 10
+    assert pos.entry_price == 100.40
+    assert pos.ibkr_order_id == 99
+
+
+def test_legacy_list_wait_for_order_cannot_open_ghost(tmp_path: Path) -> None:
+    """If wait_for_order still returned a status list, open must not record a position."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1002",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class LegacyListWaitApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            return 100
+
+        def wait_for_order(self, order_id: int):
+            # Pre-fix shape: list[str] status trail (no fill qty/price).
+            return ["PreSubmitted", "Submitted", "Filled"]
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=LegacyListWaitApp(),
         plans_path=plans_path,
         log_path=log_path,
     )

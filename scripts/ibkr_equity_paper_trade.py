@@ -565,6 +565,65 @@ def _ibkr_order_outcome(status: str, *, filled: float = 0.0, remaining: float = 
     return "pending"
 
 
+def _ibkr_order_update(
+    status: str,
+    *,
+    filled: float = 0.0,
+    remaining: float = 0.0,
+    avg_fill_price: float = 0.0,
+) -> dict[str, Any]:
+    """Normalize one orderStatus callback into a fill-aware status record."""
+    return {
+        "status": (status or "").strip(),
+        "filled": float(filled or 0.0),
+        "remaining": float(remaining or 0.0),
+        "avg_fill_price": float(avg_fill_price or 0.0),
+    }
+
+
+def _ibkr_fill_meta_from_updates(updates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return fill metadata when the latest update is a completed fill; else None."""
+    if not updates:
+        return None
+    last = updates[-1]
+    outcome = _ibkr_order_outcome(
+        str(last.get("status") or ""),
+        filled=float(last.get("filled") or 0.0),
+        remaining=float(last.get("remaining") or 0.0),
+    )
+    if outcome != "filled":
+        return None
+    return {
+        "status": str(last.get("status") or ""),
+        "filled": float(last.get("filled") or 0.0),
+        "remaining": float(last.get("remaining") or 0.0),
+        "avg_fill_price": float(last.get("avg_fill_price") or 0.0),
+        "trail": [str(u.get("status") or "") for u in updates],
+    }
+
+
+def _ibkr_order_failed_message(
+    order_id: int,
+    updates: list[dict[str, Any]],
+    hard_errs: list[tuple[int, str]],
+) -> str | None:
+    """Human-readable failure for a hard reject/cancel, or None if still pending."""
+    if hard_errs:
+        return f"IBKR order {order_id} rejected: {hard_errs[-1]}"
+    if not updates:
+        return None
+    last = updates[-1]
+    outcome = _ibkr_order_outcome(
+        str(last.get("status") or ""),
+        filled=float(last.get("filled") or 0.0),
+        remaining=float(last.get("remaining") or 0.0),
+    )
+    if outcome != "failed":
+        return None
+    status = str(last.get("status") or "failed")
+    return f"IBKR order {order_id} {status}: {status}"
+
+
 def _get_ibapi_bundle() -> tuple[Type[Any], Any]:
     """Return (EClient, EWrapper); raise SystemExit if ibapi is not installed."""
     if not _IBAPI_OK:
@@ -584,7 +643,8 @@ class _EquityApp:
                 EClient.__init__(inner_self, inner_self)
 
         self._app = _App()
-        self._app._order_status: dict[int, list[str]] = {}
+        # Latest orderStatus callbacks per order id (status + fill qty/price).
+        self._app._order_status: dict[int, list[dict[str, Any]]] = {}
         self._app._error_lines: list[tuple[int, int, str]] = []
         self._app._next_order_id: int | None = None
         self._app._ticker_prices: dict[int, float] = {}
@@ -607,7 +667,14 @@ class _EquityApp:
         def _order_status(orderId: int, status: str, filled: float, remaining: float,
                           avgFillPrice: float, permId: int, parentId: int, lastFillPrice: float,
                           clientId: int, whyHeld: str, mktCapPrice: float = 0.0) -> None:
-            self._app._order_status.setdefault(orderId, []).append(status)
+            self._app._order_status.setdefault(orderId, []).append(
+                _ibkr_order_update(
+                    status,
+                    filled=filled,
+                    remaining=remaining,
+                    avg_fill_price=avgFillPrice,
+                )
+            )
 
         def _next_valid_id(orderId: int) -> None:
             self._app._next_order_id = orderId
@@ -740,29 +807,33 @@ class _EquityApp:
         self._app.placeOrder(oid, contract, order)
         return oid
 
-    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> list[str]:
+    def wait_for_order(self, order_id: int, timeout_sec: float = 30.0) -> dict[str, Any]:
+        """Block until the order is filled, or raise on cancel/reject/timeout.
+
+        Returns fill metadata ``{status, filled, remaining, avg_fill_price, trail}``.
+        Callers must not mutate local equity state unless this returns successfully.
+        """
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
-            trail = list(self._app._order_status.get(order_id, []))
-            if trail:
-                last = trail[-1]
-                if last == "Rejected":
-                    errs = [(c, m) for r, c, m in self._app._error_lines if r == order_id]
-                    raise RuntimeError(
-                        f"IBKR order {order_id} rejected: {errs[-1] if errs else 'Rejected'}"
-                    )
-                if last in ("Filled", "Cancelled", "ApiCancelled", "Submitted", "PreSubmitted"):
-                    return trail
-            # Raise only on hard (non-advisory) error codes — advisory codes are
-            # already filtered at the _error callback, but guard here too.
+            updates = list(self._app._order_status.get(order_id, []))
             hard_errs = [
-                (c, m) for r, c, m in self._app._error_lines
+                (c, m)
+                for r, c, m in self._app._error_lines
                 if r == order_id and c not in _IBKR_ADVISORY_CODES
             ]
-            if hard_errs:
-                raise RuntimeError(f"IBKR order {order_id} rejected: {hard_errs[-1]}")
+            fail_msg = _ibkr_order_failed_message(order_id, updates, hard_errs)
+            if fail_msg is not None:
+                raise RuntimeError(fail_msg)
+            fill_meta = _ibkr_fill_meta_from_updates(updates)
+            if fill_meta is not None:
+                return fill_meta
             time.sleep(0.1)
-        return list(self._app._order_status.get(order_id, []))
+        updates = list(self._app._order_status.get(order_id, []))
+        last = updates[-1] if updates else {}
+        last_status = str(last.get("status") or "")
+        raise RuntimeError(
+            f"IBKR order {order_id} timed out waiting for fill; last={last_status!r}"
+        )
 
 
 @contextmanager
