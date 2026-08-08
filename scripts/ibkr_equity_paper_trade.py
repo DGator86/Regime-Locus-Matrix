@@ -624,6 +624,13 @@ def _ibkr_order_failed_message(
     return f"IBKR order {order_id} {status}: {status}"
 
 
+def _coerce_ibkr_fill_meta(fill_meta: Any) -> dict[str, Any]:
+    """Accept only mapping fill metadata; reject legacy list[str] trails as unfilled."""
+    if isinstance(fill_meta, dict):
+        return fill_meta
+    return {}
+
+
 def _get_ibapi_bundle() -> tuple[Type[Any], Any]:
     """Return (EClient, EWrapper); raise SystemExit if ibapi is not installed."""
     if not _IBAPI_OK:
@@ -1080,8 +1087,10 @@ def open_equity_positions(
             except Exception as exc:
                 print(f"    [equity] {sym}: order error — {exc}", flush=True)
                 continue
-            # Refuse ghost opens: wait_for_order must report a real fill.
-            filled_qty = float((fill_meta or {}).get("filled") or 0.0)
+            # Refuse ghost opens: wait_for_order must report a real fill dict.
+            # Legacy list[str] trails are treated as unfilled (do not AttributeError).
+            fill_meta = _coerce_ibkr_fill_meta(fill_meta)
+            filled_qty = float(fill_meta.get("filled") or 0.0)
             if filled_qty <= 0.0:
                 print(
                     f"    [equity] {sym}: order {order_id} returned without fill — skip open",
@@ -1089,7 +1098,7 @@ def open_equity_positions(
                 )
                 continue
             qty = max(1, int(filled_qty))
-            avg_px = float((fill_meta or {}).get("avg_fill_price") or 0.0)
+            avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
             if avg_px > 0.0:
                 entry_price = avg_px
 
@@ -1352,14 +1361,14 @@ def evaluate_equity_positions(
         if not dry_run and app is not None:
             try:
                 close_order_id = app.place_stock_order(pos.symbol, close_action, pos.quantity)
-                fill_meta = app.wait_for_order(close_order_id)
+                fill_meta = _coerce_ibkr_fill_meta(app.wait_for_order(close_order_id))
                 print(f"    close order_id={close_order_id} fill={fill_meta}", flush=True)
-                filled_qty = float((fill_meta or {}).get("filled") or 0.0)
+                filled_qty = float(fill_meta.get("filled") or 0.0)
                 if filled_qty <= 0.0:
                     raise RuntimeError(
                         f"IBKR close order {close_order_id} returned without fill"
                     )
-                avg_px = float((fill_meta or {}).get("avg_fill_price") or 0.0)
+                avg_px = float(fill_meta.get("avg_fill_price") or 0.0)
                 if avg_px > 0.0:
                     current_price = avg_px
                     if pos.side == "long":
