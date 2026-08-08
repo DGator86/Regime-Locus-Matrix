@@ -84,7 +84,7 @@ def test_monitor_hold_after_exit_does_not_reopen_closed_row(tmp_path: Path, monk
 
     _evaluate_plan(
         plan,
-        chain=_sample_chain(mid=1.1),  # mark=110 → would be hold if reopened
+        chain=_sample_chain(mid=1.0),  # mark=100: hold (below trail floor; not TP/stop)
         state=state,
         paper_close=False,
         paper_close_dry_run=False,
@@ -98,6 +98,7 @@ def test_monitor_hold_after_exit_does_not_reopen_closed_row(tmp_path: Path, monk
     second = pd.read_csv(log_path).iloc[-1]
     assert str(second["closed"]) == "1"
     assert second["signal"] == "take_profit"
+    assert float(second["peak_mark"]) == 140.0
 
 
 def test_monitor_max_loss_stop_closes_trade(tmp_path: Path, monkeypatch) -> None:
