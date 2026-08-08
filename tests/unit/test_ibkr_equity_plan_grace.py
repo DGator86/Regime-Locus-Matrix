@@ -514,3 +514,187 @@ def test_unfilled_live_open_does_not_record_position(tmp_path: Path) -> None:
     )
     assert positions == {}
     assert not log_path.is_file()
+
+
+def test_fill_meta_dict_rejects_legacy_status_trail() -> None:
+    """Legacy wait_for_order list returns cannot prove fill qty."""
+    mod = _equity_script_module()
+    meta = mod._fill_meta_dict(["PreSubmitted", "Submitted", "Filled"])
+    assert meta["status"] == "Filled"
+    assert meta["filled"] == 0.0
+    assert meta["avg_fill_price"] == 0.0
+
+
+def test_submitted_without_fill_qty_skips_open(tmp_path: Path) -> None:
+    """wait_for_order dict with filled=0 (working Submitted) must not open locally."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1001",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class SubmittedOpenApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            return 89
+
+        def wait_for_order(self, order_id: int) -> dict:
+            return {
+                "status": "Submitted",
+                "filled": 0.0,
+                "remaining": 10.0,
+                "avg_fill_price": 0.0,
+                "trail": ["PreSubmitted", "Submitted"],
+            }
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=SubmittedOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert positions == {}
+
+
+def test_legacy_list_wait_for_order_does_not_crash_or_open(tmp_path: Path) -> None:
+    """Regression: list trail + .get('filled') used to AttributeError on live opens."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1002",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class LegacyListOpenApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            return 90
+
+        def wait_for_order(self, order_id: int) -> list:
+            return ["PreSubmitted", "Submitted", "Filled"]
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=LegacyListOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert positions == {}
+
+
+def test_filled_live_open_records_avg_fill_price(tmp_path: Path) -> None:
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1003",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class FilledOpenApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            return 91
+
+        def wait_for_order(self, order_id: int) -> dict:
+            return {
+                "status": "Filled",
+                "filled": 10.0,
+                "remaining": 0.0,
+                "avg_fill_price": 101.25,
+                "trail": ["Submitted", "Filled"],
+            }
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=FilledOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert "NVDA_20260808_1003" in positions
+    pos = positions["NVDA_20260808_1003"]
+    assert pos.status == "open"
+    assert pos.quantity == 10
+    assert pos.entry_price == 101.25
+
+
+def test_filled_live_close_marks_position_closed(tmp_path: Path) -> None:
+    import csv
+
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod)
+    pos.entry_price = 100.0
+    positions = {pos.plan_id: pos}
+
+    class FilledCloseApp:
+        def get_last_price(self, symbol: str) -> float:
+            return 94.0
+
+        def place_stock_order(self, symbol: str, action: str, quantity: int) -> int:
+            return 92
+
+        def wait_for_order(self, order_id: int) -> dict:
+            return {
+                "status": "Filled",
+                "filled": 10.0,
+                "remaining": 0.0,
+                "avg_fill_price": 93.5,
+                "trail": ["Submitted", "Filled"],
+            }
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={pos.plan_id},
+        plan_by_id={},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=False,
+        app=FilledCloseApp(),
+        log_path=log_path,
+        utc_now=t0,
+        exit_on_plan_absent=True,
+    )
+
+    assert pos.status == "closed"
+    assert pos.exit_reason == "stop_loss_5pct"
+    assert pos.exit_price == 93.5
+    rows = list(csv.DictReader(log_path.open("r", encoding="utf-8", newline="")))
+    assert rows[-1]["closed"] == "1"
+    assert rows[-1]["signal"] == "closed"
