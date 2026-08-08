@@ -550,6 +550,21 @@ def _load_equity_socket_config() -> tuple[str, int, int]:
     return host, port, cid
 
 
+def _ibkr_order_outcome(status: str, *, filled: float = 0.0, remaining: float = 0.0) -> str:
+    """Classify an IBKR orderStatus callback as filled / failed / pending.
+
+    Only ``filled`` means local equity state may record an open or close.
+    ``PreSubmitted`` / ``Submitted`` are pending (not success). ``Cancelled`` /
+    ``ApiCancelled`` / ``Rejected`` are hard failures.
+    """
+    last = (status or "").strip()
+    if last in {"Cancelled", "ApiCancelled", "Rejected", "Inactive"}:
+        return "failed"
+    if last == "Filled" or (float(filled) > 0.0 and float(remaining) <= 1e-9):
+        return "filled"
+    return "pending"
+
+
 def _get_ibapi_bundle() -> tuple[Type[Any], Any]:
     """Return (EClient, EWrapper); raise SystemExit if ibapi is not installed."""
     if not _IBAPI_OK:
@@ -983,16 +998,29 @@ def open_equity_positions(
         )
 
         order_id: int | None = None
+        fill_meta: dict[str, Any] | None = None
         if not dry_run and app is not None:
             try:
                 # Use a slight slippage limit for shorts, market for longs
                 lim = round(entry_price * (0.998 if direction == "bear" else 1.002), 2)
                 order_id = app.place_stock_order(sym, action, qty, limit_price=lim)
-                trail = app.wait_for_order(order_id)
-                print(f"    order_id={order_id} trail={trail}", flush=True)
+                fill_meta = app.wait_for_order(order_id)
+                print(f"    order_id={order_id} fill={fill_meta}", flush=True)
             except Exception as exc:
                 print(f"    [equity] {sym}: order error — {exc}", flush=True)
                 continue
+            # Refuse ghost opens: wait_for_order must report a real fill.
+            filled_qty = float((fill_meta or {}).get("filled") or 0.0)
+            if filled_qty <= 0.0:
+                print(
+                    f"    [equity] {sym}: order {order_id} returned without fill — skip open",
+                    flush=True,
+                )
+                continue
+            qty = max(1, int(filled_qty))
+            avg_px = float((fill_meta or {}).get("avg_fill_price") or 0.0)
+            if avg_px > 0.0:
+                entry_price = avg_px
 
         pos = EquityPosition(
             plan_id=plan_id,
@@ -1032,7 +1060,7 @@ def open_equity_positions(
             "unrealized_pnl_pct": 0.0,
             "signal": "open",
             "closed": "0",
-            "note": "dry_run" if dry_run else "placed",
+            "note": "dry_run" if dry_run else "filled",
         })
 
 
@@ -1253,10 +1281,43 @@ def evaluate_equity_positions(
         if not dry_run and app is not None:
             try:
                 close_order_id = app.place_stock_order(pos.symbol, close_action, pos.quantity)
-                trail = app.wait_for_order(close_order_id)
-                print(f"    close order_id={close_order_id} trail={trail}", flush=True)
+                fill_meta = app.wait_for_order(close_order_id)
+                print(f"    close order_id={close_order_id} fill={fill_meta}", flush=True)
+                filled_qty = float((fill_meta or {}).get("filled") or 0.0)
+                if filled_qty <= 0.0:
+                    raise RuntimeError(
+                        f"IBKR close order {close_order_id} returned without fill"
+                    )
+                avg_px = float((fill_meta or {}).get("avg_fill_price") or 0.0)
+                if avg_px > 0.0:
+                    current_price = avg_px
+                    if pos.side == "long":
+                        pnl = (current_price - pos.entry_price) * pos.quantity
+                        pnl_pct = (current_price - pos.entry_price) / pos.entry_price * 100.0
+                    else:
+                        pnl = (pos.entry_price - current_price) * pos.quantity
+                        pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100.0
             except Exception as exc:
                 print(f"    [equity] {pos.symbol}: close order error — {exc}", flush=True)
+                pos.close_order_id = close_order_id
+                _append_log(log_path, {
+                    "timestamp_utc": now.isoformat(),
+                    "plan_id": plan_id,
+                    "symbol": pos.symbol,
+                    "strategy": pos.direction,
+                    "action": "hold",
+                    "quantity": pos.quantity,
+                    "current_mark": current_price,
+                    "entry_debit": pos.entry_price,
+                    "order_id": close_order_id or "",
+                    "unrealized_pnl": round(pnl, 2),
+                    "unrealized_pnl_pct": round(pnl_pct, 4),
+                    "signal": "close_order_error",
+                    "closed": "0",
+                    "note": f"{exit_reason}: {exc}",
+                })
+                # Keep local state open so the next tick retries the close.
+                continue
 
         pos.status = "closed"
         pos.exit_price = current_price

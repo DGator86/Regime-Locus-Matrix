@@ -418,3 +418,99 @@ def test_trailing_giveback_long(tmp_path: Path) -> None:
     assert pos.status == "closed"
     assert pos.exit_reason is not None
     assert pos.exit_reason.startswith("trailing_giveback_")
+
+
+def test_ibkr_order_outcome_requires_fill_not_submitted_or_cancelled() -> None:
+    mod = _equity_script_module()
+    assert mod._ibkr_order_outcome("PreSubmitted") == "pending"
+    assert mod._ibkr_order_outcome("Submitted") == "pending"
+    assert mod._ibkr_order_outcome("Cancelled") == "failed"
+    assert mod._ibkr_order_outcome("ApiCancelled") == "failed"
+    assert mod._ibkr_order_outcome("Rejected") == "failed"
+    assert mod._ibkr_order_outcome("Filled", filled=10.0, remaining=0.0) == "filled"
+    assert mod._ibkr_order_outcome("Submitted", filled=10.0, remaining=0.0) == "filled"
+
+
+def test_cancelled_live_close_keeps_position_open_for_retry(tmp_path: Path) -> None:
+    """Cancelled/unfilled close must not mark local state closed (lost exposure)."""
+    import csv
+
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    t0, pos = _mk_open_pos(mod)
+    pos.entry_price = 100.0
+    positions = {pos.plan_id: pos}
+
+    class CancelCloseApp:
+        def get_last_price(self, symbol: str) -> float:
+            assert symbol == "QQQ"
+            return 94.0
+
+        def place_stock_order(self, symbol: str, action: str, quantity: int) -> int:
+            assert (symbol, action, quantity) == ("QQQ", "SELL", 10)
+            return 77
+
+        def wait_for_order(self, order_id: int) -> dict:
+            assert order_id == 77
+            raise RuntimeError("IBKR order 77 Cancelled: Cancelled")
+
+    mod.evaluate_equity_positions(
+        positions=positions,
+        active_plan_ids={pos.plan_id},
+        plan_by_id={},
+        stop_pct=5.0,
+        target_pct=10.0,
+        grace_sec=99999.0,
+        min_most_likely_next_prob=None,
+        min_next_label_aligned_mass=None,
+        dry_run=False,
+        app=CancelCloseApp(),
+        log_path=log_path,
+        utc_now=t0,
+        exit_on_plan_absent=True,
+    )
+
+    assert pos.status == "open"
+    assert pos.exit_reason is None
+    rows = list(csv.DictReader(log_path.open("r", encoding="utf-8", newline="")))
+    assert rows[-1]["signal"] == "close_order_error"
+    assert rows[-1]["closed"] == "0"
+    assert "Cancelled" in rows[-1]["note"]
+
+
+def test_unfilled_live_open_does_not_record_position(tmp_path: Path) -> None:
+    """Submitted/Cancelled opens must not create ghost equity_positions_state rows."""
+    mod = _equity_script_module()
+    log_path = tmp_path / "equity_trade_log.csv"
+    plans_path = tmp_path / "universe_trade_plans.json"
+    plans_path.write_text("{}", encoding="utf-8")
+    positions: dict = {}
+    plan = {
+        "plan_id": "NVDA_20260808_1000",
+        "symbol": "NVDA",
+        "regime_key": "bull|trend",
+        "regime_direction": "bull",
+        "pipeline": {"close": 100.0},
+        "decision": {"metadata": {"regime_confidence": 0.9}},
+    }
+
+    class UnfilledOpenApp:
+        def place_stock_order(
+            self, symbol: str, action: str, quantity: int, limit_price: float | None = None
+        ) -> int:
+            return 88
+
+        def wait_for_order(self, order_id: int) -> dict:
+            raise RuntimeError("IBKR order 88 Cancelled: Cancelled")
+
+    mod.open_equity_positions(
+        plans=[plan],
+        positions=positions,
+        position_usd=1000.0,
+        dry_run=False,
+        app=UnfilledOpenApp(),
+        plans_path=plans_path,
+        log_path=log_path,
+    )
+    assert positions == {}
+    assert not log_path.is_file()
