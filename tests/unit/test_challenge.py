@@ -398,9 +398,7 @@ class TestChallengeEngine:
         assert isinstance(summary.balance_after, float)
         assert summary.balance_after > 0
 
-    def test_trail_exit_respects_breakeven_floor(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_trail_exit_respects_breakeven_floor(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from rlm.challenge.state import ChallengePosition
 
         state = tmp_tracker.reset(cfg)
@@ -422,15 +420,68 @@ class TestChallengeEngine:
         state.open_positions = [pos]
         state.balance = 600.0
         tmp_tracker.save(state)
-        loose = replace(cfg, stop_loss_mult=0.40)
+        loose = replace(
+            cfg,
+            stage1_stop_loss_mult=0.40,
+            stage2_stop_loss_mult=0.40,
+            stage3_stop_loss_mult=0.40,
+            stage4_stop_loss_mult=0.40,
+        )
         engine = ChallengeEngine(loose, tmp_tracker)
         summary = engine.run_session("no_trade", 500.0, session_date="2026-01-02")
         assert len(summary.closed_trades) == 1
         assert summary.closed_trades[0].exit_reason == "trail"
 
-    def test_live_mark_triggers_target_exit(
-        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    def test_trail_exit_arms_from_persisted_peak_without_trail_armed_flag(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Mark refresh can raise peak_premium_mult while leaving trail_armed False.
+
+        Concrete trigger: Telegram /positions or ``rlm challenge --status`` sees
+        premium at 1.30×, persists peak, then the next ``--run`` marks 1.15×.
+        Trail floor is max(1.08, 1.30×0.9)=1.17, so 1.15 must trail-exit even
+        though trail_armed was never set by the refresh path.
+        """
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=1.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        pos.peak_premium_mult = 1.30
+        pos.trail_armed = False
+        state.open_positions = [pos]
+        state.balance = 600.0
+        tmp_tracker.save(state)
+
+        monkeypatch.setattr(
+            "rlm.challenge.engine.mark_open_position_premium",
+            lambda *a, **k: (1.15, 500.0, 7),
+        )
+        loose = replace(
+            cfg,
+            stage1_stop_loss_mult=0.40,
+            stage2_stop_loss_mult=0.40,
+            stage3_stop_loss_mult=0.40,
+            stage4_stop_loss_mult=0.40,
+        )
+        engine = ChallengeEngine(loose, tmp_tracker)
+        summary = engine.run_session("no_trade", 500.0, session_date="2026-01-02")
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "trail"
+        assert len(tmp_tracker.load().open_positions) == 0
+
+    def test_live_mark_triggers_target_exit(self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         from unittest.mock import patch
 
         from rlm.challenge.state import ChallengePosition
@@ -548,9 +599,7 @@ class TestChallengeEngine:
         cap = 2.0 * cfg.stage1_profit_target_mult * 100
         assert summary.closed_trades[0].proceeds == pytest.approx(cap, rel=1e-4)
 
-    def test_stop_hit_closes_position(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_stop_hit_closes_position(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         tmp_tracker.reset(cfg_enter)
         engine = ChallengeEngine(cfg_enter, tmp_tracker)
         # Open a long call
@@ -562,9 +611,7 @@ class TestChallengeEngine:
         total_trades = len(state.trade_history)
         assert total_trades >= 1
 
-    def test_balance_deducted_on_entry(
-        self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
-    ) -> None:
+    def test_balance_deducted_on_entry(self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker) -> None:
         state = tmp_tracker.reset(cfg_enter)
         initial = state.balance
         engine = ChallengeEngine(cfg_enter, tmp_tracker)

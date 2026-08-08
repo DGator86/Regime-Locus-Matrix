@@ -81,6 +81,7 @@ def refresh_challenge_state(
     asof = quote.asof_utc if quote is not None else datetime.now(tz=timezone.utc).isoformat()
     pipe_px = quote.price if quote is not None else 0.0
 
+    trail_arm = cfg.trail_activate_for(state.balance)
     for pos in state.open_positions:
         new_premium, _, new_dte = mark_open_position_premium(
             pos,
@@ -95,6 +96,10 @@ def refresh_challenge_state(
         mult = new_premium / pos.premium_per_share if pos.premium_per_share > 0 else 1.0
         if mult > pos.peak_premium_mult:
             pos.peak_premium_mult = mult
+        # Keep trail arming in sync with peak updates so a later engine tick
+        # can still trail-exit after an intervening mark refresh.
+        if mult >= trail_arm or pos.peak_premium_mult >= trail_arm:
+            pos.trail_armed = True
 
     state.last_updated = datetime.now(tz=timezone.utc).isoformat()
     return asof if quote is not None else None

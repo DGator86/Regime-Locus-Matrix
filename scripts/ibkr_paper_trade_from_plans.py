@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from rlm.execution.trade_log_io import ensure_trade_log, open_plan_ids, seed_paper_opens_from_active_plans
+from rlm.execution.trade_log_io import ensure_trade_log, known_plan_ids, seed_paper_opens_from_active_plans
 from rlm.roee.system_gate import SystemGate
 
 
@@ -78,7 +78,7 @@ def main() -> int:
 
     payload = _load_plans(plans_path)
     active = _active_plans(payload)[: max(0, args.max)]
-    already = open_plan_ids(log_path)
+    already = known_plan_ids(log_path)
 
     if args.dry_run:
         would = [
