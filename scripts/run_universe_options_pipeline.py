@@ -194,17 +194,26 @@ def _regime_key_head(regime_key: object | None) -> str:
     return str(regime_key).split("|")[0].strip().lower()
 
 
-def _finite_sd(val: object) -> float:
+def _finite_sd(val: object) -> float | None:
+    """Return a finite S_D, or ``None`` when missing/NaN (inconclusive)."""
     try:
         x = float(val)
     except (TypeError, ValueError):
-        return 0.0
-    if pd.isna(x):
-        return 0.0
+        return None
+    if pd.isna(x) or not np.isfinite(x):
+        return None
     return float(x)
 
 
-def _direction_aligned(primary_sd: float, confirm_sd: float) -> bool:
+def _direction_aligned(primary_sd: float | None, confirm_sd: float | None) -> bool:
+    """Sign agreement for confirmation.
+
+    Missing/NaN scores are inconclusive (do not hard-fail the layer). Mapping NaN→0
+    previously false-blocked daily-primary rows whenever a confirmation stream had
+    incomplete factors while the other side was directional.
+    """
+    if primary_sd is None or confirm_sd is None:
+        return True
     if primary_sd == 0.0 and confirm_sd == 0.0:
         return True
     if primary_sd == 0.0 or confirm_sd == 0.0:
@@ -220,6 +229,11 @@ def _tf_confirmation_layers_agree(
 ) -> bool:
     direction_ok = _direction_aligned(_finite_sd(primary.get("S_D")), _finite_sd(confirm.get("S_D")))
     head_ok = _regime_key_head(primary.get("regime_key")) == _regime_key_head(confirm.get("regime_key"))
+    # Empty/unknown regime heads are inconclusive for regime_head mode.
+    if mode in ("regime_head", "both") and (
+        not _regime_key_head(primary.get("regime_key")) or not _regime_key_head(confirm.get("regime_key"))
+    ):
+        head_ok = True
     if mode == "direction":
         return direction_ok
     if mode == "regime_head":

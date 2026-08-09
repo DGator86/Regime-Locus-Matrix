@@ -38,7 +38,7 @@ def mark_open_position_premium(
     days_elapsed = _days_between(pos.entry_date, session_date)
     new_dte = max(0, pos.dte_at_entry - days_elapsed)
     iv_use = iv if iv is not None else pos.iv_at_entry
-    underlying = pipeline_underlying
+    underlying = float(pipeline_underlying) if pipeline_underlying and pipeline_underlying > 0 else 0.0
     new_premium: float
 
     quote = fetch_equity_quote(pos.symbol) if live_marks_enabled() else None
@@ -54,10 +54,17 @@ def mark_open_position_premium(
         if live_mid is not None and live_mid > 0:
             return live_mid, underlying, new_dte
 
+    # Synthetic mark needs a positive underlying. Prefer entry spot when live/pipeline
+    # quotes are missing — never trust a fabricated placeholder (e.g. legacy 500.0).
+    if underlying <= 0:
+        underlying = float(pos.underlying_entry) if pos.underlying_entry > 0 else 0.0
+    if underlying <= 0:
+        return max(float(pos.current_premium or pos.premium_per_share), 0.01), underlying, new_dte
+
     new_premium = updated_premium(
         entry_premium=pos.premium_per_share,
         delta=pos.delta_at_entry,
-        underlying_entry=pos.underlying_entry,
+        underlying_entry=pos.underlying_entry if pos.underlying_entry > 0 else underlying,
         underlying_now=underlying,
         days_elapsed=days_elapsed,
         dte_remaining=new_dte,
@@ -78,8 +85,8 @@ def refresh_challenge_state(
 
     session_date = session_date or date.today().isoformat()
     quote = fetch_equity_quote(cfg.symbol)
-    asof = quote.asof_utc if quote is not None else datetime.now(tz=timezone.utc).isoformat()
-    pipe_px = quote.price if quote is not None else 0.0
+    asof = quote.asof_utc if quote is not None and quote.price > 0 else None
+    pipe_px = quote.price if quote is not None and quote.price > 0 else 0.0
 
     for pos in state.open_positions:
         new_premium, _, new_dte = mark_open_position_premium(
@@ -97,7 +104,7 @@ def refresh_challenge_state(
             pos.peak_premium_mult = mult
 
     state.last_updated = datetime.now(tz=timezone.utc).isoformat()
-    return asof if quote is not None else None
+    return asof
 
 
 def refresh_challenge_at_root(root: Path) -> str | None:

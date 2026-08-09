@@ -20,6 +20,10 @@ def resolve_session_underlying(
 
     Live quote is preferred whenever available. Pipeline close is used only when
     live data is unavailable (offline tests, yfinance failure).
+
+    When neither source is available, returns ``(0.0, "unavailable")``. Callers
+    must not treat that as a tradable spot — open legs should mark from
+    ``underlying_entry`` instead of inventing a placeholder price.
     """
     if override is not None and override > 0:
         return float(override), "override"
@@ -50,7 +54,9 @@ def resolve_session_underlying(
             )
         return float(pipeline_close), "pipeline"
 
-    return 500.0, "fallback"
+    # Never invent a spot (legacy hardcoded 500.0 marked SPY ~$700 books as a crash
+    # and false-stopped calls / false-took puts). Callers must treat <=0 as unavailable.
+    return 0.0, "unavailable"
 
 
 def _pipeline_is_stale(pipeline_bar_date: str | None, session_date: str) -> bool:
