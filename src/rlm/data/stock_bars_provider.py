@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from rlm.data.bar_timeframes import duration_to_calendar_days, is_intraday_bar_size
+from rlm.data.bar_timeframes import (
+    duration_to_calendar_days,
+    is_intraday_bar_size,
+    pandas_resample_rule_for_bar_size,
+)
 from rlm.data.eodhd_stocks import fetch_intraday_lookback_days, load_eodhd_api_key
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.lake import stock_1m_parquet
@@ -91,6 +95,60 @@ def merge_bars_into_lake(
     return merged
 
 
+def _drop_empty_ohlc_bins(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop resample bins with no real session prints.
+
+    Pandas ``resample`` inserts calendar bins across nights/weekends. Empty bins
+    get ``volume=0`` (sum of nothing) while OHLC stay NaN, so ``dropna(how="all")``
+    keeps them. Those ghost rows poison pct-change / vol factors and can flip
+    daily-primary ``direction_regime`` on the three-track EODHD path.
+    """
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame()
+    price_cols = [c for c in ("open", "high", "low", "close") if c in df.columns]
+    if not price_cols:
+        return df.dropna(how="all")
+    return df.dropna(subset=price_cols, how="any")
+
+
+def resample_ohlcv_bars(df: pd.DataFrame, bar_size: str) -> pd.DataFrame:
+    """Aggregate 1m (or finer) OHLCV rows to ``bar_size`` when coarser than 1 minute.
+
+    No-op when ``bar_size`` is already ≤1m or ``df`` lacks a timestamp column.
+    Empty overnight/weekend bins created by ``resample`` are dropped.
+    """
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame()
+    rule = pandas_resample_rule_for_bar_size(bar_size)
+    if rule is None:
+        return df.reset_index(drop=True) if "timestamp" in df.columns else df
+    if "timestamp" not in df.columns:
+        return df
+    cols = [c for c in ("open", "high", "low", "close", "volume", "vwap") if c in df.columns]
+    if not cols:
+        return df.reset_index(drop=True)
+    agg = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+        "vwap": "mean",
+    }
+    use_agg = {k: v for k, v in agg.items() if k in cols}
+    out = (
+        df.loc[:, ["timestamp", *cols]]
+        .assign(timestamp=lambda x: pd.to_datetime(x["timestamp"], errors="coerce"))
+        .dropna(subset=["timestamp"])
+        .sort_values("timestamp")
+        .set_index("timestamp")
+        .resample(rule)
+        .agg(use_agg)
+        .reset_index()
+    )
+    return _drop_empty_ohlc_bins(out).reset_index(drop=True)
+
+
 def fetch_stock_bars(
     symbol: str,
     *,
@@ -110,17 +168,18 @@ def fetch_stock_bars(
             lake = load_stock_1m_from_lake(sym, root=data_root, lookback_days=days)
             min_bars = int(os.environ.get("RLM_EODHD_MIN_LAKE_BARS", "500"))
             if len(lake) >= min_bars:
-                return lake
+                return resample_ohlcv_bars(lake, bar_size)
             if source == "eodhd" and load_eodhd_api_key():
                 try:
                     fresh = fetch_intraday_lookback_days(sym, lookback_days=days)
                     if not fresh.empty:
-                        return merge_bars_into_lake(sym, fresh, root=data_root)
+                        merged = merge_bars_into_lake(sym, fresh, root=data_root)
+                        return resample_ohlcv_bars(merged, bar_size)
                 except Exception:
                     if not _env_truthy("RLM_ALLOW_IBKR_STOCK_BARS"):
-                        return lake
+                        return resample_ohlcv_bars(lake, bar_size)
             if source == "auto" and not lake.empty:
-                return lake
+                return resample_ohlcv_bars(lake, bar_size)
 
         return _fetch_ibkr_intraday(sym, duration=duration, bar_size=bar_size, serialize=serialize_ibkr, lock=ibkr_lock)
 
@@ -142,10 +201,11 @@ def fetch_stock_bars(
                             "vwap": "mean",
                         }
                     )
-                    .dropna(how="all")
                     .reset_index()
                 )
-                return daily
+                # Same empty-bin trap as resample_ohlcv_bars: weekends/holidays get
+                # volume=0 + NaN OHLC and must not enter the daily-primary regime series.
+                return _drop_empty_ohlc_bins(daily).reset_index(drop=True)
 
     return _fetch_ibkr_daily(sym, duration=duration, bar_size=bar_size, serialize=serialize_ibkr, lock=ibkr_lock)
 

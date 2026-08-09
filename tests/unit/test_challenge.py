@@ -608,6 +608,61 @@ class TestChallengeEngine:
         state = tmp_tracker.load()
         assert len(state.open_positions) <= cfg.max_concurrent_positions
 
+    def test_unavailable_spot_does_not_false_stop_open_calls(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        """When spot is unavailable (0), mark from entry — do not invent $500.
+
+        Pre-fix ``resolve_session_underlying`` returned 500.0 as a hard fallback.
+        With SPY entered near 700, that placeholder looked like a crash and
+        stop-loss'd long calls (and took profit on puts) during data outages.
+        """
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=700.0,
+            strike=710.0,
+            dte=5,
+            entry_date="2026-08-08",
+            premium_per_share=3.0,
+            qty=1,
+            delta=0.45,
+            iv=0.18,
+        )
+        state.open_positions = [pos]
+        state.balance = 700.0
+        tmp_tracker.save(state)
+
+        engine = ChallengeEngine(cfg, tmp_tracker)
+        with patch("rlm.challenge.live_marks.live_marks_enabled", return_value=False):
+            summary = engine.run_session("no_trade", 0.0, session_date="2026-08-09", iv=0.18)
+
+        assert summary.closed_trades == []
+        loaded = tmp_tracker.load()
+        assert len(loaded.open_positions) == 1
+        assert loaded.open_positions[0].current_premium > 0.5  # not floored to $0.01 stop
+
+    def test_unavailable_spot_blocks_new_entries(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        tmp_tracker.reset(cfg)
+        engine = ChallengeEngine(cfg, tmp_tracker)
+        summary = engine.run_session(
+            "long",
+            0.0,
+            signal_alignment=0.9,
+            confidence=0.9,
+            session_date="2026-08-09",
+        )
+        assert summary.new_position is None
+        assert "underlying_price_unavailable" in summary.message
+
 
 # ---------------------------------------------------------------------------
 # Milestone and progress tests

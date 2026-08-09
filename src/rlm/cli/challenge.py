@@ -239,6 +239,14 @@ def _get_signals(
                 f"[challenge] using pipeline close ${price:.2f} (live quote unavailable)",
                 file=sys.stderr,
             )
+        if price_source == "unavailable" or price <= 0:
+            print(
+                "[challenge] underlying unavailable — no new entries; "
+                "open legs mark from entry spot",
+                file=sys.stderr,
+            )
+            directive = "no_trade"
+            price = 0.0
 
         # IV: try to pull from pipeline, else fall back
         iv = default_iv
@@ -253,11 +261,18 @@ def _get_signals(
         print(f"[challenge] Pipeline unavailable ({exc}); using neutral fallback.", file=sys.stderr)
         from rlm.challenge.underlying import resolve_session_underlying
 
-        price, _ = resolve_session_underlying(
+        price, price_source = resolve_session_underlying(
             symbol,
             None,
             override=underlying_price_override,
         )
+        if price_source == "unavailable" or price <= 0:
+            print(
+                "[challenge] underlying unavailable after pipeline failure — "
+                "exits mark from entry spot",
+                file=sys.stderr,
+            )
+            price = 0.0
         return "no_trade", price, 0.5, 0.5, default_iv
 
 

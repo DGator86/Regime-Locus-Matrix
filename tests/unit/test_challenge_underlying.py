@@ -34,8 +34,8 @@ class TestResolveSessionUnderlying:
         assert px == 711.52
         assert src == "pipeline"
 
-    def test_hard_fallback_when_nothing_available(self) -> None:
+    def test_unavailable_when_nothing_available(self) -> None:
         with patch("rlm.challenge.underlying.live_marks_enabled", return_value=False):
             px, src = resolve_session_underlying("SPY", None)
-        assert px == 500.0
-        assert src == "fallback"
+        assert px == 0.0
+        assert src == "unavailable"

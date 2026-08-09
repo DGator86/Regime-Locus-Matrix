@@ -13,6 +13,7 @@ from rlm.data.bar_timeframes import (
     duration_to_calendar_days,
     ibkr_chunk_days_for_bar_size,
     is_intraday_bar_size,
+    pandas_resample_rule_for_bar_size,
 )
 
 
@@ -48,6 +49,13 @@ def test_ibkr_chunk_days_for_1min() -> None:
 def test_bar_size_step_minutes() -> None:
     assert bar_size_step_minutes("1 min") == 1.0
     assert bar_size_step_minutes("5 mins") == 5.0
+
+
+def test_pandas_resample_rule_for_bar_size() -> None:
+    assert pandas_resample_rule_for_bar_size("1 min") is None
+    assert pandas_resample_rule_for_bar_size("5 mins") == "5min"
+    assert pandas_resample_rule_for_bar_size("15 mins") == "15min"
+    assert pandas_resample_rule_for_bar_size("1 hour") == "60min"
 
 
 def test_apply_intraday_primary_defaults_upgrades_daily(monkeypatch: pytest.MonkeyPatch) -> None:
