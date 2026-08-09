@@ -61,6 +61,24 @@ def bar_size_step_minutes(bar_size: str) -> float:
     return 5.0
 
 
+def pandas_resample_rule_for_bar_size(bar_size: str) -> str | None:
+    """Pandas ``resample`` rule for an IBKR intraday ``bar_size``, or ``None`` if ≤1m / unknown.
+
+    EODHD lakes are stored as 1-minute bars. Confirmation streams such as
+    ``5 mins`` / ``15 mins`` must be aggregated before regime scoring; returning
+    raw 1m for those sizes makes daily-primary confirmation compare against
+    last-minute noise and false-block entries.
+    """
+    step = bar_size_step_minutes(bar_size)
+    if step <= 1.0 + 1e-9:
+        return None
+    # Whole minutes → "5min"; fractional hours stay minute-based.
+    minutes = int(round(step))
+    if minutes < 2:
+        return None
+    return f"{minutes}min"
+
+
 def ibkr_chunk_days_for_bar_size(bar_size: str) -> int:
     """Conservative per-request ``duration`` chunk for IBKR intraday history."""
     step = bar_size_step_minutes(bar_size)
