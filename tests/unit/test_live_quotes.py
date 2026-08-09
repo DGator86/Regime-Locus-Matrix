@@ -41,6 +41,34 @@ class TestLiveQuotes:
         assert pos.current_premium == 3.5
         assert pos.unrealised_pnl == 50.0
 
+    def test_refresh_challenge_survives_missing_equity_quote(self) -> None:
+        """yfinance outage must not crash Telegram /positions or challenge --status."""
+        cfg = ChallengeConfig(symbol="SPY")
+        pos = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=700.0,
+            strike=740.0,
+            dte=7,
+            entry_date="2026-05-28",
+            premium_per_share=3.0,
+            qty=1,
+            delta=0.45,
+            iv=0.18,
+        )
+        state = ChallengeState(balance=700.0, seed=1_000.0, target=25_000.0, open_positions=[pos])
+
+        with (
+            patch("rlm.challenge.live_marks.live_marks_enabled", return_value=True),
+            patch("rlm.challenge.live_marks.fetch_equity_quote", return_value=None),
+        ):
+            asof = refresh_challenge_state(state, cfg, session_date="2026-05-29")
+
+        assert asof is None
+        assert pos.current_premium > 0
+        assert pos.dte_remaining == 6
+
     def test_fetch_equity_quote_uses_fast_info(self) -> None:
         mock_ticker = MagicMock()
         mock_ticker.fast_info = {"lastPrice": 512.34}

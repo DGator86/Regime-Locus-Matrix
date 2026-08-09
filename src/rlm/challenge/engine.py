@@ -97,7 +97,14 @@ class ChallengeEngine:
 
         # 1. Evaluate open positions
         for pos in list(state.open_positions):
-            record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
+            # When session spot is unavailable (<=0), mark from each leg's entry
+            # underlying so a placeholder price cannot false-stop / false-target.
+            mark_px = (
+                float(underlying_price)
+                if underlying_price and underlying_price > 0
+                else float(pos.underlying_entry or 0.0)
+            )
+            record = self._evaluate_position(pos, mark_px, iv, session_date, state)
             if record is not None:
                 closed_trades.append(record)
                 state.daily_realized_pnl += record.pnl
@@ -116,6 +123,9 @@ class ChallengeEngine:
                 f"cash ${state.balance:,.2f}"
             )
         elif state.balance < self.cfg.target_capital and len(state.open_positions) < self.cfg.max_concurrent_positions:
+            if not entry_skip_reason and (not underlying_price or underlying_price <= 0):
+                entry_skip_reason = "underlying_price_unavailable"
+
             if not entry_skip_reason and _daily_loss_limit_reached(state.daily_realized_pnl, state.balance, self.cfg):
                 entry_skip_reason = "daily_loss_limit_reached"
 
