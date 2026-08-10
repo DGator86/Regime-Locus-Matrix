@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from rlm.data.option_chain import normalize_option_chain, select_nearest_expiry_slice
+from rlm.data.option_chain import (
+    live_chain_as_of_timestamp,
+    normalize_option_chain,
+    recompute_chain_dte,
+    select_nearest_expiry_slice,
+)
 
 
 def _raw_chain(*, timestamp: pd.Timestamp, expiries: list[pd.Timestamp]) -> pd.DataFrame:
@@ -62,3 +67,31 @@ def test_three_track_window_keeps_calendar_7_and_excludes_22() -> None:
     assert 21 in cal_offsets
     assert 6 not in cal_offsets
     assert 22 not in cal_offsets
+
+
+def test_stale_daily_bar_timestamp_overstates_dte_until_recompute() -> None:
+    """Daily-primary last bar on Friday must not admit true-4DTE into a 7–21 sleeve on Monday."""
+    friday_bar = pd.Timestamp("2026-08-07")
+    monday_as_of = pd.Timestamp("2026-08-10")
+    expiries = [
+        pd.Timestamp("2026-08-14"),  # true 4 DTE on Monday; claimed 7 from Friday
+        pd.Timestamp("2026-08-21"),
+        pd.Timestamp("2026-08-28"),
+        pd.Timestamp("2026-09-04"),
+    ]
+    chain = normalize_option_chain(_raw_chain(timestamp=friday_bar, expiries=expiries))
+    false_admit = chain[(chain["dte"] >= 7) & (chain["dte"] <= 21)]
+    assert pd.Timestamp("2026-08-14") in set(pd.Timestamp(e).normalize() for e in false_admit["expiry"])
+
+    fixed = recompute_chain_dte(chain, monday_as_of)
+    eligible = fixed[(fixed["dte"] >= 7) & (fixed["dte"] <= 21)]
+    expiries_ok = set(pd.Timestamp(e).normalize() for e in eligible["expiry"])
+    assert pd.Timestamp("2026-08-14") not in expiries_ok
+    assert pd.Timestamp("2026-08-21") in expiries_ok
+    assert int(fixed.loc[fixed["expiry"].dt.normalize() == pd.Timestamp("2026-08-14"), "dte"].iloc[0]) == 4
+
+
+def test_live_chain_as_of_uses_exchange_calendar_date() -> None:
+    # 2026-08-11 02:30 UTC == 2026-08-10 22:30 America/New_York
+    as_of = live_chain_as_of_timestamp(pd.Timestamp("2026-08-11 02:30:00", tz="UTC"))
+    assert as_of == pd.Timestamp("2026-08-10")
