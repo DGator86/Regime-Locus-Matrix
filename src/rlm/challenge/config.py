@@ -104,7 +104,11 @@ class ChallengeConfig:
     min_trail_exit_mult: float = 1.08
     """Never trail-exit below this multiple of entry premium."""
     min_dte_exit: int = 1
-    """Force-exit when fewer than this many days remain to expiry."""
+    """Force-exit when *fewer than* this many calendar days remain to expiry.
+
+    On the expiry date itself (0 DTE, including SPY day-trade scalps) the engine
+    still holds through the RTH entry window and flattens only after it closes.
+    """
 
     # ---- Option parameters --------------------------------------------------
     stage1_dte: int = 7
