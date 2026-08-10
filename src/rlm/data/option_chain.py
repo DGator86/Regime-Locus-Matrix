@@ -56,7 +56,14 @@ def normalize_option_chain(df: pd.DataFrame) -> pd.DataFrame:
     out["mid"] = (out["bid"] + out["ask"]) / 2.0
     out["spread"] = out["ask"] - out["bid"]
     out["spread_pct_mid"] = np.where(out["mid"] > 0, out["spread"] / out["mid"], np.nan)
-    out["dte"] = (out["expiry"] - out["timestamp"]).dt.days
+    # Calendar-day DTE (expiry date − quote date). Massive stamps ``timestamp`` with
+    # wall-clock "now", so ``(expiry - timestamp).dt.days`` undercounts by 1 for the
+    # entire session after midnight and reports 0DTE as -1 — which drops same-day
+    # expiries from ``dte_min=0`` windows and shifts three-track 7–21 bounds.
+    ts = out["timestamp"]
+    if getattr(ts.dt, "tz", None) is not None:
+        ts = ts.dt.tz_convert("UTC").dt.tz_localize(None)
+    out["dte"] = (out["expiry"].dt.normalize() - ts.dt.normalize()).dt.days
 
     numeric_optional = [
         "delta",
