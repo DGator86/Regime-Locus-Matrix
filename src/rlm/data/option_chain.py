@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,47 @@ REQUIRED_CHAIN_COLUMNS = {
     "bid",
     "ask",
 }
+
+_EXCHANGE_TZ = ZoneInfo("America/New_York")
+
+
+def live_chain_as_of_timestamp(
+    now: pd.Timestamp | None = None,
+) -> pd.Timestamp:
+    """Exchange-calendar ``as_of`` date for live option DTE / expiry filters.
+
+    Daily (and other lagged) primary bars often end on the prior session. Stamping
+    Massive chains with that bar clock overstates DTE by the bar lag and admits
+    expiries inside ``dte_min`` (e.g. true 6 DTE claimed as 7). Live matching
+    must anchor to today's America/New_York date instead.
+    """
+    if now is None:
+        et = pd.Timestamp.now(tz=_EXCHANGE_TZ)
+    else:
+        ts = pd.Timestamp(now)
+        if ts.tzinfo is None:
+            et = ts.tz_localize(_EXCHANGE_TZ)
+        else:
+            et = ts.tz_convert(_EXCHANGE_TZ)
+    return pd.Timestamp(et.date())
+
+
+def recompute_chain_dte(
+    chain: pd.DataFrame,
+    as_of: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    """Rewrite ``dte`` as calendar days from *as_of* (default: live ET date)."""
+    if chain is None or chain.empty or "expiry" not in chain.columns:
+        return chain
+    anchor = live_chain_as_of_timestamp() if as_of is None else pd.Timestamp(as_of).normalize()
+    if getattr(anchor, "tzinfo", None) is not None:
+        anchor = anchor.tz_localize(None)
+    out = chain.copy()
+    expiry = pd.to_datetime(out["expiry"])
+    if getattr(expiry.dt, "tz", None) is not None:
+        expiry = expiry.dt.tz_convert("UTC").dt.tz_localize(None)
+    out["dte"] = (expiry.dt.normalize() - anchor).dt.days
+    return out
 
 
 @dataclass(frozen=True)
@@ -56,7 +98,14 @@ def normalize_option_chain(df: pd.DataFrame) -> pd.DataFrame:
     out["mid"] = (out["bid"] + out["ask"]) / 2.0
     out["spread"] = out["ask"] - out["bid"]
     out["spread_pct_mid"] = np.where(out["mid"] > 0, out["spread"] / out["mid"], np.nan)
-    out["dte"] = (out["expiry"] - out["timestamp"]).dt.days
+    # Calendar-day DTE (expiry date − quote date). Massive stamps ``timestamp`` with
+    # wall-clock "now", so ``(expiry - timestamp).dt.days`` undercounts by 1 for the
+    # entire session after midnight and reports 0DTE as -1 — which drops same-day
+    # expiries from ``dte_min=0`` windows and shifts three-track 7–21 bounds.
+    ts = out["timestamp"]
+    if getattr(ts.dt, "tz", None) is not None:
+        ts = ts.dt.tz_convert("UTC").dt.tz_localize(None)
+    out["dte"] = (out["expiry"].dt.normalize() - ts.dt.normalize()).dt.days
 
     numeric_optional = [
         "delta",

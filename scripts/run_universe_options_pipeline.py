@@ -55,24 +55,25 @@ apply_compute_thread_env()
 import numpy as np
 import pandas as pd
 
-# ruff: noqa: E402
-from rlm.data.bars_enrichment import prepare_bars_for_factors
-from rlm.data.event_calendar import has_major_event_today
 from rlm.data.bar_timeframes import (
     apply_intraday_primary_defaults,
     clamp_intraday_duration,
     is_intraday_bar_size,
 )
-from rlm.data.stock_bars_provider import fetch_stock_bars
+
+# ruff: noqa: E402
+from rlm.data.bars_enrichment import prepare_bars_for_factors
+from rlm.data.event_calendar import has_major_event_today
 from rlm.data.liquidity_universe import LIQUID_TEN_STOCKS_PLUS_CORE_ETFS
 from rlm.data.massive import MassiveClient
 from rlm.data.massive_option_chain import massive_option_chains_from_client
+from rlm.data.option_chain import live_chain_as_of_timestamp, recompute_chain_dte
+from rlm.data.stock_bars_provider import fetch_stock_bars
 from rlm.execution.combo_spec import plan_combo_spec
 from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, seed_paper_opens_from_active_plans
 from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
@@ -84,6 +85,7 @@ from rlm.forecasting.live_model import (
     save_live_regime_model,
 )
 from rlm.monitoring.structured import build_pipeline_event
+from rlm.options.edge import assess_combo_edge, chain_spot_price
 from rlm.regimes.forecast_regime_snapshot import (
     build_regime_transition_snapshot,
     regime_direction_equity,
@@ -497,12 +499,28 @@ def _prepare_symbol(
 
 
 def _build_incremental_snapshot_params(
-    ts: pd.Timestamp,
+    as_of: pd.Timestamp,
     decision: TradeDecision,
     *,
     massive_limit: int,
     strike_increment: float,
+    dte_min_override: int | None = None,
+    dte_max_override: int | None = None,
 ) -> dict[str, object]:
+    """Build Massive snapshot filters for leg matching.
+
+    ``as_of`` must be the live exchange calendar date (see
+    :func:`live_chain_as_of_timestamp`), **not** the last primary bar timestamp.
+    Daily-primary bars often lag by one session (or a weekend); using that bar
+    clock as the expiry anchor shifts ``dte_min``/``dte_max`` earlier and admits
+    too-short contracts into the three-track 7–21 sleeve.
+
+    Expiry bounds must use the same resolved window as
+    :func:`_finalize_symbol` (CLI ``--dte-min`` / ``--dte-max`` overrides when
+    set). Policy ``candidate.target_dte_*`` is often 14–45 while three-track
+    clamps selection to 7–21; fetching only the policy window silently drops
+    front-sleeve expiries from Massive before slice selection runs.
+    """
     params: dict[str, object] = {
         "limit": int(massive_limit),
         "sort": "expiration_date",
@@ -510,12 +528,14 @@ def _build_incremental_snapshot_params(
     }
     candidate = decision.candidate
     if candidate is not None:
-        anchor = pd.Timestamp(ts)
+        anchor = pd.Timestamp(as_of)
         if anchor.tzinfo is not None:
             anchor = anchor.tz_localize(None)
         anchor = anchor.normalize()
-        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date())
-        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date())
+        dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
+        dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
+        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=dte_min)).date())
+        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=dte_max)).date())
 
     strikes = [float(leg.strike) for leg in decision.legs]
     if strikes:
@@ -552,6 +572,10 @@ def _finalize_symbol(
     if chain.empty:
         base["skip_reason"] = "no_tradable_option_quotes"
         return base
+
+    # Re-anchor DTE to the live ET calendar even if Massive rows were stamped with a
+    # lagged primary-bar timestamp (daily-primary / weekend gap).
+    chain = recompute_chain_dte(chain, live_chain_as_of_timestamp())
 
     dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
     dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
@@ -1349,16 +1373,19 @@ def _main_locked() -> int:
             for j, item in enumerate(pending):
                 if j:
                     time.sleep(max(0.0, float(args.massive_delay)))
+                chain_as_of = live_chain_as_of_timestamp()
                 batch = massive_option_chains_from_client(
                     client,
                     [item.symbol],
-                    timestamps={item.symbol: item.timestamp},
+                    timestamps={item.symbol: chain_as_of},
                     per_symbol_params={
                         item.symbol: _build_incremental_snapshot_params(
-                            item.timestamp,
+                            chain_as_of,
                             item.decision,
                             massive_limit=args.massive_limit,
                             strike_increment=args.strike_increment,
+                            dte_min_override=args.dte_min,
+                            dte_max_override=args.dte_max,
                         )
                     },
                     max_workers=1,
@@ -1386,16 +1413,19 @@ def _main_locked() -> int:
                     dte_max_override=args.dte_max,
                 )
         else:
+            chain_as_of = live_chain_as_of_timestamp()
             batch = massive_option_chains_from_client(
                 client,
                 [item.symbol for item in pending],
-                timestamps={item.symbol: item.timestamp for item in pending},
+                timestamps={item.symbol: chain_as_of for item in pending},
                 per_symbol_params={
                     item.symbol: _build_incremental_snapshot_params(
-                        item.timestamp,
+                        chain_as_of,
                         item.decision,
                         massive_limit=args.massive_limit,
                         strike_increment=args.strike_increment,
+                        dte_min_override=args.dte_min,
+                        dte_max_override=args.dte_max,
                     )
                     for item in pending
                 },
