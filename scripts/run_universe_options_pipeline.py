@@ -504,6 +504,8 @@ def _build_incremental_snapshot_params(
     *,
     massive_limit: int,
     strike_increment: float,
+    dte_min_override: int | None = None,
+    dte_max_override: int | None = None,
 ) -> dict[str, object]:
     """Build Massive snapshot filters for leg matching.
 
@@ -512,6 +514,12 @@ def _build_incremental_snapshot_params(
     Daily-primary bars often lag by one session (or a weekend); using that bar
     clock as the expiry anchor shifts ``dte_min``/``dte_max`` earlier and admits
     too-short contracts into the three-track 7–21 sleeve.
+
+    Expiry bounds must use the same resolved window as
+    :func:`_finalize_symbol` (CLI ``--dte-min`` / ``--dte-max`` overrides when
+    set). Policy ``candidate.target_dte_*`` is often 14–45 while three-track
+    clamps selection to 7–21; fetching only the policy window silently drops
+    front-sleeve expiries from Massive before slice selection runs.
     """
     params: dict[str, object] = {
         "limit": int(massive_limit),
@@ -524,8 +532,10 @@ def _build_incremental_snapshot_params(
         if anchor.tzinfo is not None:
             anchor = anchor.tz_localize(None)
         anchor = anchor.normalize()
-        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_min))).date())
-        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=int(candidate.target_dte_max))).date())
+        dte_min = int(dte_min_override) if dte_min_override is not None else int(candidate.target_dte_min)
+        dte_max = int(dte_max_override) if dte_max_override is not None else int(candidate.target_dte_max)
+        params["expiration_date.gte"] = str((anchor + pd.Timedelta(days=dte_min)).date())
+        params["expiration_date.lte"] = str((anchor + pd.Timedelta(days=dte_max)).date())
 
     strikes = [float(leg.strike) for leg in decision.legs]
     if strikes:
@@ -1374,6 +1384,8 @@ def _main_locked() -> int:
                             item.decision,
                             massive_limit=args.massive_limit,
                             strike_increment=args.strike_increment,
+                            dte_min_override=args.dte_min,
+                            dte_max_override=args.dte_max,
                         )
                     },
                     max_workers=1,
@@ -1412,6 +1424,8 @@ def _main_locked() -> int:
                         item.decision,
                         massive_limit=args.massive_limit,
                         strike_increment=args.strike_increment,
+                        dte_min_override=args.dte_min,
+                        dte_max_override=args.dte_max,
                     )
                     for item in pending
                 },

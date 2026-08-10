@@ -280,3 +280,44 @@ def test_universe_incremental_expiry_window_uses_as_of_not_stale_bar() -> None:
     assert friday_bar["expiration_date.lte"] == "2026-08-28"
     assert monday_as_of["expiration_date.gte"] == "2026-08-17"
     assert monday_as_of["expiration_date.lte"] == "2026-08-31"
+
+
+def test_universe_incremental_expiry_window_honors_cli_dte_overrides() -> None:
+    """Three-track --dte-min/max must drive Massive fetch, not policy 20–45 alone."""
+    from rlm.types.options import OptionLeg, TradeCandidate, TradeDecision
+
+    decision = TradeDecision(
+        action="enter",
+        candidate=TradeCandidate(
+            strategy_name="long_call_spread",
+            regime_key="bull|low_vol|high_liquidity|supportive",
+            rationale="test",
+            target_dte_min=20,
+            target_dte_max=45,
+            target_profit_pct=0.50,
+            max_risk_pct=0.03,
+        ),
+        legs=[
+            OptionLeg(side="long", option_type="call", strike=500.0),
+            OptionLeg(side="short", option_type="call", strike=505.0),
+        ],
+    )
+    policy_only = universe_incremental_params(
+        pd.Timestamp("2026-08-10"),
+        decision,
+        massive_limit=250,
+        strike_increment=1.0,
+    )
+    three_track = universe_incremental_params(
+        pd.Timestamp("2026-08-10"),
+        decision,
+        massive_limit=250,
+        strike_increment=1.0,
+        dte_min_override=7,
+        dte_max_override=21,
+    )
+    # Policy window alone starts at +20 and misses the front of the 7–21 sleeve.
+    assert policy_only["expiration_date.gte"] == "2026-08-30"
+    assert policy_only["expiration_date.lte"] == "2026-09-24"
+    assert three_track["expiration_date.gte"] == "2026-08-17"
+    assert three_track["expiration_date.lte"] == "2026-08-31"
