@@ -13,8 +13,12 @@ from rlm.core.pipeline import FullRLMConfig, FullRLMPipeline
 from scripts.monitor_active_trade_plans import _evaluate_plan
 from scripts.run_universe_options_pipeline import (
     _apply_active_plan_guards,
+    _is_infrastructure_universe_failure,
     _kronos_stub_available,
     _load_open_symbols_from_trade_log,
+    _prior_universe_plans_have_actives,
+    _universe_scan_is_total_infra_failure,
+    should_preserve_universe_plans_on_infra_failure,
 )
 
 
@@ -184,6 +188,70 @@ def test_pipeline_duplicate_symbol_trimmed() -> None:
     assert len(tsla_active) == 1
     trimmed = [r for r in rows if r.get("symbol") == "TSLA" and r.get("status") == "trimmed"]
     assert trimmed and trimmed[0].get("skip_reason") == "duplicate_symbol_strategy_or_max_active_per_symbol"
+
+
+def test_infrastructure_failure_classifier() -> None:
+    assert _is_infrastructure_universe_failure(
+        {"status": "error", "skip_reason": "ConnectionError: Massive"}
+    )
+    assert _is_infrastructure_universe_failure({"status": "skipped", "skip_reason": "no_stock_bars"})
+    assert _is_infrastructure_universe_failure(
+        {"status": "skipped", "skip_reason": "massive_chain_error:timeout"}
+    )
+    assert _is_infrastructure_universe_failure(
+        {"status": "skipped", "skip_reason": "outside_entry_window (pre-market)"}
+    )
+    assert not _is_infrastructure_universe_failure(
+        {"status": "skipped", "skip_reason": "options_edge_gate"}
+    )
+    assert not _is_infrastructure_universe_failure(
+        {"status": "skipped", "skip_reason": "roee_skip_or_no_legs"}
+    )
+    assert not _is_infrastructure_universe_failure({"status": "active", "skip_reason": ""})
+
+
+def test_total_infra_failure_preserves_prior_actives_heuristic(tmp_path: Path) -> None:
+    failed = [
+        {"symbol": "SPY", "status": "error", "skip_reason": "Timeout"},
+        {"symbol": "QQQ", "status": "skipped", "skip_reason": "no_stock_bars"},
+        {"symbol": "IWM", "status": "skipped", "skip_reason": "massive_chain_error:missing_chain"},
+    ]
+    legit_empty = [
+        {"symbol": "SPY", "status": "skipped", "skip_reason": "options_edge_gate"},
+        {"symbol": "QQQ", "status": "skipped", "skip_reason": "timeframe_confirmation_block"},
+    ]
+    assert _universe_scan_is_total_infra_failure(failed)
+    assert not _universe_scan_is_total_infra_failure(legit_empty)
+    assert not _universe_scan_is_total_infra_failure(
+        failed + [{"symbol": "AAPL", "status": "skipped", "skip_reason": "roee_skip_or_no_legs"}]
+    )
+
+    plans = tmp_path / "universe_trade_plans.json"
+    assert not _prior_universe_plans_have_actives(plans)
+    plans.write_text(
+        '{"active_ranked":[{"status":"active","plan_id":"p1","symbol":"SPY"}],'
+        '"results":[{"status":"active","plan_id":"p1","symbol":"SPY"}]}',
+        encoding="utf-8",
+    )
+    assert _prior_universe_plans_have_actives(plans)
+    assert should_preserve_universe_plans_on_infra_failure(
+        final_active=[],
+        final_results=failed,
+        out_path=plans,
+    )
+    assert not should_preserve_universe_plans_on_infra_failure(
+        final_active=[],
+        final_results=legit_empty,
+        out_path=plans,
+    )
+    assert not should_preserve_universe_plans_on_infra_failure(
+        final_active=[{"status": "active", "plan_id": "n1"}],
+        final_results=failed,
+        out_path=plans,
+    )
+    prior = plans.read_text(encoding="utf-8")
+    # Publishing must not run when preserve=True (caller skips write).
+    assert "p1" in prior
 
 
 def test_pipeline_open_symbol_in_trade_log_blocks_new_active(tmp_path: Path) -> None:
