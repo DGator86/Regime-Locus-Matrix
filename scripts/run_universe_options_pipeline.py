@@ -775,6 +775,63 @@ def _merge_trade_plan_snapshots(processed_dir: Path, final_results: list[dict[st
     path.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
 
 
+def _is_infrastructure_universe_failure(row: dict[str, object]) -> bool:
+    """True when a symbol never reached a meaningful strategy/chain decision."""
+    status = str(row.get("status") or "").strip().lower()
+    reason = str(row.get("skip_reason") or "").strip()
+    reason_l = reason.lower()
+    if status == "error":
+        return True
+    if reason in {"no_stock_bars", "missing_pipeline_result"}:
+        return True
+    if reason_l.startswith("massive_chain_error"):
+        return True
+    if reason_l.startswith("outside_entry_window"):
+        return True
+    return False
+
+
+def _universe_scan_is_total_infra_failure(results: list[dict[str, object]]) -> bool:
+    """True when every symbol failed on bars/chain/infra — not a legitimate empty book."""
+    return bool(results) and all(_is_infrastructure_universe_failure(r) for r in results)
+
+
+def _prior_universe_plans_have_actives(path: Path) -> bool:
+    if not path.is_file() or path.stat().st_size <= 0:
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    ranked = payload.get("active_ranked")
+    if isinstance(ranked, list) and any(
+        isinstance(r, dict) and str(r.get("status") or "").strip().lower() == "active" for r in ranked
+    ):
+        return True
+    results = payload.get("results")
+    if isinstance(results, list) and any(
+        isinstance(r, dict) and str(r.get("status") or "").strip().lower() == "active" for r in results
+    ):
+        return True
+    return False
+
+
+def should_preserve_universe_plans_on_infra_failure(
+    *,
+    final_active: list[dict[str, object]],
+    final_results: list[dict[str, object]],
+    out_path: Path,
+) -> bool:
+    """Skip publish when a total infra outage would wipe a non-empty live book."""
+    return (
+        not final_active
+        and _universe_scan_is_total_infra_failure(final_results)
+        and _prior_universe_plans_have_actives(out_path)
+    )
+
+
 def _apply_active_plan_guards(
     results: list[dict[str, object]],
     *,
@@ -1463,6 +1520,25 @@ def _main_locked() -> int:
 
     out_path = DATA_ROOT / args.out if not args.out.is_absolute() else args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Total bar/chain/infra outage must not publish active_ranked=[] over a live book.
+    # Monitor stale-closes paper rows and equity --exit-on-plan-absent force-closes IBKR.
+    if should_preserve_universe_plans_on_infra_failure(
+        final_active=final_active,
+        final_results=final_results,
+        out_path=out_path,
+    ):
+        print(
+            f"[universe] total infrastructure failure across {len(final_results)} symbol(s); "
+            f"preserving existing plans at {out_path} (skip publish/seed)",
+            flush=True,
+        )
+        for row in final_results:
+            st = row.get("status", "")
+            sr = row.get("skip_reason", "")
+            print(f"  preserve-cause {row.get('symbol')}: {st} {sr}", flush=True)
+        return 0
+
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "symbols_requested": syms,
