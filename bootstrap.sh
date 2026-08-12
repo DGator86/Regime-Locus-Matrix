@@ -190,6 +190,8 @@ RAM_WARN_PCT=85
 DISK_WARN_PCT=75
 
 # systemd base names — must match loaded units (see deploy/*.service.example).
+# rlm-master-trader: in-window crash recovery only (host watchdog skips restarts outside
+# Mon–Fri 09:00–16:30 ET so market-close stops are not undone overnight).
 WATCHED_SERVICES=ollama,rlm-systems-control-telegram,rlm-master-trader,regime-locus-crew
 
 # ── Offline Ollama advisory (optional; not Hermes, not ROEE) ───────────────────

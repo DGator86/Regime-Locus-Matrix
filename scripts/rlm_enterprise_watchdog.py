@@ -47,9 +47,7 @@ CPU_WARN = float(os.getenv("CPU_WARN_PCT", "80"))
 RAM_WARN = float(os.getenv("RAM_WARN_PCT", "85"))
 DISK_WARN = float(os.getenv("DISK_WARN_PCT", "75"))
 WATCHED_SERVICES = [
-    s.strip()
-    for s in os.getenv("WATCHED_SERVICES", "ollama,regime-locus-crew").split(",")
-    if s.strip()
+    s.strip() for s in os.getenv("WATCHED_SERVICES", "ollama,regime-locus-crew").split(",") if s.strip()
 ]
 
 RLM_ROOT = Path(os.getenv("RLM_ROOT", "/opt/Regime-Locus-Matrix")).resolve()
@@ -62,6 +60,13 @@ INCLUDE_RLM_HEALTH_JSON = (
     "yes",
     "on",
 )
+
+# Prefer repo src/ when not installed editable (systemd_exec_python does not set PYTHONPATH).
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC = str(_REPO_ROOT / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+from rlm.utils.host_watchdog_policy import should_auto_restart_watched_service  # noqa: E402
 
 # systemd unit names in docs vs shipped examples often differ.
 _UNIT_ALIASES: dict[str, tuple[str, ...]] = {
@@ -282,6 +287,12 @@ def main() -> None:
             alerts: list[str] = []
             for svc, status in (snap["services"] or {}).items():
                 if status != "active":
+                    if not should_auto_restart_watched_service(str(svc)):
+                        log.info(
+                            "SKIP restart %s: outside market service window (09:00–16:30 ET)",
+                            svc,
+                        )
+                        continue
                     msg = restart_service(str(svc))
                     if msg.startswith("SKIP"):
                         log.warning("%s", msg)
