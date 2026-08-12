@@ -43,6 +43,10 @@ _EASTERN = _eastern_tz()
 _RTH_OPEN = time(9, 30, 0)
 _RTH_CLOSE = time(16, 0, 0)
 
+# systemd market-open (09:00) / market-close (16:30) service window for trading units.
+_MARKET_SERVICE_OPEN = time(9, 0, 0)
+_MARKET_SERVICE_CLOSE = time(16, 30, 0)
+
 
 def _now_eastern() -> datetime:
     return datetime.now(_EASTERN)
@@ -133,6 +137,20 @@ def is_scanner_window_open(*, _override: Optional[datetime] = None) -> bool:
         return False
     t = now.time().replace(second=0, microsecond=0)
     return _RTH_OPEN <= t < _RTH_CLOSE
+
+
+def is_market_service_window_open(*, _override: Optional[datetime] = None) -> bool:
+    """True Mon–Fri when Eastern clock is in ``[09:00, 16:30)``.
+
+    Matches ``rlm-market-open.timer`` / ``rlm-market-close.timer`` so host watchdog and
+    startup helpers only (re)start trading-heavy units while those timers intend them up.
+    Wider than :func:`is_rth_now` / :func:`is_scanner_window_open` (cash 09:30–16:00).
+    """
+    now = _override if _override is not None else _now_eastern()
+    if now.weekday() >= 5:
+        return False
+    t = now.time().replace(second=0, microsecond=0)
+    return _MARKET_SERVICE_OPEN <= t < _MARKET_SERVICE_CLOSE
 
 
 def scanner_window_label(*, _override: Optional[datetime] = None) -> str:
