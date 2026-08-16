@@ -31,10 +31,15 @@ def test_run_everything_passes_force_close_default_to_monitor(monkeypatch) -> No
 def test_pipeline_cmd_env_universe_top_and_max_active(monkeypatch) -> None:
     commands: list[list[str]] = []
 
+    def fake_pipeline(cmd: list[str]) -> int:
+        commands.append(list(cmd))
+        return 0
+
     def fake_run(cmd: list[str]) -> int:
         commands.append(list(cmd))
         return 0
 
+    monkeypatch.setattr(run_everything, "_run_pipeline", fake_pipeline)
     monkeypatch.setattr(run_everything, "_run", fake_run)
     monkeypatch.setattr(run_everything.subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.delenv("RLM_PIPELINE_ARGS", raising=False)
@@ -52,10 +57,15 @@ def test_pipeline_cmd_env_universe_top_and_max_active(monkeypatch) -> None:
 def test_pipeline_cmd_respects_existing_top_in_rlm_pipeline_args(monkeypatch) -> None:
     commands: list[list[str]] = []
 
+    def fake_pipeline(cmd: list[str]) -> int:
+        commands.append(list(cmd))
+        return 0
+
     def fake_run(cmd: list[str]) -> int:
         commands.append(list(cmd))
         return 0
 
+    monkeypatch.setattr(run_everything, "_run_pipeline", fake_pipeline)
     monkeypatch.setattr(run_everything, "_run", fake_run)
     monkeypatch.setattr(run_everything.subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setenv("RLM_PIPELINE_ARGS", "--top 4 --no-vix")
