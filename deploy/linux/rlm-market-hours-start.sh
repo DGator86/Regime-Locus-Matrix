@@ -24,16 +24,12 @@ if [[ -x "${PY}" && -d "${ROOT}" ]]; then
   echo "[market-start] EODHD 1m backfill (if key set) + collector"
   systemctl start rlm-eodhd-stock-collector.service || true
   "${PY}" "${ROOT}/scripts/run_eodhd_stock_collector.py" --backfill --once || true
-  echo "[market-start] universe pipeline (large-options swing from RLM_PIPELINE_ARGS)"
-  read -r -a _PIPE_ARGS <<< "${RLM_PIPELINE_ARGS:---ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4 --market-hours-only --dte-min 7 --dte-max 21 --no-feature-csv}"
-  "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" \
-    --out "data/processed/universe_trade_plans.json" \
-    "${_PIPE_ARGS[@]}" || true
-  "${PY}" "${ROOT}/scripts/run_session_brief.py" --phase preopen --top 8 --out "data/processed/session_brief.json" || true
 else
   echo "[market-start] WARN: missing ROOT/PY (${ROOT}, ${PY}); skipping startup sync"
 fi
 
+# Start the trading stack before the (possibly long) universe scan so last-good
+# open positions are monitored immediately. Master runs its own pipeline.
 echo "[market-start] Starting NYSE-hours services"
 
 if [[ -f "${ROOT}/scripts/rlm_enable_startup_services.sh" ]]; then
@@ -46,6 +42,15 @@ else
   systemctl start rlm-systems-control-telegram.service || true
   systemctl start regime-locus-crew.service || true
   systemctl start rlm-challenge-loop.service || true
+fi
+
+if [[ -x "${PY}" && -d "${ROOT}" ]]; then
+  echo "[market-start] universe pipeline (large-options swing from RLM_PIPELINE_ARGS)"
+  read -r -a _PIPE_ARGS <<< "${RLM_PIPELINE_ARGS:---ignore-major-events --event-lookahead-days 0 --no-vix --massive-workers 4 --market-hours-only --dte-min 7 --dte-max 21 --no-feature-csv}"
+  "${PY}" "${ROOT}/scripts/run_universe_options_pipeline.py" \
+    --out "data/processed/universe_trade_plans.json" \
+    "${_PIPE_ARGS[@]}" || true
+  "${PY}" "${ROOT}/scripts/run_session_brief.py" --phase preopen --top 8 --out "data/processed/session_brief.json" || true
 fi
 
 echo "[market-start] Done. Services started at ${ET_TIME}"

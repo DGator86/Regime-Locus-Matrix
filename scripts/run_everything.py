@@ -2,10 +2,11 @@
 """
 Run the **full stack** from repo root in order:
 
-1. ``run_universe_options_pipeline.py`` — IBKR **bars** + factors + forecast + ROEE + Massive chain match + plans JSON
-2. ``ibkr_paper_trade_from_plans.py`` — **dry-run only** from this orchestrator (lists combos; **no** option orders)
-3. ``ibkr_equity_paper_trade.py`` (with ``--with-equity``) — **IBKR paper** equity BUY/SELL
-4. ``monitor_active_trade_plans.py`` — Massive marks vs stops; writes local ``trade_log.csv`` (**no** IBKR option closes here)
+1. ``monitor_active_trade_plans.py`` (``--follow`` + existing plans) — start TP/stop polling **before** the universe scan so open rows are not left unmonitored
+2. ``run_universe_options_pipeline.py`` — IBKR **bars** + factors + forecast + ROEE + Massive chain match + plans JSON (failure here no longer aborts the monitor)
+3. ``ibkr_paper_trade_from_plans.py`` — **dry-run only** from this orchestrator (lists combos; **no** option orders)
+4. ``ibkr_equity_paper_trade.py`` (with ``--with-equity``) — **IBKR paper** equity BUY/SELL
+5. ``monitor_active_trade_plans.py`` — if not already started; Massive marks vs stops; writes local ``trade_log.csv`` (**no** IBKR option closes here)
 
 **Policy:** IBKR paper is **equities-only**. Large-account options and the PDT challenge are tracked **locally**.
 This script never passes live option orders to IBKR (hard invariant — standalone scripts also refuse transmits).
@@ -512,10 +513,51 @@ def main() -> int:
                 flush=True,
             )
 
+    monitor_proc: dict[str, subprocess.Popen | None] = {"p": None}
+
+    def monitor_cmd() -> list[str]:
+        mcmd = [
+            py,
+            str(ROOT / "scripts" / "monitor_active_trade_plans.py"),
+            "--plans",
+            plans,
+            "--trade-log",
+            str(args.options_trade_log),
+        ]
+        if args.follow:
+            mcmd.extend(["--interval", str(args.interval)])
+        else:
+            mcmd.append("--once")
+        if args.paper_close:
+            mcmd.append("--paper-close")
+        if args.paper_close_dry_run:
+            mcmd.append("--paper-close-dry-run")
+        mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
+        if _monitor_rth_only_enabled(master=bool(args.master)):
+            mcmd.append("--rth-only-poll")
+        return mcmd
+
+    def start_follow_monitor(*, reason: str) -> None:
+        if args.skip_monitor or not args.follow:
+            return
+        if monitor_proc.get("p") is not None:
+            return
+        print(f"[info] starting monitor ({reason})", flush=True)
+        monitor_proc["p"] = subprocess.Popen(monitor_cmd(), cwd=str(ROOT))
+
+    plans_file = Path(plans) if Path(plans).is_absolute() else (ROOT / plans)
+    if args.follow and not args.skip_monitor and plans_file.is_file():
+        # Last-good book must be watched during the (possibly 45min) initial scan.
+        start_follow_monitor(reason="protect existing book before pipeline")
+
     if not args.skip_pipeline:
         rc = _run_pipeline(pipeline_cmd())
         if rc != 0:
-            return rc
+            print(
+                f"[CRITICAL] initial universe pipeline exited {rc} — "
+                "continuing so monitor can protect open positions",
+                flush=True,
+            )
 
     if args.paper_trade:
         rc = _run(paper_cmd())
@@ -540,8 +582,6 @@ def main() -> int:
 
     if args.skip_monitor:
         return 0
-
-    monitor_proc: dict[str, subprocess.Popen | None] = {"p": None}
 
     if args.follow and args.rescan_interval > 0 and (not args.skip_pipeline or args.paper_trade):
         rescan_every = max(30.0, float(args.rescan_interval))
@@ -622,33 +662,17 @@ def main() -> int:
         except OSError as e:
             print(f"[warn] could not start Telegram bot: {e}", flush=True)
 
-    mcmd = [
-        py,
-        str(ROOT / "scripts" / "monitor_active_trade_plans.py"),
-        "--plans",
-        plans,
-        "--trade-log",
-        str(args.options_trade_log),
-    ]
     if args.follow:
-        mcmd.extend(["--interval", str(args.interval)])
-    else:
-        mcmd.append("--once")
-    if args.paper_close:
-        mcmd.append("--paper-close")
-    if args.paper_close_dry_run:
-        mcmd.append("--paper-close-dry-run")
-    mcmd.extend(["--force-close-dte", str(args.force_close_dte)])
-    if _monitor_rth_only_enabled(master=bool(args.master)):
-        mcmd.append("--rth-only-poll")
-    if args.follow:
-        proc = subprocess.Popen(mcmd, cwd=str(ROOT))
-        monitor_proc["p"] = proc
+        start_follow_monitor(reason="after pipeline")
+        proc = monitor_proc.get("p")
+        if proc is None:
+            print("[CRITICAL] monitor failed to start", flush=True)
+            return 1
         try:
             return int(proc.wait())
         finally:
             monitor_proc["p"] = None
-    return _run(mcmd)
+    return _run(monitor_cmd())
 
 
 if __name__ == "__main__":
