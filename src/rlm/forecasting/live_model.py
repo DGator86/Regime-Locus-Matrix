@@ -282,3 +282,40 @@ def load_live_regime_model(path: Path) -> LiveRegimeModelConfig:
 def save_live_regime_model(config: LiveRegimeModelConfig, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
+
+
+# Weekly champion promotion retunes only model/forecast/hmm/markov. These host
+# overlays are set by seed JSON / VPS migrate and are not search parameters.
+_OPERATIONAL_LIVE_FIELDS = (
+    "use_kronos",
+    "kronos",
+    "timeframe_hierarchy",
+    "roee",
+    "min_regime_train_samples",
+)
+
+
+def preserve_operational_live_fields(
+    promoted: LiveRegimeModelConfig,
+    existing: LiveRegimeModelConfig,
+) -> LiveRegimeModelConfig:
+    """Keep host-tuned overlays that calibration does not search.
+
+    A fresh ``LiveRegimeModelConfig()`` defaults ``use_kronos=False`` and empty
+    confirmation bars. Promoting that object over a VPS-tuned file silently
+    disables remote Kronos blend and MTF confirmation on the next universe scan.
+    """
+    return promoted.model_copy(update={name: getattr(existing, name) for name in _OPERATIONAL_LIVE_FIELDS})
+
+
+def promote_live_regime_model(promoted: LiveRegimeModelConfig, path: Path) -> LiveRegimeModelConfig:
+    """Write a promoted live config, preserving operational overlays when present."""
+    if path.is_file():
+        try:
+            existing = load_live_regime_model(path)
+        except (OSError, ValueError):
+            existing = None
+        else:
+            promoted = preserve_operational_live_fields(promoted, existing)
+    save_live_regime_model(promoted, path)
+    return promoted
