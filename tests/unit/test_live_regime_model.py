@@ -5,9 +5,14 @@ import pytest
 
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.live_model import (
+    LiveForecastParameters,
+    LiveKronosParameters,
     LiveRegimeModelConfig,
+    LiveROEEParameters,
     LiveTimeframeHierarchy,
     load_live_regime_model,
+    preserve_operational_live_fields,
+    promote_live_regime_model,
     save_live_regime_model,
 )
 from rlm.roee.decision import select_trade_for_row
@@ -110,3 +115,93 @@ def test_live_regime_model_round_trip_builds_markov_pipeline(tmp_path) -> None:
     assert loaded.provenance["source"] == "unit-test"
     assert "markov_probs" in out.columns
     assert "markov_state" in out.columns
+
+
+def _vps_tuned_live_model() -> LiveRegimeModelConfig:
+    return LiveRegimeModelConfig(
+        model="markov",
+        forecast=LiveForecastParameters(move_window=61, vol_window=141),
+        roee=LiveROEEParameters(confidence_threshold=0.4, kronos_transition_penalty=0.25),
+        use_kronos=True,
+        kronos=LiveKronosParameters(model_name="NeoQuasar/Kronos-mini", weight=0.35),
+        timeframe_hierarchy=LiveTimeframeHierarchy(
+            primary_bar_size="1 min",
+            primary_duration="30 D",
+            confirmation_bar_sizes=("5 mins", "15 mins"),
+        ),
+        min_regime_train_samples=12,
+    )
+
+
+def test_fresh_promote_config_drops_operational_overlays() -> None:
+    """Document the champion-only object that weekly calibrate used to save raw."""
+    promoted = LiveRegimeModelConfig(
+        model="hmm",
+        forecast=LiveForecastParameters(move_window=80, vol_window=90),
+        provenance={"selection_metric": "sharpe"},
+    )
+    assert promoted.use_kronos is False
+    assert promoted.timeframe_hierarchy.confirmation_bar_sizes == ()
+    assert promoted.roee.confidence_threshold == 0.6
+    assert promoted.min_regime_train_samples is None
+
+
+def test_preserve_operational_live_fields_keeps_kronos_mtf_and_roee() -> None:
+    existing = _vps_tuned_live_model()
+    promoted = LiveRegimeModelConfig(
+        model="hmm",
+        forecast=LiveForecastParameters(move_window=80, vol_window=90),
+        provenance={"selection_metric": "sharpe"},
+    )
+    merged = preserve_operational_live_fields(promoted, existing)
+
+    assert merged.model == "hmm"
+    assert merged.forecast.move_window == 80
+    assert merged.forecast.vol_window == 90
+    assert merged.use_kronos is True
+    assert merged.kronos.model_name == "NeoQuasar/Kronos-mini"
+    assert merged.timeframe_hierarchy.confirmation_bar_sizes == ("5 mins", "15 mins")
+    assert merged.timeframe_hierarchy.primary_bar_size == "1 min"
+    assert merged.roee.confidence_threshold == 0.4
+    assert merged.roee.kronos_transition_penalty == 0.25
+    assert merged.min_regime_train_samples == 12
+
+
+def test_promote_live_regime_model_preserves_existing_overlays(tmp_path) -> None:
+    path = tmp_path / "live_regime_model.json"
+    save_live_regime_model(_vps_tuned_live_model(), path)
+
+    promoted = LiveRegimeModelConfig(
+        model="hmm",
+        forecast=LiveForecastParameters(
+            drift_gamma_alpha=0.7,
+            sigma_floor=2e-4,
+            direction_neutral_threshold=0.25,
+            move_window=80,
+            vol_window=90,
+        ),
+        provenance={"selection_metric": "sharpe", "trials": 24},
+    )
+    written = promote_live_regime_model(promoted, path)
+    loaded = load_live_regime_model(path)
+
+    assert written.model == "hmm"
+    assert loaded.model == "hmm"
+    assert loaded.forecast.move_window == 80
+    assert loaded.use_kronos is True
+    assert loaded.kronos.weight == 0.35
+    assert loaded.timeframe_hierarchy.confirmation_bar_sizes == ("5 mins", "15 mins")
+    assert loaded.roee.confidence_threshold == 0.4
+    assert loaded.min_regime_train_samples == 12
+
+
+def test_promote_live_regime_model_without_existing_file_keeps_champion(tmp_path) -> None:
+    path = tmp_path / "live_regime_model.json"
+    promoted = LiveRegimeModelConfig(model="hmm", provenance={"source": "first-promote"})
+    written = promote_live_regime_model(promoted, path)
+    loaded = load_live_regime_model(path)
+
+    assert written.use_kronos is False
+    assert loaded.use_kronos is False
+    assert loaded.model == "hmm"
+    assert loaded.provenance["source"] == "first-promote"

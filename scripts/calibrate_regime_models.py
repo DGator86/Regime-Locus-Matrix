@@ -45,7 +45,7 @@ from rlm.forecasting.live_model import (
     LiveHMMParameters,
     LiveMarkovParameters,
     LiveRegimeModelConfig,
-    save_live_regime_model,
+    promote_live_regime_model,
 )
 from rlm.forecasting.markov_switching import MarkovSwitchingConfig, RLMMarkovSwitching
 
@@ -419,7 +419,7 @@ def main() -> int:
         report_path=export_path,
     )
     if not args.no_promote:
-        save_live_regime_model(live_config, promote_path)
+        live_config = promote_live_regime_model(live_config, promote_path)
 
     ch_summary = champion["best_summary"]
     ch_params = champion["best_params"]
