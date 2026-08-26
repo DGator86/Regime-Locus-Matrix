@@ -242,3 +242,41 @@ def test_incremental_snapshot_params_narrow_requests_for_monitor_and_universe() 
     assert universe_params["strike_price.gte"] == 477.5
     assert universe_params["strike_price.lte"] == 487.5
     assert universe_params["contract_type"] == "call"
+
+
+def test_universe_incremental_expiry_window_uses_as_of_not_stale_bar() -> None:
+    """Monday live as_of must not inherit Friday bar's earlier 7–21 fetch window."""
+    from rlm.types.options import OptionLeg, TradeCandidate, TradeDecision
+
+    decision = TradeDecision(
+        action="enter",
+        candidate=TradeCandidate(
+            strategy_name="bull_call_spread",
+            regime_key="bull|low_vol|high_liquidity|supportive",
+            rationale="test",
+            target_dte_min=7,
+            target_dte_max=21,
+            target_profit_pct=0.35,
+            max_risk_pct=0.02,
+        ),
+        legs=[
+            OptionLeg(side="long", option_type="call", strike=500.0),
+            OptionLeg(side="short", option_type="call", strike=505.0),
+        ],
+    )
+    friday_bar = universe_incremental_params(
+        pd.Timestamp("2026-08-07"),
+        decision,
+        massive_limit=250,
+        strike_increment=1.0,
+    )
+    monday_as_of = universe_incremental_params(
+        pd.Timestamp("2026-08-10"),
+        decision,
+        massive_limit=250,
+        strike_increment=1.0,
+    )
+    assert friday_bar["expiration_date.gte"] == "2026-08-14"
+    assert friday_bar["expiration_date.lte"] == "2026-08-28"
+    assert monday_as_of["expiration_date.gte"] == "2026-08-17"
+    assert monday_as_of["expiration_date.lte"] == "2026-08-31"
