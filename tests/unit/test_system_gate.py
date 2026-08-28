@@ -25,3 +25,48 @@ def test_gate_state_defaults() -> None:
     st = GateState()
     assert st.posture == "NORMAL"
     assert st.status == "NOMINAL"
+
+
+def test_corrupt_gate_file_fail_closed(tmp_path: Path) -> None:
+    gate = SystemGate(tmp_path)
+    gate.path.parent.mkdir(parents=True, exist_ok=True)
+    gate.path.write_text("{not-json", encoding="utf-8")
+    allowed, state = gate.check()
+    assert allowed is False
+    assert state.posture == "STAND-DOWN"
+    assert state.status == "CRITICAL"
+
+
+def test_extra_keys_do_not_fail_open_stand_down(tmp_path: Path) -> None:
+    gate = SystemGate(tmp_path)
+    gate.path.parent.mkdir(parents=True, exist_ok=True)
+    gate.path.write_text(
+        json.dumps(
+            {
+                "posture": "STAND-DOWN",
+                "status": "NOMINAL",
+                "last_updated": "2026-08-28T10:00:00Z",
+                "reason": "manual halt",
+            }
+        ),
+        encoding="utf-8",
+    )
+    allowed, state = gate.check()
+    assert allowed is False
+    assert state.posture == "STAND-DOWN"
+
+
+def test_missing_gate_file_allows_first_boot(tmp_path: Path) -> None:
+    gate = SystemGate(tmp_path)
+    assert gate.path.is_file() is False
+    assert gate.is_trading_allowed() is True
+
+
+def test_unknown_posture_fail_closed(tmp_path: Path) -> None:
+    gate = SystemGate(tmp_path)
+    gate.path.parent.mkdir(parents=True, exist_ok=True)
+    gate.path.write_text(
+        json.dumps({"posture": "PAUSE", "status": "NOMINAL", "last_updated": ""}),
+        encoding="utf-8",
+    )
+    assert gate.is_trading_allowed() is False
