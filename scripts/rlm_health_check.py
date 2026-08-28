@@ -166,6 +166,7 @@ except Exception as e:
 
 try:
     from rlm.hermes_facts.crew_command import (
+        apply_crew_gate_update,
         parse_command_decision,
         save_decision,
         utc_timestamp,
@@ -570,7 +571,7 @@ if commander_llm_text:
     check(decisions_path.is_file(), "crew_decisions.json written", "crew_decisions.json NOT written")
 
     gate2 = SystemGate(data_root)
-    gate2.update(posture=decision.market_posture, status=decision.system_status, timestamp=decision.timestamp)
+    apply_crew_gate_update(gate2, decision)
     gs_after = gate2.load()
     check(
         gs_after.posture == decision.market_posture,

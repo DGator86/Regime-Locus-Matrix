@@ -16,6 +16,7 @@ from typing import Any, Optional, Tuple
 from rlm.hermes_crew.backends import resolve_hermes_backend_tuples
 from rlm.hermes_facts.crew_command import (
     CommandDecision,
+    apply_crew_gate_update,
     parse_command_decision,
     save_decision,
     utc_timestamp,
@@ -271,12 +272,7 @@ def run_crew_once(root: Path, cfg: Optional[HermesCrewConfig] = None) -> Command
     )
     save_decision(root, decision)
     if _hermes_updates_system_gate():
-        gate = SystemGate(root)
-        gate.update(
-            posture=decision.market_posture,
-            status=decision.system_status,
-            timestamp=decision.timestamp,
-        )
+        apply_crew_gate_update(SystemGate(root), decision)
     if decision.system_status == "CRITICAL" and "ALERT OPERATOR" in decision.command.upper():
         cid = (cfg.telegram_chat_id or "").strip() or resolve_telegram_chat_id(root)
         telegram_crew_send(
@@ -335,11 +331,7 @@ def run_crew_forever(root: Path, cfg: Optional[HermesCrewConfig] = None) -> None
                 )
                 save_decision(root, decision)
                 if _hermes_updates_system_gate():
-                    gate.update(
-                        posture=decision.market_posture,
-                        status=decision.system_status,
-                        timestamp=decision.timestamp,
-                    )
+                    apply_crew_gate_update(gate, decision)
                 print(
                     f"[Hermes crew] Command: {decision.command} " f"(Posture: {decision.market_posture})",
                     flush=True,
