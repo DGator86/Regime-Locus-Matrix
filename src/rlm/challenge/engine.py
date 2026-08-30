@@ -95,6 +95,11 @@ class ChallengeEngine:
 
         closed_trades: list[ChallengeTradeRecord] = []
 
+        # Freeze unset exit tiers from book capital before any close can move cash/stage.
+        stage_capital = state.book_capital
+        for pos in state.open_positions:
+            self._ensure_exit_tiers(pos, stage_capital)
+
         # 1. Evaluate open positions
         for pos in list(state.open_positions):
             record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
@@ -191,6 +196,7 @@ class ChallengeEngine:
                                 iv=iv,
                                 regime_key=regime_key,
                             )
+                            self._ensure_exit_tiers(pos, state.book_capital)
                             state.open_positions.append(pos)
                             state.balance -= total_entry_cost
                             new_position = pos
@@ -272,8 +278,9 @@ class ChallengeEngine:
         mult = new_premium / pos.premium_per_share
         if mult > pos.peak_premium_mult:
             pos.peak_premium_mult = mult
-        trail_arm = self.cfg.trail_activate_for(state.balance)
-        profit_target = self.cfg.profit_target_for(state.balance)
+        self._ensure_exit_tiers(pos, state.book_capital)
+        trail_arm = pos.trail_activate_mult
+        profit_target = pos.profit_target_mult
         if mult >= trail_arm:
             pos.trail_armed = True
 
@@ -281,7 +288,7 @@ class ChallengeEngine:
 
         if mult >= profit_target:
             exit_reason = "target"
-        elif mult <= self.cfg.stop_loss_for(state.balance):
+        elif mult <= pos.stop_loss_mult:
             exit_reason = "stop"
         elif pos.trail_armed:
             trail_floor = max(
@@ -335,6 +342,15 @@ class ChallengeEngine:
         self.tracker.append_trade(record)
         return record
 
+    def _ensure_exit_tiers(self, pos: ChallengePosition, capital: float) -> None:
+        """Lock TP/stop/trail multiples to the account stage at entry (or first evaluate)."""
+        if pos.profit_target_mult <= 0:
+            pos.profit_target_mult = self.cfg.profit_target_for(capital)
+        if pos.stop_loss_mult <= 0:
+            pos.stop_loss_mult = self.cfg.stop_loss_for(capital)
+        if pos.trail_activate_mult <= 0:
+            pos.trail_activate_mult = self.cfg.trail_activate_for(capital)
+
     def _exit_fill_mult(
         self,
         pos: ChallengePosition,
@@ -343,9 +359,9 @@ class ChallengeEngine:
         mark_mult: float,
     ) -> float:
         if exit_reason == "target":
-            return self.cfg.profit_target_for(state.balance)
+            return pos.profit_target_mult or self.cfg.profit_target_for(state.book_capital)
         if exit_reason == "stop":
-            return self.cfg.stop_loss_for(state.balance)
+            return pos.stop_loss_mult or self.cfg.stop_loss_for(state.book_capital)
         if exit_reason == "trail":
             return max(
                 self.cfg.min_trail_exit_mult,
