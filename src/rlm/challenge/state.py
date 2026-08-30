@@ -35,6 +35,10 @@ class ChallengePosition:
     peak_premium_mult: float = 1.0
     trail_armed: bool = False
     regime_key: str = ""
+    # Frozen at entry (0.0 = unset; engine fills from book capital).
+    profit_target_mult: float = 0.0
+    stop_loss_mult: float = 0.0
+    trail_activate_mult: float = 0.0
 
     @classmethod
     def new(
@@ -84,6 +88,9 @@ class ChallengePosition:
         data.setdefault("peak_premium_mult", 1.0)
         data.setdefault("trail_armed", False)
         data.setdefault("regime_key", "")
+        data.setdefault("profit_target_mult", 0.0)
+        data.setdefault("stop_loss_mult", 0.0)
+        data.setdefault("trail_activate_mult", 0.0)
         return cls(**data)
 
 
@@ -143,6 +150,11 @@ class ChallengeState:
     @property
     def open_market_value(self) -> float:
         return sum(p.current_value for p in self.open_positions)
+
+    @property
+    def book_capital(self) -> float:
+        """Cash plus premium at cost — account size that does not drop when capital is deployed."""
+        return float(self.balance) + sum(float(p.total_cost) for p in self.open_positions)
 
     @property
     def equity_value(self) -> float:

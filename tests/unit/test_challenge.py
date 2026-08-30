@@ -18,7 +18,7 @@ from rlm.challenge.pricing import (
     updated_premium,
 )
 from rlm.challenge.sizing import AggressiveSizer
-from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
+from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
 from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
 
@@ -58,6 +58,7 @@ class TestChallengeConfig:
         pos.current_value = 250.0
         state = ChallengeState(balance=750.0, seed=1_000.0, target=25_000.0, open_positions=[pos])
         assert state.equity_value == 1_000.0
+        assert state.book_capital == 950.0  # cash + premium at cost, not the 2.50 mark
         assert state.total_return_pct == 0.0
 
 
@@ -607,6 +608,74 @@ class TestChallengeEngine:
         # Instantiate a fresh engine — should see the open position
         state = tmp_tracker.load()
         assert len(state.open_positions) <= cfg.max_concurrent_positions
+
+    def _open_call(self, premium: float, qty: int = 1) -> ChallengePosition:
+        return ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=premium,
+            qty=qty,
+            delta=0.5,
+            iv=0.18,
+        )
+
+    def test_deployed_premium_does_not_loosen_exit_stage(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        """Cash below $5K after two entries must still use stage-2 TP when book is ~$6K."""
+        from unittest.mock import patch
+
+        no_spread = replace(cfg, use_spread_model=False)
+        state = tmp_tracker.reset(no_spread)
+        a = self._open_call(15.0)
+        b = self._open_call(15.0)
+        state.open_positions = [a, b]
+        state.balance = 3_000.0  # book = 3000+1500+1500 = 6000 → stage 2 (TP 1.75)
+        tmp_tracker.save(state)
+
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(15.0 * 1.55, 510.0, 6),
+        ):
+            engine = ChallengeEngine(no_spread, tmp_tracker)
+            summary = engine.run_session("no_trade", 510.0, session_date="2026-01-02")
+
+        assert summary.closed_trades == []
+        loaded = tmp_tracker.load()
+        assert len(loaded.open_positions) == 2
+        assert loaded.open_positions[0].profit_target_mult == no_spread.stage2_profit_target_mult
+        assert loaded.open_positions[0].stop_loss_mult == no_spread.stage2_stop_loss_mult
+
+    def test_sibling_close_does_not_retier_remaining_exits(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        """Closing a winner across $5K must not raise the other leg's frozen stage-1 target."""
+        from unittest.mock import patch
+
+        no_spread = replace(cfg, use_spread_model=False)
+        state = tmp_tracker.reset(no_spread)
+        a = self._open_call(3.50)
+        b = self._open_call(3.50)
+        state.open_positions = [a, b]
+        state.balance = 4_200.0  # book = 4200+350+350 = 4900 → stage 1 (TP 1.50)
+        tmp_tracker.save(state)
+
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(3.50 * 1.55, 510.0, 6),
+        ):
+            engine = ChallengeEngine(no_spread, tmp_tracker)
+            summary = engine.run_session("no_trade", 510.0, session_date="2026-01-02")
+
+        assert [t.exit_reason for t in summary.closed_trades] == ["target", "target"]
+        loaded = tmp_tracker.load()
+        assert loaded.open_positions == []
+        assert loaded.balance > 5_000.0
 
 
 # ---------------------------------------------------------------------------
