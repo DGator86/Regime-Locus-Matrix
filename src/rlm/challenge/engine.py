@@ -100,7 +100,6 @@ class ChallengeEngine:
             record = self._evaluate_position(pos, underlying_price, iv, session_date, state)
             if record is not None:
                 closed_trades.append(record)
-                state.daily_realized_pnl += record.pnl
 
         # Recalculate intraday exposure after close evaluations
         state.intraday_exposure = sum(p.current_value for p in state.open_positions)
@@ -198,6 +197,7 @@ class ChallengeEngine:
                             state.intraday_exposure = sum(p.current_value for p in state.open_positions)
                             if state.intraday_exposure > state.intraday_exposure_peak:
                                 state.intraday_exposure_peak = state.intraday_exposure
+                            self.tracker.save(state)
 
         # End-of-day margin call simulation (FINRA Rule 4210 Path B compliance)
         if self.cfg.end_of_day_margin_call_enabled:
@@ -332,6 +332,10 @@ class ChallengeEngine:
             balance_after=state.balance,
         )
         state.trade_history.append(record)
+        state.daily_realized_pnl += record.pnl
+        # Persist the book before the CSV append so a SIGTERM/restart cannot
+        # reload the still-open leg and credit proceeds a second time.
+        self.tracker.save(state)
         self.tracker.append_trade(record)
         return record
 
