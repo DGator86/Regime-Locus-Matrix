@@ -548,6 +548,73 @@ class TestChallengeEngine:
         cap = 2.0 * cfg.stage1_profit_target_mult * 100
         assert summary.closed_trades[0].proceeds == pytest.approx(cap, rel=1e-4)
 
+    def test_close_persists_before_crash_so_restart_does_not_double_credit(
+        self, cfg: ChallengeConfig, tmp_tracker: ChallengeTracker
+    ) -> None:
+        from unittest.mock import patch
+
+        from rlm.challenge.state import ChallengePosition
+
+        state = tmp_tracker.reset(cfg)
+        first = ChallengePosition.new(
+            symbol="SPY",
+            option_type="call",
+            direction="long",
+            underlying_entry=500.0,
+            strike=505.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=2.0,
+            qty=1,
+            delta=0.5,
+            iv=0.18,
+        )
+        second = ChallengePosition.new(
+            symbol="SPY",
+            option_type="put",
+            direction="long",
+            underlying_entry=500.0,
+            strike=495.0,
+            dte=7,
+            entry_date="2026-01-01",
+            premium_per_share=2.0,
+            qty=1,
+            delta=-0.5,
+            iv=0.18,
+        )
+        state.open_positions = [first, second]
+        state.balance = 600.0
+        tmp_tracker.save(state)
+
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            side_effect=[(4.0, 520.0, 6), RuntimeError("killed after first close")],
+        ):
+            engine = ChallengeEngine(cfg, tmp_tracker)
+            with pytest.raises(RuntimeError, match="killed after first close"):
+                engine.run_session("no_trade", 520.0, session_date="2026-01-02")
+
+        mid = tmp_tracker.load()
+        assert len(mid.open_positions) == 1
+        assert mid.open_positions[0].position_id == second.position_id
+        assert len(mid.trade_history) == 1
+        credited = mid.balance
+        assert credited > 600.0
+
+        engine = ChallengeEngine(cfg, tmp_tracker)
+        with patch(
+            "rlm.challenge.engine.mark_open_position_premium",
+            return_value=(1.0, 480.0, 6),
+        ):
+            summary = engine.run_session("no_trade", 480.0, session_date="2026-01-02")
+
+        final = tmp_tracker.load()
+        assert len(final.open_positions) == 0
+        assert len(final.trade_history) == 2
+        assert len(summary.closed_trades) == 1
+        assert summary.closed_trades[0].exit_reason == "stop"
+        assert final.balance == pytest.approx(credited + summary.closed_trades[0].proceeds)
+
     def test_stop_hit_closes_position(
         self, cfg_enter: ChallengeConfig, tmp_tracker: ChallengeTracker
     ) -> None:
