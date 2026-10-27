@@ -11,6 +11,7 @@ from rlm.data.bar_timeframes import duration_to_calendar_days, is_intraday_bar_s
 from rlm.data.eodhd_stocks import fetch_intraday_lookback_days, load_eodhd_api_key
 from rlm.data.ibkr_stocks import fetch_historical_stock_bars
 from rlm.data.lake import stock_1m_parquet
+from rlm.data.lake.writers import save_parquet
 from rlm.datasets.backtest_data import fetch_ibkr_intraday_bars_range
 
 
@@ -86,8 +87,8 @@ def merge_bars_into_lake(
     merged["timestamp"] = pd.to_datetime(merged["timestamp"], errors="coerce")
     merged = merged.dropna(subset=["timestamp"]).drop_duplicates(subset=["timestamp"], keep="last")
     merged = merged.sort_values("timestamp").reset_index(drop=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_parquet(path, index=False)
+    # Publish via rename so a SIGTERM mid-write cannot truncate the live lake file.
+    save_parquet(merged, path, index=False)
     return merged
 
 
