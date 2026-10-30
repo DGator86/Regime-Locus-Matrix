@@ -812,6 +812,129 @@ def _apply_active_plan_guards(
             active_by_symbol[sym] = n_active + 1
 
 
+def _open_plan_ids_by_symbol(path: Path) -> dict[str, list[str]]:
+    """Latest open ``plan_id`` values grouped by symbol."""
+    if not path.is_file():
+        return {}
+    latest_by_plan: dict[str, dict[str, str]] = {}
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row.get("plan_id") or "").strip()
+                if pid:
+                    latest_by_plan[pid] = {k: str(v) for k, v in row.items()}
+    except OSError:
+        return {}
+    out: dict[str, list[str]] = {}
+    for pid, row in latest_by_plan.items():
+        if str(row.get("closed") or "0").strip() == "1":
+            continue
+        sym = str(row.get("symbol") or "").strip().upper()
+        if sym:
+            out.setdefault(sym, []).append(pid)
+    return out
+
+
+def _load_trade_plan_snapshots(path: Path) -> dict[str, dict]:
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def _plan_from_open_snapshot(pid: str, snap: dict, *, symbol: str) -> dict[str, object] | None:
+    """Rebuild an active plan row so the monitor keeps managing an open book entry."""
+    legs = list(snap.get("matched_legs") or [])
+    spec = snap.get("combo_spec")
+    if not legs and not isinstance(spec, dict):
+        return None
+    snap_sym = str(snap.get("symbol") or "").strip().upper()
+    if snap_sym != symbol:
+        return None
+    return {
+        "plan_id": str(snap.get("plan_id") or pid),
+        "symbol": symbol,
+        "status": "active",
+        "skip_reason": "preserved_open_trade_log",
+        "strategy": snap.get("strategy"),
+        "decision": snap.get("decision"),
+        "matched_legs": legs,
+        "combo_spec": spec,
+        "candidate": snap.get("candidate"),
+        "regime_key": snap.get("regime_key"),
+        "thresholds": snap.get("thresholds") or {},
+        "entry_debit_dollars": snap.get("entry_debit_dollars"),
+        "entry_mid_mark_dollars": snap.get("entry_mid_mark_dollars"),
+        "rank_score": 0.0,
+        "preserved_open": True,
+    }
+
+
+def _preserve_open_trade_log_plans(
+    results: list[dict[str, object]],
+    *,
+    trade_log_path: Path,
+    snapshots_path: Path,
+) -> int:
+    """Re-publish open trade-log plans on the active set.
+
+    Universe ``plan_id`` values include the scan minute, and ``--respect-open-trade-log``
+    trims a fresh row instead of repeating the open id. The monitor then treats the
+    missing id as stale and force-closes the position on the next poll. Putting the
+    snapshot back on ``active_ranked`` keeps stops, trails, and expiry management on
+    the original id until the monitor itself exits the row.
+    """
+    open_by_symbol = _open_plan_ids_by_symbol(trade_log_path)
+    if not open_by_symbol:
+        return 0
+    snapshots = _load_trade_plan_snapshots(snapshots_path)
+    if not snapshots:
+        return 0
+    already = {
+        str(row.get("plan_id") or "").strip()
+        for row in results
+        if row.get("status") == "active" and str(row.get("plan_id") or "").strip()
+    }
+    kept = 0
+    for sym in sorted(open_by_symbol):
+        for pid in open_by_symbol[sym]:
+            if pid in already:
+                continue
+            snap = snapshots.get(pid)
+            if not isinstance(snap, dict):
+                continue
+            plan = _plan_from_open_snapshot(pid, snap, symbol=sym)
+            if plan is None:
+                continue
+            results.append(plan)
+            already.add(pid)
+            kept += 1
+    return kept
+
+
+def _cap_active_plans(results: list[dict[str, object]], *, top: int) -> None:
+    """Trim fresh active rows to ``top``. Open-book rows stay so a cap cannot flatten them."""
+    if top <= 0:
+        return
+    actives = [r for r in results if r.get("status") == "active"]
+    if not actives:
+        return
+    preserved = [r for r in actives if r.get("preserved_open")]
+    fresh = [r for r in actives if not r.get("preserved_open")]
+    fresh.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
+    keep_ids = {id(r) for r in preserved}
+    keep_ids.update(id(r) for r in fresh[:top])
+    for row in actives:
+        if id(row) not in keep_ids:
+            row["status"] = "trimmed"
+            row["skip_reason"] = f"not_in_top_{top}"
+
+
 def _write_universe_latest_views(final_results: list[dict[str, object]], out_dir: Path) -> None:
     rows: list[dict[str, object]] = []
     for row in final_results:
@@ -1025,7 +1148,11 @@ def _main_locked() -> int:
         "--respect-open-trade-log",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Trim new plans for symbols that already have open rows in --trade-log.",
+        help=(
+            "Trim new plans for symbols that already have open rows in --trade-log, "
+            "and keep those open plan ids on the published active set so the monitor "
+            "does not stale-close them."
+        ),
     )
     p.add_argument(
         "--trade-log",
@@ -1441,28 +1568,34 @@ def _main_locked() -> int:
         strat = dec.get("strategy_name", "") if isinstance(dec, dict) else ""
         print(f"{sym}: {st} {strat} {sr}")
 
-    actives = [r for r in final_results if r.get("status") == "active"]
-    actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
     open_symbols = _load_open_symbols_from_trade_log(trade_log_path) if args.respect_open_trade_log else set()
     _apply_active_plan_guards(
         final_results,
         max_active_per_symbol=max(1, int(args.max_active_per_symbol)),
         open_symbols=open_symbols,
     )
-    actives = [r for r in final_results if r.get("status") == "active"]
-    actives.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
-    if args.top > 0 and actives:
-        keep_ids = {id(x) for x in actives[: args.top]}
-        for r in final_results:
-            if r.get("status") == "active" and id(r) not in keep_ids:
-                r["status"] = "trimmed"
-                r["skip_reason"] = f"not_in_top_{args.top}"
+    out_path = DATA_ROOT / args.out if not args.out.is_absolute() else args.out
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
+        n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
+        if n_closed:
+            print(f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}", flush=True)
+    if args.respect_open_trade_log:
+        n_kept = _preserve_open_trade_log_plans(
+            final_results,
+            trade_log_path=trade_log_path,
+            snapshots_path=out_path.parent / "trade_plan_snapshots.json",
+        )
+        if n_kept:
+            print(
+                f"[paper] preserved {n_kept} open plan(s) on the active set ({trade_log_path.name})",
+                flush=True,
+            )
+    _cap_active_plans(final_results, top=int(args.top))
 
     final_active = [r for r in final_results if r.get("status") == "active"]
     final_active.sort(key=lambda r: float(r.get("rank_score") or 0.0), reverse=True)
 
-    out_path = DATA_ROOT / args.out if not args.out.is_absolute() else args.out
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "symbols_requested": syms,
@@ -1470,10 +1603,6 @@ def _main_locked() -> int:
         "active_ranked": final_active,
     }
     out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    if args.short_dte or (args.dte_max is not None and int(args.dte_max) <= 5):
-        n_closed = close_stale_open_rows_above_dte(trade_log_path, max_dte=5.0)
-        if n_closed:
-            print(f"[paper] closed {n_closed} stale open row(s) with DTE > 5 in {trade_log_path.name}", flush=True)
     seeded = seed_paper_opens_from_active_plans(final_active, trade_log_path)
     if seeded:
         print(
