@@ -72,7 +72,7 @@ from rlm.execution.risk_targets import build_spread_exit_thresholds
 from rlm.execution.trade_log_io import close_stale_open_rows_above_dte, seed_paper_opens_from_active_plans
 from rlm.features.factors.config import feature_config_for_pipeline
 from rlm.features.factors.pipeline import FactorPipeline
-from rlm.options.edge import assess_combo_edge, chain_spot_price
+from rlm.options.edge import assess_combo_edge, chain_spot_price, plan_underlying_close
 from rlm.features.scoring.state_matrix import classify_state_matrix
 from rlm.forecasting.engines import ForecastPipeline
 from rlm.forecasting.live_model import (
@@ -561,7 +561,7 @@ def _finalize_symbol(
         base["dte_window"] = [dte_min, dte_max]
         return base
 
-    spot_px = chain_spot_price(expiry_slice, fallback=float(base.get("last_close") or 0) or None)
+    spot_px = chain_spot_price(expiry_slice, fallback=plan_underlying_close(base))
     rk_pre = str(decision.regime_key or "")
     head_pre = rk_pre.split("|", 1)[0].strip().lower() if rk_pre else ""
     regime_dir_pre = head_pre if head_pre in ("bull", "bear") else ""

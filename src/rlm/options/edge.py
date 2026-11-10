@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -101,9 +101,7 @@ def _leg_fair_mid(leg: dict[str, Any], *, spot: float, risk_free: float) -> floa
     from rlm.data.microstructure.calculators.greeks import _bs_price
 
     try:
-        return float(
-            _bs_price(spot, strike, t_years, risk_free, iv_f, is_call)
-        )
+        return float(_bs_price(spot, strike, t_years, risk_free, iv_f, is_call))
     except Exception:
         return math.nan
 
@@ -229,12 +227,52 @@ def _mean_finite(vals: list[Any]) -> float:
     return sum(xs) / len(xs) if xs else math.nan
 
 
+def _positive_float(value: Any) -> float | None:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(v) and v > 0:
+        return v
+    return None
+
+
 def chain_spot_price(chain: pd.DataFrame, fallback: float | None = None) -> float:
+    """Underlying price from numeric chain columns.
+
+    Massive snapshots store the ticker in ``underlying`` and do not include a
+    price column. Non-numeric values are skipped so a ticker cannot abort the
+    caller before ``fallback`` (the stock close) is used.
+    """
     for col in ("underlying_price", "spot", "underlying"):
-        if col in chain.columns and not chain[col].empty:
-            v = float(chain[col].dropna().iloc[-1])
-            if math.isfinite(v) and v > 0:
-                return v
-    if fallback is not None and math.isfinite(fallback) and fallback > 0:
-        return float(fallback)
+        if col not in chain.columns or chain[col].empty:
+            continue
+        numeric = pd.to_numeric(chain[col], errors="coerce").dropna()
+        if numeric.empty:
+            continue
+        v = _positive_float(numeric.iloc[-1])
+        if v is not None:
+            return v
+    fb = _positive_float(fallback)
+    if fb is not None:
+        return fb
     return math.nan
+
+
+def plan_underlying_close(base: Mapping[str, Any]) -> float | None:
+    """Stock close on a universe plan row.
+
+    The prepared row stores the last bar in ``pipeline.close``. ``last_close``
+    is accepted for callers that pass it explicitly.
+    """
+    candidates: list[Any] = []
+    pipeline = base.get("pipeline")
+    if isinstance(pipeline, dict):
+        candidates.append(pipeline.get("close"))
+    candidates.append(base.get("last_close"))
+    candidates.append(base.get("close"))
+    for raw in candidates:
+        v = _positive_float(raw)
+        if v is not None:
+            return v
+    return None
