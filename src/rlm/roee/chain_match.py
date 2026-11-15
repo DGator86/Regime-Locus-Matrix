@@ -171,12 +171,18 @@ def match_legs_to_chain(
     meta_pre = decision.metadata or {}
     spot_f = float(spot) if spot is not None and np.isfinite(spot) and spot > 0 else None
     use_delta = prefer_delta or bool(meta_pre.get("prefer_delta_match"))
+    # A decision-level target_delta is one number. Applying it to every leg of a
+    # vertical, condor, or straddle maps those legs onto the same contract (the
+    # duplicate-contract guard then skips the spread) or onto the wrong wing.
+    # Per-leg target_delta still wins. Shared delta is only for a single leg.
+    shared_target_delta = meta_pre.get("target_delta")
+    multi_leg = len(decision.legs) > 1
 
     for leg in decision.legs:
         leg_chain = _filter_chain_for_leg_expiry(chain_slice, leg.expiry)
         target_delta = getattr(leg, "target_delta", None)
-        if target_delta is None:
-            target_delta = meta_pre.get("target_delta")
+        if target_delta is None and not multi_leg:
+            target_delta = shared_target_delta
         if use_delta and target_delta is not None and np.isfinite(float(target_delta)):
             row = find_nearest_contract_by_delta(
                 leg_chain,
