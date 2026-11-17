@@ -92,6 +92,12 @@ def updated_premium(
     normalization ensures total decay from entry to expiry integrates to
     ``entry_premium`` (i.e. the option fully decays if the underlying doesn't move).
     """
+    # A missing quote is passed as 0. math.log(0) raises and aborts challenge
+    # status / Telegram /positions before any other book is rendered.
+    if not (underlying_now > 0.0) or not (underlying_entry > 0.0):
+        held = entry_premium if math.isfinite(entry_premium) and entry_premium > 0.0 else 0.01
+        return max(held, 0.01)
+
     move = underlying_now - underlying_entry
 
     # Delta contribution

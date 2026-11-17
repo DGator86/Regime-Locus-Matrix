@@ -54,6 +54,10 @@ def mark_open_position_premium(
         if live_mid is not None and live_mid > 0:
             return live_mid, underlying, new_dte
 
+    if not (underlying > 0.0):
+        held = pos.current_premium if pos.current_premium > 0.0 else pos.premium_per_share
+        return max(held, 0.01), pos.underlying_entry if pos.underlying_entry > 0.0 else underlying, new_dte
+
     new_premium = updated_premium(
         entry_premium=pos.premium_per_share,
         delta=pos.delta_at_entry,
