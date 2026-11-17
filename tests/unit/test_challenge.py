@@ -10,6 +10,7 @@ import pytest
 
 from rlm.challenge.config import ChallengeConfig
 from rlm.challenge.engine import ChallengeEngine, _days_between
+from rlm.challenge.live_marks import mark_open_position_premium
 from rlm.challenge.pricing import (
     atm_premium,
     estimate_delta,
@@ -18,7 +19,7 @@ from rlm.challenge.pricing import (
     updated_premium,
 )
 from rlm.challenge.sizing import AggressiveSizer
-from rlm.challenge.state import ChallengeState, ChallengeTradeRecord
+from rlm.challenge.state import ChallengePosition, ChallengeState, ChallengeTradeRecord
 from rlm.challenge.strategy import ChallengeStrategy
 from rlm.challenge.tracker import ChallengeTracker
 
@@ -157,6 +158,48 @@ class TestPricing:
             iv=0.18,
         )
         assert decayed < entry
+
+    def test_updated_premium_missing_underlying_does_not_raise(self) -> None:
+        entry = atm_premium(500.0, 0.18, 7)
+        for spot in (0.0, -1.0, float("nan")):
+            held = updated_premium(
+                entry_premium=entry,
+                delta=0.50,
+                underlying_entry=500.0,
+                underlying_now=spot,
+                days_elapsed=1,
+                dte_remaining=6,
+                iv=0.18,
+            )
+            assert held == pytest.approx(entry)
+
+
+def test_mark_keeps_last_premium_when_spot_missing() -> None:
+    """Quote failure used to pass spot=0 into log() and crash status /positions."""
+    pos = ChallengePosition.new(
+        symbol="SPY",
+        option_type="call",
+        direction="long",
+        underlying_entry=500.0,
+        strike=500.0,
+        dte=5,
+        entry_date="2026-11-16",
+        premium_per_share=2.5,
+        qty=1,
+        delta=0.45,
+        iv=0.2,
+    )
+    pos.current_premium = 3.25
+    premium, underlying, dte = mark_open_position_premium(
+        pos,
+        ChallengeConfig(),
+        session_date="2026-11-17",
+        pipeline_underlying=0.0,
+        iv=0.2,
+    )
+    assert premium == pytest.approx(3.25)
+    assert underlying == pytest.approx(500.0)
+    assert dte == 4
 
 
 # ---------------------------------------------------------------------------
